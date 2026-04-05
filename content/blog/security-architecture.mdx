@@ -1,0 +1,116 @@
+---
+title: "How anon.li protects your privacy: A technical overview"
+publishedAt: "2026-04-05"
+summary: "A walk through the cryptography, threat model, and design tradeoffs behind anon.li. What the server sees, what it can't, and what we haven't done yet."
+author: "The anon.li Team"
+---
+
+We get variations of the same question in our inbox every week: "Okay, but how does it *actually* work?" Fair question. "Zero-knowledge" and "end-to-end encrypted" are two of the most abused phrases on the internet, and if you've been around long enough you've learned to distrust any product that leans on them without showing its work.
+
+This post is the work. It's a tour of the cryptography behind anon.li Drop and the privacy model behind anon.li Alias, written for people who want to understand what we're actually doing rather than take our word for it. If you want to verify any of this yourself, everything discussed here lives in our public repository under `lib/crypto.client.ts` and related files.
+
+## The cipher: AES-256-GCM
+
+Every file you upload to Drop is encrypted in your browser with AES-256 in Galois/Counter Mode before a single byte leaves your device. A few words on why.
+
+AES-GCM is an AEAD construction - Authenticated Encryption with Associated Data. That "authenticated" part is the important bit. A plain stream cipher will happily decrypt a ciphertext that an attacker has flipped bits in and hand you corrupted plaintext. GCM attaches a 128-bit authentication tag to every chunk, and if anything - a single bit - has been changed, decryption fails loudly instead of silently returning garbage. In our implementation, every 50 MiB chunk carries its own 16-byte tag, and tampering with any chunk causes the whole download to abort.
+
+The key is 256 bits. We could use 128, and it would still be beyond the reach of any adversary that exists today or is plausibly on the horizon, but 256 gives us a comfortable margin against the kind of cryptanalytic surprise that occasionally shakes the field, and it costs effectively nothing on modern hardware with AES-NI. The IV is 12 bytes, which is the size GCM was designed around - longer IVs force an internal GHASH pass and shorter ones are just weaker.
+
+The IV handling is where a lot of AES-GCM deployments go wrong, so it's worth being specific. For each Drop we generate a single random 12-byte base IV. For each chunk of a file we derive a per-chunk IV by taking the first 8 bytes of the base IV and appending the 32-bit chunk index in big-endian. Filenames use a reserved chunk index of `0xFFFFFFFF` so they can never collide with data chunks. The result is that no two chunks in the same file - or across files sharing a base IV, which never happens because we generate a fresh one per upload - ever use the same (key, IV) pair. IV reuse in GCM is catastrophic; a single collision can leak the authentication key. We do not reuse.
+
+## Key derivation
+
+There are two paths a Drop key can take. The default path is the simpler one: we ask the Web Crypto API to generate a fresh 256-bit AES key with `crypto.subtle.generateKey`, export it as raw bytes, and base64url-encode it to live in the URL fragment. It never exists anywhere we can see.
+
+The second path is for when you want to protect a Drop with a password on top. Passwords are low-entropy, so handing a password directly to AES would be a gift to anyone who ever gets hold of the ciphertext. Instead we run the password through Argon2id - the memory-hard KDF that won the Password Hashing Competition and is now recommended by OWASP for exactly this use case. Our parameters are 64 MiB of memory, three iterations, parallelism of one, and a 32-byte output. The 64 MiB memory cost is the line of defense that matters most: it makes GPU and ASIC attacks enormously expensive per guess, because you can't just throw more silicon at the problem without throwing memory bandwidth at it too. Every password gets a fresh 32-byte random salt, so rainbow tables and cross-Drop guesses are both out.
+
+We picked Argon2id specifically because it inherits the side-channel resistance of Argon2i for the first pass and the GPU resistance of Argon2d for the later ones. PBKDF2 is still widely deployed, but it's not memory-hard and the iteration counts needed to match Argon2id's attack cost are uncomfortably high. Scrypt is respectable but the state of the art has moved on.
+
+## What the server sees (and what it doesn't)
+
+The honest version, in a table:
+
+| Data                                | Server sees                         | Server never sees            |
+| ----------------------------------- | ----------------------------------- | ---------------------------- |
+| File contents                       | Encrypted bytes only                | Plaintext                    |
+| Filename                            | Encrypted blob                      | Plaintext filename           |
+| File size (approximate)             | Yes - ciphertext size is observable | Exact plaintext size         |
+| Encryption key                      | Never                               | The raw key bytes            |
+| Password (for password-locked Drops) | Never                               | Password, or the derived key |
+| IV / salt                           | Yes                                 | -                            |
+| Drop ID, expiration, download count | Yes                                 | -                            |
+| Uploader IP                         | Transiently, for rate limiting      | Stored long-term             |
+
+The things we can see are the things we genuinely need to run the service: the ciphertext so we can store it, the expiration so we can delete it, the download count so we can enforce limits, the IV so decryption can actually happen. Everything else is out of our reach by design, not by policy. We can't hand a plaintext over to a court order because we do not possess one. We can hand over encrypted bytes and metadata, and we've tried very hard to make that set small.
+
+## The URL fragment trick
+
+The cleverest and least original thing in our design is that the decryption key lives in the URL fragment - the part after the `#`. A Drop URL looks like:
+
+```
+https://anon.li/d/abc123#k7mZ...raw_key_bytes...
+```
+
+The fragment is never sent to the server. Browsers have worked this way since the late 1990s. When you paste this URL into your address bar, your browser sends a request for `/d/abc123`, and the `#...` portion stays local, available only to JavaScript running on the page. We read it from `window.location.hash`, import it as a CryptoKey, and decrypt in-memory.
+
+This means our web server logs, our reverse proxy logs, and our request traces all see the Drop ID but have no way to reconstruct the key even in principle. If someone subpoenas our access logs, the key is not in them. If someone compromises our server tomorrow morning, the keys for every existing Drop are not sitting in a database waiting for them.
+
+There are caveats, and we should name them. The fragment is available to any script we ship on the Drop page, so if our JavaScript were compromised - supply-chain attack, malicious dependency, rogue CDN - an attacker could exfiltrate fragments. This is why our HTML is served with a strict CSP, why we don't load third-party scripts on Drop pages, and why the code is open source so you can audit exactly what runs. If you share a Drop URL over a channel that logs URLs in full (some chat apps do this), the key can leak that way. Use a channel you trust.
+
+## Threat model
+
+We think it's more useful to tell you what we defend against and what we don't than to wave around the word "secure."
+
+**In scope - things we defend against:**
+
+- **Server compromise (data at rest).** If someone walks off with our database and our object storage, they get ciphertext, IVs, and metadata. They do not get your files.
+- **Network interception (MITM).** TLS 1.3 end-to-end, HSTS preloaded, and the decryption key never traverses the network in the first place.
+- **Subpoena / legal compulsion of stored data.** We can be compelled to produce what we have. What we have is ciphertext and metadata.
+- **Metadata analysis of content.** Filenames are encrypted. File contents are encrypted. An observer of our storage sees chunked blobs and cannot tell a tax return from a podcast.
+- **Tampering.** GCM authentication tags mean silent corruption is not a possibility.
+- **Replay / IV reuse.** Random per-Drop base IVs with deterministic per-chunk derivation; no reuse across Drops.
+
+**Out of scope - things we cannot defend against:**
+
+- **Client-side malware.** If your device is compromised, your keys and plaintext are compromised. No remote service can fix this.
+- **Compromised browser or OS.** Same category. If the runtime lies to us, we lose.
+- **You sharing the key with the wrong person.** We cannot tell who you meant to send a Drop link to.
+- **Traffic analysis with a global passive adversary.** If someone can observe all network traffic entering and leaving our infrastructure, they can correlate upload and download events. Drop is not Tor.
+- **Coerced disclosure of the key itself.** If someone compels you to hand over a URL with a fragment, the cryptography cannot rescue you. This is why duress scenarios call for plausible deniability, not encryption.
+
+## Email forwarding: an honest picture
+
+Alias is the part of anon.li where we have to be most careful with our language, because email is not, and cannot be, end-to-end encrypted by default. When mail arrives at our Haraka instance, it is plaintext. Our server reads the envelope, looks up the alias in the database, and forwards it to your real inbox.
+
+What we do: we process messages in memory, we do not write inbound mail bodies to disk, we delete rewritten reply tokens after they expire, and we strip tracking pixels and known fingerprinting headers before forwarding. The SMTP session, the routing decision, and the forwarding hop all happen in one transient pass.
+
+What we don't do, and can't honestly claim: we do not magically make unencrypted SMTP private. For the moments our process is handling your mail, plaintext exists in RAM. A sufficiently motivated adversary with root on our machine during that window would see it. This is the nature of the medium, not a bug we're hiding.
+
+If you need stronger guarantees, Alias supports PGP. You upload your public key, and from that point on we encrypt every forwarded message to your key before it leaves our SMTP process. The sender never has to know you use PGP; we do the encryption on the forwarding hop. Your inbox receives only ciphertext, and only your private key - which we never see - can open it. This turns email forwarding into something closer to a zero-knowledge pipe, with the caveat that metadata (sender, subject unless you ask us to strip it, timing) is still visible.
+
+We'd rather tell you this clearly than pretend email is something it isn't.
+
+## Why AGPL v3
+
+The code is licensed under the GNU Affero General Public License v3. This is a deliberate choice. A permissive license like MIT would let anyone fork anon.li, run it as a closed-source service, and quietly strip the privacy guarantees without telling their users. AGPL closes the network-service loophole in GPL: if you run a modified version of anon.li as a service, you have to publish your modifications. Full stop.
+
+We think this matters for a privacy tool specifically. The whole value proposition depends on users being able to verify what the server is running. Copyleft is how we make that verifiable forever, not just today.
+
+## What we haven't done
+
+The most important section. In the interest of not overselling:
+
+We have not had a formal third-party security audit. Audits cost real money - high five figures to low six figures for something our size done properly - and we're bootstrapped. It's on our roadmap, and when we do it we'll publish the full report, including whatever embarrassing findings come out of it. Until then, you should treat our security claims as unverified by any independent party. The code is open; smart people read it; we've fixed things they've pointed out; but that is not the same as a paid engagement with a firm whose reputation depends on finding what we missed.
+
+We have not had our cryptographic choices reviewed by an academic cryptographer. The primitives we use (AES-256-GCM, Argon2id, random IVs with deterministic per-chunk derivation) are all standard and conservative, and the compositions are straightforward, but "I read the RFC carefully" is not the same as "a cryptographer signed off on this."
+
+We do not have a bug bounty program yet, though we do respond to responsible disclosure - `security@anon.li`, PGP key on the site - and we've been quick about it so far.
+
+If any of this is a dealbreaker for your threat model, it should be. We would rather lose your trust honestly than keep it dishonestly. When the audit happens, you'll know.
+
+---
+
+If you made it this far, thank you for caring enough to read it. If you find something wrong in this document or in the code, please tell us. Privacy tools get better when their users push on them.
+
+*- The anon.li Team*
