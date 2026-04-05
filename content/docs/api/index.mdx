@@ -1,0 +1,97 @@
+---
+title: "Developer API"
+summary: "Integrate anon.li directly into your applications using our secure REST APIs."
+---
+
+Anon.li provides developer-friendly REST APIs for both email aliasing and encrypted file sharing. Build privacy-first applications with secure email forwarding and zero-knowledge file encryption.
+
+## Getting Started
+
+### 1. Create an API Key
+
+Generate an API key in your [Dashboard](/dashboard/api-keys). Your key will start with `ak_` and should be kept secret.
+
+### 2. Authenticate Requests
+
+Include your API key in the `Authorization` header:
+
+```bash
+Authorization: Bearer ak_your_api_key_here
+```
+
+### 3. Choose Your API
+
+<div className="grid md:grid-cols-2 gap-6 mt-8">
+  <a href="/docs/api/alias" className="block p-6 rounded-xl border border-border/50 bg-secondary/10 hover:border-primary/30 hover:bg-secondary/20 transition-all group">
+    <div className="flex items-center gap-3 mb-3">
+      <div className="p-2 rounded-lg bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400">
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+        </svg>
+      </div>
+      <h3 className="font-semibold group-hover:text-primary transition-colors">Alias API</h3>
+    </div>
+    <p className="text-sm text-muted-foreground">Create and manage email aliases programmatically. Forward emails to any inbox while protecting your real address.</p>
+  </a>
+  
+  <a href="/docs/api/drop" className="block p-6 rounded-xl border border-border/50 bg-secondary/10 hover:border-primary/30 hover:bg-secondary/20 transition-all group">
+    <div className="flex items-center gap-3 mb-3">
+      <div className="p-2 rounded-lg bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400">
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+        </svg>
+      </div>
+      <h3 className="font-semibold group-hover:text-primary transition-colors">Drop API</h3>
+    </div>
+    <p className="text-sm text-muted-foreground">Upload and share end-to-end encrypted files. Zero-knowledge storage with automatic expiration and download limits.</p>
+  </a>
+</div>
+
+## Base URL
+
+All API endpoints are relative to:
+
+```
+https://anon.li/api/v1
+```
+
+## Security Features
+
+- **API Key Authentication** - Secure Bearer token authentication
+- **Rate Limiting** - Protection against abuse with per-endpoint limits
+- **End-to-End Encryption** - Drop files are encrypted client-side before upload
+- **Zero-Knowledge File Sharing** - Drop keys stay client-side and do not reach our servers
+- **Transient Email Forwarding** - Alias forwards mail to your inbox instead of providing hosted mailbox storage
+
+## Rate Limits
+
+Rate limits vary by endpoint. When you exceed a limit, you'll receive a `429 Too Many Requests` response with headers indicating when you can retry:
+
+```
+X-RateLimit-Limit: 60
+X-RateLimit-Remaining: 0
+X-RateLimit-Reset: 1699999999999
+Retry-After: 3600
+```
+
+## Error Format
+
+All errors follow a consistent format:
+
+```json
+{
+  "error": {
+    "message": "Error message describing what went wrong",
+    "code": "VALIDATION_ERROR"
+  },
+  "meta": {
+    "request_id": "req_1234567890abcdef"
+  }
+}
+```
+
+## Need Help?
+
+- Check the [Alias API documentation](/docs/api/alias) for email aliasing
+- Check the [Drop API documentation](/docs/api/drop) for encrypted file sharing
+- Contact support at [hi@anon.li](mailto:hi@anon.li)

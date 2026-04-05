@@ -1,0 +1,361 @@
+---
+title: "Recipient API"
+summary: "Manage forwarding recipients, set defaults, and configure PGP encryption via the Recipient API."
+---
+
+The Recipient API lets you manage the email addresses that your aliases forward to. Recipients must be verified before they can receive forwarded emails. You can also configure PGP public keys for end-to-end encrypted forwarding.
+
+## Authentication
+
+All API requests must be authenticated using an API Key. Generate keys in your [Dashboard](/dashboard/api-keys).
+
+```bash
+Authorization: Bearer ak_your_api_key_here
+```
+
+## Base URL
+
+```
+https://anon.li/api/v1
+```
+
+---
+
+## Endpoints
+
+### List Recipients
+
+Retrieve all your recipients.
+
+<div className="flex items-center gap-2 mt-6 mb-4">
+    <span className="bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 px-3 py-1 rounded-md font-mono text-sm font-bold">GET</span>
+    <code className="text-sm bg-secondary px-2 py-1 rounded">https://anon.li/api/v1/recipient</code>
+</div>
+
+**Example Request**
+
+```bash
+curl https://anon.li/api/v1/recipient \
+  -H "Authorization: Bearer ak_..."
+```
+
+**Response**
+
+```json
+{
+  "data": [
+    {
+      "id": "rec_abc123",
+      "email": "personal@example.com",
+      "verified": true,
+      "is_default": true,
+      "pgp_fingerprint": "A1B2C3D4E5F6...",
+      "pgp_key_name": "Main key",
+      "alias_count": 12,
+      "created_at": "2026-01-10T08:00:00.000Z"
+    },
+    {
+      "id": "rec_def456",
+      "email": "work@company.com",
+      "verified": true,
+      "is_default": false,
+      "pgp_fingerprint": null,
+      "pgp_key_name": null,
+      "alias_count": 5,
+      "created_at": "2026-02-15T10:00:00.000Z"
+    }
+  ],
+  "total": 2,
+  "limit": 2,
+  "offset": 0
+}
+```
+
+---
+
+### Add Recipient
+
+Add a new forwarding email address. A verification email is sent automatically.
+
+<div className="flex items-center gap-2 mt-6 mb-4">
+    <span className="bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-3 py-1 rounded-md font-mono text-sm font-bold">POST</span>
+    <code className="text-sm bg-secondary px-2 py-1 rounded">https://anon.li/api/v1/recipient</code>
+</div>
+
+**Body Parameters**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| `email` | string | Yes | The email address to add as a recipient. |
+
+**Example Request**
+
+```bash
+curl -X POST https://anon.li/api/v1/recipient \
+  -H "Authorization: Bearer ak_..." \
+  -H "Content-Type: application/json" \
+  -d '{ "email": "newinbox@example.com" }'
+```
+
+**Response (201 Created)**
+
+```json
+{
+  "data": {
+    "id": "rec_ghi789",
+    "email": "newinbox@example.com",
+    "verified": false,
+    "is_default": false,
+    "created_at": "2026-03-20T14:00:00.000Z"
+  }
+}
+```
+
+<div className="p-4 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg my-6">
+  <span className="text-yellow-800 dark:text-yellow-200 text-sm block">
+    <strong>Verification required:</strong> New recipients must click the verification link sent to their email before they can receive forwarded messages. Use the <a href="#resend-verification">Resend Verification</a> endpoint if the email didn't arrive.
+  </span>
+</div>
+
+---
+
+### Get Recipient
+
+Retrieve a single recipient by ID.
+
+<div className="flex items-center gap-2 mt-6 mb-4">
+    <span className="bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 px-3 py-1 rounded-md font-mono text-sm font-bold">GET</span>
+    <code className="text-sm bg-secondary px-2 py-1 rounded">https://anon.li/api/v1/recipient/:id</code>
+</div>
+
+**Example Request**
+
+```bash
+curl https://anon.li/api/v1/recipient/rec_abc123 \
+  -H "Authorization: Bearer ak_..."
+```
+
+**Response**
+
+```json
+{
+  "data": {
+    "id": "rec_abc123",
+    "email": "personal@example.com",
+    "verified": true,
+    "is_default": true,
+    "pgp_fingerprint": "A1B2C3D4E5F6...",
+    "pgp_key_name": "Main key",
+    "alias_count": 12,
+    "created_at": "2026-01-10T08:00:00.000Z"
+  }
+}
+```
+
+---
+
+### Update Recipient
+
+Set a recipient as the default forwarding address. New aliases will forward to the default recipient unless a specific recipient is specified.
+
+<div className="flex items-center gap-2 mt-6 mb-4">
+    <span className="bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400 px-3 py-1 rounded-md font-mono text-sm font-bold">PATCH</span>
+    <code className="text-sm bg-secondary px-2 py-1 rounded">https://anon.li/api/v1/recipient/:id</code>
+</div>
+
+**Body Parameters**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| `is_default` | boolean | No | Set to `true` to make this the default recipient. |
+
+**Example Request**
+
+```bash
+curl -X PATCH https://anon.li/api/v1/recipient/rec_def456 \
+  -H "Authorization: Bearer ak_..." \
+  -H "Content-Type: application/json" \
+  -d '{ "is_default": true }'
+```
+
+**Response**
+
+```json
+{
+  "data": {
+    "id": "rec_def456",
+    "email": "work@company.com",
+    "verified": true,
+    "is_default": true,
+    "pgp_fingerprint": null,
+    "pgp_key_name": null,
+    "alias_count": 5,
+    "created_at": "2026-02-15T10:00:00.000Z"
+  }
+}
+```
+
+---
+
+### Delete Recipient
+
+Remove a recipient. Aliases currently forwarding to this recipient will fall back to the default recipient.
+
+<div className="flex items-center gap-2 mt-6 mb-4">
+    <span className="bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 px-3 py-1 rounded-md font-mono text-sm font-bold">DELETE</span>
+    <code className="text-sm bg-secondary px-2 py-1 rounded">https://anon.li/api/v1/recipient/:id</code>
+</div>
+
+**Example Request**
+
+```bash
+curl -X DELETE https://anon.li/api/v1/recipient/rec_ghi789 \
+  -H "Authorization: Bearer ak_..."
+```
+
+**Response (200 OK)**
+
+```json
+{
+  "data": {
+    "deleted": true
+  }
+}
+```
+
+---
+
+### Resend Verification
+
+Resend the verification email for a pending recipient.
+
+<div className="flex items-center gap-2 mt-6 mb-4">
+    <span className="bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-3 py-1 rounded-md font-mono text-sm font-bold">POST</span>
+    <code className="text-sm bg-secondary px-2 py-1 rounded">https://anon.li/api/v1/recipient/:id/verify</code>
+</div>
+
+**Example Request**
+
+```bash
+curl -X POST https://anon.li/api/v1/recipient/rec_ghi789/verify \
+  -H "Authorization: Bearer ak_..."
+```
+
+**Response**
+
+```json
+{
+  "data": {
+    "sent": true
+  }
+}
+```
+
+---
+
+### Set PGP Key
+
+Upload a PGP public key for a recipient. When set, all emails forwarded to this recipient are encrypted with the key before delivery.
+
+<div className="flex items-center gap-2 mt-6 mb-4">
+    <span className="bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 px-3 py-1 rounded-md font-mono text-sm font-bold">PUT</span>
+    <code className="text-sm bg-secondary px-2 py-1 rounded">https://anon.li/api/v1/recipient/:id/pgp</code>
+</div>
+
+**Body Parameters**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| `public_key` | string | Yes | The ASCII-armored PGP public key. |
+| `name` | string | No | A label for the key (max 100 characters). |
+
+**Example Request**
+
+```bash
+curl -X PUT https://anon.li/api/v1/recipient/rec_abc123/pgp \
+  -H "Authorization: Bearer ak_..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "public_key": "-----BEGIN PGP PUBLIC KEY BLOCK-----\n...\n-----END PGP PUBLIC KEY BLOCK-----",
+    "name": "Main key"
+  }'
+```
+
+**Response**
+
+```json
+{
+  "data": {
+    "id": "rec_abc123",
+    "pgp_fingerprint": "A1B2C3D4E5F6...",
+    "pgp_key_name": "Main key"
+  }
+}
+```
+
+---
+
+### Remove PGP Key
+
+Remove the PGP key from a recipient. Emails will be forwarded unencrypted.
+
+<div className="flex items-center gap-2 mt-6 mb-4">
+    <span className="bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 px-3 py-1 rounded-md font-mono text-sm font-bold">DELETE</span>
+    <code className="text-sm bg-secondary px-2 py-1 rounded">https://anon.li/api/v1/recipient/:id/pgp</code>
+</div>
+
+**Example Request**
+
+```bash
+curl -X DELETE https://anon.li/api/v1/recipient/rec_abc123/pgp \
+  -H "Authorization: Bearer ak_..."
+```
+
+**Response**
+
+```json
+{
+  "data": {
+    "removed": true
+  }
+}
+```
+
+---
+
+## Common Workflow: Change Where an Alias Forwards
+
+To update the inbox an alias forwards to:
+
+```bash
+# 1. Add a new recipient (if not already added)
+curl -X POST https://anon.li/api/v1/recipient \
+  -H "Authorization: Bearer ak_..." \
+  -H "Content-Type: application/json" \
+  -d '{ "email": "newinbox@example.com" }'
+# Returns: { "data": { "id": "rec_new123", ... } }
+
+# 2. Wait for the recipient to click the verification link in their email
+
+# 3. Update the alias to forward to the new recipient
+curl -X PATCH https://anon.li/api/v1/alias/ALIAS_ID \
+  -H "Authorization: Bearer ak_..." \
+  -H "Content-Type: application/json" \
+  -d '{ "recipient_id": "rec_new123" }'
+```
+
+See the [Alias API](/docs/api/alias) for the full alias update endpoint documentation.
+
+---
+
+## Error Responses
+
+| Status | Description |
+| :--- | :--- |
+| `400` | Bad Request - Invalid parameters |
+| `401` | Unauthorized - Invalid or missing API key |
+| `403` | Forbidden - Plan limit reached |
+| `404` | Not Found - Recipient doesn't exist |
+| `409` | Conflict - Recipient email already exists |
+| `429` | Too Many Requests - Rate limit exceeded |
+| `500` | Internal Server Error |

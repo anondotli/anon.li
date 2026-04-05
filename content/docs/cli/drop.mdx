@@ -1,0 +1,220 @@
+---
+title: "CLI Drop Commands"
+summary: "Upload, download, list, and manage encrypted file drops from the command line."
+---
+
+The `anonli drop` commands let you upload, download, and manage end-to-end encrypted file drops. Files are encrypted locally with AES-256-GCM before upload — the server never sees your unencrypted data.
+
+---
+
+## Upload
+
+Upload and encrypt files.
+
+```bash
+anonli drop upload <path> [options]
+```
+
+**Arguments**
+
+| Argument | Description |
+|----------|-------------|
+| `<path>` | File or directory to upload. Use `-` to read from stdin. |
+
+**Options**
+
+| Flag | Description |
+|------|-------------|
+| `-t, --title <text>` | Set an encrypted title for the drop |
+| `-m, --message <text>` | Attach an encrypted message |
+| `-e, --expiry <days>` | Expiration in days (default: 1) |
+| `-n, --max-downloads <n>` | Limit number of downloads |
+| `-p, --password <pass>` | Password-protect the drop (requires Plus or Pro) |
+| `--name <name>` | File name when reading from stdin |
+| `--notify` | Send email notification on download |
+| `--hide-branding` | Remove anon.li branding from the download page |
+| `--json` | Output the share URL as JSON |
+
+**Examples**
+
+```bash
+# Upload a file with 7-day expiry
+anonli drop upload ./report.pdf --expiry 7
+
+# Upload from stdin with a custom name
+cat backup.sql | anonli drop upload - --name backup.sql
+
+# Upload a directory with title and download limit
+anonli drop upload ./project --title "Project files" --max-downloads 5
+
+# Password-protected upload
+anonli drop upload ./secret.zip --password "s3cret" --expiry 3
+```
+
+### How Encryption Works
+
+1. A random AES-256-GCM key and 12-byte base IV are generated locally
+2. The title and message (if provided) are encrypted with the key
+3. Each file is split into 50 MB chunks, each encrypted with an IV derived from the base IV + chunk index
+4. Encrypted chunks are uploaded concurrently to storage
+5. The share URL is returned with the decryption key in the fragment: `https://anon.li/d/<id>#<key>`
+
+The `#<key>` fragment is never sent to the server.
+
+---
+
+## Download
+
+Download and decrypt files from a drop.
+
+```bash
+anonli drop download <target> [options]
+```
+
+Aliases: `anonli drop dl`
+
+**Arguments**
+
+| Argument | Description |
+|----------|-------------|
+| `<target>` | Drop URL or drop ID. When using a URL, the decryption key is extracted automatically from the fragment. |
+
+**Options**
+
+| Flag | Description |
+|------|-------------|
+| `-o, --output <dir>` | Output directory (default: current directory) |
+| `-k, --key <key>` | Decryption key (not needed if included in the URL) |
+| `-p, --password <pass>` | Password for protected drops |
+| `--overwrite` | Overwrite existing files |
+| `--skip` | Skip existing files |
+
+**Examples**
+
+```bash
+# Download using the full share URL
+anonli drop download "https://anon.li/d/abc123#U2FsdGVkX1..."
+
+# Download by ID with a separate key
+anonli drop download abc123 --key U2FsdGVkX1...
+
+# Download to a specific directory
+anonli drop download "https://anon.li/d/abc123#key" --output ~/Downloads
+
+# Download a password-protected drop
+anonli drop download "https://anon.li/d/abc123#key" --password "s3cret"
+```
+
+### Resume Support
+
+If a download is interrupted, the CLI saves progress to a `.anonli-dl` temporary file. Re-running the same command resumes from where it left off using HTTP Range requests.
+
+---
+
+## List
+
+List your active file drops.
+
+```bash
+anonli drop list [options]
+```
+
+**Options**
+
+| Flag | Description |
+|------|-------------|
+| `--limit <n>` | Results per page (default: 50) |
+| `--offset <n>` | Pagination offset |
+| `--expired` | Show only expired drops |
+| `--disabled` | Show only disabled drops |
+| `--enabled` | Show only active drops |
+| `--sort <field>` | Sort by: `created`, `expiry`, `size`, `downloads` (default: `created`) |
+| `--order <asc\|desc>` | Sort order (default: `desc`) |
+| `--json` | Output raw JSON |
+
+**Example**
+
+```bash
+# List active drops sorted by size
+anonli drop list --enabled --sort size
+
+# Get JSON output for scripting
+anonli drop list --json | jq '.[].id'
+```
+
+---
+
+## Info
+
+View details and file list for a drop.
+
+```bash
+anonli drop info <target> [options]
+```
+
+Aliases: `anonli drop get`
+
+**Arguments**
+
+| Argument | Description |
+|----------|-------------|
+| `<target>` | Drop URL or drop ID |
+
+**Options**
+
+| Flag | Description |
+|------|-------------|
+| `-k, --key <key>` | Decryption key to reveal encrypted filenames |
+| `-p, --password <pass>` | Password for protected drops |
+| `--json` | Output raw JSON |
+
+---
+
+## Delete
+
+Permanently delete a drop.
+
+```bash
+anonli drop delete <drop-id> [options]
+```
+
+**Options**
+
+| Flag | Description |
+|------|-------------|
+| `-f, --force` | Skip confirmation prompt |
+
+---
+
+## Toggle
+
+Enable or disable a drop.
+
+```bash
+anonli drop toggle <target>
+```
+
+Returns the new state (enabled or disabled). Disabled drops cannot be downloaded but are not deleted — you can re-enable them later.
+
+---
+
+## Share
+
+Reconstruct a shareable URL from a drop ID and key. No authentication required.
+
+```bash
+anonli drop share <drop-id> --key <key>
+```
+
+**Options**
+
+| Flag | Description |
+|------|-------------|
+| `-k, --key <key>` | The decryption key (required) |
+
+**Example**
+
+```bash
+anonli drop share abc123 --key U2FsdGVkX1...
+# → https://anon.li/d/abc123#U2FsdGVkX1...
+```

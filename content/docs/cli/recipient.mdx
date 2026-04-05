@@ -1,0 +1,108 @@
+---
+title: "CLI Recipient Commands"
+summary: "Add, verify, and manage forwarding recipients and PGP keys from the command line."
+---
+
+The `anonli recipient` commands let you manage the email addresses that your aliases forward to. You can add recipients, set a default, manage PGP keys for end-to-end encrypted forwarding, and more.
+
+---
+
+## List
+
+List all your recipients.
+
+```bash
+anonli recipient list [--json]
+```
+
+Displays a table with each recipient's email, verification status, whether it's the default, PGP key status, alias count, and creation date.
+
+---
+
+## Add
+
+Add a new recipient email address.
+
+```bash
+anonli recipient add <email>
+```
+
+A verification email is sent to the address. The recipient must click the verification link before it can receive forwarded emails. Subject to your plan's recipient limit.
+
+---
+
+## Delete
+
+Remove a recipient.
+
+```bash
+anonli recipient delete <id> [options]
+```
+
+Aliases: `anonli recipient rm`
+
+**Options**
+
+| Flag | Description |
+|------|-------------|
+| `-f, --force` | Skip confirmation prompt |
+
+---
+
+## Default
+
+Set a recipient as the default forwarding address.
+
+```bash
+anonli recipient default <id>
+```
+
+New aliases will forward to this recipient unless you specify otherwise.
+
+---
+
+## Verify
+
+Resend the verification email for a pending recipient.
+
+```bash
+anonli recipient verify <id>
+```
+
+---
+
+## PGP
+
+Manage PGP public keys for encrypted email forwarding. When a PGP key is set, all emails forwarded to that recipient are encrypted with the key before delivery.
+
+### Set a PGP Key
+
+```bash
+anonli recipient pgp set <id> --key <file> [options]
+```
+
+**Options**
+
+| Flag | Description |
+|------|-------------|
+| `-k, --key <file>` | Path to the PGP public key file (required, max 20 KB) |
+| `-n, --name <name>` | Label for the key |
+| `-f, --force` | Skip confirmation when replacing an existing key |
+
+Returns the fingerprint of the installed key.
+
+### Remove a PGP Key
+
+```bash
+anonli recipient pgp remove <id>
+```
+
+**Example**
+
+```bash
+# Set a PGP key from a file
+anonli recipient pgp set rec_abc123 --key ~/.gnupg/pubkey.asc --name "Main key"
+
+# Remove the PGP key
+anonli recipient pgp remove rec_abc123
+```

@@ -1,0 +1,241 @@
+---
+title: "Security"
+summary: "A comprehensive overview of anon.li's security architecture, cryptographic design, and privacy practices."
+---
+
+anon.li provides two core services: **Alias** (anonymous email forwarding) and **Drop** (end-to-end encrypted file sharing). Drop is zero-knowledge by design. Alias has a different trust model: email content is processed transiently for forwarding to your real inbox, and the delivered copy can be protected with optional PGP. This document details the security architecture behind both products, our trust model, and the privacy guarantees we provide.
+
+Our full source code is available on [GitHub](https://github.com/anondotli). We use only standard, well-audited cryptographic primitives - no custom cryptography.
+
+## Threat Model
+
+anon.li is designed to protect against:
+
+- **Passive surveillance** - third parties intercepting or monitoring email traffic and file transfers
+- **Data breaches** - even if our servers are compromised, Drop file contents remain encrypted and inaccessible
+- **Spam and tracking** - disposable aliases prevent inbox exposure; known tracking pixels and common tracker patterns are stripped at the mail server
+- **Identity correlation** - aliases decouple your real email from services you interact with
+
+### Trust Boundaries
+
+| | Server can access | Server cannot access |
+|---|---|---|
+| **Alias** | Email content during transient forwarding, forwarding metadata (counters, timestamps) | A hosted mailbox with retained message history |
+| **Drop** | Encrypted blobs, encrypted filenames, access controls | Plaintext files, filenames, encryption keys, passwords |
+
+The server operates as an untrusted relay for Drop: all encryption and decryption happens client-side. For Alias, the mail stack is designed for forwarding rather than mailbox hosting, though delivery can still involve transient queueing and short-lived logs.
+
+---
+
+## Email Alias - Architecture & Privacy
+
+### Forwarding Instead of Mailbox Storage
+
+Emails are forwarded in real-time through our Haraka mail server. The system does not provide stored inboxes or per-user message archives. The only metadata retained per alias in the application are aggregate counters: `emailsReceived`, `emailsBlocked`, and `lastEmailAt`. The mail pipeline may still queue messages transiently during delivery, and routing logs may be retained for up to 7 days for debugging and abuse prevention.
+
+### PGP Encryption
+
+Users can upload an OpenPGP public key in their settings. When enabled, the forwarded copy of each email is encrypted with the user's public key before delivery using [OpenPGP.js](https://openpgpjs.org/). This protects the delivered message in the destination mailbox and limits exposure after forwarding, but standard alias forwarding still requires transient server-side processing of the original message. Public key fingerprints are cached using SHA-256 hashes for efficient lookup.
+
+### Sender Rewriting Scheme (SRS)
+
+To maintain SPF alignment when forwarding, we implement SRS with HMAC-SHA256 verification and a configurable timestamp window (±3 days). This allows recipients to reply through their alias without exposing their real address, while preventing SRS address forgery.
+
+### DKIM Signing
+
+All outbound forwarded emails are signed with per-domain RSA-2048 DKIM keys fetched from an internal API with in-memory TTL caching. This ensures email authenticity and prevents tampering in transit.
+
+### Reply Tokens
+
+Reply support uses stateless encrypted tokens - no database lookup required. Tokens are encrypted with AES-256-GCM using keys derived via HKDF-SHA256 (info string: `reply-token-v1`). Each token embeds the original sender, recipient, and alias information, sealed with a 12-byte random IV and 16-byte GCM authentication tag. Tokens expire after 7 days. The token format is versioned (currently v1) to allow future algorithm upgrades without breaking existing tokens.
+
+### Tracking Prevention
+
+The mail server strips known tracking pixels, invisible images, and common tracker patterns before forwarding. This reduces common read-tracking techniques, though no filter can guarantee removal of every possible tracker.
+
+---
+
+## Drop - Cryptographic Design
+
+Drop provides end-to-end encrypted file sharing where the server has zero knowledge of file contents.
+
+### Encryption Algorithm
+
+All file encryption uses **AES-256-GCM** via the [Web Crypto API](https://developer.mozilla.org/en-US/docs/Web/API/Web_Crypto_API) (`crypto.subtle`). Every operation - key generation, encryption, decryption - runs entirely in the user's browser.
+
+### Key Generation
+
+A 256-bit AES-GCM key is generated client-side using `crypto.subtle.generateKey()`. This key never leaves the browser and is never transmitted to the server.
+
+### Key Sharing via URL Fragment
+
+The encryption key is encoded into the URL fragment (the portion after `#`):
+
+```
+https://anon.li/d/abc123#U2FsdGVkX1...
+                  ↑ ID     ↑ key (never sent to server)
+```
+
+Per the HTTP specification, the fragment identifier is stripped from requests by the browser and never included in network traffic. The server receives only the drop ID - it is cryptographically impossible for the server to decrypt the file.
+
+### IV and Chunk Encryption
+
+- **Base IV**: 12 bytes of cryptographically random data, generated per file
+- **Chunk IVs**: Derived deterministically from the base IV - the first 8 bytes of the base IV are copied, and the chunk index is appended as a 4-byte big-endian integer. This ensures every chunk has a unique IV without requiring additional random generation
+- **Chunk size**: Minimum 50 MB per chunk, up to 100 chunks per file
+- **Authentication**: Each chunk carries a 16-byte GCM authentication tag, providing per-chunk integrity verification. Any tampering with individual chunks is detected immediately on decryption
+
+### Filename Encryption
+
+Filenames are encrypted using the same AES-256-GCM key with a reserved chunk index of `0xFFFFFFFF`, guaranteeing the filename IV never collides with any data chunk IV. The server stores only the encrypted filename - it cannot determine what files you're sharing.
+
+### Password Protection
+
+For password-protected drops, the encryption key is wrapped using a key derived from the user's password via **Argon2id** ([hash-wasm](https://github.com/nicolo-ribaudo/hash-wasm)):
+
+| Parameter | Value |
+|---|---|
+| Algorithm | Argon2id |
+| Memory | 64 MiB |
+| Iterations | 3 |
+| Parallelism | 1 |
+| Salt | 32 bytes (random) |
+| Output | 32 bytes (AES-256 key) |
+
+The derived key wraps (encrypts) the file encryption key. The salt and wrapped key are stored server-side. The password itself is never transmitted - only the wrapped key can unlock the file, and only with the correct password to derive the wrapping key.
+
+### What the Server Sees vs. Cannot See
+
+| Server can access | Server cannot access |
+|---|---|
+| Encrypted file blobs | Plaintext file contents |
+| Encrypted filenames | Original filenames |
+| File size, MIME type | Encryption key |
+| Access controls (expiry, download limit) | Password |
+| Argon2 salt + wrapped key (if password-protected) | Unwrapped key or password |
+
+---
+
+## Authentication & Access Control
+
+### Passwordless Authentication
+
+anon.li uses magic link authentication - there is no password database to breach. Users receive a one-time login link via email, eliminating the risk of credential stuffing, password reuse, and brute-force attacks.
+
+### Two-Factor Authentication (TOTP)
+
+Users can enable TOTP-based 2FA using any standard authenticator app.
+
+- **Secret storage**: TOTP secrets are encrypted at rest using AES-256-GCM via [better-auth](https://www.better-auth.com/)'s `symmetricEncrypt`, keyed by the server-side `AUTH_SECRET`
+- **Backup codes**: 8 codes in `XXXXX-XXXXXXXXXXX` format (16 alphanumeric characters, ~95 bits of entropy), encrypted at rest using AES-256-GCM (same mechanism as TOTP secrets). Backup code verification is handled by better-auth's built-in verification
+- **Enforcement**: 2FA is checked on every authenticated request (both session-based and API). Sessions that require 2FA but haven't completed verification are rejected with 401
+
+### API Keys
+
+- **Format**: `ak_` prefix followed by 32 hex characters (128 bits of entropy)
+- **Storage**: Only the SHA-256 hash of the key is stored in the database - the plaintext key is shown once at creation and never retrievable again
+- **Validation**: If a request includes a `Bearer ak_` header, it is treated as an explicit API key authentication attempt. Invalid API keys return 401 immediately - there is no silent fallback to session authentication. This prevents confused-deputy attacks where an invalid key might accidentally inherit an active browser session
+- **Revocation**: Instant - deleting an API key immediately invalidates all requests using it (no caching layer)
+
+### CSRF Protection
+
+All state-mutating requests from browser sessions are validated against Origin and Referer headers. API key-authenticated requests are exempt (they are not vulnerable to CSRF since the key must be explicitly provided).
+
+---
+
+## Infrastructure Security
+
+### Rate Limiting
+
+All endpoints are protected by sliding-window rate limiting via [Upstash Redis](https://upstash.com/). Limits are tuned per-endpoint based on expected usage patterns. Examples:
+
+| Action | Limit | Window |
+|---|---|---|
+| Login / Register | 10 | 60 seconds |
+| 2FA verification | 10 | 15 minutes |
+| API requests (general) | 100 | 1 minute |
+| File upload (authenticated) | 100 | 1 hour |
+| File upload (guest) | 50 | 1 hour |
+| Drop creation | 20 | 1 hour |
+| Abuse reports | 5 | 1 hour |
+
+Paid plans include monthly API quota limits enforced at the account level.
+
+### IP Handling
+
+**Session IP tracking is disabled.** We do not store IP addresses in user sessions - the session management UI shows device and browser information only. IP addresses used for rate limiting are held ephemerally in Redis and expire automatically. IP addresses in abuse reports are hashed with SHA-256 and a server-side pepper - the raw IP is never stored or linked to user identity.
+
+### Bot Protection
+
+Unauthenticated actions (registration, abuse reports, guest uploads) are protected by [Cloudflare Turnstile](https://www.cloudflare.com/products/turnstile/) CAPTCHA verification when enabled in production. Turnstile is enforced in the production deployment but is configurable via environment variables for development and self-hosted instances.
+
+### Transport Security
+
+Connections to the hosted service use TLS. Encrypted file data is stored in Cloudflare R2 and served directly to clients through an R2 custom domain with zero egress fees, so blob traffic bypasses our Next.js servers entirely. Uploads and downloads use short-lived presigned URLs.
+
+### Log Redaction
+
+Our structured logger automatically redacts sensitive field patterns before any log output, including: passwords, tokens, API keys, session identifiers, encryption keys, TOTP secrets, backup codes, and payment identifiers. Error messages are also sanitized. Email addresses are partially masked (`e***@domain.com`). Long strings matching base64/hex patterns are replaced with `[REDACTED]`.
+
+### Environment Validation
+
+All required environment variables (encryption keys, API credentials, secrets) are validated at startup using [Zod](https://zod.dev/) schemas. The application refuses to start if any security-critical configuration is missing or malformed.
+
+---
+
+## Abuse Prevention & Content Moderation
+
+### Reporting System
+
+Anyone can submit an abuse report with Cloudflare Turnstile verification. Reports are deduplicated by IP hash and resource ID within a 24-hour window to prevent spam. Each report receives a tracking token for anonymous status checks - reporters don't need an account to follow up.
+
+### Report Encryption
+
+When a report involves an encrypted Drop, the decryption key (if provided by the reporter) is encrypted at rest using AES-256-GCM with a dedicated server-side key (`REPORT_ENCRYPTION_KEY`). This ensures that decryption keys for reported content are protected even if the database is compromised.
+
+### Strike System
+
+Content takedowns increment a per-user strike counter using atomic SQL operations (preventing race conditions with concurrent reports). Three strikes result in an automatic ban. Bans are granular - users can be restricted from specific capabilities (alias creation, file upload) or banned entirely.
+
+### Transparency
+
+Reporters receive email notifications when their report is reviewed. Affected users receive warning emails explaining what content was removed and why.
+
+---
+
+## Data Minimization & Retention
+
+| Data | Retention |
+|---|---|
+| Email content | Designed not to be stored at rest; depends on the separate mail server |
+| Mail server logs | 7 days maximum, auto-purged |
+| Encrypted files | User-configured expiry (1–30 days) or manual deletion |
+| Account data | Aliases, domains, files, drops, API keys, and recipients deleted immediately on account deletion. The user record itself is hard-deleted after 30 days |
+| IP addresses | Never stored in sessions; hashed for abuse reports only; ephemeral in rate-limit cache |
+| Analytics | [Umami](https://umami.is/) - cookie-free, no PII collected |
+
+We do not serve advertising, build user profiles, or sell data to third parties.
+
+---
+
+## Open Source & Auditing
+
+The anon.li codebase is open source on [GitHub](https://github.com/anondotli):
+
+- [**Web application**](https://github.com/anondotli) - Next.js, Prisma, TypeScript
+- [**Mail server (MX)**](https://github.com/anondotli/mx) - Haraka-based forwarding server
+- [**CLI**](https://github.com/anondotli/cli) - Command-line client for Alias and Drop
+- [**Browser extension**](https://github.com/anondotli/extension) - Firefox & Chrome browser extension
+
+All cryptographic operations use standard, well-audited implementations:
+
+- **Web Crypto API** - browser-native AES-256-GCM, key generation, and HKDF
+- **hash-wasm** - WebAssembly Argon2id implementation
+- **OpenPGP.js** - RFC 4880-compliant PGP encryption
+- **Node.js `crypto` module** - server-side HMAC, hashing, and encryption
+
+No custom cryptographic primitives are used anywhere in the codebase.
+
+### Responsible Disclosure
+
+If you discover a security vulnerability, please report it to [security@anon.li](mailto:security@anon.li). We commit to acknowledging reports within 48 hours and providing updates on remediation progress.

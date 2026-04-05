@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "lastUpdated": "2026-04-05",
+  "nextUpdate": "2026-05-01",
+  "statements": [
+    {
+      "text": "anon.li has not received any National Security Letters or FISA orders.",
+      "status": "clear"
+    },
+    {
+      "text": "anon.li has not received any gag orders preventing disclosure of government requests.",
+      "status": "clear"
+    },
+    {
+      "text": "anon.li has not been required to modify its systems to allow access or monitoring by any third party.",
+      "status": "clear"
+    },
+    {
+      "text": "anon.li has not placed any backdoors in its software or provided encryption keys to any third party.",
+      "status": "clear"
+    },
+    {
+      "text": "anon.li has not provided any user data to government agencies or law enforcement beyond what is described in our transparency report.",
+      "status": "clear"
+    }
+  ]
+}

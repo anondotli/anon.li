@@ -1,0 +1,141 @@
+---
+title: "Browser Extension"
+summary: "Install and use the anon.li browser extension for Firefox and Chrome - manage aliases and drops from any website."
+---
+The anon.li browser extension brings aliases and drops to your browser. Generate email aliases on the fly, manage encrypted file drops, and share links with QR codes, all without leaving the page you're on.
+
+**Supported browsers:** Firefox, Chrome based browsers.
+
+---
+
+## Installation
+
+### Chrome
+
+1. Visit [Chrome Web Store](https://chromewebstore.google.com/detail/ieepggikhdopllhlbdndnlmoflhaeohp)
+2. Click **"Add to Chrome"**
+3. Confirm the permissions prompt
+
+### Firefox
+
+1. Visit [Firefox Add-ons](https://addons.mozilla.org/en-US/firefox/addon/anon-li/)
+2. Click **"Add to Firefox"**
+3. Confirm the permissions prompt
+
+The extension is open source. View the source code on [GitHub](https://github.com/anondotli/extension).
+
+---
+
+## Setup
+
+Connect the extension to your anon.li account:
+
+1. Click the anon.li extension icon in your toolbar
+2. Click the **gear icon** to open Settings (or right-click the icon → **Options**)
+3. Enter your **API key** — get one from [Dashboard → API Keys](/dashboard/api-keys)
+4. Click **"Test Connection"** to verify it works
+5. Optionally change the **Base URL** if you're running a self-hosted instance
+6. Toggle **"Remember Drop Keys"** if you want decryption keys saved locally on this device when you visit drop URLs
+
+---
+
+## Using Aliases
+
+### Email Field Detection
+
+When you visit a page with an email input field, the extension shows a small anon.li button next to it. Click the button to instantly generate a new alias and auto-fill the field.
+
+### Context Menu
+
+Right-click on any page and select **"Generate anon.li alias"**. A new alias is created with the current site's hostname as the label (e.g., `example.com`), and the address is copied to your clipboard.
+
+### Popup Management
+
+Click the extension icon to open the popup, then go to the **Aliases** tab:
+
+- **Search** aliases by address or description
+- **Filter** by active/disabled status
+- **Sort** by date or name
+- **Toggle** aliases on or off
+- **Copy** an alias address to clipboard
+- **Delete** aliases you no longer need
+
+---
+
+## Using Drops
+
+### Popup Management
+
+Click the extension icon and go to the **Drops** tab to:
+
+- **View** your existing drops with file details
+- **Toggle** drops active or disabled
+- **Delete** drops you no longer need
+
+### Creating a Drop
+
+Click the **+** button in the Drops tab to create a new drop. Select a file, configure expiration and download limits, and upload — all from the popup. Files are encrypted in the extension before upload, just like on the website.
+
+### Sharing
+
+- **Copy URL**: Copy the full drop URL (including the decryption key in the fragment) to your clipboard
+- **QR Code**: Click the QR icon on any drop to generate a QR code you can share or screenshot
+
+### Key Sync
+
+When **"Remember Drop Keys"** is enabled in settings, visiting a drop URL (e.g., `anon.li/d/abc123#key...`) automatically saves the decryption key locally on that browser profile. This lets you access your drops later from the extension popup without needing the original link, but it does not sync the key to other devices.
+
+---
+
+## Keyboard Shortcuts
+
+The popup supports keyboard navigation:
+
+| Key | Action |
+|-----|--------|
+| `1` / `2` | Switch to Aliases / Drops tab |
+| `n` | Create new alias or drop |
+| `/` | Focus search bar |
+| `j` / `k` | Navigate down / up in the list |
+| `Enter` | Copy selected item |
+| `?` | Show keyboard shortcuts help |
+
+---
+
+## Settings
+
+Open settings via the gear icon in the popup or by right-clicking the extension icon → **Options**.
+
+| Setting | Description |
+|---------|-------------|
+| **API Key** | Your anon.li API key for authentication |
+| **Base URL** | API endpoint (default: `https://anon.li`) — change for self-hosted instances |
+| **Remember Drop Keys** | Save decryption keys locally on this device when visiting drop URLs |
+
+---
+
+## Troubleshooting
+
+### "Connection failed" when testing
+
+- Double-check your API key — it should start with `ak_`
+- Make sure the base URL is correct (include `https://`)
+- Check that your account is active and the API key hasn't been revoked
+
+### Extension button not appearing on email fields
+
+- Try refreshing the page
+- Check that the extension has permission to run on the current site
+- Some sites use non-standard input fields that may not be detected
+
+### Firefox differences
+
+The Firefox version uses Manifest V2 (MV2) while Chrome uses Manifest V3 (MV3). Functionality is identical, but you may notice minor differences in how permissions are requested.
+
+---
+
+## Next Steps
+
+- [Getting Started](/docs/getting-started) — Set up your account and learn the basics
+- [API Documentation](/docs/api) — Build integrations with the REST API
+- [CLI Documentation](/docs/cli) — Use anon.li from the command line

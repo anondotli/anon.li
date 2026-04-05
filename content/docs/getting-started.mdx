@@ -1,0 +1,247 @@
+---
+title: "Getting Started"
+summary: "Learn how to get started with anon.li - from creating your first alias to sharing encrypted files."
+---
+
+Welcome to anon.li! This guide will help you set up your account and start using our privacy tools: **Alias** for anonymous email forwarding and **Drop** for encrypted file sharing.
+
+Prefer a quick overview first? [Watch the privacy-friendly intro video](/blog/introduction) hosted directly by anon.li.
+
+## Quick Start
+
+1. [Create an account](#create-your-account)
+2. [Set up your first email alias](#create-your-first-alias)
+3. [Share your first encrypted file](#share-your-first-file)
+
+---
+
+## Create Your Account
+
+### Sign Up
+
+1. Go to [anon.li/register](/register)
+2. Enter your email address
+3. Complete the captcha verification
+4. Check your email for a magic link
+5. Click the link to verify and access your dashboard
+
+**No password required!** We use passwordless authentication via magic links for better security.
+
+### Enable Two-Factor Authentication (Recommended)
+
+For additional security, enable 2FA:
+
+1. Go to [Dashboard → Settings](/dashboard/settings)
+2. Find the "Two-Factor Authentication" section
+3. Click "Enable 2FA"
+4. Scan the QR code with your authenticator app (Google Authenticator, Authy, 1Password, etc.)
+5. Enter the 6-digit code to verify
+6. Save your backup codes in a secure location
+
+---
+
+## Email Aliases (Alias)
+
+### What is an Email Alias?
+
+An email alias is a unique address (like `shopping123@anon.li`) that forwards messages to your real inbox. Use aliases to:
+
+- Sign up for services without revealing your real email
+- Easily identify who sold your email if you get spam
+- Block unwanted emails with one click
+- Reply to emails without exposing your identity
+
+### Create Your First Alias
+
+1. Go to your [Dashboard](/dashboard/alias)
+2. Click **"Create Alias"**
+3. Choose your alias:
+   - **Random**: Auto-generate a unique alias (e.g., `v7k2m@anon.li`)
+   - **Custom**: Choose your own name (e.g., `shopping@anon.li`)
+4. Select a domain:
+   - `@anon.li` (free)
+   - Custom domains (paid plans)
+5. Add an optional description (e.g., "Amazon shopping")
+6. Click **"Create"**
+
+Your alias is now active! Any email sent to it will be forwarded to your real address.
+
+### Replying from an Alias
+
+When you receive a forwarded email:
+
+1. Simply reply to the email as normal
+2. Your response is automatically routed through your alias
+3. The recipient sees your alias address, never your real email
+
+### Managing Aliases
+
+From your dashboard, you can:
+
+- **Enable/Disable**: Toggle an alias on or off instantly
+- **Delete**: Permanently remove an alias
+- **Edit Description**: Update notes for organization
+- **View Stats**: See how many emails have been forwarded
+
+### Block Spam Instantly
+
+Getting spam on an alias?
+
+1. Go to your [Alias Dashboard](/dashboard/alias)
+2. Find the spammy alias
+3. Click the toggle to disable it
+4. All future emails to that alias are rejected
+
+No need to unsubscribe or mark as spam - just turn it off!
+
+---
+
+## Encrypted File Sharing (Drop)
+
+### What is Drop?
+
+Drop is our end-to-end encrypted file sharing service. Files are encrypted **in your browser** before upload, so we never see your data.
+
+Key features:
+- Zero-knowledge encryption (AES-256-GCM)
+- Automatic expiration
+- Download limits
+- Password protection (Plus and Pro plans)
+- Encrypted messages (attach a note to any drop)
+- No account required for basic sharing
+
+### Share Your First File
+
+#### Quick Share (No Account)
+
+1. Go to [anon.li/drop/upload](/drop/upload)
+2. Drag and drop a file or click to select
+3. Wait for encryption and upload
+4. Copy the share link
+5. Send the link to your recipient
+
+That's it! The recipient can download and decrypt the file using the link.
+
+#### Share with an Account
+
+With an account, you get more control:
+
+1. Go to your [Drop Dashboard](/dashboard/drop)
+2. Click **"Upload"** or drag files
+3. Configure options:
+   - **Expiration**: When the file auto-deletes (1 day to 30 days)
+   - **Download Limit**: Max downloads before deletion
+   - **Password**: Optional additional protection
+4. Upload and get your share link
+5. Manage your files from the dashboard
+
+### Understanding the Share Link
+
+Your share link looks like this:
+```bash
+https://anon.li/d/abc123xyz#U2FsdGVkX1...
+```
+
+- `abc123xyz` - The file ID (sent to our server)
+- `#U2FsdGVkX1...` - The encryption key (never sent to our server)
+
+The `#` fragment stays in your browser. We literally cannot decrypt your file.
+
+### Download Limits & Expiration
+
+Control access to your files:
+
+| Feature | Guest | Free | Plus | Pro |
+|---------|-------|------|------|-----|
+| Max File Size | 3GB | 5GB | 50GB | 250GB |
+| Expiration | 1 day | 3 days | 7 days | 30 days |
+| Download Limits | ✓ | ✓ | ✓ | ✓ |
+| Password Protection | ✗ | ✗ | ✓ | ✓ |
+
+### Password Protection
+
+For extra security, add a password:
+
+1. Before uploading, check "Password protect"
+2. Enter a strong password
+3. Share the link AND password separately (e.g., link via email, password via Signal)
+
+Recipients will need both to decrypt the file.
+
+---
+
+## PGP Encryption (Advanced)
+
+### What is PGP?
+
+PGP (Pretty Good Privacy) encrypts the forwarded copy of your emails so the message delivered to your inbox can only be decrypted with your private key.
+
+### Set Up PGP
+
+1. Generate a PGP key pair (using GPG, Kleopatra, or similar)
+2. Go to [Dashboard → Settings](/dashboard/settings)
+3. Find "PGP Encryption"
+4. Paste your **public key**
+5. Click "Save"
+
+All forwarded emails will now be encrypted with your public key.
+
+### Verify PGP is Working
+
+After setting up:
+1. Send a test email to one of your aliases
+2. Check that the forwarded email is encrypted (looks like `-----BEGIN PGP MESSAGE-----`)
+3. Decrypt with your private key to verify
+
+---
+
+## API Access
+
+For developers, we offer REST APIs for both Alias and Drop.
+
+### Generate an API Key
+
+1. Go to [Dashboard → API Keys](/dashboard/api-keys)
+2. Click **"Create API Key"**
+3. Give it a name (e.g., "My App")
+4. Copy the key immediately (it won't be shown again!)
+
+### Quick API Examples
+
+**Create an alias:**
+```bash
+curl -X POST https://anon.li/api/v1/alias \
+  -H "Authorization: Bearer ak_your_key" \
+  -H "Content-Type: application/json" \
+  -d '{"local_part": "myalias", "format": "custom"}'
+```
+
+See the full [API Documentation](/docs/api) for all endpoints.
+
+---
+
+## Upgrade Your Plan
+
+Free accounts have generous limits, but power users may want more:
+
+| Feature | Free | Plus | Pro |
+|---------|------|------|-----|
+| Aliases | 10 (1 custom) | 100 (10 custom) | 250 (100 custom) |
+| Bandwidth | 5GB | 50GB | 250GB |
+| Custom Domains | ✗ | 3 | 10 |
+| File Expiry | 3 days | 7 days | 30 days |
+
+[View Pricing →](/pricing)
+
+---
+
+## Get Help
+
+- **FAQ**: [anon.li/faq](/faq) - Common questions answered
+- **Documentation**: [anon.li/docs](/docs) - Detailed guides
+- **Security**: [anon.li/security](/security) - How we protect your data
+- **Support**: [hi@anon.li](mailto:hi@anon.li) - We're here to help
+
+---
+
+Welcome to anon.li! Your privacy journey starts here.

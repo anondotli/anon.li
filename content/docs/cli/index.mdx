@@ -1,0 +1,240 @@
+---
+title: "CLI"
+summary: "Install and use the anon.li command-line tool to manage aliases, drops, domains, and more from your terminal."
+---
+
+The anon.li CLI (`anonli`) lets you manage aliases, encrypted file drops, recipients, domains, and API keys directly from your terminal. It supports scripting with `--json` output and quiet mode.
+
+## Installation
+
+Install globally with npm or bun:
+
+```bash
+npm install -g anonli
+```
+
+```bash
+bun install -g anonli
+```
+
+Verify the installation:
+
+```bash
+anonli --version
+```
+
+## Quick Start
+
+<Step step={1} title="Authenticate">
+
+Log in with your anon.li account:
+
+```bash
+anonli login
+```
+
+This opens your browser to authorize the CLI. Alternatively, pass a key directly:
+
+```bash
+anonli login --token ak_your_api_key
+```
+
+</Step>
+
+<Step step={2} title="Create an alias">
+
+```bash
+anonli alias new --custom myalias
+```
+
+</Step>
+
+<Step step={3} title="Upload an encrypted file">
+
+```bash
+anonli drop upload ./secret.pdf --expiry 7
+```
+
+The CLI encrypts the file locally with AES-256-GCM, uploads it, and returns a share link with the decryption key in the URL fragment.
+
+</Step>
+
+---
+
+## Global Options
+
+| Flag | Description |
+|------|-------------|
+| `-q, --quiet` | Suppress spinners, tables, and boxes (only output essential data) |
+| `-v, --version` | Show CLI version |
+| `-h, --help` | Show help for any command |
+
+## Configuration
+
+The CLI stores its config at `~/.config/anonli.json` (or `$XDG_CONFIG_HOME/anonli.json`). The file is created with `0600` permissions (owner-only).
+
+### Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `ANONLI_API_KEY` | Override the stored API key |
+| `ANONLI_BASE_URL` | Override the API base URL (default: `https://anon.li`) |
+
+### Config Commands
+
+```bash
+# View current config
+anonli config
+
+# Set the base URL (e.g. for self-hosted)
+anonli config set baseUrl https://my-instance.example.com
+
+# Validate config and test API connectivity
+anonli config validate
+```
+
+## JSON Output
+
+Most commands support `--json` for machine-readable output, making the CLI easy to integrate into scripts and pipelines:
+
+```bash
+anonli alias list --json | jq '.[0].email'
+```
+
+## Shell Completions
+
+Generate completions for your shell:
+
+```bash
+# Bash
+source <(anonli completions bash)
+
+# Zsh
+source <(anonli completions zsh)
+
+# Fish
+anonli completions fish > ~/.config/fish/completions/anonli.fish
+```
+
+Add the appropriate line to your shell profile to load completions on startup.
+
+## Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| `0` | Success |
+| `1` | Generic error |
+| `2` | Authentication error |
+| `3` | Rate limit exceeded |
+| `4` | Plan limit exceeded |
+| `5` | Not found |
+
+## Command Reference
+
+<div className="grid md:grid-cols-2 gap-6 mt-8">
+  <a href="/docs/cli/drop" className="block p-6 rounded-xl border border-border/50 bg-secondary/10 hover:border-primary/30 hover:bg-secondary/20 transition-all group">
+    <div className="flex items-center gap-3 mb-3">
+      <div className="p-2 rounded-lg bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400">
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+        </svg>
+      </div>
+      <h3 className="font-semibold group-hover:text-primary transition-colors">Drop Commands</h3>
+    </div>
+    <p className="text-sm text-muted-foreground">Upload, download, list, and manage encrypted file drops.</p>
+  </a>
+
+  <a href="/docs/cli/alias" className="block p-6 rounded-xl border border-border/50 bg-secondary/10 hover:border-primary/30 hover:bg-secondary/20 transition-all group">
+    <div className="flex items-center gap-3 mb-3">
+      <div className="p-2 rounded-lg bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400">
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+        </svg>
+      </div>
+      <h3 className="font-semibold group-hover:text-primary transition-colors">Alias Commands</h3>
+    </div>
+    <p className="text-sm text-muted-foreground">Create, list, toggle, and delete email aliases.</p>
+  </a>
+
+  <a href="/docs/cli/recipient" className="block p-6 rounded-xl border border-border/50 bg-secondary/10 hover:border-primary/30 hover:bg-secondary/20 transition-all group">
+    <div className="flex items-center gap-3 mb-3">
+      <div className="p-2 rounded-lg bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400">
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+        </svg>
+      </div>
+      <h3 className="font-semibold group-hover:text-primary transition-colors">Recipient Commands</h3>
+    </div>
+    <p className="text-sm text-muted-foreground">Add, verify, and manage forwarding recipients and PGP keys.</p>
+  </a>
+
+  <a href="/docs/cli/domain" className="block p-6 rounded-xl border border-border/50 bg-secondary/10 hover:border-primary/30 hover:bg-secondary/20 transition-all group">
+    <div className="flex items-center gap-3 mb-3">
+      <div className="p-2 rounded-lg bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400">
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
+        </svg>
+      </div>
+      <h3 className="font-semibold group-hover:text-primary transition-colors">Domain Commands</h3>
+    </div>
+    <p className="text-sm text-muted-foreground">Add custom domains, verify DNS records, and manage DKIM.</p>
+  </a>
+</div>
+
+---
+
+## Additional Commands
+
+### `anonli whoami`
+
+Show your account info and usage statistics:
+
+```bash
+anonli whoami
+```
+
+Displays your email, plan tier, alias usage, recipient count, domain count, drop count, and storage usage.
+
+### `anonli apikey`
+
+Manage API keys:
+
+```bash
+# List all keys
+anonli apikey list
+
+# Create a new key
+anonli apikey create --label "CI/CD"
+
+# Delete a key
+anonli apikey delete <key-id>
+```
+
+### `anonli subscribe`
+
+View pricing or subscribe to a plan:
+
+```bash
+# Show pricing table
+anonli subscribe
+
+# Start checkout
+anonli subscribe --product bundle --tier plus --frequency yearly
+```
+
+### `anonli update`
+
+Update the CLI to the latest version:
+
+```bash
+anonli update
+```
+
+---
+
+## Next Steps
+
+- [Drop Commands](/docs/cli/drop) — Upload and download encrypted files
+- [Alias Commands](/docs/cli/alias) — Manage email aliases
+- [API Documentation](/docs/api) — REST API reference
+- [Source Code](https://github.com/anondotli/cli) — View or contribute on GitHub

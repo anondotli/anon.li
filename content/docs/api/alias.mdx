@@ -1,0 +1,363 @@
+---
+title: "Alias API"
+summary: "Create and manage email aliases programmatically using the Alias API."
+---
+
+The Alias API allows you to create and manage email aliases programmatically. Use it to generate unique forwarding addresses for your users or integrate email aliasing into your applications.
+
+## Authentication
+
+All API requests must be authenticated using an API Key. Generate keys in your [Dashboard](/dashboard/api-keys).
+
+```bash
+Authorization: Bearer ak_your_api_key_here
+```
+
+## Base URL
+
+```
+https://anon.li/api/v1
+```
+
+## Bitwarden Integration
+
+anon.li is compatible with Bitwarden's email alias generator. To configure:
+
+1. Open Bitwarden Settings → Options → Username Generator
+2. Select "Forwarded Email Alias" → "addy.io" (or custom service)
+3. Enter your API key and set the API URL to `https://anon.li/api/v1`
+4. Generate aliases directly from Bitwarden when creating new logins
+
+Quick generation is handled by `POST /api/v1/alias?generate=true`, which keeps Bitwarden-style generation in the main alias route.
+
+---
+
+## Endpoints
+
+### Generate Random Alias (Bitwarden)
+
+Quickly generate a random alias. This is the primary Bitwarden-compatible flow for random alias creation.
+
+<div className="flex items-center gap-2 mt-6 mb-4">
+    <span className="bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-3 py-1 rounded-md font-mono text-sm font-bold">POST</span>
+    <code className="text-sm bg-secondary px-2 py-1 rounded">https://anon.li/api/v1/alias?generate=true</code>
+</div>
+
+**Body Parameters**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| `domain` | string | No | The domain for the alias (default: `anon.li`). |
+
+**Example Request**
+
+```bash
+curl -X POST 'https://anon.li/api/v1/alias?generate=true' \
+  -H "Authorization: Bearer ak_..." \
+  -H "Content-Type: application/json" \
+  -d '{}'
+```
+
+**Response (201 Created)**
+
+```json
+{
+  "data": {
+    "id": "cuid...",
+    "email": "x7k9m2@anon.li",
+    "active": true,
+    "description": null,
+    "created_at": "2026-01-23T10:00:00.000Z",
+    "updated_at": "2026-01-23T10:00:00.000Z"
+  }
+}
+```
+
+---
+
+### List Aliases
+
+Retrieve all your active and inactive aliases.
+
+<div className="flex items-center gap-2 mt-6 mb-4">
+    <span className="bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 px-3 py-1 rounded-md font-mono text-sm font-bold">GET</span>
+    <code className="text-sm bg-secondary px-2 py-1 rounded">https://anon.li/api/v1/alias</code>
+</div>
+
+**Example Request**
+
+```bash
+curl https://anon.li/api/v1/alias \
+  -H "Authorization: Bearer ak_..."
+```
+
+**Response**
+
+```json
+{
+  "data": [
+    {
+      "id": "cuid...",
+      "email": "alias@anon.li",
+      "active": true,
+      "description": "Streaming service",
+      "created_at": "2026-10-27T10:00:00.000Z",
+      "updated_at": "2026-10-27T10:00:00.000Z"
+    }
+  ]
+}
+```
+
+---
+
+### Create Alias
+
+Create a new email alias that forwards to your inbox.
+
+<div className="flex items-center gap-2 mt-6 mb-4">
+    <span className="bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-3 py-1 rounded-md font-mono text-sm font-bold">POST</span>
+    <code className="text-sm bg-secondary px-2 py-1 rounded">https://anon.li/api/v1/alias</code>
+</div>
+
+**Body Parameters**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| `local_part` | string | For custom | The part before the @ (e.g., `netflix` in `alias@anon.li`). Required when format is `custom`. |
+| `domain` | string | No | The domain for the alias (default: `anon.li`). |
+| `format` | string | No | Alias format: `random_characters`, `random_words`, `uuid`, or `custom`. Default: `random_characters`. |
+| `description` | string | No | A note to remember what this alias is for. |
+| `recipient_ids` | string[] | No | Array of [recipient](/docs/api/recipient) IDs. The first ID is used as the forwarding destination. |
+| `recipient_email` | string | No | Alternatively, specify a verified recipient by email address. |
+
+**Example Request (Custom Alias)**
+
+```bash
+curl -X POST https://anon.li/api/v1/alias \
+  -H "Authorization: Bearer ak_..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "local_part": "amazon",
+    "domain": "anon.li",
+    "format": "custom",
+    "description": "Shopping"
+  }'
+```
+
+**Example Request (Random Alias)**
+
+```bash
+curl -X POST https://anon.li/api/v1/alias \
+  -H "Authorization: Bearer ak_..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "format": "random_characters"
+  }'
+```
+
+**Response (201 Created)**
+
+```json
+{
+  "data": {
+    "id": "cuid...",
+    "email": "amazon@anon.li",
+    "active": true,
+    "description": "Shopping",
+    "created_at": "2026-10-27T10:05:00.000Z",
+    "updated_at": "2026-10-27T10:05:00.000Z"
+  }
+}
+```
+
+---
+
+### Get Alias
+
+Retrieve a single alias by ID.
+
+<div className="flex items-center gap-2 mt-6 mb-4">
+    <span className="bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 px-3 py-1 rounded-md font-mono text-sm font-bold">GET</span>
+    <code className="text-sm bg-secondary px-2 py-1 rounded">https://anon.li/api/v1/alias/:id</code>
+</div>
+
+**Example Request**
+
+```bash
+curl https://anon.li/api/v1/alias/cuid... \
+  -H "Authorization: Bearer ak_..."
+```
+
+**Response**
+
+```json
+{
+  "data": {
+    "id": "cuid...",
+    "email": "alias@anon.li",
+    "active": true,
+    "description": "Streaming",
+    "created_at": "2026-10-27T10:00:00.000Z",
+    "updated_at": "2026-10-27T10:00:00.000Z"
+  }
+}
+```
+
+---
+
+### Update Alias
+
+Update an existing alias. You can toggle the active status, change the description, or change which recipient inbox the alias forwards to.
+
+<div className="flex items-center gap-2 mt-6 mb-4">
+    <span className="bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400 px-3 py-1 rounded-md font-mono text-sm font-bold">PATCH</span>
+    <code className="text-sm bg-secondary px-2 py-1 rounded">https://anon.li/api/v1/alias/:id</code>
+</div>
+
+**Body Parameters**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| `active` | boolean | No | Enable or disable the alias. |
+| `description` | string | No | Update the description (mapped to the alias label). |
+| `label` | string | No | Update the label directly (max 50 characters). Takes precedence over `description` if both are provided. |
+| `note` | string | No | A private note about this alias (max 500 characters). |
+| `recipient_id` | string | No | Change the forwarding destination by [recipient](/docs/api/recipient) ID. The recipient must be verified. |
+| `recipient_email` | string | No | Change the forwarding destination by verified recipient email address. |
+
+**Example Request (disable alias)**
+
+```bash
+curl -X PATCH https://anon.li/api/v1/alias/cuid... \
+  -H "Authorization: Bearer ak_..." \
+  -H "Content-Type: application/json" \
+  -d '{ "active": false }'
+```
+
+**Example Request (change forwarding destination)**
+
+```bash
+# Change which inbox this alias forwards to using a recipient ID
+curl -X PATCH https://anon.li/api/v1/alias/cuid... \
+  -H "Authorization: Bearer ak_..." \
+  -H "Content-Type: application/json" \
+  -d '{ "recipient_id": "rec_def456" }'
+
+# Or specify the recipient by email address
+curl -X PATCH https://anon.li/api/v1/alias/cuid... \
+  -H "Authorization: Bearer ak_..." \
+  -H "Content-Type: application/json" \
+  -d '{ "recipient_email": "work@company.com" }'
+```
+
+<div className="p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg my-6">
+  <span className="text-blue-800 dark:text-blue-200 text-sm block">
+    <strong>Tip:</strong> The recipient must already be verified before you can assign it to an alias. See the <a href="/docs/api/recipient">Recipient API</a> to add and verify recipients, or refer to the <a href="/docs/api/recipient#common-workflow-change-where-an-alias-forwards">common workflow</a> for a step-by-step guide.
+  </span>
+</div>
+
+**Response**
+
+```json
+{
+  "data": {
+    "id": "cuid...",
+    "email": "alias@anon.li",
+    "active": false,
+    "description": "Streaming",
+    "created_at": "2026-10-27T10:00:00.000Z",
+    "updated_at": "2026-10-27T11:00:00.000Z"
+  }
+}
+```
+
+---
+
+### Delete Alias
+
+Permanently delete an alias.
+
+<div className="flex items-center gap-2 mt-6 mb-4">
+    <span className="bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 px-3 py-1 rounded-md font-mono text-sm font-bold">DELETE</span>
+    <code className="text-sm bg-secondary px-2 py-1 rounded">https://anon.li/api/v1/alias/:id</code>
+</div>
+
+**Example Request**
+
+```bash
+curl -X DELETE https://anon.li/api/v1/alias/cuid... \
+  -H "Authorization: Bearer ak_..."
+```
+
+**Response (200 OK)**
+
+```json
+{
+  "success": true
+}
+```
+
+## Error Responses
+
+| Status | Description |
+| :--- | :--- |
+| `400` | Bad Request - Invalid parameters |
+| `401` | Unauthorized - Invalid or missing API key |
+| `403` | Forbidden - Plan limit reached or domain not allowed |
+| `404` | Not Found - Alias doesn't exist |
+| `409` | Conflict - Alias already exists |
+| `429` | Too Many Requests - Rate limit exceeded |
+| `500` | Internal Server Error |
+
+## Rate Limits
+
+API request limits are based on your subscription plan:
+
+| Plan | Monthly Requests |
+| :--- | :--- |
+| Free | 500 |
+| Plus | 25,000 |
+| Pro | 100,000 |
+
+Rate limit headers are included in responses:
+
+```
+X-RateLimit-Limit: 1000
+X-RateLimit-Remaining: 950
+X-RateLimit-Reset: 1699999999999
+```
+
+When you exceed your rate limit, the API returns a `429 Too Many Requests` response.
+
+## CLI Usage
+
+You can use the Alias API directly from the command line:
+
+```bash
+# Generate a random alias
+curl -X POST 'https://anon.li/api/v1/alias?generate=true' \
+  -H "Authorization: Bearer ak_your_key" \
+  -H "Content-Type: application/json"
+
+# Create a custom alias
+curl -X POST https://anon.li/api/v1/alias \
+  -H "Authorization: Bearer ak_your_key" \
+  -H "Content-Type: application/json" \
+  -d '{"local_part": "myalias", "format": "custom"}'
+
+# List all aliases
+curl https://anon.li/api/v1/alias \
+  -H "Authorization: Bearer ak_your_key"
+
+# Disable an alias
+curl -X PATCH https://anon.li/api/v1/alias/ALIAS_ID \
+  -H "Authorization: Bearer ak_your_key" \
+  -H "Content-Type: application/json" \
+  -d '{"active": false}'
+
+# Change where an alias forwards to
+curl -X PATCH https://anon.li/api/v1/alias/ALIAS_ID \
+  -H "Authorization: Bearer ak_your_key" \
+  -H "Content-Type: application/json" \
+  -d '{"recipient_id": "RECIPIENT_ID"}'
+```

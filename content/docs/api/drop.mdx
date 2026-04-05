@@ -1,0 +1,612 @@
+---
+title: "Drop API"
+description: "Complete reference for the anon.li Drop API. Securely upload, manage, and share encrypted files programmatically."
+summary: "Upload, manage, and share encrypted files programmatically using the Drop API."
+---
+
+The Drop API enables secure file sharing through a developer-friendly REST interface. All files are **encrypted client-side** using AES-256-GCM before upload, ensuring true end-to-end encryption where our servers never see your unencrypted data.
+
+## Authentication
+
+The Drop API supports three authentication modes depending on the endpoint and use case:
+
+1. **API Key** (recommended for programmatic use) - pass `Authorization: Bearer ak_your_api_key_here`. Generate keys in your [Dashboard](/dashboard/api-keys).
+2. **Browser session** - automatic via logged-in session cookie. 2FA must be verified if enabled on the account.
+3. **Anonymous / Guest** - creating a drop (`POST /drop`) and uploading files does not require authentication. A Turnstile CAPTCHA token is required for guest uploads. Downloading a drop's files is always public for anyone with the drop ID.
+
+```bash
+# API Key authentication
+Authorization: Bearer ak_your_api_key_here
+```
+
+## Base URL
+
+```
+https://anon.li/api/v1
+```
+
+## End-to-End Encryption
+
+<div className="p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg my-6">
+  <span className="text-blue-800 dark:text-blue-200 text-sm block">
+    <strong>Client-Side Encryption:</strong> Unlike server-side encryption, the Drop API uses client-side E2EE. Your CLI tool or application must encrypt files locally before uploading. The encryption key is embedded in the share URL fragment and never sent to our servers.
+  </span>
+</div>
+
+### How It Works
+
+1. **Generate key** - Create an AES-256-GCM key and IV locally
+2. **Encrypt** - Encrypt your file and filename on your device
+3. **Upload** - Send encrypted data to our API
+4. **Share** - Build URL with key in fragment: `https://anon.li/d/dropId#base64Key`
+5. **Download** - Recipients decrypt locally using the key from URL fragment
+
+This approach ensures:
+- True zero-knowledge encryption
+- Our servers cannot read your files
+- The key fragment (`#...`) is never sent to servers
+- Files auto-expire and are permanently deleted
+
+---
+
+## Endpoints
+
+### List Drops
+
+Retrieve all your uploaded drops.
+
+<div className="flex items-center gap-2 mt-6 mb-4">
+    <span className="bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 px-3 py-1 rounded-md font-mono text-sm font-bold">GET</span>
+    <code className="text-sm bg-secondary px-2 py-1 rounded">https://anon.li/api/v1/drop</code>
+</div>
+
+**Query Parameters**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| `limit` | number | No | Max items to return (default: 50) |
+| `offset` | number | No | Pagination offset (default: 0) |
+
+**Example Request**
+
+```bash
+curl https://anon.li/api/v1/drop \
+  -H "Authorization: Bearer ak_..."
+```
+
+**Response**
+
+```json
+{
+  "data": [
+    {
+      "id": "abc123xyz",
+      "encryptedTitle": "base64...",
+      "iv": "base64_iv...",
+      "downloads": 3,
+      "maxDownloads": 10,
+      "expires_at": "2026-01-15T00:00:00.000Z",
+      "created_at": "2026-01-08T12:00:00.000Z",
+      "fileCount": 2,
+      "totalSize": "1048576"
+    }
+  ],
+  "total": 1,
+  "storage": {
+    "used": "5242880",
+    "limit": "1073741824"
+  }
+}
+```
+
+---
+
+### Create Drop
+
+Create a new drop container for uploading encrypted files.
+
+<div className="flex items-center gap-2 mt-6 mb-4">
+    <span className="bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-3 py-1 rounded-md font-mono text-sm font-bold">POST</span>
+    <code className="text-sm bg-secondary px-2 py-1 rounded">https://anon.li/api/v1/drop</code>
+</div>
+
+**Body Parameters**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| `iv` | string | Yes | Base64-encoded initialization vector (12 bytes) |
+| `encryptedTitle` | string | No | Encrypted title (base64) |
+| `encryptedMessage` | string | No | Encrypted message (base64) |
+| `fileCount` | number | Yes | Number of files to upload |
+| `expiry` | number | No | Days until expiration |
+| `maxDownloads` | number | No | Max download count |
+
+**Example Request**
+
+```bash
+curl -X POST https://anon.li/api/v1/drop \
+  -H "Authorization: Bearer ak_..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "iv": "base64_iv_here",
+    "fileCount": 1,
+    "expiry": 7,
+    "maxDownloads": 10
+  }'
+```
+
+**Response**
+
+```json
+{
+  "data": {
+    "drop_id": "abc123xyz",
+    "session_token": null,
+    "expires_at": "2026-01-15T00:00:00.000Z"
+  },
+  "meta": {
+    "request_id": "req_1234567890abcdef"
+  }
+}
+```
+
+---
+
+### Add File to Drop
+
+Add an encrypted file to an existing drop.
+
+<div className="flex items-center gap-2 mt-6 mb-4">
+    <span className="bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-3 py-1 rounded-md font-mono text-sm font-bold">POST</span>
+    <code className="text-sm bg-secondary px-2 py-1 rounded">https://anon.li/api/v1/drop/:id/file</code>
+</div>
+
+**Body Parameters**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| `size` | number | Yes | File size in bytes |
+| `encryptedName` | string | Yes | Encrypted filename (base64) |
+| `iv` | string | Yes | File IV (base64, 12 bytes) |
+| `mimeType` | string | Yes | MIME type |
+| `chunkCount` | number | Yes | Number of chunks |
+| `chunkSize` | number | Yes | Size per chunk |
+
+**Response**
+
+```json
+{
+  "fileId": "file123",
+  "s3UploadId": "upload-id",
+  "uploadUrls": [
+    "https://presigned-url-for-chunk-1...",
+    "https://presigned-url-for-chunk-2..."
+  ]
+}
+```
+
+---
+
+### Get Drop
+
+Get drop metadata and file info. No authentication is required - anyone with the drop ID can fetch encrypted metadata. Decryption requires the key from the share URL fragment.
+
+<div className="flex items-center gap-2 mt-6 mb-4">
+    <span className="bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 px-3 py-1 rounded-md font-mono text-sm font-bold">GET</span>
+    <code className="text-sm bg-secondary px-2 py-1 rounded">https://anon.li/api/v1/drop/:id</code>
+</div>
+
+**Response**
+
+```json
+{
+  "id": "abc123xyz",
+  "encryptedTitle": "base64...",
+  "encryptedMessage": "base64...",
+  "iv": "base64_iv...",
+  "customKey": false,
+  "salt": null,
+  "customKeyData": null,
+  "customKeyIv": null,
+  "downloads": 4,
+  "maxDownloads": 10,
+  "expiresAt": "2026-01-15T00:00:00.000Z",
+  "hideBranding": false,
+  "createdAt": "2026-01-08T12:00:00.000Z",
+  "files": [
+    {
+      "id": "file123",
+      "encryptedName": "base64...",
+      "size": "1048576",
+      "mimeType": "application/pdf",
+      "iv": "base64...",
+      "chunkSize": 52428800,
+      "chunkCount": 1
+    }
+  ]
+}
+```
+
+<div className="p-4 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg my-6">
+  <span className="text-yellow-800 dark:text-yellow-200 text-sm block">
+    <strong>Note:</strong> The GET endpoint returns encrypted metadata and file info but does not include download URLs. To get presigned download URLs, use the <a href="#record-download">Record Download</a> endpoint.
+  </span>
+</div>
+
+---
+
+### Record Download
+
+Record a download event and get presigned download URLs for all files. This increments the download counter and returns time-limited URLs for fetching the encrypted file data.
+
+<div className="flex items-center gap-2 mt-6 mb-4">
+    <span className="bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-3 py-1 rounded-md font-mono text-sm font-bold">POST</span>
+    <code className="text-sm bg-secondary px-2 py-1 rounded">https://anon.li/api/v1/drop/:id/download</code>
+</div>
+
+No authentication or request body is required.
+
+**Response**
+
+```json
+{
+  "success": true,
+  "downloadUrls": {
+    "file123": "https://presigned-url-for-file-1...",
+    "file456": "https://presigned-url-for-file-2..."
+  }
+}
+```
+
+The `downloadUrls` object maps each file ID to a presigned URL. These URLs are temporary and should be used immediately to fetch the encrypted file data.
+
+---
+
+### Delete Drop
+
+Delete a drop you own.
+
+<div className="flex items-center gap-2 mt-6 mb-4">
+    <span className="bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 px-3 py-1 rounded-md font-mono text-sm font-bold">DELETE</span>
+    <code className="text-sm bg-secondary px-2 py-1 rounded">https://anon.li/api/v1/drop/:id</code>
+</div>
+
+**Response**
+
+```json
+{
+  "success": true
+}
+```
+
+---
+
+## CLI Upload Workflow
+
+For CLI tools, implement the following workflow:
+
+```javascript
+import crypto from 'crypto';
+
+// Helper: derive a unique IV for each chunk (or filename)
+function deriveChunkIv(baseIv, chunkIndex) {
+  const iv = Buffer.alloc(12);
+  baseIv.copy(iv, 0, 0, 8);       // First 8 bytes from base IV
+  iv.writeUInt32BE(chunkIndex, 8); // Chunk index as big-endian u32
+  return iv;
+}
+
+// 1. Generate encryption key and per-file IV
+const key = crypto.randomBytes(32); // 256-bit AES key
+const fileIv = crypto.randomBytes(12); // 96-bit base IV for this file
+
+// 2. Encrypt file data (chunk index 0 for single-chunk files)
+const chunkIv = deriveChunkIv(fileIv, 0);
+const cipher = crypto.createCipheriv('aes-256-gcm', key, chunkIv);
+const encrypted = Buffer.concat([cipher.update(fileBuffer), cipher.final()]);
+const authTag = cipher.getAuthTag();
+const encryptedData = Buffer.concat([encrypted, authTag]);
+
+// 3. Encrypt filename (reserved chunk index 0xFFFFFFFF)
+const filenameIv = deriveChunkIv(fileIv, 0xFFFFFFFF);
+const nameCipher = crypto.createCipheriv('aes-256-gcm', key, filenameIv);
+const encryptedName = Buffer.concat([
+  nameCipher.update(filename, 'utf8'),
+  nameCipher.final(),
+  nameCipher.getAuthTag()
+]).toString('base64url');
+
+// 4. Create drop
+const drop = await fetch('https://anon.li/api/v1/drop', {
+  method: 'POST',
+  headers: {
+    'Authorization': 'Bearer ak_...',
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    iv: fileIv.toString('base64url'),
+    fileCount: 1,
+    expiry: 7
+  })
+}).then(r => r.json());
+
+// 5. Add file and get presigned upload URLs
+const file = await fetch(`https://anon.li/api/v1/drop/${drop.dropId}/file`, {
+  method: 'POST',
+  headers: {
+    'Authorization': 'Bearer ak_...',
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    size: encryptedData.length,
+    encryptedName,
+    iv: fileIv.toString('base64url'),
+    mimeType: 'application/octet-stream',
+    chunkCount: 1,
+    chunkSize: encryptedData.length
+  })
+}).then(r => r.json());
+
+// 6. Upload encrypted data to presigned URL
+await fetch(file.uploadUrls[0], {
+  method: 'PUT',
+  body: encryptedData
+});
+
+// 7. Complete the drop (marks it ready for download)
+await fetch(`https://anon.li/api/v1/drop/${drop.dropId}?action=complete`, {
+  method: 'PATCH',
+  headers: { 'Authorization': 'Bearer ak_...' }
+});
+
+// 8. Build share URL with key in fragment
+const shareUrl = `https://anon.li/d/${drop.dropId}#${key.toString('base64url')}`;
+console.log('Share URL:', shareUrl);
+```
+
+## Download & Decrypt Workflow
+
+Recipients can programmatically download and decrypt shared files using just the share URL. The encryption key is embedded in the URL fragment (`#...`), which is never sent to the server.
+
+```javascript
+import crypto from 'crypto';
+
+// Helper: derive a unique IV for each chunk (or filename)
+function deriveChunkIv(baseIv, chunkIndex) {
+  const iv = Buffer.alloc(12);
+  baseIv.copy(iv, 0, 0, 8);       // First 8 bytes from base IV
+  iv.writeUInt32BE(chunkIndex, 8); // Chunk index as big-endian u32
+  return iv;
+}
+
+// 1. Parse the share URL
+const shareUrl = 'https://anon.li/d/abc123xyz#U2FsdGVkX1...';
+const url = new URL(shareUrl);
+const dropId = url.pathname.split('/d/')[1];
+const keyBase64 = url.hash.slice(1); // Remove the '#'
+
+// 2. Import the encryption key
+const keyBuffer = Buffer.from(keyBase64, 'base64url');
+
+// 3. Fetch drop metadata (no auth required)
+const drop = await fetch(`https://anon.li/api/v1/drop/${dropId}`)
+  .then(r => r.json());
+
+// 4. Get presigned download URLs (increments download counter)
+const { downloadUrls } = await fetch(
+  `https://anon.li/api/v1/drop/${dropId}/download`,
+  { method: 'POST' }
+).then(r => r.json());
+
+// 5. Decrypt title and message if present
+const dropIv = Buffer.from(drop.iv, 'base64url');
+
+if (drop.encryptedTitle) {
+  const titleIv = deriveChunkIv(dropIv, 0xFFFFFFFF);
+  const encTitle = Buffer.from(drop.encryptedTitle, 'base64url');
+  const titleDec = crypto.createDecipheriv('aes-256-gcm', keyBuffer, titleIv);
+  titleDec.setAuthTag(encTitle.slice(-16));
+  const title = Buffer.concat([
+    titleDec.update(encTitle.slice(0, -16)),
+    titleDec.final()
+  ]).toString('utf8');
+  console.log('Title:', title);
+}
+
+if (drop.encryptedMessage) {
+  const msgIv = deriveChunkIv(dropIv, 0xFFFFFFFF);
+  const encMsg = Buffer.from(drop.encryptedMessage, 'base64url');
+  const msgDec = crypto.createDecipheriv('aes-256-gcm', keyBuffer, msgIv);
+  msgDec.setAuthTag(encMsg.slice(-16));
+  const message = Buffer.concat([
+    msgDec.update(encMsg.slice(0, -16)),
+    msgDec.final()
+  ]).toString('utf8');
+  console.log('Message:', message);
+}
+
+// 6. Download and decrypt each file
+for (const file of drop.files) {
+  const fileIv = Buffer.from(file.iv, 'base64url');
+
+  // Decrypt filename (reserved chunk index 0xFFFFFFFF)
+  const filenameIv = deriveChunkIv(fileIv, 0xFFFFFFFF);
+  const encryptedName = Buffer.from(file.encryptedName, 'base64url');
+  const decipher = crypto.createDecipheriv('aes-256-gcm', keyBuffer, filenameIv);
+  decipher.setAuthTag(encryptedName.slice(-16));
+  const filename = Buffer.concat([
+    decipher.update(encryptedName.slice(0, -16)),
+    decipher.final()
+  ]).toString('utf8');
+
+  // Fetch the encrypted file using the presigned URL
+  const downloadUrl = downloadUrls[file.id];
+  const encryptedData = await fetch(downloadUrl)
+    .then(r => r.arrayBuffer())
+    .then(ab => Buffer.from(ab));
+
+  // Decrypt each chunk
+  // Each encrypted chunk = ciphertext + 16-byte GCM auth tag
+  const chunkSize = file.chunkSize || (50 * 1024 * 1024); // from API or 50 MB default
+  const encryptedChunkSize = chunkSize + 16;
+  const chunkCount = file.chunkCount || Math.ceil(encryptedData.length / encryptedChunkSize);
+  const decryptedChunks = [];
+
+  for (let i = 0; i < chunkCount; i++) {
+    const start = i * encryptedChunkSize;
+    const end = Math.min(start + encryptedChunkSize, encryptedData.length);
+    const chunk = encryptedData.slice(start, end);
+
+    const chunkIv = deriveChunkIv(fileIv, i);
+    const dec = crypto.createDecipheriv('aes-256-gcm', keyBuffer, chunkIv);
+    dec.setAuthTag(chunk.slice(-16));
+    decryptedChunks.push(Buffer.concat([
+      dec.update(chunk.slice(0, -16)),
+      dec.final()
+    ]));
+  }
+
+  const decryptedFile = Buffer.concat(decryptedChunks);
+  // Save to disk, process, etc.
+  console.log(`Decrypted: ${filename} (${decryptedFile.length} bytes)`);
+}
+```
+
+### Key Concepts
+
+- **URL fragment is the key** - The `#base64Key` portion of the share URL contains the AES-256 key. It is never sent to the server (per HTTP spec).
+- **Two-step download** - First `GET /drop/:id` for encrypted metadata, then `POST /drop/:id/download` to record the download and get presigned file URLs.
+- **Chunk IVs** - Each chunk derives a unique 12-byte IV: first 8 bytes from the file's base IV, last 4 bytes are the chunk index (big-endian). The filename uses the reserved index `0xFFFFFFFF`.
+- **GCM auth tags** - Each encrypted chunk includes a 16-byte authentication tag appended after the ciphertext. This provides per-chunk integrity verification.
+- **No authentication required** - Anyone with the drop ID can fetch metadata and download files. Decryption requires the key from the URL fragment.
+
+---
+
+## Encrypted Metadata (Zero-Knowledge Custom Data)
+
+The `encryptedMessage` field on a drop lets you attach arbitrary metadata - descriptions, tags, structured JSON, or any other data - encrypted with the same AES-256-GCM key. The server stores only the ciphertext and cannot read it.
+
+This is useful for attaching context to shared files while maintaining zero-knowledge guarantees.
+
+### Upload with Encrypted Metadata
+
+```javascript
+import crypto from 'crypto';
+
+function deriveChunkIv(baseIv, chunkIndex) {
+  const iv = Buffer.alloc(12);
+  baseIv.copy(iv, 0, 0, 8);
+  iv.writeUInt32BE(chunkIndex, 8);
+  return iv;
+}
+
+const key = crypto.randomBytes(32);
+const iv = crypto.randomBytes(12);
+
+// Your custom metadata - can be any structure
+const metadata = JSON.stringify({
+  description: 'Q1 financial report',
+  tags: ['finance', 'confidential'],
+  author: 'jane@example.com',
+  version: 2
+});
+
+// Encrypt the metadata using the same IV derivation as filenames
+// (reserved chunk index 0xFFFFFFFF)
+const metaIv = deriveChunkIv(iv, 0xFFFFFFFF);
+const metaCipher = crypto.createCipheriv('aes-256-gcm', key, metaIv);
+const encryptedMessage = Buffer.concat([
+  metaCipher.update(metadata, 'utf8'),
+  metaCipher.final(),
+  metaCipher.getAuthTag()
+]).toString('base64url');
+
+// Optionally encrypt a human-readable title too
+const titleIv = deriveChunkIv(iv, 0xFFFFFFFF);
+const titleCipher = crypto.createCipheriv('aes-256-gcm', key, titleIv);
+const encryptedTitle = Buffer.concat([
+  titleCipher.update('Q1 Report', 'utf8'),
+  titleCipher.final(),
+  titleCipher.getAuthTag()
+]).toString('base64url');
+
+// Create drop with encrypted metadata
+const drop = await fetch('https://anon.li/api/v1/drop', {
+  method: 'POST',
+  headers: {
+    'Authorization': 'Bearer ak_...',
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    iv: iv.toString('base64url'),
+    encryptedMessage,
+    encryptedTitle,
+    fileCount: 1,
+    expiry: 7
+  })
+}).then(r => r.json());
+```
+
+### Decrypt Metadata on Download
+
+```javascript
+// After fetching the drop (see Download & Decrypt Workflow above)
+const baseIv = Buffer.from(drop.iv, 'base64url');
+const metaIv = deriveChunkIv(baseIv, 0xFFFFFFFF);
+const encMsg = Buffer.from(drop.encryptedMessage, 'base64url');
+
+const decipher = crypto.createDecipheriv('aes-256-gcm', keyBuffer, metaIv);
+decipher.setAuthTag(encMsg.slice(-16));
+const metadataJson = Buffer.concat([
+  decipher.update(encMsg.slice(0, -16)),
+  decipher.final()
+]).toString('utf8');
+
+const metadata = JSON.parse(metadataJson);
+// { description: 'Q1 financial report', tags: ['finance', 'confidential'], ... }
+```
+
+### Why This Is Zero-Knowledge
+
+- The `encryptedMessage` field is encrypted client-side with the same key used for files
+- The encryption key exists only in the URL fragment, which is never sent to the server
+- The server stores and returns the ciphertext unchanged - it cannot read your metadata
+- You can store any structure: JSON, plain text, binary data (base64-encoded)
+
+---
+
+## Error Responses
+
+| Status | Description |
+| :--- | :--- |
+| `400` | Bad Request - Missing required fields or invalid parameters |
+| `401` | Unauthorized - Invalid or missing API key |
+| `403` | Forbidden - Feature not available on your plan |
+| `404` | Not Found - Drop doesn't exist |
+| `410` | Gone - Drop expired or download limit reached |
+| `429` | Too Many Requests - Rate limit exceeded |
+| `500` | Internal Server Error |
+
+## Rate Limits
+
+| Operation | Limit |
+| :--- | :--- |
+| Drop creation | 30 requests/hour |
+| Drop list | 60 requests/minute |
+| Drop delete | 60 requests/hour |
+
+## Plan Limits
+
+| Feature | Free | Plus | Pro |
+| :--- | :--- | :--- | :--- |
+| Bandwidth | 5 GB | 50 GB | 250 GB |
+| Max file size | 5 GB | 50 GB | 250 GB |
+| Max expiry | 3 days | 7 days | 30 days |
+
+## Security Notes
+
+- **Client-side encryption** - Files are encrypted on your device before upload
+- **Zero-knowledge** - We never see your unencrypted data or encryption keys
+- **URL fragments are private** - The `#key` part of share URLs is never sent to servers
+- **AES-256-GCM** - Authenticated encryption with 256-bit keys
+- **Files auto-expire** - All files are automatically deleted after their expiry date

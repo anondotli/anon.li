@@ -1,0 +1,94 @@
+---
+title: "CLI Domain Commands"
+summary: "Add custom domains, verify DNS records, and manage DKIM keys from the command line."
+---
+
+The `anonli domain` commands let you add custom domains for your email aliases. Use your own domain (e.g., `privacy@yourdomain.com`) instead of `@anon.li`.
+
+---
+
+## List
+
+List your custom domains.
+
+```bash
+anonli domain list [--json]
+```
+
+Displays a table with each domain's name, status, MX/SPF/DKIM verification status, and creation date.
+
+---
+
+## Add
+
+Add a new custom domain.
+
+```bash
+anonli domain add <domain>
+```
+
+After adding, the CLI displays the DNS records you need to configure:
+
+- **TXT** record for domain ownership verification
+- **MX** record to route email through anon.li
+- **SPF** record for email authentication
+- **DKIM** record for email signing
+
+**Example**
+
+```bash
+anonli domain add mydomain.com
+# Returns DNS records to configure with your registrar
+```
+
+---
+
+## Verify
+
+Check whether DNS records have propagated and are correctly configured.
+
+```bash
+anonli domain verify <domain-id>
+```
+
+Run this after updating your DNS records. The command checks each record type and reports which ones pass or fail.
+
+---
+
+## Info
+
+Show detailed information about a domain.
+
+```bash
+anonli domain info <domain-id>
+```
+
+Displays the domain name, verification status, DKIM selector, and all required DNS records.
+
+---
+
+## Delete
+
+Remove a custom domain.
+
+```bash
+anonli domain delete <domain-id> [options]
+```
+
+**Options**
+
+| Flag | Description |
+|------|-------------|
+| `-f, --force` | Skip confirmation prompt |
+
+---
+
+## DKIM
+
+Regenerate DKIM signing keys for a domain.
+
+```bash
+anonli domain dkim <domain-id>
+```
+
+Returns a new DKIM DNS record to configure with your registrar. Use this if you need to rotate your DKIM keys.

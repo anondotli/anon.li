@@ -1,0 +1,304 @@
+---
+title: "Domain API"
+summary: "Add, verify, and manage custom domains for your email aliases using the Domain API."
+---
+
+The Domain API allows you to add custom domains to your anon.li account and verify their DNS configuration. Once verified, you can create aliases using your own domain instead of `@anon.li`.
+
+## Authentication
+
+All API requests must be authenticated using an API Key. Generate keys in your [Dashboard](/dashboard/api-keys).
+
+```bash
+Authorization: Bearer ak_your_api_key_here
+```
+
+## Base URL
+
+```
+https://anon.li/api/v1
+```
+
+---
+
+## Endpoints
+
+### List Domains
+
+Retrieve all custom domains for your account.
+
+<div className="flex items-center gap-2 mt-6 mb-4">
+    <span className="bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 px-3 py-1 rounded-md font-mono text-sm font-bold">GET</span>
+    <code className="text-sm bg-secondary px-2 py-1 rounded">https://anon.li/api/v1/domain</code>
+</div>
+
+**Example Request**
+
+```bash
+curl https://anon.li/api/v1/domain \
+  -H "Authorization: Bearer ak_..."
+```
+
+**Response**
+
+```json
+{
+  "data": [
+    {
+      "id": "domain_xyz123",
+      "domain": "mail.example.com",
+      "verified": true,
+      "ownership_verified": true,
+      "mx_verified": true,
+      "spf_verified": true,
+      "dkim_verified": true,
+      "verification_token": "anon_abc123def456",
+      "dkim_public_key": "MIIBIjANBgkq...",
+      "dkim_selector": "default",
+      "created_at": "2026-01-15T10:00:00.000Z"
+    }
+  ]
+}
+```
+
+---
+
+### Add Domain
+
+Add a new custom domain to your account.
+
+<div className="flex items-center gap-2 mt-6 mb-4">
+    <span className="bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-3 py-1 rounded-md font-mono text-sm font-bold">POST</span>
+    <code className="text-sm bg-secondary px-2 py-1 rounded">https://anon.li/api/v1/domain</code>
+</div>
+
+**Body Parameters**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| `domain` | string | Yes | Domain name in lowercase (e.g., `mail.example.com`). Must match `^[a-z0-9.-]+\.[a-z]{2,}$`. |
+
+**Example Request**
+
+```bash
+curl -X POST https://anon.li/api/v1/domain \
+  -H "Authorization: Bearer ak_..." \
+  -H "Content-Type: application/json" \
+  -d '{"domain": "mail.example.com"}'
+```
+
+**Response (201)**
+
+```json
+{
+  "data": {
+    "id": "domain_xyz123",
+    "domain": "mail.example.com",
+    "verified": false,
+    "ownership_verified": false,
+    "mx_verified": false,
+    "spf_verified": false,
+    "dkim_verified": false,
+    "verification_token": "anon_abc123def456",
+    "dkim_public_key": null,
+    "dkim_selector": null,
+    "created_at": "2026-01-15T10:00:00.000Z"
+  }
+}
+```
+
+---
+
+### Get Domain Details
+
+Retrieve a domain with its DNS configuration records.
+
+<div className="flex items-center gap-2 mt-6 mb-4">
+    <span className="bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 px-3 py-1 rounded-md font-mono text-sm font-bold">GET</span>
+    <code className="text-sm bg-secondary px-2 py-1 rounded">https://anon.li/api/v1/domain/:id</code>
+</div>
+
+**Example Request**
+
+```bash
+curl https://anon.li/api/v1/domain/domain_xyz123 \
+  -H "Authorization: Bearer ak_..."
+```
+
+**Response**
+
+The response includes a `dns_records` object showing the required DNS records for verification.
+
+```json
+{
+  "data": {
+    "id": "domain_xyz123",
+    "domain": "mail.example.com",
+    "verified": false,
+    "ownership_verified": false,
+    "mx_verified": false,
+    "spf_verified": false,
+    "dkim_verified": false,
+    "verification_token": "anon_abc123def456",
+    "dns_records": {
+      "ownership": {
+        "type": "TXT",
+        "host": "mail.example.com",
+        "value": "anon.li=anon_abc123def456"
+      },
+      "mx": {
+        "type": "MX",
+        "host": "mail.example.com",
+        "value": "mx.anon.li",
+        "priority": 10
+      },
+      "spf": {
+        "type": "TXT",
+        "host": "mail.example.com",
+        "value": "v=spf1 include:anon.li ~all"
+      },
+      "dkim": null
+    }
+  }
+}
+```
+
+---
+
+### Verify Domain
+
+Check DNS records and update the domain's verification status.
+
+<div className="flex items-center gap-2 mt-6 mb-4">
+    <span className="bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-3 py-1 rounded-md font-mono text-sm font-bold">POST</span>
+    <code className="text-sm bg-secondary px-2 py-1 rounded">https://anon.li/api/v1/domain/:id/verify</code>
+</div>
+
+**Example Request**
+
+```bash
+curl -X POST https://anon.li/api/v1/domain/domain_xyz123/verify \
+  -H "Authorization: Bearer ak_..." \
+  -H "Content-Type: application/json" \
+  -d '{}'
+```
+
+**Response**
+
+```json
+{
+  "data": {
+    "verified": true,
+    "ownership_verified": true,
+    "mx_verified": true,
+    "spf_verified": true,
+    "dkim_verified": false
+  }
+}
+```
+
+---
+
+### Get DKIM Records
+
+Retrieve or generate DKIM key configuration for a domain.
+
+<div className="flex items-center gap-2 mt-6 mb-4">
+    <span className="bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 px-3 py-1 rounded-md font-mono text-sm font-bold">GET</span>
+    <code className="text-sm bg-secondary px-2 py-1 rounded">https://anon.li/api/v1/domain/:id/dkim</code>
+</div>
+
+**Example Request**
+
+```bash
+curl https://anon.li/api/v1/domain/domain_xyz123/dkim \
+  -H "Authorization: Bearer ak_..."
+```
+
+**Response**
+
+```json
+{
+  "data": {
+    "dkim_selector": "default",
+    "dkim_record": {
+      "type": "TXT",
+      "host": "default._domainkey.mail.example.com",
+      "value": "v=DKIM1; k=rsa; p=MIIBIjANBgkq..."
+    }
+  }
+}
+```
+
+---
+
+### Delete Domain
+
+Permanently remove a domain from your account. Aliases using this domain will no longer receive email.
+
+<div className="flex items-center gap-2 mt-6 mb-4">
+    <span className="bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 px-3 py-1 rounded-md font-mono text-sm font-bold">DELETE</span>
+    <code className="text-sm bg-secondary px-2 py-1 rounded">https://anon.li/api/v1/domain/:id</code>
+</div>
+
+**Example Request**
+
+```bash
+curl -X DELETE https://anon.li/api/v1/domain/domain_xyz123 \
+  -H "Authorization: Bearer ak_..."
+```
+
+**Response**
+
+```json
+{
+  "data": {
+    "deleted": true
+  }
+}
+```
+
+---
+
+## Domain Object
+
+| Field | Type | Description |
+| :--- | :--- | :--- |
+| `id` | string | Unique domain identifier |
+| `domain` | string | The domain name |
+| `verified` | boolean | All DNS records verified |
+| `ownership_verified` | boolean | TXT ownership record verified |
+| `mx_verified` | boolean | MX record verified |
+| `spf_verified` | boolean | SPF record verified |
+| `dkim_verified` | boolean | DKIM record verified |
+| `verification_token` | string | Token for ownership TXT record |
+| `dkim_public_key` | string \| null | DKIM public key |
+| `dkim_selector` | string \| null | DKIM selector |
+| `created_at` | string | ISO 8601 creation timestamp |
+
+---
+
+## Verification Workflow
+
+1. **Add your domain** - `POST /api/v1/domain`
+2. **Get DNS records** - `GET /api/v1/domain/:id` to see the required TXT, MX, and SPF records
+3. **Configure DNS** - Add the records to your DNS provider
+4. **Verify** - `POST /api/v1/domain/:id/verify` to check your configuration
+5. **Set up DKIM** (optional) - `GET /api/v1/domain/:id/dkim` to get the DKIM TXT record, add it to DNS, then verify again
+
+<div className="bg-muted/50 border rounded-lg p-4 mt-6">
+    <p className="font-medium">DNS propagation</p>
+    <p className="text-sm text-muted-foreground mt-1">DNS changes can take up to 48 hours to propagate. If verification fails, wait a few hours and try again.</p>
+</div>
+
+---
+
+## Error Responses
+
+| Status | Code | Description |
+| :--- | :--- | :--- |
+| `400` | `VALIDATION_ERROR` | Invalid domain format |
+| `401` | `UNAUTHORIZED` | Invalid or missing API key |
+| `404` | `NOT_FOUND` | Domain not found |
+| `409` | `CONFLICT` | Domain already exists |
+| `429` | `RATE_LIMITED` | Too many requests |

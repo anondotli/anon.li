@@ -1,0 +1,542 @@
+datasource db {
+  provider = "postgresql"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id   String  @id @default(cuid())
+  name String?
+
+  email         String    @unique
+  emailVerified Boolean   @default(false)
+  image         String?
+  accounts      Account[]
+  sessions      Session[]
+
+  // Billing & Subscriptions
+  // Note: We sync Stripe state here to avoid round-trips for basic access checks.
+  stripeCustomerId        String?   @unique @map(name: "stripe_customer_id")
+  stripeSubscriptionId    String?   @unique @map(name: "stripe_subscription_id")
+  stripePriceId           String?   @map(name: "stripe_price_id")
+  stripeCurrentPeriodEnd  DateTime? @map(name: "stripe_current_period_end")
+  stripeCancelAtPeriodEnd Boolean   @default(false) @map(name: "stripe_cancel_at_period_end")
+
+  // Resource Ownership
+  aliases          Alias[]
+  domains          Domain[]
+  apiKeys          ApiKey[]
+  recipients       Recipient[]
+  drops            Drop[]
+  subscriptions    Subscription[]
+  deletionRequest  DeletionRequest?
+  twoFactorEnabled Boolean          @default(false)
+  twoFactor        TwoFactor?
+  // Quotas & Limits
+  storageUsed      BigInt           @default(0)
+  storageLimit     BigInt           @default(5368709120) // 5GB default for free users
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Access Control & Moderation
+  isAdmin Boolean @default(false)
+
+  // Ban System
+  // We use granular flags rather than a single 'banned' state to allow
+  // partial restrictions (e.g. stopping new uploads but allowing downloads).
+  banned           Boolean @default(false)
+  banAliasCreation Boolean @default(false)
+  banFileUpload    Boolean @default(false)
+  banReason        String?
+  tosViolations    Int     @default(0)
+
+  // Billing Downgrade Tracking
+  downgradedAt DateTime? @map("downgraded_at")
+
+  // Payment Method
+  paymentMethod  String          @default("stripe") @map("payment_method")
+  cryptoPayments CryptoPayment[]
+
+  @@map("users")
+}
+
+model Alias {
+  id        String @id @default(cuid())
+  email     String @unique // Full email address (localPart@domain)
+  localPart String
+  domain    String
+
+  active Boolean @default(true)
+  format String  @default("CUSTOM") // CUSTOM or RANDOM
+
+  // Metadata
+  label String?
+  note  String?
+
+  // Usage Telemetry
+  emailsReceived Int       @default(0)
+  emailsBlocked  Int       @default(0)
+  lastEmailAt    DateTime?
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Forwarding Configuration — legacy single-recipient (kept for migration)
+  recipientId String?
+  recipient   Recipient? @relation(fields: [recipientId], references: [id], onDelete: SetNull)
+
+  // Multi-recipient routing via join table
+  aliasRecipients AliasRecipient[]
+
+  scheduledForRemovalAt DateTime? @map("scheduled_for_removal_at")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([userId, active])
+  @@index([userId, label])
+  @@index([recipientId])
+  @@index([scheduledForRemovalAt])
+  @@map("aliases")
+}
+
+model Recipient {
+  id        String  @id @default(cuid())
+  email     String
+  verified  Boolean @default(false)
+  isDefault Boolean @default(false)
+
+  // Verification
+  verificationToken  String?   @unique
+  verificationExpiry DateTime?
+
+  // PGP Integration
+  // Users can provide their public key to have forwarded emails encrypted.
+  pgpPublicKey   String? @db.Text
+  pgpFingerprint String?
+  pgpKeyName     String?
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Legacy direct relation (kept for migration)
+  aliases Alias[]
+
+  // Multi-recipient routing via join table
+  aliasRecipients AliasRecipient[]
+
+  scheduledForRemovalAt DateTime? @map("scheduled_for_removal_at")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, email])
+  @@index([userId])
+  @@index([verificationToken])
+  @@index([scheduledForRemovalAt])
+  @@map("recipients")
+}
+
+model AliasRecipient {
+  id          String @id @default(cuid())
+  aliasId     String
+  alias       Alias     @relation(fields: [aliasId], references: [id], onDelete: Cascade)
+  recipientId String
+  recipient   Recipient @relation(fields: [recipientId], references: [id], onDelete: Cascade)
+
+  ordinal   Int     @default(0) // Ordering: 0 = first/primary
+  isPrimary Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([aliasId, recipientId])
+  @@index([aliasId])
+  @@index([recipientId])
+  @@map("alias_recipients")
+}
+
+model Domain {
+  id                String  @id @default(cuid())
+  domain            String
+  verified          Boolean @default(false)
+  ownershipVerified Boolean @default(false)
+  mxVerified        Boolean @default(false)
+  spfVerified       Boolean @default(false)
+  dnsVerified       Boolean @default(false)
+  verificationToken String  @default(cuid())
+
+  // DKIM Support for better deliverability on custom domains
+  dkimPrivateKey String? @db.Text
+  dkimPublicKey  String? @db.Text
+  dkimSelector   String? @default("default")
+  dkimVerified   Boolean @default(false)
+
+  // Catch-all: auto-create aliases for any email received on this domain
+  catchAll            Boolean @default(false) @map("catch_all")
+  catchAllRecipientId String? @map("catch_all_recipient_id")
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id])
+
+  scheduledForRemovalAt DateTime? @map("scheduled_for_removal_at")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([domain])
+  @@index([userId])
+  @@index([scheduledForRemovalAt])
+  @@map("domains")
+}
+
+model ApiKey {
+  id        String  @id @default(cuid())
+  keyHash   String  @unique @map("key_hash") // SHA-256 hash
+  keyPrefix String  @map("key_prefix")
+  label     String?
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime? @map("last_used_at")
+  expiresAt  DateTime? @map("expires_at")
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("api_keys")
+}
+
+model Account {
+  id                   String    @id @default(cuid())
+  userId               String
+  accountId            String
+  providerId           String
+  accessToken          String?
+  refreshToken         String?
+  accessTokenExpiresAt DateTime?
+  idToken              String?
+  scope                String?
+  password             String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  user                 User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([providerId, accountId])
+  @@index([userId])
+  @@map("accounts")
+}
+
+model Session {
+  id                String   @id @default(cuid())
+  token             String   @unique
+  userId            String
+  expiresAt         DateTime
+  ipAddress         String?
+  userAgent         String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  twoFactorVerified Boolean  @default(false)
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+model Verification {
+  id         String   @id @default(cuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@map("verifications")
+}
+
+model DropFile {
+  id            String @id
+  encryptedName String
+  storageKey    String
+  size          BigInt
+  mimeType      String
+
+  // Encryption Metadata
+  iv String
+
+  // Multipart Upload Tracking
+  s3UploadId     String?
+  chunkCount     Int?
+  chunkSize      Int?
+  uploadComplete Boolean @default(false)
+
+  // Relations
+  dropId String
+  drop   Drop   @relation(fields: [dropId], references: [id], onDelete: Cascade)
+
+  chunks UploadChunk[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([dropId])
+  @@index([s3UploadId])
+  @@map("drop_files")
+}
+
+model Drop {
+  id String @id
+
+  // Encrypted Content Container
+  encryptedTitle   String?
+  encryptedMessage String?
+
+  // Encryption Parameters
+  iv            String
+  customKey     Boolean @default(false)
+  salt          String?
+  customKeyData String? // Wrapped key
+  customKeyIv   String?
+
+  // Access Controls
+  expiresAt    DateTime?
+  maxDownloads Int?
+  maxFileCount Int? // Maximum files allowed in this drop
+  downloads    Int       @default(0)
+  disabled     Boolean   @default(false)
+  disabledAt   DateTime?
+
+  // Customization
+  hideBranding Boolean @default(false)
+
+  // Notifications (Pro feature)
+  notifyOnDownload  Boolean   @default(false)
+  notificationsSent Int       @default(0)
+  expiryNotifiedAt  DateTime?
+
+  // Status tracking
+  uploadComplete Boolean   @default(false)
+  viewedAt       DateTime?
+
+  // Lifecycle
+  deletedAt DateTime? // Soft delete
+
+  // Takedown
+  takenDown      Boolean   @default(false)
+  takedownReason String?
+  takenDownAt    DateTime?
+
+  // Relations
+  files        DropFile[]
+  uploadTokens UploadToken[]
+  userId       String?
+  user         User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([userId, deletedAt, createdAt])
+  @@index([expiresAt])
+  @@index([deletedAt])
+  @@index([uploadComplete])
+  @@index([maxDownloads])
+  @@map("drops")
+}
+
+model UploadToken {
+  id String @id @default(cuid())
+
+  dropId String
+  drop   Drop   @relation(fields: [dropId], references: [id], onDelete: Cascade)
+
+  tokenHash String
+  expiresAt DateTime
+
+  createdAt DateTime @default(now())
+
+  @@unique([tokenHash])
+  @@index([dropId])
+  @@index([expiresAt])
+  @@map("upload_tokens")
+}
+
+model UploadChunk {
+  id     String   @id @default(cuid())
+  fileId String
+  file   DropFile @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  chunkIndex Int
+  etag       String?
+  size       BigInt
+  completed  Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([fileId, chunkIndex])
+  @@index([fileId])
+  @@map("upload_chunks")
+}
+
+model TwoFactor {
+  id          String @id @default(cuid())
+  userId      String @unique
+  secret      String
+  backupCodes String
+  user        User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("two_factors")
+}
+
+model AbuseReport {
+  id String @id @default(cuid())
+
+  serviceType String // "alias" or "drop"
+  resourceId  String
+  reason      String
+  description String @db.Text
+  priority    String @default("normal") // urgent, high, normal, low
+
+  contactEmail           String?
+  decryptionKey          String?
+  decryptionKeyEncrypted Boolean @default(false)
+
+  trackingToken String? @unique
+
+  reporterIp String
+
+  status      String    @default("pending")
+  reviewNotes String?   @db.Text
+  reviewedAt  DateTime?
+  reviewedBy  String?
+
+  actionTaken String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([resourceId])
+  @@index([serviceType])
+  @@index([createdAt])
+  @@index([reporterIp])
+  @@index([updatedAt])
+  @@index([priority, createdAt])
+  @@map("abuse_reports")
+}
+
+model CryptoPayment {
+  id            String    @id @default(cuid())
+  nowPaymentId  String    @unique @map("now_payment_id")
+  invoiceId     String?   @unique @map("invoice_id")
+  orderId       String    @unique @map("order_id")
+  payAmount     Float     @map("pay_amount")
+  payCurrency   String    @map("pay_currency")
+  priceAmount   Float     @map("price_amount")
+  priceCurrency String    @default("usd") @map("price_currency")
+  actuallyPaid  Float?    @map("actually_paid")
+  product       String
+  tier          String
+  planPriceId   String    @map("stripe_price_id")
+  status        String    @default("waiting")
+  periodStart   DateTime? @map("period_start")
+  periodEnd     DateTime? @map("period_end")
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@map("crypto_payments")
+}
+
+model Subscription {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Payment provider
+  provider               String // "stripe" | "crypto" | "manual"
+  providerSubscriptionId String? @unique @map("provider_subscription_id")
+  providerCustomerId     String? @map("provider_customer_id")
+  providerPriceId        String? @map("provider_price_id")
+
+  // Plan details
+  product String // "bundle" | "alias" | "drop"
+  tier    String // "plus" | "pro"
+
+  // Status & billing period
+  status             String // "active" | "trialing" | "past_due" | "canceled" | "expired"
+  currentPeriodStart DateTime? @map("current_period_start")
+  currentPeriodEnd   DateTime? @map("current_period_end")
+  cancelAtPeriodEnd  Boolean   @default(false) @map("cancel_at_period_end")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([providerCustomerId])
+  @@map("subscriptions")
+}
+
+model DeletionRequest {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id])
+
+  status String // "pending" | "active_systems_deleted" | "backup_retention" | "completed"
+
+  // Per-resource progress tracking
+  sessionsDeleted Boolean @default(false)
+  aliasesDeleted  Boolean @default(false)
+  domainsDeleted  Boolean @default(false)
+  dropsDeleted    Boolean @default(false)
+  storageDeleted  Boolean @default(false)
+
+  failedStorageKeys String? @db.Text // JSON array of S3 keys that failed deletion
+
+  requestedAt DateTime  @default(now())
+  completedAt DateTime?
+
+  @@map("deletion_requests")
+}
+
+model ReservedAlias {
+  id        String   @id @default(cuid())
+  alias     String   @unique
+  createdAt DateTime @default(now())
+
+  @@map("reserved_aliases")
+}
+
+model OrphanedFile {
+  id         String   @id @default(cuid())
+  storageKey String
+  createdAt  DateTime @default(now())
+
+  @@map("orphaned_files")
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  action    String // e.g. "api_key.create", "drop.takedown", "user.ban", "admin.login"
+  actorId   String // User who performed the action
+  targetId  String? // Affected resource ID (user, alias, drop, etc.)
+  metadata  String?  @db.Text // JSON-encoded extra context
+  ip        String?
+  createdAt DateTime @default(now())
+
+  @@index([actorId])
+  @@index([action])
+  @@index([targetId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}

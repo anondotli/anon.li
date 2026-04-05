@@ -1,0 +1,142 @@
+@import "tailwindcss";
+@config "../tailwind.config.ts";
+@plugin "tailwindcss-animate";
+
+@layer base {
+  :root {
+    /* Light Mode - Pure Black & White */
+    --background: 0 0% 100%;   /* Pure White */
+    --foreground: 0 0% 5%;     /* Near Black */
+
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 5%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 5%;
+
+    --primary: 0 0% 5%;        /* Near Black */
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 0 0% 96%;     /* Very light gray */
+    --secondary-foreground: 0 0% 5%;
+
+    --muted: 0 0% 96%;
+    --muted-foreground: 0 0% 45%;
+
+    --accent: 0 0% 96%;        /* Light gray */
+    --accent-foreground: 0 0% 5%;
+
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+
+    --border: 0 0% 90%;
+    --input: 0 0% 90%;
+    --ring: 0 0% 5%;
+
+    --radius: 0.5rem;
+
+    --chart-1: 0 0% 20%;
+    --chart-2: 0 0% 35%;
+    --chart-3: 0 0% 50%;
+    --chart-4: 0 0% 65%;
+    --chart-5: 0 0% 80%;
+  }
+
+  .dark {
+    /* Dark Mode - Pure Black & White */
+    --background: 0 0% 3%;     /* Near Black */
+    --foreground: 0 0% 95%;    /* Near White */
+
+    --card: 0 0% 5%;           /* Slightly lighter black */
+    --card-foreground: 0 0% 95%;
+
+    --popover: 0 0% 5%;
+    --popover-foreground: 0 0% 95%;
+
+    --primary: 0 0% 95%;       /* Near White */
+    --primary-foreground: 0 0% 5%;
+
+    --secondary: 0 0% 12%;     /* Dark gray */
+    --secondary-foreground: 0 0% 95%;
+
+    --muted: 0 0% 12%;
+    --muted-foreground: 0 0% 55%;
+
+    --accent: 0 0% 15%;        /* Dark gray */
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+
+    --border: 0 0% 15%;
+    --input: 0 0% 15%;
+    --ring: 0 0% 95%;
+
+    --chart-1: 0 0% 80%;
+    --chart-2: 0 0% 65%;
+    --chart-3: 0 0% 50%;
+    --chart-4: 0 0% 35%;
+    --chart-5: 0 0% 20%;
+  }
+
+  html {
+    scroll-behavior: smooth;
+    scroll-padding-top: 5rem;
+  }
+
+  body {
+    font-feature-settings: "kern" 1, "liga" 1, "calt" 1;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    letter-spacing: -0.011em;
+  }
+
+  .font-serif {
+    font-feature-settings: "kern" 1, "liga" 1, "dlig" 1, "swsh" 1;
+    letter-spacing: -0.01em; /* Tighter for display serif */
+  }
+}
+
+@layer base {
+  * {
+    border-color: hsl(var(--border));
+  }
+
+  body {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+  }
+}
+
+@utility bg-grid-white {
+  background-size: 40px 40px;
+  background-image: linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+}
+
+@utility luxury-shadow-sm {
+  box-shadow:
+    0 1px 3px 0 rgba(0, 0, 0, 0.08),
+    0 1px 2px -1px rgba(0, 0, 0, 0.08);
+}
+
+@utility luxury-shadow-md {
+  box-shadow:
+    0 4px 12px -2px rgba(0, 0, 0, 0.12),
+    0 2px 6px -2px rgba(0, 0, 0, 0.08);
+}
+
+@utility luxury-shadow-lg {
+  box-shadow:
+    0 8px 24px -4px rgba(0, 0, 0, 0.15),
+    0 4px 10px -4px rgba(0, 0, 0, 0.08);
+}
+
+@utility text-glow {
+  text-shadow: 0 0 20px rgba(255, 255, 255, 0.1);
+}
+
+@utility border-glow {
+  box-shadow: 0 0 15px -3px rgba(255, 255, 255, 0.15);
+}

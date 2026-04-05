@@ -1,0 +1,156 @@
+---
+title: "CLI Alias Commands"
+summary: "Create, list, toggle, update, and delete email aliases from the command line."
+---
+
+The `anonli alias` commands let you manage email aliases that forward to your real inbox while keeping your identity private.
+
+---
+
+## New
+
+Create a new email alias.
+
+```bash
+anonli alias new [options]
+```
+
+**Options**
+
+| Flag | Description |
+|------|-------------|
+| `-r, --random` | Generate a random alias (default if no custom options given) |
+| `-c, --custom <name>` | Create a custom alias with the given local part |
+| `-d, --domain <domain>` | Domain to use (default: `anon.li`) |
+| `-l, --label <text>` | Description or label for the alias |
+| `--recipient <id>` | Forward to a specific recipient ID |
+
+Custom alias names must match `^[a-z0-9][a-z0-9._+\-]{0,61}[a-z0-9]$` (2–63 characters, alphanumeric with `.`, `_`, `+`, `-`).
+
+**Examples**
+
+```bash
+# Create a random alias
+anonli alias new
+
+# Create a custom alias with a label
+anonli alias new --custom shopping --label "Amazon"
+
+# Create an alias on a custom domain
+anonli alias new --custom hello --domain mydomain.com
+```
+
+---
+
+## List
+
+List all your aliases.
+
+```bash
+anonli alias list [options]
+```
+
+**Options**
+
+| Flag | Description |
+|------|-------------|
+| `--limit <n>` | Results per page (default: 50) |
+| `--offset <n>` | Pagination offset |
+| `--active` | Show only active aliases |
+| `--inactive` | Show only disabled aliases |
+| `--search <term>` | Filter by email address |
+| `--json` | Output raw JSON |
+
+**Example**
+
+```bash
+# Search for aliases containing "shop"
+anonli alias list --search shop --active
+```
+
+---
+
+## Stats
+
+Show email forwarding statistics.
+
+```bash
+anonli alias stats [alias-id] [options]
+```
+
+**Arguments**
+
+| Argument | Description |
+|----------|-------------|
+| `[alias-id]` | Specific alias ID (omit for a summary of all aliases) |
+
+**Options**
+
+| Flag | Description |
+|------|-------------|
+| `--all` | Show summary across all aliases |
+| `--json` | Output raw JSON |
+
+**Examples**
+
+```bash
+# Summary of all aliases
+anonli alias stats --all
+
+# Stats for a specific alias
+anonli alias stats abc123
+```
+
+---
+
+## Update
+
+Update alias settings.
+
+```bash
+anonli alias update <alias-id> [options]
+```
+
+Aliases: `anonli alias edit`
+
+**Options**
+
+| Flag | Description |
+|------|-------------|
+| `--enable` | Enable the alias |
+| `--disable` | Disable the alias |
+| `-l, --label <text>` | Update the description |
+
+At least one option is required. `--enable` and `--disable` are mutually exclusive.
+
+---
+
+## Toggle
+
+Toggle an alias between active and inactive.
+
+```bash
+anonli alias toggle <alias-id>
+```
+
+---
+
+## Delete
+
+Permanently delete an alias.
+
+```bash
+anonli alias delete <alias-id> [options]
+```
+
+**Arguments**
+
+| Argument | Description |
+|----------|-------------|
+| `<alias-id>` | Alias ID or email address |
+
+**Options**
+
+| Flag | Description |
+|------|-------------|
+| `-f, --force` | Skip confirmation prompt |
