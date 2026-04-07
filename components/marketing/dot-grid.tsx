@@ -2,16 +2,18 @@
 
 import { useEffect, useRef } from "react"
 
-const DOT_SPACING = 16
+const DOT_SPACING = 20
 const MAX_DISTANCE = 120
 const BASE_OPACITY = 0.15
 const MAX_OPACITY = 0.9
+const DOT_SIZE = 2
 
 export function InteractiveDotGrid() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const mousePos = useRef<{ x: number; y: number } | null>(null)
   const animationRef = useRef<number | undefined>(undefined)
   const primaryColorRef = useRef<string>("0, 0, 0")
+  const staticPatternRef = useRef<ImageData | null>(null)
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -33,35 +35,37 @@ export function InteractiveDotGrid() {
 
     let width = 0
     let height = 0
+    let dpr = 1
 
     const setupCanvas = () => {
       const rect = canvas.getBoundingClientRect()
-      const dpr = window.devicePixelRatio || 1
+      dpr = window.devicePixelRatio || 1
       width = rect.width
       height = rect.height
       canvas.width = width * dpr
       canvas.height = height * dpr
-      ctx.scale(dpr, dpr)
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      staticPatternRef.current = null
     }
 
-    const drawStatic = () => {
+    const drawStaticAndCache = () => {
       ctx.clearRect(0, 0, width, height)
+      ctx.fillStyle = `rgba(${primaryColorRef.current}, ${BASE_OPACITY})`
       const cols = Math.ceil(width / DOT_SPACING) + 1
       const rows = Math.ceil(height / DOT_SPACING) + 1
       for (let row = 0; row < rows; row++) {
         for (let col = 0; col < cols; col++) {
-          ctx.beginPath()
-          ctx.arc(col * DOT_SPACING, row * DOT_SPACING, 1, 0, Math.PI * 2)
-          ctx.fillStyle = `rgba(${primaryColorRef.current}, ${BASE_OPACITY})`
-          ctx.fill()
+          ctx.fillRect(col * DOT_SPACING - 0.5, row * DOT_SPACING - 0.5, DOT_SIZE, DOT_SIZE)
         }
       }
+      // Cache the static pattern for fast restore during interactive draws
+      staticPatternRef.current = ctx.getImageData(0, 0, canvas.width, canvas.height)
     }
 
     // On mobile: draw once, no animation loop
     if (isMobile) {
       setupCanvas()
-      drawStatic()
+      requestAnimationFrame(() => drawStaticAndCache())
       return
     }
 
@@ -69,20 +73,27 @@ export function InteractiveDotGrid() {
     let idleTimeout: ReturnType<typeof setTimeout> | undefined
 
     const draw = () => {
-      ctx.clearRect(0, 0, width, height)
-
       const mouse = mousePos.current
-      const cols = Math.ceil(width / DOT_SPACING) + 1
-      const rows = Math.ceil(height / DOT_SPACING) + 1
 
-      for (let row = 0; row < rows; row++) {
-        for (let col = 0; col < cols; col++) {
-          const x = col * DOT_SPACING
-          const y = row * DOT_SPACING
+      // Restore cached static pattern instead of redrawing all dots
+      if (staticPatternRef.current) {
+        ctx.putImageData(staticPatternRef.current, 0, 0)
+      } else {
+        drawStaticAndCache()
+      }
 
-          let opacity = BASE_OPACITY
+      // Only overdraw dots near the mouse
+      if (mouse) {
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+        const startCol = Math.max(0, Math.floor((mouse.x - MAX_DISTANCE) / DOT_SPACING))
+        const endCol = Math.ceil((mouse.x + MAX_DISTANCE) / DOT_SPACING)
+        const startRow = Math.max(0, Math.floor((mouse.y - MAX_DISTANCE) / DOT_SPACING))
+        const endRow = Math.ceil((mouse.y + MAX_DISTANCE) / DOT_SPACING)
 
-          if (mouse) {
+        for (let row = startRow; row <= endRow; row++) {
+          for (let col = startCol; col <= endCol; col++) {
+            const x = col * DOT_SPACING
+            const y = row * DOT_SPACING
             const dx = x - mouse.x
             const dy = y - mouse.y
             const distance = Math.sqrt(dx * dx + dy * dy)
@@ -90,14 +101,12 @@ export function InteractiveDotGrid() {
             if (distance < MAX_DISTANCE) {
               const t = distance / MAX_DISTANCE
               const factor = (1 + Math.cos(t * Math.PI)) / 2
-              opacity = BASE_OPACITY + (MAX_OPACITY - BASE_OPACITY) * factor
+              const opacity = BASE_OPACITY + (MAX_OPACITY - BASE_OPACITY) * factor
+
+              ctx.fillStyle = `rgba(${primaryColorRef.current}, ${opacity})`
+              ctx.fillRect(x - 0.5, y - 0.5, DOT_SIZE, DOT_SIZE)
             }
           }
-
-          ctx.beginPath()
-          ctx.arc(x, y, 1, 0, Math.PI * 2)
-          ctx.fillStyle = `rgba(${primaryColorRef.current}, ${opacity})`
-          ctx.fill()
         }
       }
 
@@ -137,14 +146,14 @@ export function InteractiveDotGrid() {
     }
 
     setupCanvas()
-    drawStatic()
+    requestAnimationFrame(() => drawStaticAndCache())
 
-    document.addEventListener("mousemove", handleMouseMove)
+    document.addEventListener("mousemove", handleMouseMove, { passive: true })
     document.addEventListener("mouseleave", handleMouseLeave)
 
     const resizeObserver = new ResizeObserver(() => {
       setupCanvas()
-      draw()
+      drawStaticAndCache()
     })
     resizeObserver.observe(canvas)
 
