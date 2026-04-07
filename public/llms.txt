@@ -1,0 +1,58 @@
+# anon.li
+
+> Privacy-first platform providing anonymous email aliases and end-to-end encrypted file sharing.
+
+## About
+
+anon.li is a privacy-focused platform with two core products:
+
+- **Alias**: Anonymous email forwarding. Create disposable email aliases that forward to your real inbox without exposing your personal address. Supports custom domains, PGP encryption, and reply-via-alias.
+- **Drop**: End-to-end encrypted file sharing. Upload files encrypted in your browser with AES-256-GCM. Zero-knowledge architecture — the server never sees your encryption keys.
+
+All services are open source and designed with a zero-trust security model.
+
+## Key Pages
+
+- [Homepage](https://anon.li/)
+- [Email Aliases (Alias)](https://anon.li/alias)
+- [File Sharing (Drop)](https://anon.li/drop)
+- [Upload a File](https://anon.li/drop/upload)
+- [Pricing](https://anon.li/pricing)
+- [Security](https://anon.li/security)
+- [About](https://anon.li/about)
+- [FAQ](https://anon.li/faq)
+- [Compare](https://anon.li/compare)
+
+## Documentation
+
+- [Getting Started](https://anon.li/docs/getting-started)
+- [API Reference](https://anon.li/docs/api)
+- [API: Aliases](https://anon.li/docs/api/alias)
+- [API: Drops](https://anon.li/docs/api/drop)
+- [API: Domains](https://anon.li/docs/api/domain)
+- [API: Recipients](https://anon.li/docs/api/recipient)
+- [CLI](https://anon.li/docs/cli)
+- [CLI: Alias Commands](https://anon.li/docs/cli/alias)
+- [CLI: Drop Commands](https://anon.li/docs/cli/drop)
+- [CLI: Domain Commands](https://anon.li/docs/cli/domain)
+- [CLI: Recipient Commands](https://anon.li/docs/cli/recipient)
+- [Browser Extension](https://anon.li/docs/extension)
+- [MCP Integration](https://anon.li/docs/mcp)
+- [Security Architecture](https://anon.li/docs/security)
+
+## Legal
+
+- [Terms of Service](https://anon.li/terms)
+- [Privacy Policy](https://anon.li/privacy)
+- [Acceptable Use Policy](https://anon.li/docs/legal/aup)
+- [DMCA Policy](https://anon.li/docs/legal/dmca)
+- [Warrant Canary](https://anon.li/warrant-canary)
+
+## Blog
+
+- [Introducing anon.li](https://anon.li/blog/introduction)
+- [Security Architecture](https://anon.li/blog/security-architecture)
+
+## Open Source
+
+- [GitHub](https://github.com/anondotli/anon.li)
