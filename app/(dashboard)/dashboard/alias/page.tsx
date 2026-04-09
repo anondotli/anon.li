@@ -4,7 +4,7 @@ import { redirect } from "next/navigation"
 
 import { Plus, Users, AlertTriangle } from "lucide-react"
 import { CreateAliasDialog, AliasList } from "@/components/alias"
-import { getPlanLimits } from "@/lib/limits"
+import { getDisplayPlanLimits } from "@/lib/limits"
 import { Progress } from "@/components/ui/progress"
 import { RecipientService } from "@/lib/services/recipient"
 import { Button } from "@/components/ui/button"
@@ -57,7 +57,7 @@ export default async function DashboardPage() {
     const customCount = aliases.filter((a) => a.format === "CUSTOM").length
     const randomCount = aliases.filter((a) => a.format === "RANDOM").length
 
-    const { random: randomLimit, custom: customLimit } = getPlanLimits(user)
+    const { random: randomLimit, custom: customLimit } = getDisplayPlanLimits(user)
 
     // Calculate percentages
     const randomPercent = randomLimit === -1 ? 0 : Math.min((randomCount / randomLimit) * 100, 100)

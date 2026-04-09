@@ -273,7 +273,7 @@ export const comparisons: ComparisonEntry[] = [
                     category: "Alias Features",
                     items: [
                         { feature: "Free aliases", anonli: "10", competitor: "10", source: "https://simplelogin.io/pricing/", sourceLabel: "SimpleLogin Pricing" },
-                        { feature: "Unlimited aliases (paid)", anonli: "250 (Pro)", competitor: true, source: "https://simplelogin.io/pricing/", sourceLabel: "SimpleLogin Pricing" },
+                        { feature: "Unlimited aliases (paid)", anonli: "Unlimited (Pro)", competitor: true, source: "https://simplelogin.io/pricing/", sourceLabel: "SimpleLogin Pricing" },
                         { feature: "Custom domains", anonli: true, competitor: true },
                         { feature: "Anonymous replies", anonli: true, competitor: true },
                         { feature: "PGP encryption", anonli: true, competitor: true },

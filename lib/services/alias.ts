@@ -135,7 +135,9 @@ export class AliasService {
             const { random: randomLimit, custom: customLimit } = getPlanLimits(user)
             const limit = format === "CUSTOM" ? customLimit : randomLimit
             if (limit !== -1 && currentCount >= limit) {
-                throw new ValidationError(`${format === "CUSTOM" ? "Custom" : "Random"} alias limit reached (${limit}). Upgrade to increase.`)
+                throw new ValidationError(format === "CUSTOM"
+                    ? `Custom alias limit reached (${limit}). Upgrade to increase.`
+                    : "Random alias limit reached. Upgrade to increase.")
             }
 
             const alias = await tx.alias.create({
@@ -272,7 +274,7 @@ export class AliasService {
             // RANDOM
             const currentRandomCount = aliases.filter((a) => a.format === "RANDOM").length
             if (randomLimit !== -1 && currentRandomCount >= randomLimit) {
-                throw new ValidationError(`Random alias limit reached (${randomLimit}). Upgrade to increase.`)
+                throw new ValidationError("Random alias limit reached. Upgrade to increase.")
             }
 
             // Generate Random Local Part

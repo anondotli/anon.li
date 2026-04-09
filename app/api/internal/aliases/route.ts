@@ -71,13 +71,13 @@ async function lookupAlias(email: string) {
                     // Enforce alias count limit before auto-creating
                     const limits = await getPlanLimitsAsync(catchAllDomain.userId)
                     const currentCount = await prisma.alias.count({
-                        where: { userId: catchAllDomain.userId },
+                        where: { userId: catchAllDomain.userId, format: "RANDOM" },
                     })
 
-                    if (limits.random !== -1 && currentCount >= limits.random + limits.custom) {
+                    if (limits.random !== -1 && currentCount >= limits.random) {
                         logger.warn("Catch-all alias creation blocked: user at alias limit", {
                             userId: catchAllDomain.userId, domain, currentCount,
-                            limit: limits.random + limits.custom,
+                            limit: limits.random,
                         })
                         return { error: "Alias not found", status: 404 }
                     }

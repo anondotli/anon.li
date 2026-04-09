@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { getPlanLimits, getDropLimits, getEffectiveTier } from "@/lib/limits"
+import { getDisplayPlanLimits, getDropLimits, getEffectiveTier } from "@/lib/limits"
 import { rateLimit } from "@/lib/rate-limit"
 import { createLogger } from "@/lib/logger"
 import { requireSession } from "@/lib/api-auth"
@@ -125,7 +125,7 @@ export async function GET() {
         }) as unknown as Array<{ keyPrefix: string; label: string | null; createdAt: Date }>
 
         // Get plan info
-        const aliasLimits = getPlanLimits(user)
+        const aliasLimits = getDisplayPlanLimits(user)
         const dropLimits = getDropLimits(user)
         const tier = getEffectiveTier(user)
 
@@ -208,4 +208,3 @@ export async function GET() {
         )
     }
 }
-

@@ -6,7 +6,7 @@
 import { validateRequest } from "@/lib/api-auth";
 import { prisma } from "@/lib/prisma";
 import { getEffectiveTier, getProductFromPriceId } from "@/lib/limits";
-import { getDropLimits, getPlanLimits } from "@/lib/limits";
+import { getDisplayPlanLimits, getDropLimits } from "@/lib/limits";
 import { EXPIRY_LIMITS } from "@/config/plans";
 import {
     generateRequestId,
@@ -78,7 +78,7 @@ export async function GET(req: Request) {
     }
 
     const tier = getEffectiveTier(user);
-    const aliasLimits = getPlanLimits(user);
+    const aliasLimits = getDisplayPlanLimits(user);
     const dropLimits = getDropLimits(user);
     const product = getProductFromPriceId(user.stripePriceId);
 

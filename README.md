@@ -32,7 +32,7 @@ We built anon.li because we were tired of handing our sensitive files and real e
 
 ### Alias - Anonymous Email Forwarding
 Create unique aliases for every service. Reply from your aliases without ever exposing your real identity. Emails pass through our servers in real-time and are **never** stored on disk.
-* Up to 250 aliases (Pro)
+* Unlimited aliases (Pro)
 * Anonymous replies via SRS
 * Optional PGP encryption
 * Custom domain support
@@ -88,7 +88,7 @@ anon.li Drop uploads and downloads blob data directly between the browser and R2
 
 | Feature | anon.li | SimpleLogin | addy.io | Firefox Relay |
 |---|---|---|---|---|
-| **Email aliases** | Up to 250 | Unlimited (paid) | Unlimited (paid) | 5 (free) / unlimited (paid) |
+| **Email aliases** | 10 (free) / unlimited | Unlimited (paid) | Unlimited (paid) | 5 (free) / unlimited (paid) |
 | **Anonymous replies** | Yes | Yes | Yes | No |
 | **PGP encryption** | Yes | Yes | Yes | No |
 | **Custom domains** | Yes (paid) | Yes (paid) | Yes (paid) | No |

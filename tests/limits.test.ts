@@ -41,7 +41,7 @@ vi.mock('@/config/plans', () => {
         ALIAS_LIMITS: {
             free: { random: 10, custom: 1, domains: 0, recipients: 1, apiRequests: 500 },
             plus: { random: 50, custom: 10, domains: 3, recipients: 5, apiRequests: 10000 },
-            pro: { random: 250, custom: 100, domains: 10, recipients: 10, apiRequests: 100000 },
+            pro: { random: -1, custom: 100, domains: 10, recipients: 10, apiRequests: 100000 },
         },
         STORAGE_LIMITS: {
             guest: 3221225472,
@@ -77,7 +77,7 @@ const MOCK_DROP_PRO_MONTHLY = 'price_drop_pro_monthly'
 const MOCK_ALIAS_LIMITS = {
     free: { random: 10, custom: 1, domains: 0, recipients: 1, apiRequests: 500 },
     plus: { random: 50, custom: 10, domains: 3, recipients: 5, apiRequests: 10000 },
-    pro: { random: 250, custom: 100, domains: 10, recipients: 10, apiRequests: 100000 },
+    pro: { random: 10000, custom: 100, domains: 10, recipients: 10, apiRequests: 100000 },
 }
 
 const MOCK_STORAGE_LIMITS = {
@@ -92,7 +92,7 @@ const MOCK_EXPIRY_LIMITS = {
     pro: 365,
 }
 
-import { getPlanLimits, getDropLimits, getEffectiveTier, getRecipientLimit, getProductFromPriceId } from '@/lib/limits'
+import { getPlanLimits, getDisplayPlanLimits, getDropLimits, getEffectiveTier, getRecipientLimit, getProductFromPriceId } from '@/lib/limits'
 
 const originalEnv = process.env
 
@@ -214,6 +214,35 @@ describe('getDropLimits', () => {
         const result = getDropLimits(user)
         expect(result.maxStorage).toBe(MOCK_STORAGE_LIMITS.free)
         expect(result.maxExpiry).toBe(MOCK_EXPIRY_LIMITS.free)
+    })
+})
+
+describe('getDisplayPlanLimits', () => {
+    it('should hide the pro random alias cap from users', () => {
+        const futureDate = new Date()
+        futureDate.setDate(futureDate.getDate() + 30)
+
+        const user = {
+            stripePriceId: MOCK_BUNDLE_PRO_MONTHLY,
+            stripeCurrentPeriodEnd: futureDate,
+        }
+
+        expect(getDisplayPlanLimits(user)).toEqual({
+            ...MOCK_ALIAS_LIMITS.pro,
+            random: -1,
+        })
+    })
+
+    it('should keep visible limits for non-pro users', () => {
+        const futureDate = new Date()
+        futureDate.setDate(futureDate.getDate() + 30)
+
+        const user = {
+            stripePriceId: MOCK_BUNDLE_PLUS_MONTHLY,
+            stripeCurrentPeriodEnd: futureDate,
+        }
+
+        expect(getDisplayPlanLimits(user)).toEqual(MOCK_ALIAS_LIMITS.plus)
     })
 })
 

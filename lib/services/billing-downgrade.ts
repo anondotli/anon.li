@@ -390,8 +390,8 @@ export class BillingDowngradeService {
         const allRandomAliases = await prisma.alias.count({ where: { userId, format: "RANDOM" } });
         const allCustomAliases = await prisma.alias.count({ where: { userId, format: "CUSTOM" } });
 
-        const currentRandomExcess = Math.max(0, allRandomAliases - planLimits.random);
-        const currentCustomExcess = Math.max(0, allCustomAliases - planLimits.custom);
+        const currentRandomExcess = planLimits.random === -1 ? 0 : Math.max(0, allRandomAliases - planLimits.random);
+        const currentCustomExcess = planLimits.custom === -1 ? 0 : Math.max(0, allCustomAliases - planLimits.custom);
 
         const scheduledRandomAliases = await prisma.alias.findMany({
             where: { userId, format: "RANDOM", scheduledForRemovalAt: { not: null } },

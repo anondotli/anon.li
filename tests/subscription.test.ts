@@ -55,7 +55,7 @@ vi.mock('@/config/plans', () => {
         ALIAS_LIMITS: {
             free: { random: 10, custom: 1, domains: 0, recipients: 1, apiRequests: 500 },
             plus: { random: 50, custom: 10, domains: 3, recipients: 5, apiRequests: 10000 },
-            pro: { random: 250, custom: 100, domains: 10, recipients: 10, apiRequests: 100000 },
+            pro: { random: -1, custom: 100, domains: 10, recipients: 10, apiRequests: 100000 },
         },
         STORAGE_LIMITS: { guest: 3221225472, free: 5368709120, plus: 53687091200, pro: 268435456000 },
         DROP_SIZE_LIMITS: { guest: 3221225472, free: 5368709120, plus: 53687091200, pro: 268435456000 },

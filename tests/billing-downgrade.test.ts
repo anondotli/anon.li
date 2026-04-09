@@ -405,7 +405,7 @@ describe("BillingDowngradeService", () => {
         it("should spare all if user re-subscribed", async () => {
             // Set pro limits for this test
             mockGetPlanLimitsImpl.mockReturnValue({
-                random: 250,
+                random: 10000,
                 custom: 100,
                 domains: 10,
                 apiRequests: 100000,
@@ -420,10 +420,10 @@ describe("BillingDowngradeService", () => {
                 stripeCurrentPeriodEnd: new Date(Date.now() + 30 * 86400000),
             });
 
-            // Pro limits: 250 random, 100 custom, 10 domains, 10 recipients
+            // Pro limits: hidden 10k random cap, 100 custom, 10 domains, 10 recipients
             // Current totals are all under pro limits
             mockAliasCount
-                .mockResolvedValueOnce(15) // random — within 250
+                .mockResolvedValueOnce(15) // random — within hidden cap
                 .mockResolvedValueOnce(5); // custom — within 100
 
             // Scheduled aliases: 5 were scheduled but shouldn't be deleted
@@ -452,8 +452,11 @@ describe("BillingDowngradeService", () => {
             expect(mockDomainDeleteMany).not.toHaveBeenCalled();
             expect(mockRecipientDeleteMany).not.toHaveBeenCalled();
 
-            // Should have spared all (cleared scheduledForRemovalAt)
-            expect(mockAliasUpdateMany).toHaveBeenCalled();
+            // Should have spared all scheduled random/custom aliases
+            expect(mockAliasUpdateMany).toHaveBeenCalledWith({
+                where: { id: { in: ["r1", "r2", "r3", "c1", "c2"] } },
+                data: { scheduledForRemovalAt: null },
+            });
         });
     });
 

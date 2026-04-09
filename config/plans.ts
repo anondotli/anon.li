@@ -66,7 +66,7 @@ export const PLAN_ENTITLEMENTS = {
             recipientsPerAlias: 3,
         },
         pro: {
-            random: 250,
+            random: -1,
             custom: 100,
             domains: 10,
             apiRequests: 100_000,
@@ -194,10 +194,15 @@ function formatBytes(bytes: number): string {
     return gb >= 1 ? `${gb}GB` : `${Math.round(bytes / (1024 * 1024))}MB`;
 }
 
+function formatAliasCount(count: number, noun = "aliases", hideLimit = false): string {
+    return (hideLimit || count === -1) ? `Unlimited ${noun}` : `${count} ${noun}`;
+}
+
 function aliasFeatureStrings(tier: "free" | PaidTier): { features: string[]; missingFeatures: string[] } {
     const e = PLAN_ENTITLEMENTS.alias[tier];
+    const hidesRandomLimit = tier === "pro";
     const features: string[] = [
-        `${e.random} email aliases`,
+        formatAliasCount(e.random, "email aliases", hidesRandomLimit),
         `${e.custom} custom alias${e.custom !== 1 ? "es" : ""}`,
         `${e.recipients} email recipient${e.recipients !== 1 ? "s" : ""}`,
         ...(e.recipientsPerAlias > 1 ? [`${e.recipientsPerAlias} recipients per alias`] : []),
@@ -210,7 +215,7 @@ function aliasFeatureStrings(tier: "free" | PaidTier): { features: string[]; mis
     if (tier === "free") {
         missingFeatures.push(`${PLAN_ENTITLEMENTS.alias.plus.random} aliases`, "Custom domains");
     } else if (tier === "plus") {
-        missingFeatures.push(`${PLAN_ENTITLEMENTS.alias.pro.random} aliases`, `${PLAN_ENTITLEMENTS.alias.pro.domains} custom domains`);
+        missingFeatures.push(formatAliasCount(PLAN_ENTITLEMENTS.alias.pro.random, "aliases", true), `${PLAN_ENTITLEMENTS.alias.pro.domains} custom domains`);
     }
     return { features, missingFeatures };
 }
@@ -389,4 +394,3 @@ export function getPlanFromPriceId(priceId: string): { product: Product; tier: T
     }
     return null;
 }
-

@@ -75,7 +75,7 @@ export default function FAQPage() {
                 </div>
                 <Accordion type="single" collapsible className="space-y-3">
                     <FAQItem value="what-is-alias" question="What is an email alias?">
-                        An email alias is a unique email address (like random123@anon.li) that forwards messages to your real inbox. Create aliases to sign up for services without exposing your real email. Free users get 10 aliases, Plus gets 100, and Pro gets 250.
+                        An email alias is a unique email address (like random123@anon.li) that forwards messages to your real inbox. Create aliases to sign up for services without exposing your real email. Free users get 10 aliases, Plus gets 100, and Pro gets unlimited aliases.
                     </FAQItem>
                     <FAQItem value="reply-alias" question="Can I reply from an alias?">
                         Yes! When you reply to a forwarded email, your response is automatically sent through your alias. The recipient sees your alias address, never your real email.

@@ -1,7 +1,7 @@
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { redirect } from "next/navigation"
-import { getPlanLimits, getDropLimits, getEffectiveTier } from "@/lib/limits"
+import { getDisplayPlanLimits, getDropLimits, getEffectiveTier } from "@/lib/limits"
 import { formatBytes } from "@/lib/utils"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
@@ -26,7 +26,7 @@ export default async function UsagePage() {
     ])
 
     // Get limits
-    const aliasLimits = getPlanLimits(user)
+    const aliasLimits = getDisplayPlanLimits(user)
     const dropLimits = getDropLimits(user)
     const tier = getEffectiveTier(user)
 
