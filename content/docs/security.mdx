@@ -5,7 +5,7 @@ summary: "A comprehensive overview of anon.li's security architecture, cryptogra
 
 anon.li provides two core services: **Alias** (anonymous email forwarding) and **Drop** (end-to-end encrypted file sharing). Drop is zero-knowledge by design. Alias has a different trust model: email content is processed transiently for forwarding to your real inbox, and the delivered copy can be protected with optional PGP. This document details the security architecture behind both products, our trust model, and the privacy guarantees we provide.
 
-Our full source code is available on [GitHub](https://github.com/anondotli). We use only standard, well-audited cryptographic primitives - no custom cryptography.
+Our full source code is available on [Codeberg](https://codeberg.org/anonli). We use only standard, well-audited cryptographic primitives - no custom cryptography.
 
 ## Threat Model
 
@@ -220,12 +220,12 @@ We do not serve advertising, build user profiles, or sell data to third parties.
 
 ## Open Source & Auditing
 
-The anon.li codebase is open source on [GitHub](https://github.com/anondotli):
+The anon.li codebase is open source on [Codeberg](https://codeberg.org/anonli):
 
-- [**Web application**](https://github.com/anondotli/anon.li) - Next.js, Prisma, TypeScript
-- [**Mail server (MX)**](https://github.com/anondotli/mx) - Haraka-based forwarding server
-- [**CLI**](https://github.com/anondotli/cli) - Command-line client for Alias and Drop
-- [**Browser extension**](https://github.com/anondotli/extension) - Firefox & Chrome browser extension
+- [**Web application**](https://codeberg.org/anonli/anon.li) - Next.js, Prisma, TypeScript
+- [**Mail server (MX)**](https://codeberg.org/anonli/mx) - Haraka-based forwarding server
+- [**CLI**](https://codeberg.org/anonli/cli) - Command-line client for Alias and Drop
+- [**Browser extension**](https://codeberg.org/anonli/extension) - Firefox & Chrome browser extension
 
 All cryptographic operations use standard, well-audited implementations:
 

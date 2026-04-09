@@ -32,7 +32,7 @@ export default function CliPage() {
 
                 <div className="container mx-auto px-6 relative z-10 w-full">
                     <div className="flex flex-col items-center space-y-5 text-center">
-                        <Link href="https://github.com/anondotli/cli" className="inline-flex items-center rounded-full border border-primary/10 bg-background px-4 py-1.5 text-sm font-medium animate-in fade-in slide-in-from-bottom-4 duration-700 hover:scale-105 hover:text-primary">
+                        <Link href="https://codeberg.org/anonli/cli" className="inline-flex items-center rounded-full border border-primary/10 bg-background px-4 py-1.5 text-sm font-medium animate-in fade-in slide-in-from-bottom-4 duration-700 hover:scale-105 hover:text-primary">
                             <span className="flex h-2 w-2 rounded-full bg-primary mr-2 animate-pulse"></span>
                             <span className="text-primary/80 tracking-wide">Open Source CLI</span>
                         </Link>

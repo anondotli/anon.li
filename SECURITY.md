@@ -6,7 +6,7 @@ As a privacy-first platform, we take security vulnerabilities very seriously. We
 
 If you discover a security vulnerability within anon.li, please send an email to **security@anon.li**.
 
-- **Do not** open a GitHub issue for security vulnerabilities.
+- **Do not** open a GitHub / Codeberg issue for security vulnerabilities.
 - Include a detailed description of the vulnerability, steps to reproduce, and the potential impact.
 - We will acknowledge your email within **48 hours**.
 - We will provide an estimated timeframe for addressing the vulnerability within **5 business days**.

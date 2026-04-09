@@ -241,14 +241,14 @@ export default function SecurityPage() {
                     </div>
                     <h2 className="text-3xl font-serif font-medium">Open Source Security</h2>
                     <p className="text-muted-foreground max-w-2xl mx-auto">
-                        Don&apos;t trust us—verify us. Our public application code is open source on GitHub so researchers can inspect the implementation directly. Hosted infrastructure and the separate mail stack still need to be trusted and audited on their own terms.
+                        Don&apos;t trust us—verify us. Our public application code is open source on GitHub & Codeberg so researchers can inspect the implementation directly. Hosted infrastructure and the separate mail stack still need to be trusted and audited on their own terms.
                     </p>
                 </div>
                 <div className="flex flex-col sm:flex-row justify-center gap-4">
                     <Button asChild size="lg" variant="outline" className="rounded-full">
-                        <Link href="https://github.com/anondotli">
+                        <Link href="https://codeberg.org/anonli">
                             <FileCode className="mr-2 h-5 w-5" />
-                            View on GitHub
+                            View on Codeberg
                         </Link>
                     </Button>
                     <Button asChild size="lg" variant="outline" className="rounded-full">

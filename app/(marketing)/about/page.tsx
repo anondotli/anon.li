@@ -90,7 +90,7 @@ export default function AboutPage() {
                     <ValueItem
                         icon={<Globe className="h-5 w-5" />}
                         title="Transparency Builds Trust"
-                        description="Our platform code is open source on GitHub. Anyone can audit our code and verify our claims."
+                        description="Our platform code is open source on GitHub & Codeberg. Anyone can audit our code and verify our claims."
                     />
                 </div>
             </section>
@@ -106,7 +106,7 @@ export default function AboutPage() {
                         <strong className="text-foreground">Minimal Data Collection:</strong> We only collect what&apos;s absolutely necessary to provide the service. No selling data, no advertising trackers, and only cookie-free aggregate analytics.
                     </p>
                     <p>
-                        <strong className="text-foreground">Open Source Security:</strong> Our platform code is open source on GitHub. We invite security researchers to audit our code and verify our claims. We provide a secure process for responsible disclosure of vulnerabilities.
+                        <strong className="text-foreground">Open Source Security:</strong> Our platform code is open source on GitHub & Codeberg. We invite security researchers to audit our code and verify our claims. We provide a secure process for responsible disclosure of vulnerabilities.
                     </p>
                     <p>
                         <strong className="text-foreground">Industry Standards:</strong> We use proven cryptographic standards: AES-256-GCM, RSA... No custom crypto, no security through obscurity.

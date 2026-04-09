@@ -30,8 +30,8 @@ export default async function TermsPage() {
             summary={document.metadata.summary as string | undefined}
             lastUpdated={document.metadata.lastUpdated as string | undefined}
             source={document.content}
-            sourceLabel="View legal source on GitHub"
-            sourceHref="https://github.com/anondotli/anon.li/blob/main/content/docs/legal/terms.mdx"
+            sourceLabel="View legal source on Codeberg"
+            sourceHref="https://codeberg.org/anonli/anon.li/src/branch/main/content/docs/legal/terms.mdx"
             claims={getClaimsByIds(termsClaimIds)}
         />
     )

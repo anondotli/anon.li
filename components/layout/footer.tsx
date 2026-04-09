@@ -79,12 +79,12 @@ export function SiteFooter() {
                             </li>
                             <li>
                                 <a
-                                    href="https://github.com/anondotli/anon.li"
+                                    href="https://codeberg.org/anonli/anon.li"
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     className="hover:text-foreground transition-colors inline-flex items-center gap-1"
                                 >
-                                    GitHub
+                                    Codeberg
                                     <ExternalLink className="h-3 w-3" />
                                 </a>
                             </li>

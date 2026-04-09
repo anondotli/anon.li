@@ -110,7 +110,7 @@ const FAQ_CATEGORIES: FAQCategory[] = [
                 question: "Can I audit your security?",
                 answer: (
                     <>
-                        Yes! Our platform code is open source at <a href="https://github.com/anondotli" className="text-primary hover:underline">github.com/anondotli</a>. We believe in open source security over blind trust.
+                        Yes! Our platform code is open source at <a href="https://codeberg.org/anonli/anon.li" className="text-primary hover:underline">codeberg.org/anonli/anon.li</a>. We believe in open source security over blind trust.
                     </>
                 )
             },

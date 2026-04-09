@@ -55,4 +55,4 @@ All services are open source and designed with a zero-trust security model.
 
 ## Open Source
 
-- [GitHub](https://github.com/anondotli/anon.li)
+- [Codeberg](https://codeberg.org/anonli/anon.li)

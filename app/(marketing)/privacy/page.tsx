@@ -30,8 +30,8 @@ export default async function PrivacyPage() {
             summary={document.metadata.summary as string | undefined}
             lastUpdated={document.metadata.lastUpdated as string | undefined}
             source={document.content}
-            sourceLabel="View legal source on GitHub"
-            sourceHref="https://github.com/anondotli/anon.li/blob/main/content/docs/legal/privacy.mdx"
+            sourceLabel="View legal source on Codeberg"
+            sourceHref="https://codeberg.org/anonli/anon.li/src/branch/main/content/docs/legal/privacy.mdx"
             claims={getClaimsByIds(privacyClaimIds)}
         />
     )

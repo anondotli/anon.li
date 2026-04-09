@@ -119,7 +119,7 @@ export const CLAIMS: Claim[] = [
         appliesTo: ["drop"],
     },
 
-    // ─── Email (depends on external infra) ──────────────────────────────
+    // ─── Email ──────────────────────────────
 
     {
         id: "alias_no_email_storage",
@@ -127,7 +127,7 @@ export const CLAIMS: Claim[] = [
         class: "depends_on_external_infra",
         category: "email",
         lastVerified: "2026-04-04",
-        sourceUrl: "https://github.com/anondotli/mx/blob/main/plugins/queue.forward.js",
+        sourceUrl: "https://codeberg.org/anonli/mx/src/branch/main/plugins/queue.forward.js",
         caveats: [
             "Messages are still processed server-side during delivery",
             "The Haraka mail server may queue messages transiently before final delivery",
@@ -141,7 +141,7 @@ export const CLAIMS: Claim[] = [
         class: "depends_on_external_infra",
         category: "email",
         lastVerified: "2026-04-04",
-        sourceUrl: "https://github.com/anondotli/mx/blob/main/plugins/queue.forward.js",
+        sourceUrl: "https://codeberg.org/anonli/mx/src/branch/main/plugins/queue.forward.js",
         caveats: [
             "Applied when the destination recipient has a public key configured",
             "If PGP/MIME generation fails, forwarding falls back to an unencrypted copy",
@@ -154,7 +154,7 @@ export const CLAIMS: Claim[] = [
         class: "depends_on_external_infra",
         category: "email",
         lastVerified: "2026-04-04",
-        sourceUrl: "https://github.com/anondotli/mx/blob/main/config/plugins",
+        sourceUrl: "https://codeberg.org/anonli/mx/src/branch/main/config/plugins",
         caveats: [
             "Custom domains still require correct DNS records for deliverability",
         ],
@@ -166,7 +166,7 @@ export const CLAIMS: Claim[] = [
         class: "depends_on_external_infra",
         category: "email",
         lastVerified: "2026-04-04",
-        sourceUrl: "https://github.com/anondotli/mx/blob/main/plugins/rcpt_to.reply.js",
+        sourceUrl: "https://codeberg.org/anonli/mx/src/branch/main/plugins/rcpt_to.reply.js",
         caveats: [
             "Reply tokens are cryptographically validated and expire after 7 days",
         ],
@@ -179,7 +179,7 @@ export const CLAIMS: Claim[] = [
         class: "depends_on_external_infra",
         category: "email",
         lastVerified: "2026-04-04",
-        sourceUrl: "https://github.com/anondotli/mx/blob/main/plugins/data.tracking_remove.js",
+        sourceUrl: "https://codeberg.org/anonli/mx/src/branch/main/plugins/data.tracking_remove.js",
         caveats: [
             "Targets known tracking domains, 1x1 pixels, and common URL parameters",
             "Not a guarantee against every possible tracker or remote-image technique",
@@ -198,7 +198,7 @@ export const CLAIMS: Claim[] = [
         category: "infrastructure",
         verificationPath: "LICENSE",
         lastVerified: "2026-04-04",
-        sourceUrl: "https://github.com/anondotli",
+        sourceUrl: "https://codeberg.org/anonli/anon.li",
         caveats: [
             "The web application is AGPL-3.0-only; the companion mail server is published separately under MIT",
             "Users must trust the deployment matches the published source",
@@ -211,7 +211,7 @@ export const CLAIMS: Claim[] = [
         class: "depends_on_external_infra",
         category: "infrastructure",
         lastVerified: "2026-04-05",
-        sourceUrl: "https://github.com/anondotli/anon.li/blob/main/content/docs/security.mdx",
+        sourceUrl: "https://codeberg.org/anonli/anon.li/src/branch/main/content/docs/security.mdx",
         caveats: [
             "Log retention is configured at the infrastructure level, not in this codebase",
         ],

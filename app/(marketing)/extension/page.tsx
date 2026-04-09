@@ -214,8 +214,8 @@ export default function ExtensionPage() {
                                     </a>
                                 </Button>
                                 <Button asChild size="xl" variant="outline" className="rounded-full px-12 h-16 text-lg text-foreground bg-background/80 hover:bg-background/60 font-medium inline-flex items-center gap-2">
-                                    <Link href="https://github.com/anondotli/extension" target="_blank" rel="noopener noreferrer">
-                                        View on GitHub
+                                    <Link href="https://codeberg.org/anonli/extension" target="_blank" rel="noopener noreferrer">
+                                        View on Codeberg
                                         <ExternalLink className="h-4 w-4" />
                                     </Link>
                                 </Button>

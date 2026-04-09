@@ -13,7 +13,7 @@ We use [Bun](https://bun.sh) for dependency management and task running.
 
 2. **Installation**
    ```bash
-   git clone https://github.com/anondotli/anon.li.git
+   git clone https://codeberg.org/anonli/anon.li.git
    cd anon.li
    bun install
    ```

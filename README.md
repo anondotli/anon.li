@@ -1,5 +1,5 @@
 <p align="center">
-  <a href="https://anon.li/?ref=github" target="_blank">
+  <a href="https://anon.li/?ref=codeberg" target="_blank">
     <img src="public/og-image.png" alt="anon.li - Click to watch our YouTube Introduction" width="600" />
   </a>
 </p>
@@ -57,7 +57,7 @@ Whether you prefer spinning up containers or running things natively, you can ge
 Installation requires [Bun](https://bun.sh) \>= 1.0, PostgreSQL, and Redis.
 
 ```bash
-git clone https://github.com/anondotli/anon.li.git
+git clone https://codeberg.org/anonli/anon.li.git
 cd anon.li
 bun install
 cp .env.example .env

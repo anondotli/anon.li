@@ -57,7 +57,7 @@ export default function FAQPage() {
                         Yes! We offer generous free tiers for both services. Free accounts include email aliases and file uploads with reasonable limits. Paid plans unlock higher limits, longer expiry times, and advanced features like custom domains and custom encryption keys.
                     </FAQItem>
                     <FAQItem value="open-source" question="Is anon.li open source?">
-                        Our public application code is open source on GitHub. You can audit the web app and companion repositories, but the hosted service and separate mail stack still depend on deployment and infrastructure you must trust independently.
+                        Our public application code is open source on GitHub & Codeberg. You can audit the web app and companion repositories, but the hosted service and separate mail stack still depend on deployment and infrastructure you must trust independently.
                     </FAQItem>
                     <FAQItem value="data-location" question="Where is my data stored?">
                         We rely on infrastructure and subprocessors across the European Union, the United States, and global edge networks. For file sharing, only encrypted Drop data is stored with our storage provider. See our <a href="/privacy" className="text-primary hover:underline">Privacy Policy</a> for the current processor list and locations.
@@ -147,7 +147,7 @@ export default function FAQPage() {
                         Yes! Our CLI lets you manage aliases, drops, domains, and recipients directly from the terminal. Install it from the <a href="/cli" className="text-primary hover:underline">/cli</a> page. It supports all major operations including creating aliases, uploading encrypted files, and managing your subscription.
                     </FAQItem>
                     <FAQItem value="browser-extension" question="Is there a browser extension?">
-                        Yes. The <a href="/extension" className="text-primary hover:underline">anon.li browser extension</a> can be installed through Firefox & Chrome web stores today or manually from our GitHub repository. It lets you create aliases with one click while browsing, manage your drops, and share files with a QR code without leaving the current tab.
+                        Yes. The <a href="/extension" className="text-primary hover:underline">anon.li browser extension</a> can be installed through Firefox & Chrome web stores today or manually from our GitHub & Codeberg repositories. It lets you create aliases with one click while browsing, manage your drops, and share files with a QR code without leaving the current tab.
                     </FAQItem>
                     <FAQItem value="api-access" question="Do you offer an API?">
                         Yes! We provide a full REST API for aliases, domains, and drops. Free accounts get 500 requests/month, Plus gets 25,000, and Pro gets 100,000. Generate API keys from your dashboard.
