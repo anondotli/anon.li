@@ -59,10 +59,12 @@ export class TwoFactorService {
                 userId,
                 secret: await encrypt(secret),
                 backupCodes: encryptedBackupCodes,
+                verified: false,
             },
             update: {
                 secret: await encrypt(secret),
                 backupCodes: encryptedBackupCodes,
+                verified: false,
             }
         })
 

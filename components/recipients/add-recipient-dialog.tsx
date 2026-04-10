@@ -22,9 +22,10 @@ import Link from "next/link"
 interface AddRecipientDialogProps {
     currentCount: number
     maxCount: number
+    triggerClassName?: string
 }
 
-export function AddRecipientDialog({ currentCount, maxCount }: AddRecipientDialogProps) {
+export function AddRecipientDialog({ currentCount, maxCount, triggerClassName }: AddRecipientDialogProps) {
     const [isPending, startTransition] = useTransition()
     const [open, setOpen] = useState(false)
     const [email, setEmail] = useState("")
@@ -54,12 +55,12 @@ export function AddRecipientDialog({ currentCount, maxCount }: AddRecipientDialo
     return (
         <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
-                <Button disabled={isAtLimit}>
+                <Button disabled={isAtLimit} className={triggerClassName}>
                     <Plus className="h-4 w-4 mr-2" />
                     Add Recipient
                 </Button>
             </DialogTrigger>
-            <DialogContent className="sm:max-w-md">
+            <DialogContent className="max-w-[calc(100vw-2rem)] sm:max-w-md">
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2">
                         <Mail className="h-5 w-5" />
@@ -102,15 +103,20 @@ export function AddRecipientDialog({ currentCount, maxCount }: AddRecipientDialo
                         </div>
                     </div>
 
-                    <DialogFooter>
+                    <DialogFooter className="gap-2">
                         <Button
                             type="button"
                             variant="outline"
                             onClick={() => setOpen(false)}
+                            className="w-full sm:w-auto"
                         >
                             Cancel
                         </Button>
-                        <Button type="submit" disabled={isPending || isAtLimit || !email.trim()}>
+                        <Button
+                            type="submit"
+                            disabled={isPending || isAtLimit || !email.trim()}
+                            className="w-full sm:w-auto"
+                        >
                             {isPending ? "Sending..." : "Send Verification"}
                         </Button>
                     </DialogFooter>

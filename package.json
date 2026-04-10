@@ -11,8 +11,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.1027.0",
-    "@aws-sdk/s3-request-presigner": "^3.1027.0",
+    "@aws-sdk/client-s3": "^3.1028.0",
+    "@aws-sdk/s3-request-presigner": "^3.1028.0",
     "@better-auth/core": "^1.6.2",
     "@better-auth/utils": "^0.3.1",
     "@modelcontextprotocol/sdk": "^1.29.0",
@@ -68,7 +68,7 @@
     "@next/eslint-plugin-next": "^16.2.3",
     "@tailwindcss/postcss": "^4.2.2",
     "@testing-library/react": "^16.3.2",
-    "@types/node": "^25.5.2",
+    "@types/node": "^25.6.0",
     "@types/qrcode": "^1.5.6",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",

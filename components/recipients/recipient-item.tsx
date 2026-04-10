@@ -117,7 +117,7 @@ export function RecipientItem({ recipient }: RecipientItemProps) {
                         className="p-4 cursor-pointer hover:bg-muted/50 transition-colors"
                         onClick={handleCardClick}
                     >
-                        <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
                             {/* Email info */}
                             <div className="flex items-start sm:items-center gap-3 min-w-0 flex-1">
                                 <Button
@@ -131,7 +131,7 @@ export function RecipientItem({ recipient }: RecipientItemProps) {
                                 </Button>
                                 <div className="min-w-0 flex-1">
                                     <div className="flex items-center gap-2 flex-wrap">
-                                        <span className="font-semibold text-sm sm:text-base break-all sm:truncate">
+                                        <span className="break-all text-sm font-semibold sm:text-base">
                                             {recipient.email}
                                         </span>
                                         {recipient.isDefault && (
@@ -159,13 +159,13 @@ export function RecipientItem({ recipient }: RecipientItemProps) {
                                             </Badge>
                                         )}
                                     </div>
-                                    <div className="flex items-center gap-2 sm:gap-3 text-xs sm:text-sm text-muted-foreground mt-1">
+                                    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground sm:text-sm">
                                         <span className="flex items-center gap-1 shrink-0">
                                             <Mail className="h-3 w-3" />
                                             {recipient._count.aliases} alias{recipient._count.aliases !== 1 ? "es" : ""}
                                         </span>
                                         <span className="hidden sm:inline text-muted-foreground/50">•</span>
-                                        <span className="hidden sm:inline shrink-0">
+                                        <span className="shrink-0">
                                             Added {formatRelativeTime(recipient.createdAt)}
                                         </span>
                                     </div>
@@ -173,10 +173,10 @@ export function RecipientItem({ recipient }: RecipientItemProps) {
                             </div>
 
                             {/* Actions */}
-                            <div className="flex items-center justify-between sm:justify-end gap-2 pl-11 sm:pl-0 shrink-0">
+                            <div className="flex w-full flex-wrap items-center gap-2 pl-11 sm:w-auto sm:justify-end sm:pl-0 shrink-0">
                                 {/* Verification status */}
                                 {recipient.verified ? (
-                                    <Badge variant="outline" className="text-green-600 border-green-300">
+                                    <Badge variant="outline" className="border-green-300 text-green-600">
                                         <Check className="h-3 w-3 mr-1" />
                                         Verified
                                     </Badge>
@@ -186,6 +186,7 @@ export function RecipientItem({ recipient }: RecipientItemProps) {
                                         size="sm"
                                         onClick={(e) => { e.stopPropagation(); handleResendVerification(); }}
                                         disabled={isPending}
+                                        className="flex-1 sm:flex-none"
                                     >
                                         <RefreshCw className={`h-3 w-3 mr-1 ${isPending ? "animate-spin" : ""}`} />
                                         Resend
@@ -199,13 +200,14 @@ export function RecipientItem({ recipient }: RecipientItemProps) {
                                         size="sm"
                                         onClick={(e) => { e.stopPropagation(); handleSetDefault(); }}
                                         disabled={isPending}
+                                        className="flex-1 sm:flex-none"
                                     >
                                         <Star className="h-3 w-3 mr-1" />
                                         Set Default
                                     </Button>
                                 )}
 
-                                <div className="text-muted-foreground">
+                                <div className="ml-auto text-muted-foreground sm:ml-0">
                                     {isExpanded ? (
                                         <ChevronUp className="h-4 w-4" />
                                     ) : (
@@ -220,7 +222,7 @@ export function RecipientItem({ recipient }: RecipientItemProps) {
                     <CollapsibleContent>
                         <div className="border-t px-4 py-3 space-y-3 bg-muted/30">
                             {/* Statistics */}
-                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm">
+                            <div className="grid gap-3 text-sm sm:grid-cols-3">
                                 <div>
                                     <div className="text-muted-foreground">Status</div>
                                     <div className="font-medium">
@@ -241,38 +243,40 @@ export function RecipientItem({ recipient }: RecipientItemProps) {
 
                             {/* PGP Key Info */}
                             {recipient.verified && (
-                                <div className="text-sm border rounded-lg p-3 bg-background flex items-center justify-between">
-                                    <div className="flex items-center gap-2">
-                                        {recipient.pgpPublicKey ? (
-                                            <>
-                                                <ShieldCheck className="h-4 w-4 text-green-600" />
-                                                <span className="font-medium">PGP Encryption</span>
-                                                {recipient.pgpKeyName && (
-                                                    <Badge variant="secondary" className="text-xs">
-                                                        {recipient.pgpKeyName}
-                                                    </Badge>
-                                                )}
-                                                {recipient.pgpFingerprint && (
-                                                    <span className="text-muted-foreground font-mono text-xs hidden sm:inline">
-                                                        {formatFingerprint(recipient.pgpFingerprint).slice(0, 19)}…
-                                                    </span>
-                                                )}
-                                            </>
-                                        ) : (
-                                            <>
-                                                <Shield className="h-4 w-4 text-muted-foreground" />
-                                                <span className="text-muted-foreground">No PGP encryption</span>
-                                            </>
-                                        )}
+                                <div className="rounded-lg border bg-background p-3 text-sm">
+                                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                        <div className="min-w-0 flex-1">
+                                            {recipient.pgpPublicKey ? (
+                                                <div className="flex flex-wrap items-center gap-2">
+                                                    <ShieldCheck className="h-4 w-4 shrink-0 text-green-600" />
+                                                    <span className="font-medium">PGP Encryption</span>
+                                                    {recipient.pgpKeyName && (
+                                                        <Badge variant="secondary" className="text-xs">
+                                                            {recipient.pgpKeyName}
+                                                        </Badge>
+                                                    )}
+                                                    {recipient.pgpFingerprint && (
+                                                        <span className="w-full break-all font-mono text-xs text-muted-foreground">
+                                                            {formatFingerprint(recipient.pgpFingerprint)}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            ) : (
+                                                <div className="flex items-center gap-2">
+                                                    <Shield className="h-4 w-4 shrink-0 text-muted-foreground" />
+                                                    <span className="text-muted-foreground">No PGP encryption</span>
+                                                </div>
+                                            )}
+                                        </div>
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={() => setIsPgpDialogOpen(true)}
+                                            className="w-full text-xs sm:w-auto"
+                                        >
+                                            {recipient.pgpPublicKey ? "Manage" : "Add Key"}
+                                        </Button>
                                     </div>
-                                    <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        onClick={() => setIsPgpDialogOpen(true)}
-                                        className="text-xs"
-                                    >
-                                        {recipient.pgpPublicKey ? "Manage" : "Add Key"}
-                                    </Button>
                                 </div>
                             )}
 
@@ -284,13 +288,13 @@ export function RecipientItem({ recipient }: RecipientItemProps) {
                                             <Button
                                                 variant="ghost"
                                                 size="sm"
-                                                className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                                                className="w-full justify-start text-destructive hover:bg-destructive/10 hover:text-destructive sm:w-auto"
                                             >
                                                 <Trash2 className="h-4 w-4 mr-2" />
                                                 Delete Recipient
                                             </Button>
                                         </DialogTrigger>
-                                        <DialogContent>
+                                        <DialogContent className="max-w-[calc(100vw-2rem)]">
                                             <DialogHeader>
                                                 <DialogTitle>Delete Recipient</DialogTitle>
                                                 <DialogDescription>
@@ -307,9 +311,9 @@ export function RecipientItem({ recipient }: RecipientItemProps) {
                                                     )}
                                                 </DialogDescription>
                                             </DialogHeader>
-                                            <DialogFooter>
+                                            <DialogFooter className="gap-2">
                                                 <DialogClose asChild>
-                                                    <Button type="button" variant="secondary">
+                                                    <Button type="button" variant="secondary" className="w-full sm:w-auto">
                                                         Cancel
                                                     </Button>
                                                 </DialogClose>
@@ -317,6 +321,7 @@ export function RecipientItem({ recipient }: RecipientItemProps) {
                                                     onClick={handleDelete}
                                                     variant="destructive"
                                                     disabled={isPending || recipient._count.aliases > 0}
+                                                    className="w-full sm:w-auto"
                                                 >
                                                     Delete
                                                 </Button>

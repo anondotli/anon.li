@@ -91,7 +91,7 @@ export function RecipientPgpDialog({ recipient, open, onOpenChange }: RecipientP
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-xl">
+            <DialogContent className="max-w-[calc(100vw-2rem)] sm:max-w-xl">
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2">
                         {hasExistingKey ? (
@@ -106,7 +106,7 @@ export function RecipientPgpDialog({ recipient, open, onOpenChange }: RecipientP
                             </>
                         )}
                     </DialogTitle>
-                    <DialogDescription>
+                    <DialogDescription className="break-words">
                         {hasExistingKey ? (
                             <>
                                 Emails forwarded to <strong>{recipient.email}</strong> are encrypted with your PGP key.
@@ -125,7 +125,7 @@ export function RecipientPgpDialog({ recipient, open, onOpenChange }: RecipientP
                     {hasExistingKey && recipient.pgpFingerprint && (
                         <div className="border rounded-lg p-3 bg-muted/50">
                             <div className="text-sm font-medium mb-1">Current Key Fingerprint</div>
-                            <div className="text-xs font-mono text-muted-foreground">
+                            <div className="break-all text-xs font-mono text-muted-foreground">
                                 {formatFingerprint(recipient.pgpFingerprint)}
                             </div>
                             {recipient.pgpKeyName && (
@@ -165,11 +165,11 @@ export function RecipientPgpDialog({ recipient, open, onOpenChange }: RecipientP
                     </div>
                 </div>
 
-                <DialogFooter className="flex-col sm:flex-row gap-2">
+                <DialogFooter className="gap-2">
                     {hasExistingKey && (
                         <AlertDialog>
                             <AlertDialogTrigger asChild>
-                                <Button variant="outline" className="text-destructive hover:text-destructive">
+                                <Button variant="outline" className="w-full text-destructive hover:text-destructive sm:w-auto">
                                     <Trash2 className="h-4 w-4 mr-2" />
                                     Remove Key
                                 </Button>
@@ -195,10 +195,10 @@ export function RecipientPgpDialog({ recipient, open, onOpenChange }: RecipientP
                         </AlertDialog>
                     )}
                     <div className="flex-1" />
-                    <Button variant="outline" onClick={() => onOpenChange(false)}>
+                    <Button variant="outline" onClick={() => onOpenChange(false)} className="w-full sm:w-auto">
                         Cancel
                     </Button>
-                    <Button onClick={handleSave} disabled={isPending || !publicKey.trim()}>
+                    <Button onClick={handleSave} disabled={isPending || !publicKey.trim()} className="w-full sm:w-auto">
                         <Upload className="h-4 w-4 mr-2" />
                         {hasExistingKey ? "Update Key" : "Save Key"}
                     </Button>

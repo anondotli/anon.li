@@ -389,6 +389,7 @@ model TwoFactor {
   userId      String @unique
   secret      String
   backupCodes String
+  verified    Boolean @default(true)
   user        User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("two_factors")

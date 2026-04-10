@@ -82,6 +82,16 @@ export async function verifyAndEnableTwoFactor(code: string): Promise<TwoFactorA
     }
 
     try {
+        if (!session.user.twoFactorEnabled) {
+            // Our custom setup flow creates the TOTP record before verification.
+            // Force it into Better Auth's "pending verification" state so the
+            // verifyTOTP endpoint can enable 2FA and flip the flag back to true.
+            await prisma.twoFactor.updateMany({
+                where: { userId: session.user.id },
+                data: { verified: false },
+            })
+        }
+
         await betterAuth.api.verifyTOTP({
             body: { code: sanitizedCode },
             headers: await headers(),
