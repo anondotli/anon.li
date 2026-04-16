@@ -4,25 +4,15 @@
  * Authentication: API key only (Bearer ak_...)
  */
 
-import { validateApiKey } from "@/lib/api-auth"
-import { createRateLimitHeaders } from "@/lib/api-rate-limit"
-import { getUserBillingState } from "@/lib/data/user"
-import { stripe } from "@/lib/stripe"
-import { rateLimit } from "@/lib/rate-limit"
-import { getStripePriceId } from "@/lib/stripe-prices"
 import { z } from "zod"
-import {
-    generateRequestId,
-    apiSuccess,
-    apiError,
-    apiErrorFromUnknown,
-    apiRateLimitError,
-    withApiHeaders,
-    ErrorCodes,
-    zodErrorToDetails,
-} from "@/lib/api-response"
 
-export const dynamic = 'force-dynamic'
+import { apiError, apiSuccess, ErrorCodes, zodErrorToDetails } from "@/lib/api-response"
+import { getUserBillingState } from "@/lib/data/user"
+import { withPolicy } from "@/lib/route-policy"
+import { stripe } from "@/lib/stripe"
+import { getStripePriceId } from "@/lib/stripe-prices"
+
+export const dynamic = "force-dynamic"
 
 const checkoutSchema = z.object({
     product: z.enum(["bundle", "alias", "drop"]),
@@ -31,83 +21,55 @@ const checkoutSchema = z.object({
     promoCode: z.string().max(50).optional(),
 })
 
-/**
- * POST /api/v1/checkout
- * Create a Stripe checkout session and return the URL
- */
-export async function POST(req: Request) {
-    const requestId = generateRequestId()
+export const POST = withPolicy(
+    {
+        auth: "api_key",
+        requireCsrf: true,
+        rateLimit: "stripeOps",
+    },
+    async (ctx) => {
+        if (!ctx.userId) {
+            return apiError("Unauthorized - API key required", ErrorCodes.UNAUTHORIZED, ctx.requestId, 401)
+        }
 
-    const result = await validateApiKey(req)
-    if (!result) {
-        return apiError("Unauthorized - API key required", ErrorCodes.UNAUTHORIZED, requestId, 401)
-    }
-
-    if (!result.rateLimit.success) {
-        return withApiHeaders(
-            apiRateLimitError(requestId, result.rateLimit.reset, true),
-            requestId,
-            createRateLimitHeaders(result.rateLimit)
-        )
-    }
-
-    // Stripe-specific rate limit (10/hour)
-    const rateLimited = await rateLimit("stripeOps", result.user.id)
-    if (rateLimited) {
-        return rateLimited
-    }
-
-    try {
-        const body = await req.json()
+        const body = await ctx.request.json().catch(() => null)
         const validation = checkoutSchema.safeParse(body)
-
         if (!validation.success) {
             return apiError(
                 "Validation failed",
                 ErrorCodes.VALIDATION_ERROR,
-                requestId,
+                ctx.requestId,
                 400,
-                zodErrorToDetails(validation.error)
+                zodErrorToDetails(validation.error),
             )
         }
 
         const { product, tier, frequency, promoCode } = validation.data
-
         const priceId = getStripePriceId(product, tier, frequency)
         if (!priceId) {
-            return apiError(
-                "Invalid price configuration",
-                ErrorCodes.INVALID_REQUEST,
-                requestId,
-                400
-            )
+            return apiError("Invalid price configuration", ErrorCodes.INVALID_REQUEST, ctx.requestId, 400)
         }
 
-        // Get user email and stripe customer ID
-        const user = await getUserBillingState(result.user.id)
-
+        const user = await getUserBillingState(ctx.userId)
         if (!user?.email) {
-            return apiError("User email not found", ErrorCodes.INTERNAL_ERROR, requestId, 500)
+            return apiError("User email not found", ErrorCodes.INTERNAL_ERROR, ctx.requestId, 500)
         }
 
-        // Sanitize promo code
-        let sanitizedPromo: string | undefined
-        if (promoCode) {
-            sanitizedPromo = promoCode.replace(/[^a-zA-Z0-9_-]/g, "").toUpperCase()
-        }
+        const sanitizedPromo = promoCode
+            ? promoCode.replace(/[^a-zA-Z0-9_-]/g, "").toUpperCase()
+            : undefined
 
-        // Build checkout session config
         const baseConfig = {
             mode: "subscription" as const,
             payment_method_types: ["card" as const],
             ...(user.stripeCustomerId
                 ? { customer: user.stripeCustomerId }
                 : { customer_email: user.email }),
-            client_reference_id: result.user.id,
+            client_reference_id: ctx.userId,
             line_items: [{ price: priceId, quantity: 1 }],
             success_url: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard/billing?success=true`,
             cancel_url: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard/billing?canceled=true`,
-            metadata: { userId: result.user.id },
+            metadata: { userId: ctx.userId },
         }
 
         let checkoutConfig: typeof baseConfig & {
@@ -123,15 +85,16 @@ export async function POST(req: Request) {
                     limit: 1,
                 })
 
-                const matchedPromo = promotionCodes.data[0];
-                if (matchedPromo) {
-                    checkoutConfig = {
+                const matchedPromo = promotionCodes.data[0]
+                checkoutConfig = matchedPromo
+                    ? {
                         ...baseConfig,
                         discounts: [{ promotion_code: matchedPromo.id }],
                     }
-                } else {
-                    checkoutConfig = { ...baseConfig, allow_promotion_codes: true }
-                }
+                    : {
+                        ...baseConfig,
+                        allow_promotion_codes: true,
+                    }
             } catch {
                 checkoutConfig = { ...baseConfig, allow_promotion_codes: true }
             }
@@ -140,22 +103,10 @@ export async function POST(req: Request) {
         }
 
         const checkoutSession = await stripe.checkout.sessions.create(checkoutConfig)
-
         if (!checkoutSession.url) {
-            return apiError(
-                "Failed to create checkout session",
-                ErrorCodes.INTERNAL_ERROR,
-                requestId,
-                500
-            )
+            return apiError("Failed to create checkout session", ErrorCodes.INTERNAL_ERROR, ctx.requestId, 500)
         }
 
-        return withApiHeaders(
-            apiSuccess({ url: checkoutSession.url }, requestId),
-            requestId,
-            createRateLimitHeaders(result.rateLimit)
-        )
-    } catch (error) {
-        return apiErrorFromUnknown(error, requestId)
-    }
-}
+        return apiSuccess({ url: checkoutSession.url }, ctx.requestId)
+    },
+)

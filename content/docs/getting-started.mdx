@@ -3,7 +3,7 @@ title: "Getting Started"
 summary: "Learn how to get started with anon.li - from creating your first alias to sharing encrypted files."
 ---
 
-Welcome to anon.li! This guide will help you set up your account and start using our privacy tools: **Alias** for anonymous email forwarding and **Drop** for encrypted file sharing.
+Welcome to anon.li! This guide will help you set up your account and start using our privacy tools: **Alias** for private email forwarding and **Drop** for encrypted file sharing.
 
 Prefer a quick overview first? [Watch the privacy-friendly intro video](/blog/introduction) hosted directly by anon.li.
 
@@ -24,8 +24,9 @@ Prefer a quick overview first? [Watch the privacy-friendly intro video](/blog/in
 3. Complete the captcha verification
 4. Check your email for a magic link
 5. Click the link to verify and access your dashboard
+6. If prompted, set a password to protect your vault and future sign-ins
 
-**No password required!** We use passwordless authentication via magic links for better security.
+Your first access starts with a magic link. Accounts that use the vault then set a password for future sign-ins and vault unlocking.
 
 ### Enable Two-Factor Authentication (Recommended)
 
@@ -61,7 +62,7 @@ An email alias is a unique address (like `shopping123@anon.li`) that forwards me
 4. Select a domain:
    - `@anon.li` (free)
    - Custom domains (paid plans)
-5. Add an optional description (e.g., "Amazon shopping")
+5. Add an optional vault-encrypted label or note (e.g., "Amazon shopping")
 6. Click **"Create"**
 
 Your alias is now active! Any email sent to it will be forwarded to your real address.
@@ -80,7 +81,7 @@ From your dashboard, you can:
 
 - **Enable/Disable**: Toggle an alias on or off instantly
 - **Delete**: Permanently remove an alias
-- **Edit Description**: Update notes for organization
+- **Edit Label/Note**: Update vault-encrypted metadata for organization
 - **View Stats**: See how many emails have been forwarded
 
 ### Block Spam Instantly
@@ -108,32 +109,19 @@ Key features:
 - Download limits
 - Password protection (Plus and Pro plans)
 - Encrypted messages (attach a note to any drop)
-- No account required for basic sharing
+- Recipients can download with only the shared link
 
 ### Share Your First File
 
-#### Quick Share (No Account)
-
-1. Go to [anon.li/drop/upload](/drop/upload)
-2. Drag and drop a file or click to select
-3. Wait for encryption and upload
-4. Copy the share link
-5. Send the link to your recipient
-
-That's it! The recipient can download and decrypt the file using the link.
-
-#### Share with an Account
-
-With an account, you get more control:
-
 1. Go to your [Drop Dashboard](/dashboard/drop)
-2. Click **"Upload"** or drag files
-3. Configure options:
+2. Sign in or create a free account if prompted
+3. Click **"Upload"** or drag files
+4. Configure options:
    - **Expiration**: When the file auto-deletes (1 day to 30 days)
    - **Download Limit**: Max downloads before deletion
    - **Password**: Optional additional protection
-4. Upload and get your share link
-5. Manage your files from the dashboard
+5. Upload and get your share link
+6. Manage your files from the dashboard
 
 ### Understanding the Share Link
 
@@ -151,12 +139,12 @@ The `#` fragment stays in your browser. We literally cannot decrypt your file.
 
 Control access to your files:
 
-| Feature | Guest | Free | Plus | Pro |
-|---------|-------|------|------|-----|
-| Max File Size | 3GB | 5GB | 50GB | 250GB |
-| Expiration | 1 day | 3 days | 7 days | 30 days |
-| Download Limits | ✓ | ✓ | ✓ | ✓ |
-| Password Protection | ✗ | ✗ | ✓ | ✓ |
+| Feature | Free | Plus | Pro |
+|---------|------|------|-----|
+| Max File Size | 5GB | 50GB | 250GB |
+| Expiration | 3 days | 7 days | 30 days |
+| Download Limits | ✓ | ✓ | ✓ |
+| Password Protection | ✗ | ✓ | ✓ |
 
 ### Password Protection
 
@@ -179,12 +167,12 @@ PGP (Pretty Good Privacy) encrypts the forwarded copy of your emails so the mess
 ### Set Up PGP
 
 1. Generate a PGP key pair (using GPG, Kleopatra, or similar)
-2. Go to [Dashboard → Settings](/dashboard/settings)
-3. Find "PGP Encryption"
+2. Go to [Dashboard → Alias → Recipients](/dashboard/alias/recipients)
+3. Select the recipient inbox you want to protect
 4. Paste your **public key**
-5. Click "Save"
+5. Save the recipient PGP settings
 
-All forwarded emails will now be encrypted with your public key.
+Forwarded copies for aliases routed to that recipient will now be encrypted with its public key.
 
 ### Verify PGP is Working
 
@@ -202,9 +190,11 @@ For developers, we offer REST APIs for both Alias and Drop.
 ### Generate an API Key
 
 1. Go to [Dashboard → API Keys](/dashboard/api-keys)
-2. Click **"Create API Key"**
+2. Click **"Create API Key"** while signed in with 2FA verified if enabled
 3. Give it a name (e.g., "My App")
 4. Copy the key immediately (it won't be shown again!)
+
+API-key requests count against your monthly API quota. Creating and deleting API keys is done from your authenticated dashboard session, not by using an existing API key.
 
 ### Quick API Examples
 

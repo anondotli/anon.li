@@ -30,6 +30,8 @@ model User {
   apiKeys          ApiKey[]
   recipients       Recipient[]
   drops            Drop[]
+  security         UserSecurity?
+  dropOwnerKeys    DropOwnerKey[]
   subscriptions    Subscription[]
   deletionRequest  DeletionRequest?
   twoFactorEnabled Boolean          @default(false)
@@ -63,6 +65,38 @@ model User {
   @@map("users")
 }
 
+model UserSecurity {
+  id                      String   @id @default(cuid())
+  userId                  String   @unique
+  user                    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  authSalt                String
+  vaultSalt               String
+  passwordWrappedVaultKey String   @map("password_wrapped_vault_key")
+  kdfVersion              Int      @default(1) @map("kdf_version")
+  vaultGeneration         Int      @default(1) @map("vault_generation")
+  passwordSetAt           DateTime @default(now()) @map("password_set_at")
+  migrationState          String   @default("complete") @map("migration_state")
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  @@map("user_security")
+}
+
+model DropOwnerKey {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  dropId          String   @unique
+  drop            Drop     @relation(fields: [dropId], references: [id], onDelete: Cascade)
+  wrappedKey      String   @map("wrapped_key")
+  vaultGeneration Int      @map("vault_generation")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([userId])
+  @@map("drop_owner_keys")
+}
+
 model Alias {
   id        String @id @default(cuid())
   email     String @unique // Full email address (localPart@domain)
@@ -73,8 +107,10 @@ model Alias {
   format String  @default("CUSTOM") // CUSTOM or RANDOM
 
   // Metadata
-  label String?
-  note  String?
+  legacyLabel    String? @map("label")
+  legacyNote     String? @map("note")
+  encryptedLabel String? @map("encrypted_label") @db.Text
+  encryptedNote  String? @map("encrypted_note") @db.Text
 
   // Usage Telemetry
   emailsReceived Int       @default(0)
@@ -98,7 +134,7 @@ model Alias {
 
   @@index([userId])
   @@index([userId, active])
-  @@index([userId, label])
+  @@index([userId, legacyLabel], map: "aliases_userId_label_idx")
   @@index([recipientId])
   @@index([scheduledForRemovalAt])
   @@map("aliases")
@@ -334,6 +370,7 @@ model Drop {
   // Relations
   files        DropFile[]
   uploadTokens UploadToken[]
+  ownerKey     DropOwnerKey?
   userId       String?
   user         User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -389,7 +426,7 @@ model TwoFactor {
   userId      String @unique
   secret      String
   backupCodes String
-  verified    Boolean @default(true)
+  verified    Boolean @default(false)
   user        User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("two_factors")

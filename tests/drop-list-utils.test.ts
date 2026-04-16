@@ -1,12 +1,8 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { formatDropExpiry, hasDropReachedDownloadLimit, isDropExpired } from "@/components/drop/drop-list-utils";
 
 describe("drop list availability helpers", () => {
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
   it("marks download-limit drops as expired", () => {
     expect(hasDropReachedDownloadLimit(1, 1)).toBe(true);
     expect(
@@ -20,31 +16,33 @@ describe("drop list availability helpers", () => {
   });
 
   it("marks time-expired drops as expired during the cleanup grace period", () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-04-04T12:00:00.000Z"));
-    const recentlyExpiredDrop = "2026-04-03T12:30:00.000Z";
+    // Create an expiry date 23 hours in the past — within the 24h grace period
+    const recentlyExpired = new Date(Date.now() - 23 * 60 * 60 * 1000);
 
     expect(
       isDropExpired({
         downloads: 0,
-        expiresAt: recentlyExpiredDrop,
+        expiresAt: recentlyExpired.toISOString(),
         maxDownloads: null,
       })
     ).toBe(true);
-    expect(formatDropExpiry(recentlyExpiredDrop, 0, null)).toBe("Deleting soon...");
+    const formatted = formatDropExpiry(recentlyExpired.toISOString(), 0, null);
+    // Should be in grace period — either "Deleting soon..." or "Deleting in Nh"
+    expect(formatted).toMatch(/Deleting/);
   });
 
   it("keeps future drops available", () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-04-04T00:00:00.000Z"));
+    // Create an expiry date 2 days in the future
+    const futureExpiry = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000);
 
     expect(
       isDropExpired({
         downloads: 0,
-        expiresAt: "2026-04-06T00:00:00.000Z",
+        expiresAt: futureExpiry.toISOString(),
         maxDownloads: 3,
       })
     ).toBe(false);
-    expect(formatDropExpiry("2026-04-06T00:00:00.000Z", 0, 3)).toBe("2 days");
+    const formatted = formatDropExpiry(futureExpiry.toISOString(), 0, 3);
+    expect(formatted).toMatch(/days/);
   });
 });

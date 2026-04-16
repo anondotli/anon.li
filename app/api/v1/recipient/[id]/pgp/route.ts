@@ -5,22 +5,13 @@
  * Authentication: API key only (Bearer ak_...)
  */
 
-import { validateApiKey } from "@/lib/api-auth"
-import { createRateLimitHeaders } from "@/lib/api-rate-limit"
-import { RecipientService } from "@/lib/services/recipient"
 import { z } from "zod"
-import {
-    generateRequestId,
-    apiSuccess,
-    apiError,
-    apiErrorFromUnknown,
-    apiRateLimitError,
-    withApiHeaders,
-    ErrorCodes,
-    zodErrorToDetails,
-} from "@/lib/api-response"
 
-export const dynamic = 'force-dynamic'
+import { apiError, apiSuccess, ErrorCodes, zodErrorToDetails } from "@/lib/api-response"
+import { withPolicy } from "@/lib/route-policy"
+import { RecipientService } from "@/lib/services/recipient"
+
+export const dynamic = "force-dynamic"
 
 interface RouteParams {
     params: Promise<{ id: string }>
@@ -31,91 +22,58 @@ const setPgpSchema = z.object({
     name: z.string().max(100).optional(),
 })
 
-/**
- * PUT /api/v1/recipient/[id]/pgp
- * Set PGP public key for a recipient
- */
-export async function PUT(req: Request, { params }: RouteParams) {
-    const requestId = generateRequestId()
-    const { id } = await params
+export const PUT = withPolicy<RouteParams>(
+    {
+        auth: "api_key",
+        requireCsrf: true,
+        rateLimit: "pgpOps",
+    },
+    async (ctx, routeContext) => {
+        if (!ctx.userId) {
+            return apiError("Unauthorized", ErrorCodes.UNAUTHORIZED, ctx.requestId, 401)
+        }
 
-    const result = await validateApiKey(req)
-    if (!result) {
-        return apiError("Unauthorized - API key required", ErrorCodes.UNAUTHORIZED, requestId, 401)
-    }
-
-    if (!result.rateLimit.success) {
-        return withApiHeaders(
-            apiRateLimitError(requestId, result.rateLimit.reset, true),
-            requestId,
-            createRateLimitHeaders(result.rateLimit)
-        )
-    }
-
-    try {
-        const body = await req.json()
+        const { id } = await routeContext!.params
+        const body = await ctx.request.json().catch(() => null)
         const validation = setPgpSchema.safeParse(body)
-
         if (!validation.success) {
             return apiError(
                 "Validation failed",
                 ErrorCodes.VALIDATION_ERROR,
-                requestId,
+                ctx.requestId,
                 400,
-                zodErrorToDetails(validation.error)
+                zodErrorToDetails(validation.error),
             )
         }
 
         const recipient = await RecipientService.setPgpKey(
-            result.user.id,
+            ctx.userId,
             id,
             validation.data.public_key,
-            validation.data.name
+            validation.data.name,
         )
 
-        return withApiHeaders(
-            apiSuccess({
-                id: recipient.id,
-                pgp_fingerprint: recipient.pgpFingerprint,
-                pgp_key_name: recipient.pgpKeyName,
-            }, requestId),
-            requestId,
-            createRateLimitHeaders(result.rateLimit)
-        )
-    } catch (error) {
-        return apiErrorFromUnknown(error, requestId)
-    }
-}
+        return apiSuccess({
+            id: recipient.id,
+            pgp_fingerprint: recipient.pgpFingerprint,
+            pgp_key_name: recipient.pgpKeyName,
+        }, ctx.requestId)
+    },
+)
 
-/**
- * DELETE /api/v1/recipient/[id]/pgp
- * Remove PGP key from a recipient
- */
-export async function DELETE(req: Request, { params }: RouteParams) {
-    const requestId = generateRequestId()
-    const { id } = await params
+export const DELETE = withPolicy<RouteParams>(
+    {
+        auth: "api_key",
+        requireCsrf: true,
+        rateLimit: "pgpOps",
+    },
+    async (ctx, routeContext) => {
+        if (!ctx.userId) {
+            return apiError("Unauthorized", ErrorCodes.UNAUTHORIZED, ctx.requestId, 401)
+        }
 
-    const result = await validateApiKey(req)
-    if (!result) {
-        return apiError("Unauthorized - API key required", ErrorCodes.UNAUTHORIZED, requestId, 401)
-    }
-
-    if (!result.rateLimit.success) {
-        return withApiHeaders(
-            apiRateLimitError(requestId, result.rateLimit.reset, true),
-            requestId,
-            createRateLimitHeaders(result.rateLimit)
-        )
-    }
-
-    try {
-        await RecipientService.removePgpKey(result.user.id, id)
-        return withApiHeaders(
-            apiSuccess({ removed: true }, requestId),
-            requestId,
-            createRateLimitHeaders(result.rateLimit)
-        )
-    } catch (error) {
-        return apiErrorFromUnknown(error, requestId)
-    }
-}
+        const { id } = await routeContext!.params
+        await RecipientService.removePgpKey(ctx.userId, id)
+        return apiSuccess({ removed: true }, ctx.requestId)
+    },
+)

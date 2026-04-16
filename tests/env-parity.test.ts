@@ -48,6 +48,18 @@ function getEnvVarsFromSchema(): Set<string> {
     return varNames
 }
 
+function getEnvVarsFromExample(): Set<string> {
+    const envExample = readFileSync(resolve(__dirname, "../.env.example"), "utf-8")
+    const varNames = new Set<string>()
+    const matches = envExample.matchAll(/^([A-Z0-9_]+)=/gm)
+
+    for (const match of matches) {
+        varNames.add(match[1]!)
+    }
+
+    return varNames
+}
+
 function getEnvVarsFromCode(): Map<string, string[]> {
     const root = resolve(__dirname, "..")
     const files = globSync("**/*.{ts,tsx}", {
@@ -97,5 +109,17 @@ describe("env parity", () => {
         }
 
         expect(undeclared, `Undeclared env vars found. Add them to lib/env.ts or the test allowlist:\n${undeclared.join("\n")}`).toEqual([])
+    })
+
+    it("documents every server env schema key in .env.example", () => {
+        const schemaVars = getEnvVarsFromSchema()
+        const exampleVars = getEnvVarsFromExample()
+
+        const missing = [...schemaVars]
+            .filter((name) => !name.startsWith("NEXT_PUBLIC_"))
+            .filter((name) => !exampleVars.has(name))
+            .sort()
+
+        expect(missing, `Missing env vars in .env.example:\n${missing.join("\n")}`).toEqual([])
     })
 })

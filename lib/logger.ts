@@ -229,13 +229,6 @@ function formatForConsole(entry: LogEntry): string {
  * Log to appropriate destination based on environment
  */
 function log(entry: LogEntry): void {
-    // In production with structured logging enabled, output JSON
-    if (process.env.NODE_ENV === "production" && process.env.STRUCTURED_LOGS === "true") {
-        console.log(JSON.stringify(entry));
-        return;
-    }
-
-    // Otherwise, use formatted console output
     const formatted = formatForConsole(entry);
     
     switch (entry.level) {

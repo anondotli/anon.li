@@ -6,22 +6,13 @@
  * Authentication: API key only (Bearer ak_...)
  */
 
-import { validateApiKey } from "@/lib/api-auth"
-import { createRateLimitHeaders } from "@/lib/api-rate-limit"
-import { RecipientService } from "@/lib/services/recipient"
 import { z } from "zod"
-import {
-    generateRequestId,
-    apiSuccess,
-    apiError,
-    apiErrorFromUnknown,
-    apiRateLimitError,
-    withApiHeaders,
-    ErrorCodes,
-    zodErrorToDetails,
-} from "@/lib/api-response"
 
-export const dynamic = 'force-dynamic'
+import { apiError, apiSuccess, ErrorCodes, zodErrorToDetails } from "@/lib/api-response"
+import { withPolicy } from "@/lib/route-policy"
+import { RecipientService } from "@/lib/services/recipient"
+
+export const dynamic = "force-dynamic"
 
 interface RouteParams {
     params: Promise<{ id: string }>
@@ -53,120 +44,67 @@ function toApiFormat(recipient: {
     }
 }
 
-/**
- * GET /api/v1/recipient/[id]
- * Get recipient details
- */
-export async function GET(req: Request, { params }: RouteParams) {
-    const requestId = generateRequestId()
-    const { id } = await params
+export const GET = withPolicy<RouteParams>(
+    {
+        auth: "api_key",
+        rateLimit: "api",
+    },
+    async (ctx, routeContext) => {
+        if (!ctx.userId) {
+            return apiError("Unauthorized", ErrorCodes.UNAUTHORIZED, ctx.requestId, 401)
+        }
 
-    const result = await validateApiKey(req)
-    if (!result) {
-        return apiError("Unauthorized - API key required", ErrorCodes.UNAUTHORIZED, requestId, 401)
-    }
+        const { id } = await routeContext!.params
+        const recipient = await RecipientService.getRecipient(ctx.userId, id)
+        return apiSuccess(toApiFormat(recipient), ctx.requestId)
+    },
+)
 
-    if (!result.rateLimit.success) {
-        return withApiHeaders(
-            apiRateLimitError(requestId, result.rateLimit.reset, true),
-            requestId,
-            createRateLimitHeaders(result.rateLimit)
-        )
-    }
+export const PATCH = withPolicy<RouteParams>(
+    {
+        auth: "api_key",
+        requireCsrf: true,
+        rateLimit: "recipientOps",
+    },
+    async (ctx, routeContext) => {
+        if (!ctx.userId) {
+            return apiError("Unauthorized", ErrorCodes.UNAUTHORIZED, ctx.requestId, 401)
+        }
 
-    try {
-        const recipient = await RecipientService.getRecipient(result.user.id, id)
-        return withApiHeaders(
-            apiSuccess(toApiFormat(recipient), requestId),
-            requestId,
-            createRateLimitHeaders(result.rateLimit)
-        )
-    } catch (error) {
-        return apiErrorFromUnknown(error, requestId)
-    }
-}
-
-/**
- * PATCH /api/v1/recipient/[id]
- * Update recipient (currently only supports setting as default)
- */
-export async function PATCH(req: Request, { params }: RouteParams) {
-    const requestId = generateRequestId()
-    const { id } = await params
-
-    const result = await validateApiKey(req)
-    if (!result) {
-        return apiError("Unauthorized - API key required", ErrorCodes.UNAUTHORIZED, requestId, 401)
-    }
-
-    if (!result.rateLimit.success) {
-        return withApiHeaders(
-            apiRateLimitError(requestId, result.rateLimit.reset, true),
-            requestId,
-            createRateLimitHeaders(result.rateLimit)
-        )
-    }
-
-    try {
-        const body = await req.json()
+        const { id } = await routeContext!.params
+        const body = await ctx.request.json().catch(() => null)
         const validation = updateRecipientSchema.safeParse(body)
-
         if (!validation.success) {
             return apiError(
                 "Validation failed",
                 ErrorCodes.VALIDATION_ERROR,
-                requestId,
+                ctx.requestId,
                 400,
-                zodErrorToDetails(validation.error)
+                zodErrorToDetails(validation.error),
             )
         }
 
-        let recipient
-        if (validation.data.is_default) {
-            recipient = await RecipientService.setAsDefault(result.user.id, id)
-        } else {
-            recipient = await RecipientService.getRecipient(result.user.id, id)
+        const recipient = validation.data.is_default
+            ? await RecipientService.setAsDefault(ctx.userId, id)
+            : await RecipientService.getRecipient(ctx.userId, id)
+
+        return apiSuccess(toApiFormat(recipient), ctx.requestId)
+    },
+)
+
+export const DELETE = withPolicy<RouteParams>(
+    {
+        auth: "api_key",
+        requireCsrf: true,
+        rateLimit: "recipientOps",
+    },
+    async (ctx, routeContext) => {
+        if (!ctx.userId) {
+            return apiError("Unauthorized", ErrorCodes.UNAUTHORIZED, ctx.requestId, 401)
         }
 
-        return withApiHeaders(
-            apiSuccess(toApiFormat(recipient), requestId),
-            requestId,
-            createRateLimitHeaders(result.rateLimit)
-        )
-    } catch (error) {
-        return apiErrorFromUnknown(error, requestId)
-    }
-}
-
-/**
- * DELETE /api/v1/recipient/[id]
- * Delete a recipient
- */
-export async function DELETE(req: Request, { params }: RouteParams) {
-    const requestId = generateRequestId()
-    const { id } = await params
-
-    const result = await validateApiKey(req)
-    if (!result) {
-        return apiError("Unauthorized - API key required", ErrorCodes.UNAUTHORIZED, requestId, 401)
-    }
-
-    if (!result.rateLimit.success) {
-        return withApiHeaders(
-            apiRateLimitError(requestId, result.rateLimit.reset, true),
-            requestId,
-            createRateLimitHeaders(result.rateLimit)
-        )
-    }
-
-    try {
-        await RecipientService.deleteRecipient(result.user.id, id)
-        return withApiHeaders(
-            apiSuccess({ deleted: true }, requestId),
-            requestId,
-            createRateLimitHeaders(result.rateLimit)
-        )
-    } catch (error) {
-        return apiErrorFromUnknown(error, requestId)
-    }
-}
+        const { id } = await routeContext!.params
+        await RecipientService.deleteRecipient(ctx.userId, id)
+        return apiSuccess({ deleted: true }, ctx.requestId)
+    },
+)

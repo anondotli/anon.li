@@ -28,13 +28,6 @@ export class ValidationError extends ApiError {
     }
 }
 
-export class UnauthorizedError extends ApiError {
-    constructor(message: string = "Unauthorized", code?: string) {
-        super(message, 401, code || "UNAUTHORIZED");
-        this.name = "UnauthorizedError";
-    }
-}
-
 export class ForbiddenError extends ApiError {
     constructor(message: string, code?: string) {
         super(message, 403, code || "FORBIDDEN");
@@ -63,15 +56,9 @@ export class RateLimitError extends ApiError {
     }
 }
 
-/**
- * Get status code from any error
- * For typed ApiError instances, returns the explicit status code
- * For untyped errors, returns 500 (use typed ApiError classes for specific status codes)
- */
-export function getStatusCode(error: unknown): number {
-    if (error instanceof ApiError) {
-        return error.statusCode;
+export class ServiceUnavailableError extends ApiError {
+    constructor(message: string = "Service unavailable", code?: string) {
+        super(message, 503, code || "SERVICE_UNAVAILABLE");
+        this.name = "ServiceUnavailableError";
     }
-    return 500;
 }
-

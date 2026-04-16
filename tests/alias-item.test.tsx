@@ -29,6 +29,14 @@ vi.mock('@/actions/alias', () => ({
   toggleAliasAction: vi.fn(),
   deleteAliasAction: vi.fn(),
   updateAliasAction: vi.fn(),
+  updateAliasEncryptedMetadataAction: vi.fn(),
+}))
+
+vi.mock('@/components/vault/vault-provider', () => ({
+  useVault: () => ({
+    status: 'unlocked',
+    getVaultKey: () => ({}),
+  }),
 }))
 
 describe('AliasItem', () => {
@@ -42,10 +50,21 @@ describe('AliasItem', () => {
       pgpPublicKey: null,
     },
     active: true,
+    encryptedLabel: null,
+    encryptedNote: null,
+    legacyLabel: null,
+    legacyNote: null,
     emailsReceived: 10,
     emailsBlocked: 2,
     createdAt: new Date(),
     lastEmailAt: new Date(),
+  }
+
+  const mockMetadata = {
+    label: null,
+    note: null,
+    labelStatus: 'empty' as const,
+    noteStatus: 'empty' as const,
   }
 
   it('renders alias information correctly', async () => {
@@ -58,7 +77,7 @@ describe('AliasItem', () => {
     const { render, screen } = await import('@testing-library/react')
     const { AliasItem } = await import('@/components/alias')
 
-    render(<AliasItem alias={mockAlias} />)
+    render(<AliasItem alias={mockAlias} metadata={mockMetadata} />)
 
     expect(screen.getByText('test@anon.li')).toBeDefined()
     expect(screen.getByText('Active')).toBeDefined()
@@ -73,7 +92,7 @@ describe('AliasItem', () => {
     const { render, screen } = await import('@testing-library/react')
     const { AliasItem } = await import('@/components/alias')
 
-    render(<AliasItem alias={mockAlias} />)
+    render(<AliasItem alias={mockAlias} metadata={mockMetadata} />)
 
     const copyButtons = screen.getAllByLabelText(`Copy ${mockAlias.email}`)
     expect(copyButtons.length).toBeGreaterThan(0)
@@ -91,7 +110,7 @@ describe('AliasItem', () => {
     const { render, screen } = await import('@testing-library/react')
     const { AliasItem } = await import('@/components/alias')
 
-    render(<AliasItem alias={mockAlias} />)
+    render(<AliasItem alias={mockAlias} metadata={mockMetadata} />)
 
     const optionsButtons = screen.getAllByLabelText('Alias options')
     expect(optionsButtons.length).toBeGreaterThan(0)

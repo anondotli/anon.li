@@ -11,7 +11,7 @@ export const metadata: Metadata = {
 }
 
 const termsClaimIds = [
-    "passwordless_auth",
+    "magic_link_and_password_auth",
     "totp_2fa",
     "rate_limiting",
     "open_source",

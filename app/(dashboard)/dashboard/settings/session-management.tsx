@@ -17,7 +17,6 @@ interface SessionInfo {
 
 interface SessionManagementProps {
     sessions: SessionInfo[]
-    currentSessionToken: string
 }
 
 function getDeviceIcon(userAgent: string | null) {
@@ -49,7 +48,7 @@ function getDeviceName(userAgent: string | null): string {
     return os ? `${browser} on ${os}` : browser
 }
 
-export function SessionManagement({ sessions, currentSessionToken }: SessionManagementProps) {
+export function SessionManagement({ sessions }: SessionManagementProps) {
     const [revokingId, setRevokingId] = useState<string | null>(null)
     const [revokingAll, setRevokingAll] = useState(false)
 
@@ -72,7 +71,7 @@ export function SessionManagement({ sessions, currentSessionToken }: SessionMana
     const handleRevokeAll = async () => {
         setRevokingAll(true)
         try {
-            const result = await revokeAllOtherSessionsAction(currentSessionToken)
+            const result = await revokeAllOtherSessionsAction()
             if (result.error) {
                 toast.error(result.error)
             } else {

@@ -1,9 +1,12 @@
 import { auth } from "@/auth"
 import { DashboardNav, UserNav, DashboardBranding, DashboardMobileNav } from "@/components/dashboard"
 import { FileDropProvider } from "@/components/drop/provider"
+import { VaultProvider } from "@/components/vault/vault-provider"
+import { VaultGate } from "@/components/vault/vault-gate"
 import { redirect } from "next/navigation"
 import { prisma } from "@/lib/prisma"
 import { AlertTriangle } from "lucide-react"
+import { getVaultSchemaState, VAULT_SCHEMA_UNAVAILABLE_MESSAGE } from "@/lib/vault/schema"
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
     const session = await auth()
@@ -13,8 +16,10 @@ export default async function DashboardLayout({ children }: { children: React.Re
     }
 
     if (session.user.twoFactorEnabled && !session.twoFactorVerified) {
-        redirect("/verify-2fa")
+        redirect("/2fa")
     }
+
+    const vaultSchema = await getVaultSchemaState()
 
     const user = await prisma.user.findUnique({
         where: { id: session.user.id },
@@ -32,8 +37,20 @@ export default async function DashboardLayout({ children }: { children: React.Re
         redirect("/login")
     }
 
+    if (vaultSchema.userSecurity) {
+        const security = await prisma.userSecurity.findUnique({
+            where: { userId: session.user.id },
+            select: { id: true },
+        })
+
+        if (!security) {
+            redirect("/setup")
+        }
+    }
+
     return (
         <FileDropProvider>
+        <VaultProvider enabled={vaultSchema.userSecurity}>
         <div className="flex min-h-screen flex-col bg-background">
             <header className="sticky top-0 z-50 w-full border-b border-border/40 bg-background/80 backdrop-blur-md">
                 <div className="container flex h-16 items-center">
@@ -60,6 +77,12 @@ export default async function DashboardLayout({ children }: { children: React.Re
                 </div>
             )}
 
+            {!vaultSchema.userSecurity && (
+                <div className="border-b border-amber-500/20 bg-amber-500/10 px-4 py-3 text-center text-sm text-amber-700 dark:text-amber-300">
+                    {VAULT_SCHEMA_UNAVAILABLE_MESSAGE} Existing dashboard features remain available.
+                </div>
+            )}
+
             <div className="container flex-1 items-start md:grid md:grid-cols-[220px_minmax(0,1fr)] md:gap-8 lg:grid-cols-[240px_minmax(0,1fr)] lg:gap-12">
                 <aside className="fixed top-16 z-30 -ml-2 hidden h-[calc(100vh-4rem)] w-full shrink-0 overflow-y-auto md:sticky md:block border-r border-border/40">
                     <div className="py-8 pr-6">
@@ -67,10 +90,11 @@ export default async function DashboardLayout({ children }: { children: React.Re
                     </div>
                 </aside>
                 <main id="main-content" className="flex w-full flex-col overflow-hidden py-8">
-                    {children}
+                    <VaultGate>{children}</VaultGate>
                 </main>
             </div>
         </div>
+        </VaultProvider>
         </FileDropProvider>
     )
 }

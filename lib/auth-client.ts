@@ -6,7 +6,7 @@ export const authClient = createAuthClient({
         magicLinkClient(),
         twoFactorClient({
             onTwoFactorRedirect: () => {
-                window.location.href = "/verify-2fa"
+                window.location.href = "/2fa"
             },
         }),
     ],

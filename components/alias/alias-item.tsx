@@ -12,7 +12,9 @@ import {
     Trash2, Copy, Check, Mail, Clock, Tag, FileText,
     MoreHorizontal, ShieldCheck, Forward, AlertTriangle
 } from "lucide-react"
-import { toggleAliasAction, deleteAliasAction, updateAliasAction } from "@/actions/alias"
+import { toggleAliasAction, deleteAliasAction, updateAliasAction, updateAliasEncryptedMetadataAction } from "@/actions/alias"
+import { useVault } from "@/components/vault/vault-provider"
+import { encryptVaultText } from "@/lib/vault/crypto"
 import {
     Dialog,
     DialogContent,
@@ -55,19 +57,28 @@ interface AliasItemProps {
             pgpPublicKey: string | null
         } | null
         active: boolean
-        label?: string | null
-        note?: string | null
+        legacyLabel?: string | null
+        legacyNote?: string | null
+        encryptedLabel?: string | null
+        encryptedNote?: string | null
         emailsReceived: number
         emailsBlocked: number
         lastEmailAt?: Date | null
         createdAt: Date
         scheduledForRemovalAt?: Date | null
     }
+    metadata: {
+        label: string | null
+        note: string | null
+        labelStatus: "empty" | "decrypted" | "legacy" | "error"
+        noteStatus: "empty" | "decrypted" | "legacy" | "error"
+    }
     recipients?: Recipient[]
 }
 
-export function AliasItem({ alias, recipients = [] }: AliasItemProps) {
+export function AliasItem({ alias, metadata, recipients = [] }: AliasItemProps) {
     const router = useRouter()
+    const vault = useVault()
     const [isPending, startTransition] = useTransition()
     const [hasCopied, setHasCopied] = useState(false)
     const [isExpanded, setIsExpanded] = useState(false)
@@ -75,8 +86,8 @@ export function AliasItem({ alias, recipients = [] }: AliasItemProps) {
     const [isEditingNote, setIsEditingNote] = useState(false)
     const [isEditingRecipient, setIsEditingRecipient] = useState(false)
     const [showDeleteDialog, setShowDeleteDialog] = useState(false)
-    const [label, setLabel] = useState(alias.label || "")
-    const [note, setNote] = useState(alias.note || "")
+    const [label, setLabel] = useState("")
+    const [note, setNote] = useState("")
     const [selectedRecipientId, setSelectedRecipientId] = useState(alias.recipientId || "")
 
     // Find current recipient from the alias's recipient or from recipients list
@@ -118,24 +129,60 @@ export function AliasItem({ alias, recipients = [] }: AliasItemProps) {
 
     const handleSaveLabel = () => {
         startTransition(async () => {
-            const result = await updateAliasAction(alias.id, { label: label || null })
+            const trimmedLabel = label.trim()
+            const vaultKey = vault.getVaultKey()
+            if (vault.status !== "unlocked" || !vaultKey) {
+                toast.error("Unlock your vault to update labels")
+                return
+            }
+
+            const encryptedLabel = trimmedLabel
+                ? await encryptVaultText(trimmedLabel, vaultKey, {
+                    aliasId: alias.id,
+                    field: "label",
+                })
+                : null
+
+            const result = await updateAliasEncryptedMetadataAction(alias.id, {
+                encryptedLabel,
+                clearLegacyLabel: true,
+            })
             if (result.error) {
                 toast.error(result.error)
             } else {
                 toast.success("Label updated")
                 setIsEditingLabel(false)
+                router.refresh()
             }
         })
     }
 
     const handleSaveNote = () => {
         startTransition(async () => {
-            const result = await updateAliasAction(alias.id, { note: note || null })
+            const trimmedNote = note.trim()
+            const vaultKey = vault.getVaultKey()
+            if (vault.status !== "unlocked" || !vaultKey) {
+                toast.error("Unlock your vault to update notes")
+                return
+            }
+
+            const encryptedNote = trimmedNote
+                ? await encryptVaultText(trimmedNote, vaultKey, {
+                    aliasId: alias.id,
+                    field: "note",
+                })
+                : null
+
+            const result = await updateAliasEncryptedMetadataAction(alias.id, {
+                encryptedNote,
+                clearLegacyNote: true,
+            })
             if (result.error) {
                 toast.error(result.error)
             } else {
                 toast.success("Note updated")
                 setIsEditingNote(false)
+                router.refresh()
             }
         })
     }
@@ -183,10 +230,15 @@ export function AliasItem({ alias, recipients = [] }: AliasItemProps) {
                         <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2 flex-wrap">
                                 <span className="font-semibold text-sm sm:text-base break-all sm:truncate">{alias.email}</span>
-                                {alias.label && (
+                                {metadata.label && (
                                     <Badge variant="secondary" className="text-xs shrink-0">
                                         <Tag className="h-3 w-3 mr-1" />
-                                        {alias.label}
+                                        {metadata.label}
+                                    </Badge>
+                                )}
+                                {(metadata.labelStatus === "error" || metadata.noteStatus === "error") && (
+                                    <Badge variant="outline" className="text-xs shrink-0">
+                                        Metadata locked
                                     </Badge>
                                 )}
                                 {alias.scheduledForRemovalAt && (
@@ -262,6 +314,7 @@ export function AliasItem({ alias, recipients = [] }: AliasItemProps) {
                                 <DropdownMenuContent align="end">
                                     <DropdownMenuItem
                                         onClick={() => {
+                                            setLabel(metadata.label || "")
                                             setIsEditingLabel(true)
                                             setIsEditingNote(false)
                                             setIsExpanded(true)
@@ -272,6 +325,7 @@ export function AliasItem({ alias, recipients = [] }: AliasItemProps) {
                                     </DropdownMenuItem>
                                     <DropdownMenuItem
                                         onClick={() => {
+                                            setNote(metadata.note || "")
                                             setIsEditingNote(true)
                                             setIsEditingLabel(false)
                                             setIsExpanded(true)
@@ -317,7 +371,7 @@ export function AliasItem({ alias, recipients = [] }: AliasItemProps) {
                                         size="sm"
                                         variant="ghost"
                                         onClick={() => {
-                                            setLabel(alias.label || "")
+                                            setLabel(metadata.label || "")
                                             setIsEditingLabel(false)
                                         }}
                                     >
@@ -349,7 +403,7 @@ export function AliasItem({ alias, recipients = [] }: AliasItemProps) {
                                             size="sm"
                                             variant="ghost"
                                             onClick={() => {
-                                                setNote(alias.note || "")
+                                                setNote(metadata.note || "")
                                                 setIsEditingNote(false)
                                             }}
                                         >

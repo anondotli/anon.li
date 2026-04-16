@@ -9,15 +9,16 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { QRCodeShareWithKey } from "@/components/drop/qr-code-share-with-key";
+import { QRCodeShare } from "@/components/drop/qr-code-share";
 
 interface DropListActionsProps {
   copied: boolean;
-  customKey: boolean;
   disabled: boolean;
-  dropId: string;
+  dropUrl: string;
+  encryptionKey?: string | null;
   expired: boolean;
   isPending: boolean;
+  linkUnavailableReason?: string | null;
   takenDown: boolean;
   title: string;
   onCopyLink: () => void;
@@ -28,11 +29,12 @@ interface DropListActionsProps {
 
 export function DropListActions({
   copied,
-  customKey,
   disabled,
-  dropId,
+  dropUrl,
+  encryptionKey = null,
   expired,
   isPending,
+  linkUnavailableReason = null,
   takenDown,
   title,
   onCopyLink,
@@ -40,9 +42,8 @@ export function DropListActions({
   onDownload,
   onToggleLink,
 }: DropListActionsProps) {
-  const dropUrl = `${typeof window !== "undefined" ? window.location.origin : ""}/d/${dropId}`;
-  const unavailable = disabled || expired || takenDown;
   const unavailableLabel = takenDown ? "Drop unavailable" : expired ? "Drop expired" : disabled ? "Link disabled" : null;
+  const linkActionLabel = unavailableLabel ?? linkUnavailableReason;
 
   return (
     <div className="flex items-center justify-end gap-1">
@@ -54,22 +55,22 @@ export function DropListActions({
               size="icon"
               className="h-8 w-8"
               onClick={onCopyLink}
-              disabled={unavailable}
+              disabled={!!linkActionLabel}
               aria-label="Copy Link"
             >
               {copied ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
             </Button>
           </TooltipTrigger>
-          <TooltipContent>{unavailableLabel ?? "Copy Link"}</TooltipContent>
+          <TooltipContent>{linkActionLabel ?? "Copy Link"}</TooltipContent>
         </Tooltip>
 
         <Tooltip>
           <TooltipTrigger asChild>
             <div>
-              <QRCodeShareWithKey disabled={unavailable} dropId={dropId} url={dropUrl} title={title} customKey={customKey} />
+              <QRCodeShare disabled={!!linkActionLabel} url={dropUrl} title={title} encryptionKey={encryptionKey} />
             </div>
           </TooltipTrigger>
-          <TooltipContent>{unavailableLabel ?? "QR Code"}</TooltipContent>
+          <TooltipContent>{linkActionLabel ?? "QR Code"}</TooltipContent>
         </Tooltip>
 
         <Tooltip>
@@ -79,13 +80,13 @@ export function DropListActions({
               size="icon"
               className="h-8 w-8"
               onClick={onDownload}
-              disabled={unavailable}
+              disabled={!!linkActionLabel}
               aria-label="Open / Download"
             >
               <Download className="h-4 w-4" />
             </Button>
           </TooltipTrigger>
-          <TooltipContent>{unavailableLabel ?? "Open / Download"}</TooltipContent>
+          <TooltipContent>{linkActionLabel ?? "Open / Download"}</TooltipContent>
         </Tooltip>
 
         <Tooltip>

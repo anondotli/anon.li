@@ -70,7 +70,7 @@ export const comparisons: ComparisonEntry[] = [
                 {
                     category: "Sharing Features",
                     items: [
-                        { feature: "No Account Required to Send", anonli: true, competitor: false },
+                        { feature: "Free account required to send", anonli: true, competitor: false },
                         { feature: "Download Limits", anonli: true, competitor: true },
                         { feature: "Password Protection", anonli: true, competitor: true, source: "https://help.dropbox.com/share/set-link-permissions", sourceLabel: "Dropbox Link Permissions" },
                         { feature: "Auto-Delete/Expiry", anonli: true, competitor: false },
@@ -82,17 +82,17 @@ export const comparisons: ComparisonEntry[] = [
                     items: [
                         { feature: "Free tier", anonli: "5GB transfers", competitor: "2GB storage", source: "https://www.dropbox.com/plans", sourceLabel: "Dropbox Plans" },
                         { feature: "Paid starting at", anonli: "$2.99/mo", competitor: "$11.99/mo", source: "https://www.dropbox.com/plans", sourceLabel: "Dropbox Plans" },
-                        { feature: "No account required", anonli: true, competitor: false },
+                        { feature: "No account required to receive", anonli: true, competitor: false },
                     ]
                 }
             ],
             pricing: []
         },
         bottomLine: "Choose Dropbox for ongoing sync and collaboration. Choose anon.li when you want client-side encrypted, expiring file sharing.",
-        anonliPros: ["True Privacy (E2EE)", "No Account Needed", "Auto-Expiring Links"],
+        anonliPros: ["True Privacy (E2EE)", "Recipient No-Account Downloads", "Auto-Expiring Links"],
         competitorPros: ["File Sync", "Ecosystem Integration", "Long-term Storage"],
         whoShouldUseData: {
-            anonLi: ["Need to share sensitive documents", "Want self-destructing files", "Don't want to create an account"],
+            anonLi: ["Need to share sensitive documents", "Want self-destructing files", "Want recipients to download without an account"],
             competitor: ["Need file synchronization across devices", "Want long-term cloud backup"]
         }
     },
@@ -114,7 +114,7 @@ export const comparisons: ComparisonEntry[] = [
                         { feature: "PGP encryption", anonli: "Free (1 key)", competitor: "Built-in (Proton-to-Proton)" },
                         { feature: "External PGP", anonli: true, competitor: true },
                         { feature: "Anonymous signup", anonli: true, competitor: "Limited (captcha)" },
-                        { feature: "Custom domains", anonli: "Plus ($3.99/mo)", competitor: "Paid plans", source: "https://proton.me/pricing", sourceLabel: "Proton Pricing" },
+                        { feature: "Custom domains", anonli: "Alias Plus ($2.49/mo)", competitor: "Paid plans", source: "https://proton.me/pricing", sourceLabel: "Proton Pricing" },
                         { feature: "Keep your existing email", anonli: true, competitor: false },
                     ],
                 },
@@ -183,7 +183,7 @@ export const comparisons: ComparisonEntry[] = [
                 {
                     category: "Sharing Features",
                     items: [
-                        { feature: "No account required to send", anonli: true, competitor: false },
+                        { feature: "Free account required to send", anonli: true, competitor: false },
                         { feature: "Auto-delete / expiry", anonli: true, competitor: false },
                         { feature: "Download limits", anonli: true, competitor: false },
                         { feature: "Password protection", anonli: true, competitor: false },
@@ -201,7 +201,7 @@ export const comparisons: ComparisonEntry[] = [
             pricing: []
         },
         bottomLine: "Choose Google Drive for collaborative document workflows. Choose anon.li for private, link-based sharing with client-side encryption.",
-        anonliPros: ["Complete Privacy (E2EE)", "No Tracking or Content Scanning", "Auto-Expiring Links", "No Account Needed"],
+        anonliPros: ["Complete Privacy (E2EE)", "No Tracking or Content Scanning", "Auto-Expiring Links", "Recipient No-Account Downloads"],
         competitorPros: ["Deep Google Workspace Integration", "Real-time Collaboration", "Large Free Storage"],
         whoShouldUseData: {
             anonLi: ["Care about file privacy", "Need self-destructing transfers", "Don't want content scanned"],
@@ -231,7 +231,7 @@ export const comparisons: ComparisonEntry[] = [
                 {
                     category: "Sharing Features",
                     items: [
-                        { feature: "No account required to send", anonli: true, competitor: true },
+                        { feature: "Free account required to send", anonli: true, competitor: true },
                         { feature: "Max file size", anonli: "Up to 250GB", competitor: "Up to 200GB", source: "https://help.wetransfer.com/hc/en-us/articles/23265597795346-New-WeTransfer-subscription-plans", sourceLabel: "WeTransfer Plans" },
                         { feature: "Download limits", anonli: true, competitor: true, source: "https://help.wetransfer.com/hc/en-us/articles/26059761836306-How-to-Track-Your-Downloads-with-Access-Control", sourceLabel: "WeTransfer Access Control" },
                         { feature: "File expiry controls", anonli: true, competitor: "Paid plans" },
@@ -272,12 +272,12 @@ export const comparisons: ComparisonEntry[] = [
                 {
                     category: "Alias Features",
                     items: [
-                        { feature: "Free aliases", anonli: "10", competitor: "10", source: "https://simplelogin.io/pricing/", sourceLabel: "SimpleLogin Pricing" },
-                        { feature: "Unlimited aliases (paid)", anonli: "Unlimited (Pro)", competitor: true, source: "https://simplelogin.io/pricing/", sourceLabel: "SimpleLogin Pricing" },
+                        { feature: "Free aliases", anonli: "10 random + 1 custom", competitor: "10", source: "https://simplelogin.io/pricing/", sourceLabel: "SimpleLogin Pricing" },
+                        { feature: "Unlimited aliases (paid)", anonli: "Unlimited random + 100 custom (Pro)", competitor: true, source: "https://simplelogin.io/pricing/", sourceLabel: "SimpleLogin Pricing" },
                         { feature: "Custom domains", anonli: true, competitor: true },
                         { feature: "Anonymous replies", anonli: true, competitor: true },
                         { feature: "PGP encryption", anonli: true, competitor: true },
-                        { feature: "Multiple recipients per alias", anonli: true, competitor: true },
+                        { feature: "Multiple recipients per alias", anonli: "Up to 5 on Pro", competitor: true },
                         { feature: "Catch-all on custom domains", anonli: true, competitor: true },
                     ]
                 },
@@ -302,7 +302,7 @@ export const comparisons: ComparisonEntry[] = [
                 {
                     category: "Pricing",
                     items: [
-                        { feature: "Free tier", anonli: "10 aliases + 5GB drops", competitor: "10 aliases" },
+                        { feature: "Free tier", anonli: "10 random aliases, 1 custom alias, 5GB Drop bandwidth", competitor: "10 aliases" },
                         { feature: "Paid starting at", anonli: "$2.49/mo (alias only)", competitor: "$4/mo", source: "https://simplelogin.io/pricing/", sourceLabel: "SimpleLogin Pricing" },
                     ]
                 }

@@ -8,8 +8,10 @@ import {
     uploadChunk,
     finishDrop,
 } from "@/lib/drop.actions.client";
-import { DROP_SIZE_LIMITS, EXPIRY_LIMITS, DROP_FEATURES } from "@/config/plans";
-import { storeEncryptionKey } from "@/lib/upload-resume.client";
+import { DROP_FEATURES, PLAN_ENTITLEMENTS } from "@/config/plans";
+import { extractStoredKeyMaterial } from "@/lib/vault/crypto";
+import { upsertCachedWrappedDropKey } from "@/lib/vault/drop-keys-client";
+import { useOptionalVault } from "@/components/vault/vault-provider";
 import { analytics } from "@/lib/analytics";
 
 export type UploadPhase = "idle" | "encrypting" | "uploading" | "finalizing" | "complete" | "error";
@@ -40,7 +42,6 @@ interface UploadOptions {
 interface UseDropUploadProps {
     userTier?: string | null;
     remainingStorage?: number;
-    isAuthenticated?: boolean;
     onComplete?: (dropId: string, shareUrl: string) => void;
 }
 
@@ -49,17 +50,14 @@ interface ActiveUpload {
     fileId: string;
     s3UploadId: string;
     storageKey: string;
-    // For anonymous drops, the DELETE endpoint requires this session token
-    // to authorize the abort. Authenticated drops use the session cookie.
-    sessionToken?: string;
 }
 
 export function useDropUpload({
     userTier,
     remainingStorage,
-    isAuthenticated,
     onComplete,
 }: UseDropUploadProps = {}) {
+    const vault = useOptionalVault()
     const [files, setFiles] = useState<File[]>([]);
     const [progress, setProgress] = useState<UploadProgress | null>(null);
     const [shareUrl, setShareUrl] = useState<string | null>(null);
@@ -70,9 +68,6 @@ export function useDropUpload({
     const activeUploadsRef = useRef<ActiveUpload[]>([]);
 
     const tier = (userTier as "free" | "plus" | "pro") || "free";
-    const isGuest = !isAuthenticated;
-    const maxFileSize: number = isGuest ? DROP_SIZE_LIMITS.guest : Math.max(0, remainingStorage ?? 0);
-    const maxExpiry: number = isGuest ? EXPIRY_LIMITS.guest : EXPIRY_LIMITS[tier];
     const features = DROP_FEATURES[tier];
 
     const reset = useCallback(() => {
@@ -101,7 +96,6 @@ export function useDropUpload({
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         s3UploadId: upload.s3UploadId,
-                        ...(upload.sessionToken && { sessionToken: upload.sessionToken }),
                     }),
                     credentials: 'include',
                 }).catch(() => {
@@ -116,10 +110,15 @@ export function useDropUpload({
 
     const upload = useCallback(async (
         options: UploadOptions = {},
-        turnstileToken?: string | null
     ) => {
         if (files.length === 0) {
             toast.error("No files selected");
+            return;
+        }
+
+        // Vault must be unlocked to create drops — the encryption key is stored in the vault
+        if (!vault || vault.status !== "unlocked" || !vault.vaultGeneration || !vault.vaultId) {
+            toast.error("Your vault must be unlocked to create drops. Unlock your vault and try again.");
             return;
         }
 
@@ -146,6 +145,7 @@ export function useDropUpload({
         try {
             const encryptionContext = await cryptoService.createEncryptionContext();
             const { keyString, dropIvString, key, dropIv } = encryptionContext;
+            const wrappedOwnerKey = await vault.wrapDropKey(extractStoredKeyMaterial(keyString))
 
             // Handle custom key protection
             let customKey = false;
@@ -171,7 +171,7 @@ export function useDropUpload({
                 encryptedMessage = await cryptoService.encryptFilename(options.message, key, dropIv);
             }
 
-            const { dropId, sessionToken, expiresAt } = await createDrop({
+            const { dropId, expiresAt } = await createDrop({
                 iv: dropIvString,
                 ...(customKey && { customKey: true }),
                 ...(encryptedTitle && { encryptedTitle }),
@@ -185,8 +185,10 @@ export function useDropUpload({
                 }),
                 ...(options.hideBranding && features.noBranding && { hideBranding: true }),
                 ...(options.notifyOnDownload && features.downloadNotifications && { notifyOnDownload: true }),
-                ...(isGuest && turnstileToken && { turnstileToken }),
                 fileCount: files.length,
+                wrappedKey: wrappedOwnerKey,
+                vaultId: vault.vaultId,
+                vaultGeneration: vault.vaultGeneration!,
             }, signal);
 
             setDropMeta({
@@ -233,7 +235,6 @@ export function useDropUpload({
                     mimeType: file.type || "application/octet-stream",
                     chunkCount,
                     chunkSize,
-                    ...(sessionToken && { sessionToken }),
                 }, signal);
 
                 // Track for cleanup on cancel
@@ -242,7 +243,6 @@ export function useDropUpload({
                     fileId,
                     s3UploadId,
                     storageKey: '', // Not needed for abort
-                    ...(sessionToken && { sessionToken }),
                 });
 
                 // Upload chunks (encrypt + PUT) with bounded concurrency so
@@ -287,15 +287,13 @@ export function useDropUpload({
 
             // Batch finalize: record chunks + complete files + complete drop
             setProgress(p => p ? { ...p, phase: "finalizing" } : null);
-            await finishDrop(dropId, fileChunkRecords, sessionToken || undefined, signal);
+            await finishDrop(dropId, fileChunkRecords, signal);
             activeUploadsRef.current = [];
-
-            // Persist the encryption key so the dashboard can decrypt drop titles/filenames
-            try {
-                await storeEncryptionKey(dropId, keyString);
-            } catch (e) {
-                console.warn("Failed to save encryption key locally — bookmark your share link.", e);
-            }
+            upsertCachedWrappedDropKey({
+                dropId,
+                wrappedKey: wrappedOwnerKey,
+                vaultGeneration: vault.vaultGeneration!,
+            })
 
             const baseUrl = window.location.origin;
             const url = customKey
@@ -304,7 +302,7 @@ export function useDropUpload({
 
             setShareUrl(url);
             setProgress(p => p ? { ...p, phase: "complete" } : null);
-            analytics.dropUploadCompleted(dropId);
+            analytics.dropUploadCompleted();
 
             toast.success(
                 files.length === 1
@@ -330,7 +328,6 @@ export function useDropUpload({
                                 headers: { 'Content-Type': 'application/json' },
                                 body: JSON.stringify({
                                     s3UploadId: upload.s3UploadId,
-                                    ...(upload.sessionToken && { sessionToken: upload.sessionToken }),
                                 }),
                                 credentials: 'include',
                             }).catch(() => {})
@@ -345,7 +342,7 @@ export function useDropUpload({
         } finally {
             setAbortController(null);
         }
-    }, [files, features, isGuest, onComplete]);
+    }, [files, features, onComplete, vault]);
 
     return {
         files,
@@ -354,12 +351,11 @@ export function useDropUpload({
         shareUrl,
         dropMeta,
 
-        isGuest,
-        maxFileSize,
-        maxExpiry,
+        maxFileSize: Math.max(0, remainingStorage ?? 0),
+        maxExpiry: PLAN_ENTITLEMENTS.drop[tier].maxExpiryDays,
         features,
         isUploading: progress !== null && progress.phase !== "complete" && progress.phase !== "error",
-        
+
         upload,
         cancel,
         reset,

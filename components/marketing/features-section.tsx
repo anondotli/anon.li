@@ -21,9 +21,9 @@ const FEATURE_CARDS = [
     },
     {
         icon: Lock,
-        title: "No Registration Required",
-        description: "Share files instantly without creating an account. Full privacy even for one-time use.",
-        claimIds: ["no_registration_drop"],
+        title: "Private Sharing",
+        description: "Create encrypted drops from your account while recipients download with only the shared link.",
+        claimIds: ["account_required_drop_uploads"],
     },
     {
         icon: Globe,
@@ -50,7 +50,7 @@ if (process.env.NODE_ENV === "development") {
     for (const card of FEATURE_CARDS) {
         for (const id of card.claimIds) {
             if (!getClaimById(id)) {
-                console.warn(`[features-section] Unknown claim ID: ${id}`)
+                throw new Error(`[features-section] Unknown claim ID: ${id}`)
             }
         }
     }

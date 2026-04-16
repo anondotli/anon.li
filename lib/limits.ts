@@ -1,7 +1,6 @@
 import { getPlanFromPriceId, type Product, type Tier } from "@/config/plans"
 import { ALIAS_LIMITS, STORAGE_LIMITS, DROP_SIZE_LIMITS, EXPIRY_LIMITS, DROP_FEATURES } from "@/config/plans"
 import { PLAN_ENTITLEMENTS, type AliasEntitlements } from "@/config/plans"
-import { getEffectiveTiers } from "@/lib/entitlements"
 import { DAY_MS } from "@/lib/constants"
 
 type DropFeatures = typeof DROP_FEATURES[keyof typeof DROP_FEATURES];
@@ -22,26 +21,6 @@ function resolveSubscription(user?: UserSub | null): { product: Product; tier: T
     return getPlanFromPriceId(user.stripePriceId)
 }
 
-function getInternalProRandomAliasCap(): number {
-    const raw = process.env.ALIAS_PRO_RANDOM_CAP
-    const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : 10_000
-}
-
-function applyInternalAliasCaps(
-    limits: AliasEntitlements,
-    resolved: { product: Product; tier: Tier } | null,
-): AliasEntitlements {
-    if (resolved && (resolved.product === "alias" || resolved.product === "bundle") && resolved.tier === "pro" && limits.random === -1) {
-        return {
-            ...limits,
-            random: getInternalProRandomAliasCap(),
-        }
-    }
-
-    return limits
-}
-
 /**
  * Get alias limits for a user. Prefers async resolution via Subscription table.
  * Falls back to synchronous legacy resolution if a user object is passed.
@@ -52,7 +31,7 @@ export function getPlanLimits(user?: UserSub | null): AliasEntitlements {
 
     const { product, tier } = resolved
     if ((product === 'alias' || product === 'bundle') && (tier === 'plus' || tier === 'pro')) {
-        return applyInternalAliasCaps(ALIAS_LIMITS[tier], resolved)
+        return ALIAS_LIMITS[tier]
     }
     return ALIAS_LIMITS.free
 }
@@ -79,15 +58,9 @@ export function getDisplayPlanLimits(user?: UserSub | null): AliasEntitlements {
  * Async alias limits resolution via Subscription table.
  */
 export async function getPlanLimitsAsync(userId: string): Promise<AliasEntitlements> {
+    const { getEffectiveTiers } = await import("@/lib/entitlements")
     const tiers = await getEffectiveTiers(userId)
-    const limits = PLAN_ENTITLEMENTS.alias[tiers.alias]
-    const resolved = tiers.alias === "pro"
-        ? { product: "alias" as const, tier: "pro" as const }
-        : tiers.alias === "plus"
-            ? { product: "alias" as const, tier: "plus" as const }
-            : null
-
-    return applyInternalAliasCaps(limits, resolved)
+    return PLAN_ENTITLEMENTS.alias[tiers.alias]
 }
 
 export function getDropLimits(user?: UserSub | null): DropLimits {

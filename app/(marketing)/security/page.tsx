@@ -34,7 +34,7 @@ export default function SecurityPage() {
                     Security You Can Verify
                 </h1>
                 <p className="text-lg text-muted-foreground max-w-2xl mx-auto leading-relaxed">
-                    Our security posture is strongest where architecture removes trust entirely. Drop is designed so we cannot access file plaintext or keys, while Alias relies on a separate published forwarding stack built around transient routing, reply-tokenized responses, and optional PGP for delivered copies.
+                    Our security posture is strongest where architecture removes trust entirely. Drop is designed so we cannot access file plaintext or keys, vault-enabled accounts derive secrets client-side with Argon2id, and Alias relies on a separate published forwarding stack built around transient routing, reply-tokenized responses, and optional PGP for delivered copies.
                 </p>
             </section>
 
@@ -71,15 +71,16 @@ export default function SecurityPage() {
                                 <Key className="h-6 w-6" />
                             </div>
                             <CardTitle>Alias Forwarding</CardTitle>
-                            <CardDescription>Anonymous email forwarding</CardDescription>
+                            <CardDescription>Private email forwarding</CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-3 text-sm text-muted-foreground">
                             <p>• Aliases are disposable identities</p>
                             <p>• Mail is forwarded to your real inbox instead of stored in a hosted mailbox</p>
                             <p>• Optional PGP encryption for the delivered copy</p>
-                            <p>• Anonymous replies use tokenized <code className="text-foreground">@reply.anon.li</code> addresses</p>
+                            <p>• Reply-by-alias uses tokenized <code className="text-foreground">@reply.anon.li</code> addresses</p>
                             <p>• Standard forwarding still requires transient server-side processing</p>
                             <p>• Your real email stays hidden</p>
+                            <p>• Alias labels and notes are being migrated into vault-backed encryption as users unlock</p>
                         </CardContent>
                     </Card>
 
@@ -95,8 +96,8 @@ export default function SecurityPage() {
                             <p>• Optional TOTP-based 2FA for all accounts</p>
                             <p>• Works with any authenticator app</p>
                             <p>• Backup codes for account recovery</p>
-                            <p>• Passwordless login via magic links</p>
-                            <p>• No passwords to leak or phish</p>
+                            <p>• Password-backed sign-in for vault-enabled accounts</p>
+                            <p>• Magic-link verification and recovery</p>
                         </CardContent>
                     </Card>
 
@@ -130,7 +131,7 @@ export default function SecurityPage() {
                         </h3>
                         <ul className="space-y-2 text-sm text-muted-foreground">
                             <li><strong className="text-foreground">AES-256-GCM</strong> - File encryption (authenticated encryption)</li>
-                            <li><strong className="text-foreground">Argon2id</strong> - Password key derivation (memory-hard)</li>
+                            <li><strong className="text-foreground">Argon2id</strong> - Client-side vault password derivation and drop password wrapping</li>
                             <li><strong className="text-foreground">Web Crypto API</strong> - Browser-native cryptography</li>
                             <li><strong className="text-foreground">RSA/PGP</strong> - Email encryption (optional)</li>
                             <li><strong className="text-foreground">TLS</strong> - Transport encryption</li>
@@ -241,7 +242,7 @@ export default function SecurityPage() {
                     </div>
                     <h2 className="text-3xl font-serif font-medium">Open Source Security</h2>
                     <p className="text-muted-foreground max-w-2xl mx-auto">
-                        Don&apos;t trust us—verify us. Our public application code is open source on GitHub & Codeberg so researchers can inspect the implementation directly. Hosted infrastructure and the separate mail stack still need to be trusted and audited on their own terms.
+                        Don&apos;t trust us—verify us. Our public application code is open source on Codeberg so researchers can inspect the implementation directly. Hosted infrastructure and the separate mail stack still need to be trusted and audited on their own terms.
                     </p>
                 </div>
                 <div className="flex flex-col sm:flex-row justify-center gap-4">
@@ -327,7 +328,7 @@ function ClaimTransparencySection() {
                         Verified in source
                     </h3>
                     <p className="text-sm text-muted-foreground">
-                        {verifiedClaims.length} claims are directly tied to published source files across the web app and mail stack, including Drop encryption, anonymous replies, PGP forwarding, 2FA, and download-limit enforcement.
+                        {verifiedClaims.length} claims are directly tied to published source files across the web app and mail stack, including Drop encryption, reply-by-alias flows, PGP forwarding, 2FA, and download-limit enforcement.
                     </p>
                 </div>
 

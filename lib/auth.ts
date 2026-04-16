@@ -1,16 +1,65 @@
 import { betterAuth } from "better-auth"
 import { prismaAdapter } from "better-auth/adapters/prisma"
 import { twoFactor, magicLink } from "better-auth/plugins"
+import { APIError } from "@better-auth/core/error"
 import { prisma } from "@/lib/prisma"
-import { sendMagicLinkEmail, sendWelcomeEmail } from "@/lib/resend"
+import {
+    sendAccountVerificationEmail,
+    sendMagicLinkEmail,
+    sendPasswordResetEmail,
+    sendWelcomeEmail,
+} from "@/lib/resend"
 import { rateLimit } from "@/lib/rate-limit"
+import { getVaultSchemaState } from "@/lib/vault/schema"
+
+const ACCOUNT_DELETION_PENDING_MESSAGE = "Account deletion is already in progress for this user."
+
+async function hasDeletionRequest(userId: string): Promise<boolean> {
+    const request = await prisma.deletionRequest.findUnique({
+        where: { userId },
+        select: { id: true },
+    })
+
+    return Boolean(request)
+}
 
 export const auth = betterAuth({
     database: prismaAdapter(prisma, { provider: "postgresql" }),
     secret: process.env.AUTH_SECRET,
     baseURL: process.env.NEXT_PUBLIC_APP_URL,
 
-    emailAndPassword: { enabled: false },
+    emailAndPassword: {
+        enabled: true,
+        requireEmailVerification: true,
+        revokeSessionsOnPasswordReset: true,
+        sendResetPassword: async ({ user, url }) => {
+            await sendPasswordResetEmail(user.email, url)
+        },
+        onPasswordReset: async ({ user }) => {
+            const vaultSchema = await getVaultSchemaState()
+            const operations = []
+
+            if (vaultSchema.dropOwnerKeys) {
+                operations.push(prisma.dropOwnerKey.deleteMany({ where: { userId: user.id } }))
+            }
+
+            if (vaultSchema.userSecurity) {
+                operations.push(prisma.userSecurity.deleteMany({ where: { userId: user.id } }))
+            }
+
+            if (operations.length > 0) {
+                await prisma.$transaction(operations)
+            }
+        },
+    },
+
+    emailVerification: {
+        autoSignInAfterVerification: true,
+        sendOnSignIn: true,
+        sendVerificationEmail: async ({ user, url }) => {
+            await sendAccountVerificationEmail(user.email, url)
+        },
+    },
 
     socialProviders: {
         github: {
@@ -52,6 +101,30 @@ export const auth = betterAuth({
     },
 
     databaseHooks: {
+        account: {
+            create: {
+                before: async (account) => {
+                    if (await hasDeletionRequest(account.userId)) {
+                        throw APIError.from("FORBIDDEN", {
+                            message: ACCOUNT_DELETION_PENDING_MESSAGE,
+                            code: "ACCOUNT_DELETION_PENDING",
+                        })
+                    }
+                },
+            },
+        },
+        session: {
+            create: {
+                before: async (session) => {
+                    if (await hasDeletionRequest(session.userId)) {
+                        throw APIError.from("FORBIDDEN", {
+                            message: ACCOUNT_DELETION_PENDING_MESSAGE,
+                            code: "ACCOUNT_DELETION_PENDING",
+                        })
+                    }
+                },
+            },
+        },
         user: {
             create: {
                 before: async (user) => {

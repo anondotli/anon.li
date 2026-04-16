@@ -5,24 +5,20 @@
  * Authentication: API key only (Bearer ak_...)
  */
 
-import { validateApiKey } from "@/lib/api-auth"
-import { createRateLimitHeaders } from "@/lib/api-rate-limit"
-import { DomainService } from "@/lib/services/domain"
-import { prisma } from "@/lib/prisma"
 import { z } from "zod"
+
 import {
-    generateRequestId,
-    apiSuccessWithStatus,
-    apiList,
     apiError,
-    apiErrorFromUnknown,
-    apiRateLimitError,
-    withApiHeaders,
+    apiList,
+    apiSuccessWithStatus,
     ErrorCodes,
     zodErrorToDetails,
 } from "@/lib/api-response"
+import { prisma } from "@/lib/prisma"
+import { withPolicy } from "@/lib/route-policy"
+import { DomainService } from "@/lib/services/domain"
 
-export const dynamic = 'force-dynamic'
+export const dynamic = "force-dynamic"
 
 const createDomainSchema = z.object({
     domain: z.string().min(1).regex(/^[a-z0-9.-]+\.[a-z]{2,}$/, "Invalid domain format"),
@@ -56,89 +52,50 @@ function toApiFormat(domain: {
     }
 }
 
-/**
- * GET /api/v1/domain
- * List all domains for the authenticated user
- */
-export async function GET(req: Request) {
-    const requestId = generateRequestId()
-    const result = await validateApiKey(req)
+export const GET = withPolicy(
+    {
+        auth: "api_key",
+        rateLimit: "api",
+    },
+    async (ctx) => {
+        if (!ctx.userId) {
+            return apiError("Unauthorized", ErrorCodes.UNAUTHORIZED, ctx.requestId, 401)
+        }
 
-    if (!result) {
-        return apiError("Unauthorized - API key required", ErrorCodes.UNAUTHORIZED, requestId, 401)
-    }
-
-    if (!result.rateLimit.success) {
-        return withApiHeaders(
-            apiRateLimitError(requestId, result.rateLimit.reset, true),
-            requestId,
-            createRateLimitHeaders(result.rateLimit)
-        )
-    }
-
-    try {
         const domains = await prisma.domain.findMany({
-            where: { userId: result.user.id },
+            where: { userId: ctx.userId },
             orderBy: { createdAt: "desc" },
         })
 
         const data = domains.map(toApiFormat)
+        return apiList(data, ctx.requestId, { total: data.length, limit: data.length, offset: 0 })
+    },
+)
 
-        return withApiHeaders(
-            apiList(data, requestId, { total: data.length, limit: data.length, offset: 0 }),
-            requestId,
-            createRateLimitHeaders(result.rateLimit)
-        )
-    } catch (error) {
-        return apiErrorFromUnknown(error, requestId)
-    }
-}
+export const POST = withPolicy(
+    {
+        auth: "api_key",
+        requireCsrf: true,
+        rateLimit: "domainCreate",
+    },
+    async (ctx) => {
+        if (!ctx.userId) {
+            return apiError("Unauthorized", ErrorCodes.UNAUTHORIZED, ctx.requestId, 401)
+        }
 
-/**
- * POST /api/v1/domain
- * Add a new domain
- */
-export async function POST(req: Request) {
-    const requestId = generateRequestId()
-    const result = await validateApiKey(req)
-
-    if (!result) {
-        return apiError("Unauthorized - API key required", ErrorCodes.UNAUTHORIZED, requestId, 401)
-    }
-
-    if (!result.rateLimit.success) {
-        return withApiHeaders(
-            apiRateLimitError(requestId, result.rateLimit.reset, true),
-            requestId,
-            createRateLimitHeaders(result.rateLimit)
-        )
-    }
-
-    try {
-        const body = await req.json()
+        const body = await ctx.request.json().catch(() => null)
         const validation = createDomainSchema.safeParse(body)
-
         if (!validation.success) {
             return apiError(
                 "Validation failed",
                 ErrorCodes.VALIDATION_ERROR,
-                requestId,
+                ctx.requestId,
                 400,
-                zodErrorToDetails(validation.error)
+                zodErrorToDetails(validation.error),
             )
         }
 
-        const domain = await DomainService.createDomain(
-            result.user.id,
-            validation.data.domain.toLowerCase()
-        )
-
-        return withApiHeaders(
-            apiSuccessWithStatus(toApiFormat(domain), requestId, 201),
-            requestId,
-            createRateLimitHeaders(result.rateLimit)
-        )
-    } catch (error) {
-        return apiErrorFromUnknown(error, requestId)
-    }
-}
+        const domain = await DomainService.createDomain(ctx.userId, validation.data.domain.toLowerCase())
+        return apiSuccessWithStatus(toApiFormat(domain), ctx.requestId, 201)
+    },
+)

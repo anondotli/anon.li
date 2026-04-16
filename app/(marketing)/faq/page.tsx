@@ -51,13 +51,13 @@ export default function FAQPage() {
                 </div>
                 <Accordion type="single" collapsible className="space-y-3">
                     <FAQItem value="what-is-anonli" question="What is anon.li?">
-                        anon.li is a privacy platform with two core services: anonymous email aliases (anon.li Alias) and end-to-end encrypted file sharing (anon.li Drop). Alias forwards email in real time without storing message content, while Drop is client-side encrypted so we never receive the plaintext files or keys. You can use them through the web dashboard, the <a href="/cli" className="text-primary hover:underline">CLI tool</a>, the <a href="/extension" className="text-primary hover:underline">browser extension</a>, or the REST API.
+                        anon.li is a privacy platform with two core services: private email aliases (anon.li Alias) and end-to-end encrypted file sharing (anon.li Drop). Alias forwards email in real time without storing message content, while Drop is client-side encrypted so we never receive the plaintext files or keys. You can use them through the web dashboard, the <a href="/cli" className="text-primary hover:underline">CLI tool</a>, the <a href="/extension" className="text-primary hover:underline">browser extension</a>, or the REST API.
                     </FAQItem>
                     <FAQItem value="is-free" question="Is anon.li free?">
                         Yes! We offer generous free tiers for both services. Free accounts include email aliases and file uploads with reasonable limits. Paid plans unlock higher limits, longer expiry times, and advanced features like custom domains and custom encryption keys.
                     </FAQItem>
                     <FAQItem value="open-source" question="Is anon.li open source?">
-                        Our public application code is open source on GitHub & Codeberg. You can audit the web app and companion repositories, but the hosted service and separate mail stack still depend on deployment and infrastructure you must trust independently.
+                        Our public application code is open source on Codeberg. You can audit the web app and companion repositories, but the hosted service and separate mail stack still depend on deployment and infrastructure you must trust independently.
                     </FAQItem>
                     <FAQItem value="data-location" question="Where is my data stored?">
                         We rely on infrastructure and subprocessors across the European Union, the United States, and global edge networks. For file sharing, only encrypted Drop data is stored with our storage provider. See our <a href="/privacy" className="text-primary hover:underline">Privacy Policy</a> for the current processor list and locations.
@@ -75,7 +75,7 @@ export default function FAQPage() {
                 </div>
                 <Accordion type="single" collapsible className="space-y-3">
                     <FAQItem value="what-is-alias" question="What is an email alias?">
-                        An email alias is a unique email address (like random123@anon.li) that forwards messages to your real inbox. Create aliases to sign up for services without exposing your real email. Free users get 10 aliases, Plus gets 100, and Pro gets unlimited aliases.
+                        An email alias is a unique email address (like random123@anon.li) that forwards messages to your real inbox. Create aliases to sign up for services without exposing your real email. Free users get 10 random aliases and 1 custom alias, Plus gets 100 random and 10 custom aliases, and Pro gets unlimited random aliases plus 100 custom aliases.
                     </FAQItem>
                     <FAQItem value="reply-alias" question="Can I reply from an alias?">
                         Yes! When you reply to a forwarded email, your response is automatically sent through your alias. The recipient sees your alias address, never your real email.
@@ -87,7 +87,7 @@ export default function FAQPage() {
                         Yes, paid plans include custom domain support. You can use addresses like anything@yourdomain.com that forward to your inbox. This is great for professional use or personal branding.
                     </FAQItem>
                     <FAQItem value="pgp-encryption" question="What is PGP encryption?">
-                        PGP (Pretty Good Privacy) is an encryption standard. If you add your PGP public key to anon.li, we&apos;ll encrypt the forwarded copy of each email before delivery to your inbox. Standard forwarding still requires transient server-side processing, but the delivered message is encrypted to your key.
+                        PGP (Pretty Good Privacy) is an encryption standard. If you add a PGP public key to a verified recipient, we&apos;ll encrypt forwarded copies for aliases routed to that recipient before delivery. Standard forwarding still requires transient server-side processing, but the delivered message is encrypted to your key.
                     </FAQItem>
                     <FAQItem value="email-storage" question="Do you store my emails?">
                         Alias forwarding is designed for real-time processing rather than storing message content at rest. That behavior depends on our separate mail infrastructure, not just this web app repository. With PGP enabled, the forwarded copy is encrypted to your key before delivery.
@@ -111,10 +111,10 @@ export default function FAQPage() {
                         No. We only receive encrypted data. Without the encryption key (which stays in your browser and share link), the data is indistinguishable from random noise. Even filenames are encrypted.
                     </FAQItem>
                     <FAQItem value="need-account" question="Do I need an account to share files?">
-                        No! You can upload and share files as a guest with no registration required. Guest uploads are limited to 3GB and expire in 24 hours. Create a free account for more bandwidth and longer expiry.
+                        Yes. You need a free account to upload and manage drops. Recipients can still download with only the shared link and never need an account.
                     </FAQItem>
                     <FAQItem value="file-expiry" question="How long do files stay available?">
-                        It depends on your plan. Guests get 24 hours, free accounts get up to 3 days, Plus gets 7 days, and Pro gets 30 days. After expiry, files are automatically deleted from our servers.
+                        It depends on your plan. Free accounts get up to 3 days, Plus gets 7 days, and Pro gets 30 days. After expiry, files are automatically deleted from our servers.
                     </FAQItem>
                     <FAQItem value="download-limits" question="What are download limits?">
                         You can set a maximum number of downloads for any file. Once the limit is reached, the file is automatically deleted. Perfect for sharing sensitive documents that should only be accessed a specific number of times.
@@ -126,10 +126,10 @@ export default function FAQPage() {
                         Yes! Plus and Pro users can set a custom encryption key (password) on their files. The recipient will need both the link and the password to decrypt. For extra security, we recommend sending the password & the file link through different channels.
                     </FAQItem>
                     <FAQItem value="lost-link" question="What if I lose my share link?">
-                        If this browser is set to remember Drop keys, the dashboard can rebuild full links locally on that device for a limited time. If you clear local browser data, switch devices, or lose the original share link as a guest, the file is unrecoverable because we do not have the decryption key.
+                        The dashboard can rebuild full links for link-only drops after you unlock your vault. Password-protected drops still require the password you set. Forgotten vault passwords or lost custom passwords remain unrecoverable because we do not have your decrypted keys.
                     </FAQItem>
                     <FAQItem value="file-size" question="What's the maximum file size?">
-                        For guests, the maximum file size is 3GB. For registered users, your max file size equals your remaining bandwidth. Free users get 5GB bandwidth, Plus gets 50GB, and Pro gets 250GB. We support chunked uploads, so large files upload reliably even on slower connections.
+                        Your max file size equals your remaining bandwidth. Free users get 5GB bandwidth, Plus gets 50GB, and Pro gets 250GB. We support chunked uploads, so large files upload reliably even on slower connections.
                     </FAQItem>
                 </Accordion>
             </section>
@@ -147,10 +147,10 @@ export default function FAQPage() {
                         Yes! Our CLI lets you manage aliases, drops, domains, and recipients directly from the terminal. Install it from the <a href="/cli" className="text-primary hover:underline">/cli</a> page. It supports all major operations including creating aliases, uploading encrypted files, and managing your subscription.
                     </FAQItem>
                     <FAQItem value="browser-extension" question="Is there a browser extension?">
-                        Yes. The <a href="/extension" className="text-primary hover:underline">anon.li browser extension</a> can be installed through Firefox & Chrome web stores today or manually from our GitHub & Codeberg repositories. It lets you create aliases with one click while browsing, manage your drops, and share files with a QR code without leaving the current tab.
+                        Yes. The <a href="/extension" className="text-primary hover:underline">anon.li browser extension</a> can be installed through Firefox & Chrome web stores today or manually from our Codeberg repositories. It lets you create aliases with one click while browsing, manage your drops, and share files with a QR code without leaving the current tab.
                     </FAQItem>
                     <FAQItem value="api-access" question="Do you offer an API?">
-                        Yes! We provide a full REST API for aliases, domains, and drops. Free accounts get 500 requests/month, Plus gets 25,000, and Pro gets 100,000. Generate API keys from your dashboard.
+                        Yes! We provide a REST API for aliases, recipients, domains, and drops. API-key requests count against monthly API quotas: Free accounts get 500 requests/month, Plus gets 25,000, and Pro gets 100,000. Generate and revoke API keys from your dashboard with your signed-in session.
                     </FAQItem>
                 </Accordion>
             </section>
@@ -174,7 +174,7 @@ export default function FAQPage() {
                         Start with our public source code and security documentation. We label which claims are backed by published source across the web app and mail stack, and which ones still depend on runtime infrastructure like log retention or the hosted build matching the published source.
                     </FAQItem>
                     <FAQItem value="two-factor-auth" question="Do you support two-factor authentication (2FA)?">
-                        Yes! You can enable TOTP-based two-factor authentication from your account settings. Use any authenticator app (Google Authenticator, Authy, 1Password, etc.) for an extra layer of security on top of magic link login.
+                        Yes! You can enable TOTP-based two-factor authentication from your account settings. Use any authenticator app (Google Authenticator, Authy, 1Password, etc.) for an extra layer of security on top of your normal sign-in flow.
                     </FAQItem>
                     <FAQItem value="data-export" question="Can I export my data?">
                         Yes. You can export your account data from your dashboard settings. We also support full account deletion, which permanently removes all your data including aliases, drops, and domains.

@@ -108,20 +108,28 @@ export default async function AliasDetailPage({
                             <span className="text-muted-foreground">Format</span>
                             <Badge variant="outline">{alias.format}</Badge>
                         </div>
-                        {alias.label && (
+                        {alias.encryptedLabel && (
                             <div className="flex justify-between items-start">
                                 <span className="text-muted-foreground flex items-center gap-2">
                                     <Tag className="h-4 w-4" /> Label
                                 </span>
-                                <span>{alias.label}</span>
+                                <Badge variant="outline">Encrypted</Badge>
                             </div>
                         )}
-                        {alias.note && (
+                        {alias.encryptedNote && (
                             <div className="flex justify-between items-start">
                                 <span className="text-muted-foreground flex items-center gap-2">
                                     <FileText className="h-4 w-4" /> Note
                                 </span>
-                                <span className="text-right max-w-[200px]">{alias.note}</span>
+                                <Badge variant="outline">Encrypted</Badge>
+                            </div>
+                        )}
+                        {(alias.legacyLabel || alias.legacyNote) && (
+                            <div className="flex justify-between items-start">
+                                <span className="text-muted-foreground flex items-center gap-2">
+                                    <FileText className="h-4 w-4" /> Legacy metadata
+                                </span>
+                                <Badge variant="secondary">Pending user vault migration</Badge>
                             </div>
                         )}
                         <div className="flex justify-between">

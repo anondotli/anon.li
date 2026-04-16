@@ -1,5 +1,6 @@
 import { redis } from "@/lib/rate-limit";
 import { createLogger } from "@/lib/logger";
+import crypto from "crypto";
 
 const logger = createLogger("CronLock");
 
@@ -19,7 +20,7 @@ export async function withCronLock<T>(
   fn: () => Promise<T>
 ): Promise<T | null> {
   const key = `cron-lock:${name}`;
-  const token = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  const token = `${process.pid}-${Date.now()}-${crypto.randomUUID()}`;
 
   if (!redis) {
     logger.warn("Redis unavailable, running cron without lock", { name });
@@ -27,7 +28,14 @@ export async function withCronLock<T>(
   }
 
   // SET NX EX — only succeeds if the key does not exist
-  const acquired = await redis.set(key, token, { nx: true, ex: ttlSeconds });
+  let acquired: string | null = null
+  try {
+    acquired = await redis.set(key, token, { nx: true, ex: ttlSeconds })
+  } catch (error) {
+    logger.error("Failed to acquire cron lock, running unlocked", error, { name })
+    return await fn()
+  }
+
   if (acquired !== "OK") {
     logger.info("Cron lock held by another worker, skipping", { name });
     return null;

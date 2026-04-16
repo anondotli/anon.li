@@ -67,6 +67,11 @@ curl -X POST 'https://anon.li/api/v1/alias?generate=true' \
     "email": "x7k9m2@anon.li",
     "active": true,
     "description": null,
+    "label": null,
+    "note": null,
+    "encrypted_label": null,
+    "encrypted_note": null,
+    "metadata_version": 1,
     "created_at": "2026-01-23T10:00:00.000Z",
     "updated_at": "2026-01-23T10:00:00.000Z"
   }
@@ -100,7 +105,12 @@ curl https://anon.li/api/v1/alias \
       "id": "cuid...",
       "email": "alias@anon.li",
       "active": true,
-      "description": "Streaming service",
+      "description": null,
+      "label": null,
+      "note": null,
+      "encrypted_label": "{\"v\":1,\"alg\":\"AES-256-GCM\",\"iv\":\"...\",\"ct\":\"...\"}",
+      "encrypted_note": null,
+      "metadata_version": 1,
       "created_at": "2026-10-27T10:00:00.000Z",
       "updated_at": "2026-10-27T10:00:00.000Z"
     }
@@ -126,9 +136,10 @@ Create a new email alias that forwards to your inbox.
 | `local_part` | string | For custom | The part before the @ (e.g., `netflix` in `alias@anon.li`). Required when format is `custom`. |
 | `domain` | string | No | The domain for the alias (default: `anon.li`). |
 | `format` | string | No | Alias format: `random_characters`, `random_words`, `uuid`, or `custom`. Default: `random_characters`. |
-| `description` | string | No | A note to remember what this alias is for. |
-| `recipient_ids` | string[] | No | Array of [recipient](/docs/api/recipient) IDs. The first ID is used as the forwarding destination. |
+| `recipient_ids` | string[] | No | Array of verified [recipient](/docs/api/recipient) IDs for multi-recipient routing. The first ID is primary. Limits are 1 on Free, 3 on Plus, and 5 on Pro. |
 | `recipient_email` | string | No | Alternatively, specify a verified recipient by email address. |
+
+Alias labels and notes are vault-encrypted. Plaintext metadata fields (`description`, `label`, and `note`) are not accepted by the API. Create the alias first, then update `encrypted_label` or `encrypted_note` with ciphertext produced by a compatible vault client.
 
 **Example Request (Custom Alias)**
 
@@ -139,8 +150,7 @@ curl -X POST https://anon.li/api/v1/alias \
   -d '{
     "local_part": "amazon",
     "domain": "anon.li",
-    "format": "custom",
-    "description": "Shopping"
+    "format": "custom"
   }'
 ```
 
@@ -163,7 +173,12 @@ curl -X POST https://anon.li/api/v1/alias \
     "id": "cuid...",
     "email": "amazon@anon.li",
     "active": true,
-    "description": "Shopping",
+    "description": null,
+    "label": null,
+    "note": null,
+    "encrypted_label": null,
+    "encrypted_note": null,
+    "metadata_version": 1,
     "created_at": "2026-10-27T10:05:00.000Z",
     "updated_at": "2026-10-27T10:05:00.000Z"
   }
@@ -196,7 +211,12 @@ curl https://anon.li/api/v1/alias/cuid... \
     "id": "cuid...",
     "email": "alias@anon.li",
     "active": true,
-    "description": "Streaming",
+    "description": null,
+    "label": null,
+    "note": null,
+    "encrypted_label": "{\"v\":1,\"alg\":\"AES-256-GCM\",\"iv\":\"...\",\"ct\":\"...\"}",
+    "encrypted_note": null,
+    "metadata_version": 1,
     "created_at": "2026-10-27T10:00:00.000Z",
     "updated_at": "2026-10-27T10:00:00.000Z"
   }
@@ -207,7 +227,7 @@ curl https://anon.li/api/v1/alias/cuid... \
 
 ### Update Alias
 
-Update an existing alias. You can toggle the active status, change the description, or change which recipient inbox the alias forwards to.
+Update an existing alias. You can toggle the active status, update vault-encrypted metadata, or change which recipient inbox the alias forwards to.
 
 <div className="flex items-center gap-2 mt-6 mb-4">
     <span className="bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400 px-3 py-1 rounded-md font-mono text-sm font-bold">PATCH</span>
@@ -219,11 +239,13 @@ Update an existing alias. You can toggle the active status, change the descripti
 | Field | Type | Required | Description |
 | :--- | :--- | :--- | :--- |
 | `active` | boolean | No | Enable or disable the alias. |
-| `description` | string | No | Update the description (mapped to the alias label). |
-| `label` | string | No | Update the label directly (max 50 characters). Takes precedence over `description` if both are provided. |
-| `note` | string | No | A private note about this alias (max 500 characters). |
+| `encrypted_label` | string \| null | No | Vault-encrypted alias label envelope. Send `null` to clear it. |
+| `encrypted_note` | string \| null | No | Vault-encrypted alias note envelope. Send `null` to clear it. |
 | `recipient_id` | string | No | Change the forwarding destination by [recipient](/docs/api/recipient) ID. The recipient must be verified. |
+| `recipient_ids` | string[] | No | Replace the full recipient list for multi-recipient routing. The first ID is primary. |
 | `recipient_email` | string | No | Change the forwarding destination by verified recipient email address. |
+
+The encrypted metadata envelope is versioned JSON: `{"v":1,"alg":"AES-256-GCM","iv":"...","ct":"..."}`. Plaintext `description`, `label`, and `note` updates return `400`.
 
 **Example Request (disable alias)**
 
@@ -264,7 +286,12 @@ curl -X PATCH https://anon.li/api/v1/alias/cuid... \
     "id": "cuid...",
     "email": "alias@anon.li",
     "active": false,
-    "description": "Streaming",
+    "description": null,
+    "label": null,
+    "note": null,
+    "encrypted_label": "{\"v\":1,\"alg\":\"AES-256-GCM\",\"iv\":\"...\",\"ct\":\"...\"}",
+    "encrypted_note": null,
+    "metadata_version": 1,
     "created_at": "2026-10-27T10:00:00.000Z",
     "updated_at": "2026-10-27T11:00:00.000Z"
   }
@@ -311,7 +338,7 @@ curl -X DELETE https://anon.li/api/v1/alias/cuid... \
 
 ## Rate Limits
 
-API request limits are based on your subscription plan:
+API-key requests count against the monthly API request quota for your subscription plan. Dashboard actions do not consume this quota.
 
 | Plan | Monthly Requests |
 | :--- | :--- |

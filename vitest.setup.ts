@@ -16,6 +16,8 @@ vi.mock('@/lib/prisma', () => ({
 vi.mock('@/lib/resend', () => ({
   getResendClient: vi.fn(),
   sendWelcomeEmail: vi.fn().mockResolvedValue({ success: true }),
+  sendAccountVerificationEmail: vi.fn().mockResolvedValue({ success: true }),
+  sendPasswordResetEmail: vi.fn().mockResolvedValue({ success: true }),
   sendSubscriptionCanceledEmail: vi.fn().mockResolvedValue({ success: true }),
   sendPaymentActionRequiredEmail: vi.fn().mockResolvedValue({ success: true }),
   sendFileExpiringEmail: vi.fn().mockResolvedValue({ success: true }),

@@ -38,7 +38,7 @@ const FAQ_CATEGORIES: FAQCategory[] = [
                 question: "What's the difference between Bundle, Alias, and Drop?",
                 answer: (
                     <>
-                        <strong>Bundle</strong> gives you access to both Alias and Drop features at a discounted price - best value if you want everything. <strong>Alias</strong> is for email aliasing only - create anonymous addresses to protect your inbox. <strong>Drop</strong> is for encrypted file sharing. Choose what fits your needs.
+                        <strong>Bundle</strong> gives you access to both Alias and Drop features at a discounted price - best value if you want everything. <strong>Alias</strong> is for email aliasing only - create private addresses to protect your inbox. <strong>Drop</strong> is for encrypted file sharing. Choose what fits your needs.
                     </>
                 )
             },
@@ -70,7 +70,7 @@ const FAQ_CATEGORIES: FAQCategory[] = [
                 question: "What's the difference between random and custom aliases?",
                 answer: (
                     <>
-                        <strong>Random aliases</strong> are auto-generated (like <code className="bg-secondary px-1.5 py-0.5 rounded text-xs">x7k9m@anon.li</code>) - quick and anonymous. <strong>Custom aliases</strong> let you choose (like <code className="bg-secondary px-1.5 py-0.5 rounded text-xs">shopping@anon.li</code>) - easier to remember.
+                        <strong>Random aliases</strong> are auto-generated (like <code className="bg-secondary px-1.5 py-0.5 rounded text-xs">x7k9m@anon.li</code>) - quick and private. <strong>Custom aliases</strong> let you choose (like <code className="bg-secondary px-1.5 py-0.5 rounded text-xs">shopping@anon.li</code>) - easier to remember.
                     </>
                 )
             },
@@ -128,7 +128,7 @@ const FAQ_CATEGORIES: FAQCategory[] = [
         items: [
             {
                 question: "What's the maximum drop size?",
-                answer: "Guests: 3GB. Free: up to 5GB. Plus: up to 50GB. Pro: up to 250GB. We use chunked uploads for reliable large file transfers."
+                answer: "Free: up to 5GB. Plus: up to 50GB. Pro: up to 250GB. We use chunked uploads for reliable large file transfers."
             },
             {
                 question: "How long are drops stored?",

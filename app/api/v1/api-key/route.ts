@@ -2,90 +2,75 @@
  * GET /api/v1/api-key - List all API keys
  * POST /api/v1/api-key - Create a new API key
  *
- * Authentication: API key only (Bearer ak_...)
+ * Authentication: browser session with 2FA verified
  */
 
-import { requireApiKey } from "@/lib/api-auth"
-import { createRateLimitHeaders } from "@/lib/api-rate-limit"
-import { getApiKeysByUserId } from "@/lib/data/api-key"
-import { ApiKeyService } from "@/lib/services/api-key"
 import { z } from "zod"
+
 import {
-    generateRequestId,
-    apiSuccessWithStatus,
-    apiList,
     apiError,
-    apiErrorFromUnknown,
-    withApiHeaders,
+    apiList,
+    apiSuccessWithStatus,
     ErrorCodes,
     zodErrorToDetails,
 } from "@/lib/api-response"
+import { getApiKeysByUserId } from "@/lib/data/api-key"
+import { withPolicy } from "@/lib/route-policy"
+import { ApiKeyService } from "@/lib/services/api-key"
 
-export const dynamic = 'force-dynamic'
+export const dynamic = "force-dynamic"
 
 const createApiKeySchema = z.object({
-    label: z.string().max(100).optional(),
+    label: z.string().trim().min(1).max(100).optional(),
     expires_in_days: z.number().int().min(1).max(365).optional(),
 })
 
-/**
- * GET /api/v1/api-key
- * List all API keys for the authenticated user (keys are masked)
- */
-export async function GET(req: Request) {
-    const requestId = generateRequestId()
-    const auth = await requireApiKey(req, requestId)
-    if ("error" in auth) return auth.error
-    const { result } = auth
+export const GET = withPolicy(
+    {
+        auth: "session",
+        rateLimit: "apiKey",
+    },
+    async (ctx) => {
+        if (!ctx.userId) {
+            return apiError("Session authentication required", ErrorCodes.UNAUTHORIZED, ctx.requestId, 401)
+        }
 
-    try {
-        const apiKeys = await getApiKeysByUserId(result.user.id)
-
-        const data = apiKeys.map(key => ({
+        const apiKeys = await getApiKeysByUserId(ctx.userId)
+        return apiList(apiKeys.map((key) => ({
             id: key.id,
             key_prefix: key.keyPrefix,
             label: key.label,
             created_at: key.createdAt.toISOString(),
             last_used_at: key.lastUsedAt?.toISOString() ?? null,
             expires_at: key.expiresAt?.toISOString() ?? null,
-        }))
+        })), ctx.requestId, {
+            total: apiKeys.length,
+            limit: apiKeys.length,
+            offset: 0,
+        })
+    },
+)
 
-        return withApiHeaders(
-            apiList(data, requestId, { total: data.length, limit: data.length, offset: 0 }),
-            requestId,
-            createRateLimitHeaders(result.rateLimit)
-        )
-    } catch (error) {
-        return apiErrorFromUnknown(error, requestId)
-    }
-}
-
-/**
- * POST /api/v1/api-key
- * Create a new API key
- */
-export async function POST(req: Request) {
-    const requestId = generateRequestId()
-    const auth = await requireApiKey(req, requestId)
-    if ("error" in auth) return auth.error
-    const { result } = auth
-
-    try {
-        let body = {}
-        try {
-            body = await req.json()
-        } catch {
-            // Empty body is fine
+export const POST = withPolicy(
+    {
+        auth: "session",
+        requireCsrf: true,
+        rateLimit: "apiKey",
+    },
+    async (ctx) => {
+        if (!ctx.userId) {
+            return apiError("Session authentication required", ErrorCodes.UNAUTHORIZED, ctx.requestId, 401)
         }
 
+        const body = await ctx.request.json().catch(() => ({}))
         const validation = createApiKeySchema.safeParse(body)
         if (!validation.success) {
             return apiError(
                 "Validation failed",
                 ErrorCodes.VALIDATION_ERROR,
-                requestId,
+                ctx.requestId,
                 400,
-                zodErrorToDetails(validation.error)
+                zodErrorToDetails(validation.error),
             )
         }
 
@@ -94,25 +79,18 @@ export async function POST(req: Request) {
             : undefined
 
         const apiKey = await ApiKeyService.createWithMetadata(
-            result.user.id,
+            ctx.userId,
             validation.data.label || "My API Key",
             expiresAt,
         )
 
-        // Return the full key ONLY on creation
-        return withApiHeaders(
-            apiSuccessWithStatus({
-                id: apiKey.id,
-                key: apiKey.key, // Only shown once!
-                key_prefix: apiKey.keyPrefix,
-                label: apiKey.label,
-                created_at: apiKey.createdAt.toISOString(),
-                expires_at: apiKey.expiresAt?.toISOString() ?? null,
-            }, requestId, 201),
-            requestId,
-            createRateLimitHeaders(result.rateLimit)
-        )
-    } catch (error) {
-        return apiErrorFromUnknown(error, requestId)
-    }
-}
+        return apiSuccessWithStatus({
+            id: apiKey.id,
+            key: apiKey.key,
+            key_prefix: apiKey.keyPrefix,
+            label: apiKey.label,
+            created_at: apiKey.createdAt.toISOString(),
+            expires_at: apiKey.expiresAt?.toISOString() ?? null,
+        }, ctx.requestId, 201)
+    },
+)

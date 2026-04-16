@@ -5,22 +5,19 @@
  * Authentication: API key only (Bearer ak_...)
  */
 
-import { requireApiKey } from "@/lib/api-auth"
-import { createRateLimitHeaders } from "@/lib/api-rate-limit"
-import { RecipientService } from "@/lib/services/recipient"
 import { z } from "zod"
+
 import {
-    generateRequestId,
-    apiSuccessWithStatus,
-    apiList,
     apiError,
-    apiErrorFromUnknown,
-    withApiHeaders,
+    apiList,
+    apiSuccessWithStatus,
     ErrorCodes,
     zodErrorToDetails,
 } from "@/lib/api-response"
+import { withPolicy } from "@/lib/route-policy"
+import { RecipientService } from "@/lib/services/recipient"
 
-export const dynamic = 'force-dynamic'
+export const dynamic = "force-dynamic"
 
 const createRecipientSchema = z.object({
     email: z.string().email("Invalid email address"),
@@ -48,73 +45,53 @@ function toApiFormat(recipient: {
     }
 }
 
-/**
- * GET /api/v1/recipient
- * List all recipients for the authenticated user
- */
-export async function GET(req: Request) {
-    const requestId = generateRequestId()
-    const auth = await requireApiKey(req, requestId)
-    if ("error" in auth) return auth.error
-    const { result } = auth
+export const GET = withPolicy(
+    {
+        auth: "api_key",
+        rateLimit: "api",
+    },
+    async (ctx) => {
+        if (!ctx.userId) {
+            return apiError("Unauthorized", ErrorCodes.UNAUTHORIZED, ctx.requestId, 401)
+        }
 
-    try {
-        const recipients = await RecipientService.getRecipients(result.user.id)
+        const recipients = await RecipientService.getRecipients(ctx.userId)
         const data = recipients.map(toApiFormat)
+        return apiList(data, ctx.requestId, { total: data.length, limit: data.length, offset: 0 })
+    },
+)
 
-        return withApiHeaders(
-            apiList(data, requestId, { total: data.length, limit: data.length, offset: 0 }),
-            requestId,
-            createRateLimitHeaders(result.rateLimit)
-        )
-    } catch (error) {
-        return apiErrorFromUnknown(error, requestId)
-    }
-}
+export const POST = withPolicy(
+    {
+        auth: "api_key",
+        requireCsrf: true,
+        rateLimit: "recipientOps",
+    },
+    async (ctx) => {
+        if (!ctx.userId) {
+            return apiError("Unauthorized", ErrorCodes.UNAUTHORIZED, ctx.requestId, 401)
+        }
 
-/**
- * POST /api/v1/recipient
- * Add a new recipient
- */
-export async function POST(req: Request) {
-    const requestId = generateRequestId()
-    const auth = await requireApiKey(req, requestId)
-    if ("error" in auth) return auth.error
-    const { result } = auth
-
-    try {
-        const body = await req.json()
+        const body = await ctx.request.json().catch(() => null)
         const validation = createRecipientSchema.safeParse(body)
 
         if (!validation.success) {
             return apiError(
                 "Validation failed",
                 ErrorCodes.VALIDATION_ERROR,
-                requestId,
+                ctx.requestId,
                 400,
-                zodErrorToDetails(validation.error)
+                zodErrorToDetails(validation.error),
             )
         }
 
-        const recipient = await RecipientService.addRecipient(
-            result.user.id,
-            validation.data.email
-        )
-
-        const data = {
+        const recipient = await RecipientService.addRecipient(ctx.userId, validation.data.email)
+        return apiSuccessWithStatus({
             id: recipient.id,
             email: recipient.email,
             verified: recipient.verified,
             is_default: recipient.isDefault,
             created_at: recipient.createdAt.toISOString(),
-        }
-
-        return withApiHeaders(
-            apiSuccessWithStatus(data, requestId, 201),
-            requestId,
-            createRateLimitHeaders(result.rateLimit)
-        )
-    } catch (error) {
-        return apiErrorFromUnknown(error, requestId)
-    }
-}
+        }, ctx.requestId, 201)
+    },
+)

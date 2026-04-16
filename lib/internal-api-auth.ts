@@ -17,7 +17,9 @@ export function validateInternalApiSecret(req: Request): boolean {
     const secret = process.env.MAIL_API_SECRET
     if (!secret) return false
 
+    const authHeader = req.headers.get("authorization")
     const providedToken = req.headers.get("x-api-secret")
+        || (authHeader?.startsWith("Bearer ") ? authHeader.split(" ")[1] : "")
     if (!providedToken) return false
 
     const secretHash = crypto.createHash("sha256").update(secret).digest()

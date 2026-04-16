@@ -16,7 +16,7 @@ import {
 
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { authClient } from "@/lib/auth-client"
+import { signOutWithVaultCleanup } from "@/lib/vault/client"
 
 interface UserNavProps {
     user: {
@@ -60,7 +60,9 @@ export function UserNav({ user }: UserNavProps) {
                     </DropdownMenuItem>
                 </DropdownMenuGroup>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => authClient.signOut({ fetchOptions: { onSuccess: () => { window.location.href = "/" } } })}>
+                <DropdownMenuItem onClick={() => {
+                    signOutWithVaultCleanup("user-nav")
+                }}>
                     Log out
                 </DropdownMenuItem>
             </DropdownMenuContent>

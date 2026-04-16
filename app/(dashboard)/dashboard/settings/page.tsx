@@ -7,15 +7,18 @@ import { Key, ChevronRight } from "lucide-react"
 import { SettingsForm } from "./settings-form"
 import { DeleteAccountSection } from "./delete-account"
 import { DataExportSection } from "./data-export"
-import { LocalDevicePrivacySection } from "./local-device-privacy"
 import { TwoFactorSettings } from "./two-factor-settings"
 import { SessionManagement } from "./session-management"
 import { Card, CardContent } from "@/components/ui/card"
 import { cookies } from "next/headers"
+import { PasswordSettings } from "@/components/vault/password-settings"
+import { getVaultSchemaState, VAULT_SCHEMA_UNAVAILABLE_MESSAGE } from "@/lib/vault/schema"
 
 export default async function SettingsPage() {
     const session = await auth()
     if (!session?.user?.id) redirect("/login")
+
+    const vaultSchema = await getVaultSchemaState()
 
     const user = await prisma.user.findUnique({
         where: { id: session.user.id },
@@ -23,26 +26,26 @@ export default async function SettingsPage() {
 
     if (!user) redirect("/login")
 
-    // Fetch active sessions for session management
-    const sessions = await prisma.session.findMany({
-        where: { userId: session.user.id, expiresAt: { gt: new Date() } },
-        orderBy: { createdAt: "desc" },
-        select: {
-            id: true,
-            token: true,
-            userAgent: true,
-            createdAt: true,
-        },
-    })
-
     const cookieStore = await cookies()
     const currentSessionToken = cookieStore.get("better-auth.session_token")?.value?.split(".")[0] ?? ""
 
-    const sessionData = sessions.map(s => ({
-        id: s.id,
-        userAgent: s.userAgent,
-        createdAt: s.createdAt,
-        isCurrent: s.token === currentSessionToken,
+    const sessionData = (await prisma.session.findMany({
+        where: {
+            userId: session.user.id,
+            expiresAt: { gt: new Date() },
+        },
+        select: {
+            id: true,
+            userAgent: true,
+            createdAt: true,
+            token: true,
+        },
+        orderBy: { createdAt: "desc" },
+    })).map((activeSession) => ({
+        id: activeSession.id,
+        userAgent: activeSession.userAgent,
+        createdAt: activeSession.createdAt,
+        isCurrent: activeSession.token === currentSessionToken,
     }))
 
     return (
@@ -61,6 +64,15 @@ export default async function SettingsPage() {
                 <div className="space-y-2">
                     <h4 className="text-lg font-medium font-serif text-muted-foreground px-1">Security</h4>
                     <div className="grid gap-6">
+                        {vaultSchema.userSecurity ? (
+                            <PasswordSettings />
+                        ) : (
+                            <Card className="rounded-3xl border-border/40 shadow-sm">
+                                <CardContent className="p-6 text-sm text-muted-foreground">
+                                    {VAULT_SCHEMA_UNAVAILABLE_MESSAGE}
+                                </CardContent>
+                            </Card>
+                        )}
                         <TwoFactorSettings />
                         <Card className="rounded-3xl border-border/40 shadow-sm">
                             <CardContent className="p-6">
@@ -81,7 +93,7 @@ export default async function SettingsPage() {
                                 </Link>
                             </CardContent>
                         </Card>
-                        <SessionManagement sessions={sessionData} currentSessionToken={currentSessionToken} />
+                        <SessionManagement sessions={sessionData} />
                     </div>
                 </div>
 
@@ -89,7 +101,6 @@ export default async function SettingsPage() {
                 <div className="space-y-2">
                     <h4 className="text-lg font-medium font-serif text-muted-foreground px-1">Data Control</h4>
                     <div className="grid gap-6">
-                        <LocalDevicePrivacySection />
                         <DataExportSection />
                         <DeleteAccountSection />
                     </div>

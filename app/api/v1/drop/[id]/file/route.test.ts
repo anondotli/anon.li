@@ -24,6 +24,7 @@ vi.mock("@/lib/resend", () => ({
 vi.mock("@/lib/rate-limit", () => ({
     rateLimit: vi.fn().mockResolvedValue(null),
     getClientIp: vi.fn().mockResolvedValue("127.0.0.1"),
+    rateLimiters: {},
     monthlyApiLimiters: {
         dropFree: null,
         dropPlus: null,
@@ -31,7 +32,24 @@ vi.mock("@/lib/rate-limit", () => ({
     },
 }));
 vi.mock("@/lib/services/drop", () => ({ DropService: { addFile: vi.fn() } }));
-vi.mock("@/lib/storage", () => ({ getChunkPresignedUrls: vi.fn() }));
+vi.mock("@/lib/storage", () => ({
+    abortMultipartUpload: vi.fn(),
+    getChunkPresignedUrls: vi.fn(),
+    getPresignedDownloadUrl: vi.fn(),
+}));
+vi.mock("@/lib/csrf", () => ({ validateCsrf: vi.fn() }));
+
+vi.mock("@/lib/data/auth", () => ({
+    getAuthUserState: vi.fn().mockResolvedValue({
+        id: "user-123",
+        banned: false,
+        stripeSubscriptionId: null,
+        stripePriceId: null,
+        stripeCurrentPeriodEnd: null,
+    }),
+    getAuthApiKeyRecord: vi.fn().mockResolvedValue(null),
+    touchApiKeyLastUsed: vi.fn().mockResolvedValue(undefined),
+}));
 
 vi.mock("@/lib/prisma", () => ({
     prisma: {
@@ -40,6 +58,12 @@ vi.mock("@/lib/prisma", () => ({
 }));
 
 vi.mock("@/lib/api-rate-limit", () => ({
+    checkApiQuota: vi.fn().mockResolvedValue({
+        success: true,
+        limit: 500,
+        remaining: 499,
+        reset: new Date(),
+    }),
     checkApiRateLimit: vi.fn().mockResolvedValue({
         success: true,
         limit: 500,
@@ -65,9 +89,20 @@ vi.mock("@/lib/limits", () => ({
 }));
 
 import { auth } from "@/auth";
+import { prisma } from "@/lib/prisma";
+import { validateCsrf } from "@/lib/csrf";
 
 describe("POST /api/v1/drop/[id]/file validation", () => {
-    beforeEach(() => vi.clearAllMocks());
+    beforeEach(() => {
+        vi.clearAllMocks();
+        (prisma.user.findUnique as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+            stripePriceId: null,
+            stripeCurrentPeriodEnd: null,
+            storageUsed: BigInt(0),
+            banned: false,
+            banFileUpload: false,
+        });
+    });
 
     it("should fail if chunkCount exceeds 10000", async () => {
         const { POST } = await import("./route");
@@ -89,5 +124,27 @@ describe("POST /api/v1/drop/[id]/file validation", () => {
 
         expect(response.status).toBe(400);
         expect((await response.json()).error).toBe("Invalid request body");
+    });
+
+    it("validates CSRF for session-authenticated file mutations", async () => {
+        const { POST } = await import("./route");
+        (auth as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ user: { id: "user-123" } });
+
+        const request = new Request("http://localhost/api/v1/drop/drop-123/file", {
+            method: "POST",
+            body: JSON.stringify({
+                size: 1000,
+                encryptedName: "test",
+                iv: "1234567890123456",
+                mimeType: "text/plain",
+                chunkCount: 10001,
+                chunkSize: 100,
+            }),
+            headers: { "content-type": "application/json", origin: "http://localhost" },
+        });
+
+        await POST(request, { params: Promise.resolve({ id: "drop-123" }) });
+
+        expect(validateCsrf).toHaveBeenCalledWith(request);
     });
 });

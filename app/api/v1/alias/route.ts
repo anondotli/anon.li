@@ -8,194 +8,151 @@
  * Authentication: API key only (Bearer ak_...)
  */
 
-import { requireApiKey } from "@/lib/api-auth"
-import { createRateLimitHeaders } from "@/lib/api-rate-limit"
-import { AliasService } from "@/lib/services/alias"
-import { toAddyFormat } from "./_utils"
 import { z } from "zod"
-import {
-    generateRequestId,
-    apiSuccessWithStatus,
-    apiList,
-    apiError,
-    apiErrorFromUnknown,
-    withApiHeaders,
-    ErrorCodes,
-    zodErrorToDetails,
-} from "@/lib/api-response"
 
-export const dynamic = 'force-dynamic'
+import { apiError, apiList, apiSuccessWithStatus, ErrorCodes, zodErrorToDetails } from "@/lib/api-response"
+import { withPolicy } from "@/lib/route-policy"
+import { AliasService } from "@/lib/services/alias"
+import {
+    aliasCreateMetadataError,
+    hasAliasMetadataFields,
+    toAddyFormat,
+} from "./_utils"
+
+export const dynamic = "force-dynamic"
 
 const formatMap: Record<string, "RANDOM" | "CUSTOM"> = {
-    "random_characters": "RANDOM",
-    "random_words": "RANDOM",
-    "uuid": "RANDOM",
-    "custom": "CUSTOM",
+    random_characters: "RANDOM",
+    random_words: "RANDOM",
+    uuid: "RANDOM",
+    custom: "CUSTOM",
 }
 
 const createAliasSchema = z.object({
     domain: z.string().max(253).optional().default("anon.li"),
-    description: z.string().max(50).optional(),
-    note: z.string().max(500).optional(),
     format: z.enum(["random_characters", "random_words", "uuid", "custom"]).optional().default("random_characters"),
     local_part: z.string().max(64).optional(),
     recipient_ids: z.array(z.string().max(50)).max(10).optional(),
     recipient_email: z.string().email().max(254).optional(),
-})
+}).strict()
 
-/**
- * GET /api/v1/alias
- * List all aliases for the authenticated user
- */
-export async function GET(req: Request) {
-    const requestId = generateRequestId()
-    const auth = await requireApiKey(req, requestId)
-    if ("error" in auth) return auth.error
-    const { result } = auth
+const generateSchema = z.object({
+    domain: z.string().max(253).optional().default("anon.li"),
+    recipient_ids: z.array(z.string().max(50)).max(10).optional(),
+    recipient_email: z.string().email().max(254).optional(),
+}).strict()
 
-    try {
-        const aliases = await AliasService.getAliases(result.user.id)
+export const GET = withPolicy(
+    {
+        auth: "api_key",
+        apiQuota: "alias",
+        rateLimit: "api",
+    },
+    async (ctx) => {
+        if (!ctx.userId) {
+            return apiError("Unauthorized", ErrorCodes.UNAUTHORIZED, ctx.requestId, 401)
+        }
 
-        // Transform to Addy.io compatible format
-        const data = aliases.map(alias => toAddyFormat({
+        const aliases = await AliasService.getAliases(ctx.userId)
+        const data = aliases.map((alias) => toAddyFormat({
             id: alias.id,
             email: alias.email,
             active: alias.active,
-            label: alias.label,
-            note: alias.note,
+            encryptedLabel: alias.encryptedLabel,
+            encryptedNote: alias.encryptedNote,
             createdAt: alias.createdAt,
             updatedAt: alias.updatedAt,
         }))
 
-        return withApiHeaders(
-            apiList(data, requestId, { total: data.length, limit: data.length, offset: 0 }),
-            requestId,
-            createRateLimitHeaders(result.rateLimit)
-        )
-    } catch (error) {
-        return apiErrorFromUnknown(error, requestId)
-    }
-}
+        return apiList(data, ctx.requestId, { total: data.length, limit: data.length, offset: 0 })
+    },
+)
 
-// Schema for ?generate=true quick generation
-const generateSchema = z.object({
-    domain: z.string().max(253).optional().default("anon.li"),
-    description: z.string().max(50).optional(),
-    recipient_ids: z.array(z.string().max(50)).max(10).optional(),
-    recipient_email: z.string().email().max(254).optional(),
-})
+export const POST = withPolicy(
+    {
+        auth: "api_key",
+        apiQuota: "alias",
+        requireCsrf: true,
+        checkBan: "alias",
+        rateLimit: "aliasCreate",
+    },
+    async (ctx) => {
+        if (!ctx.userId) {
+            return apiError("Unauthorized", ErrorCodes.UNAUTHORIZED, ctx.requestId, 401)
+        }
 
-/**
- * POST /api/v1/alias
- * Create a new alias (Addy.io/Bitwarden compatible)
- *
- * POST /api/v1/alias?generate=true
- * Quick random alias generation (Bitwarden compatible, merged from /generate route)
- */
-export async function POST(req: Request) {
-    const requestId = generateRequestId()
-    const auth = await requireApiKey(req, requestId)
-    if ("error" in auth) return auth.error
-    const { result } = auth
+        const url = new URL(ctx.request.url)
+        const isGenerate = url.searchParams.get("generate") === "true"
 
-    // Check if this is a quick generate request
-    const url = new URL(req.url)
-    const isGenerate = url.searchParams.get("generate") === "true"
-
-    try {
+        let body: unknown = {}
         if (isGenerate) {
-            // Quick generate mode (merged from /generate route)
-            let body = {}
-            try {
-                body = await req.json()
-            } catch {
-                // Empty body is fine - use defaults
-            }
+            body = await ctx.request.json().catch(() => ({}))
+        } else {
+            body = await ctx.request.json().catch(() => null)
+        }
 
+        if (hasAliasMetadataFields(body)) {
+            return aliasCreateMetadataError(ctx.requestId)
+        }
+
+        if (isGenerate) {
             const validation = generateSchema.safeParse(body)
             if (!validation.success) {
                 return apiError(
                     "Validation failed",
                     ErrorCodes.VALIDATION_ERROR,
-                    requestId,
+                    ctx.requestId,
                     400,
-                    zodErrorToDetails(validation.error)
+                    zodErrorToDetails(validation.error),
                 )
             }
 
-            const { domain, description, recipient_ids, recipient_email } = validation.data
-
-            const alias = await AliasService.createAlias(result.user.id, {
-                domain,
+            const alias = await AliasService.createAlias(ctx.userId, {
+                domain: validation.data.domain,
                 format: "RANDOM",
-                recipientEmail: recipient_email,
-                recipientIds: recipient_ids,
-                label: description,
+                recipientEmail: validation.data.recipient_email,
+                recipientIds: validation.data.recipient_ids,
             })
 
-            const data = toAddyFormat({
+            return apiSuccessWithStatus(toAddyFormat({
                 id: alias.id,
                 email: alias.email,
                 active: alias.active,
-                label: alias.label,
-                note: alias.note,
+                encryptedLabel: alias.encryptedLabel,
+                encryptedNote: alias.encryptedNote,
                 createdAt: alias.createdAt,
                 updatedAt: alias.updatedAt,
-            })
-
-            return withApiHeaders(
-                apiSuccessWithStatus(data, requestId, 201),
-                requestId,
-                createRateLimitHeaders(result.rateLimit)
-            )
+            }), ctx.requestId, 201)
         }
 
-        // Standard create mode
-        const body = await req.json()
         const validation = createAliasSchema.safeParse(body)
-
         if (!validation.success) {
             return apiError(
                 "Validation failed",
                 ErrorCodes.VALIDATION_ERROR,
-                requestId,
+                ctx.requestId,
                 400,
-                zodErrorToDetails(validation.error)
+                zodErrorToDetails(validation.error),
             )
         }
 
-        const { domain, format, local_part, recipient_ids, recipient_email, note, description } = validation.data
-
-        // Map Addy.io format to our internal format
-        const internalFormat = formatMap[format] || "RANDOM"
-
-        const alias = await AliasService.createAlias(result.user.id, {
-            localPart: internalFormat === "CUSTOM" ? local_part : undefined,
-            domain,
+        const internalFormat = formatMap[validation.data.format] || "RANDOM"
+        const alias = await AliasService.createAlias(ctx.userId, {
+            localPart: internalFormat === "CUSTOM" ? validation.data.local_part : undefined,
+            domain: validation.data.domain,
             format: internalFormat,
-            recipientEmail: recipient_email,
-            recipientIds: recipient_ids,
-            label: description,
-            note,
+            recipientEmail: validation.data.recipient_email,
+            recipientIds: validation.data.recipient_ids,
         })
 
-        // Transform to Addy.io compatible format
-        const data = toAddyFormat({
+        return apiSuccessWithStatus(toAddyFormat({
             id: alias.id,
             email: alias.email,
             active: alias.active,
-            label: alias.label,
-            note: alias.note,
+            encryptedLabel: alias.encryptedLabel,
+            encryptedNote: alias.encryptedNote,
             createdAt: alias.createdAt,
             updatedAt: alias.updatedAt,
-        })
-
-        return withApiHeaders(
-            apiSuccessWithStatus(data, requestId, 201),
-            requestId,
-            createRateLimitHeaders(result.rateLimit)
-        )
-    } catch (error: unknown) {
-        return apiErrorFromUnknown(error, requestId)
-    }
-}
+        }), ctx.requestId, 201)
+    },
+)

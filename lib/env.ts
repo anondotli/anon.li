@@ -70,11 +70,11 @@ const serverEnvSchema = z.object({
     STRIPE_DROP_PRO_MONTHLY_PRICE_ID: z.string().optional(),
     STRIPE_DROP_PRO_YEARLY_PRICE_ID: z.string().optional(),
 
-    // Logging
-    STRUCTURED_LOGS: z.string().optional(),
-
     // DKIM key file path (alternative to database-stored keys)
     DKIM_KEY_PATH: z.string().optional(),
+
+    // Analytics (used in proxy.ts for CSP connect-src)
+    NEXT_PUBLIC_UMAMI_API_URL: z.string().optional(),
 });
 
 const clientEnvSchema = z.object({

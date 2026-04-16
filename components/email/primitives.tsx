@@ -110,6 +110,7 @@ export function EmailHeader({
                                 }}
                             >
                                 {imageSrc ? (
+                                    // eslint-disable-next-line @next/next/no-img-element
                                     <img src={imageSrc} alt="" width="32" height="32" style={{ display: "inline-block", border: 0 }} />
                                 ) : (
                                     icon
@@ -292,6 +293,7 @@ export function FileInfoCard({ icon, iconBgColor = emailColors.iconBg, imageSrc,
                                                                 }}
                                                             >
                                                                 {imageSrc ? (
+                                                                    // eslint-disable-next-line @next/next/no-img-element
                                                                     <img src={imageSrc} alt="" width="20" height="20" style={{ display: "inline-block", border: 0 }} />
                                                                 ) : (
                                                                     icon
@@ -498,6 +500,7 @@ export function FeatureRow({ icon, imageSrc, title, description, isLast = false 
                                                         }}
                                                     >
                                                         {imageSrc ? (
+                                                            // eslint-disable-next-line @next/next/no-img-element
                                                             <img src={imageSrc} alt="" width="20" height="20" style={{ display: "inline-block", border: 0 }} />
                                                         ) : (
                                                             icon

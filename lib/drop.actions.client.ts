@@ -39,10 +39,12 @@ export async function createDrop(
         hideBranding?: boolean;
         notifyOnDownload?: boolean;
         fileCount?: number;
-        turnstileToken?: string;
+        wrappedKey: string;
+        vaultId: string;
+        vaultGeneration: number;
     },
     signal?: AbortSignal
-): Promise<{ dropId: string; sessionToken: string | null; expiresAt: string | null }> {
+): Promise<{ dropId: string; expiresAt: string | null }> {
     // Check if aborted before calling action
     if (signal?.aborted) {
         throw new Error("Upload cancelled");
@@ -56,7 +58,6 @@ export async function createDrop(
 
     return {
         dropId: result.dropId!,
-        sessionToken: result.sessionToken ?? null,
         expiresAt: result.expiresAt ?? null,
     };
 }
@@ -73,7 +74,6 @@ export async function addFileToDrop(
         mimeType: string;
         chunkCount: number;
         chunkSize: number;
-        sessionToken?: string;
     },
     signal?: AbortSignal
 ): Promise<{ fileId: string; s3UploadId: string; uploadUrls: Record<number, string> }> {
@@ -104,7 +104,6 @@ export async function addFileToDrop(
 export async function finishDrop(
     dropId: string,
     files: { fileId: string; chunks: { chunkIndex: number; etag: string }[] }[],
-    sessionToken?: string,
     signal?: AbortSignal
 ): Promise<void> {
     if (signal?.aborted) {
@@ -114,7 +113,6 @@ export async function finishDrop(
     const result: FinishDropActionResult = await finishDropAction({
         dropId,
         files,
-        ...(sessionToken != null && { sessionToken }),
     });
 
     if (result.error) {

@@ -14,7 +14,6 @@ import { getRecipientById, getDefaultRecipientByUserId, getRecipientByUserIdAndE
 import { prisma } from "@/lib/prisma"
 import type { User, Alias, Recipient } from "@prisma/client"
 import { ValidationError, NotFoundError, ForbiddenError, ConflictError } from "@/lib/api-error-utils"
-import { enforceMonthlyQuota } from "@/lib/api-rate-limit"
 
 const logger = createLogger("AliasService");
 
@@ -68,7 +67,6 @@ const createAliasSchema = z.object({
     format: z.enum(["RANDOM", "CUSTOM"]).default("CUSTOM"),
     recipientId: z.string().optional(),
     recipientEmail: z.string().optional(),
-    label: z.string().max(50).optional(),
 }).refine(data => {
     if (data.format === "CUSTOM" && !data.localPart) {
         return false;
@@ -88,7 +86,7 @@ export class AliasService {
     static async createAlias(userId: string, data: {
         localPart?: string, domain: string, format?: "RANDOM" | "CUSTOM",
         recipientId?: string, recipientEmail?: string, recipientIds?: string[],
-        label?: string, note?: string
+        encryptedLabel?: string | null, encryptedNote?: string | null
     }) {
         const result = createAliasSchema.safeParse(data)
         if (!result.success) {
@@ -96,12 +94,10 @@ export class AliasService {
             throw new ValidationError(message)
         }
 
-        const { domain, format, label } = result.data
-        const note = data.note
+        const { domain, format } = result.data
         let { localPart } = result.data
 
         const user = await this._validateUserAccess(userId)
-        await enforceMonthlyQuota(userId, "alias", user)
 
         // Resolve recipients: prefer recipientIds array, fall back to single recipientId/recipientEmail
         const recipients = await this._resolveRecipients(
@@ -149,8 +145,8 @@ export class AliasService {
                     // Legacy field: set to primary recipient for backward compat
                     recipientId: recipients[0]!.id,
                     format: format,
-                    label: label || null,
-                    note: note || null,
+                    encryptedLabel: data.encryptedLabel || null,
+                    encryptedNote: data.encryptedNote || null,
                 }
             })
 
@@ -315,9 +311,6 @@ export class AliasService {
             throw new NotFoundError("Alias not found")
         }
 
-        const user = await getUserById(userId)
-        if (user) await enforceMonthlyQuota(userId, "alias", user)
-
         return await prisma.alias.update({
             where: { id: aliasId },
             data: { active: !alias.active }
@@ -330,9 +323,6 @@ export class AliasService {
             throw new NotFoundError("Alias not found")
         }
 
-        const user = await getUserById(userId)
-        if (user) await enforceMonthlyQuota(userId, "alias", user)
-
         return await dbDeleteAlias(aliasId, userId)
     }
 
@@ -340,7 +330,8 @@ export class AliasService {
         userId: string,
         aliasId: string,
         data: {
-            label?: string | null; note?: string | null;
+            encryptedLabel?: string | null; encryptedNote?: string | null;
+            clearLegacyLabel?: boolean; clearLegacyNote?: boolean;
             recipientId?: string; recipientEmail?: string;
             recipientIds?: string[];
         }
@@ -349,9 +340,6 @@ export class AliasService {
         if (!alias || alias.userId !== userId) {
             throw new NotFoundError("Alias not found")
         }
-
-        const user = await getUserById(userId)
-        if (user) await enforceMonthlyQuota(userId, "alias", user)
 
         // If updating recipients (array), replace the full list
         if (data.recipientIds !== undefined) {
@@ -377,8 +365,10 @@ export class AliasService {
                     where: { id: aliasId },
                     data: {
                         recipientId: recipients[0]!.id,
-                        ...(data.label !== undefined && { label: data.label }),
-                        ...(data.note !== undefined && { note: data.note }),
+                        ...(data.encryptedLabel !== undefined && { encryptedLabel: data.encryptedLabel }),
+                        ...(data.encryptedNote !== undefined && { encryptedNote: data.encryptedNote }),
+                        ...(data.clearLegacyLabel && { legacyLabel: null }),
+                        ...(data.clearLegacyNote && { legacyNote: null }),
                     },
                 })
             })
@@ -406,8 +396,10 @@ export class AliasService {
                 return await tx.alias.update({
                     where: { id: aliasId },
                     data: {
-                        ...(data.label !== undefined && { label: data.label }),
-                        ...(data.note !== undefined && { note: data.note }),
+                        ...(data.encryptedLabel !== undefined && { encryptedLabel: data.encryptedLabel }),
+                        ...(data.encryptedNote !== undefined && { encryptedNote: data.encryptedNote }),
+                        ...(data.clearLegacyLabel && { legacyLabel: null }),
+                        ...(data.clearLegacyNote && { legacyNote: null }),
                         recipientId: recipient.id,
                     },
                 })
@@ -417,8 +409,10 @@ export class AliasService {
         return await prisma.alias.update({
             where: { id: aliasId },
             data: {
-                ...(data.label !== undefined && { label: data.label }),
-                ...(data.note !== undefined && { note: data.note }),
+                ...(data.encryptedLabel !== undefined && { encryptedLabel: data.encryptedLabel }),
+                ...(data.encryptedNote !== undefined && { encryptedNote: data.encryptedNote }),
+                ...(data.clearLegacyLabel && { legacyLabel: null }),
+                ...(data.clearLegacyNote && { legacyNote: null }),
             }
         })
     }

@@ -13,6 +13,7 @@ import { ApiError } from "./api-error-utils";
 import { createLogger } from "@/lib/logger";
 
 const logger = createLogger("APIResponse");
+const NO_STORE_HEADER_VALUE = "no-store, max-age=0";
 
 /**
  * Generate a unique request ID for tracing
@@ -270,6 +271,13 @@ export function withApiHeaders<T extends Response>(
         });
     }
 
+    return response;
+}
+
+export function withNoStore<T extends Response>(response: T): T {
+    response.headers.set("Cache-Control", NO_STORE_HEADER_VALUE);
+    response.headers.set("Pragma", "no-cache");
+    response.headers.set("Expires", "0");
     return response;
 }
 

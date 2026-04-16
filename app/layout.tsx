@@ -1,10 +1,12 @@
 import type { Metadata, Viewport } from "next";
 import { siteConfig } from "@/config/site";
 import localFont from "next/font/local";
+import { headers } from "next/headers";
 import Script from "next/script";
 import "./globals.css";
 import { ThemeProvider } from "@/components/shared/theme-provider"
 import { LazyToaster } from "@/components/ui/lazy-toaster"
+import { getCspNonce } from "@/lib/csp";
 
 const geistSans = localFont({
   src: [
@@ -97,15 +99,21 @@ export const metadata: Metadata = {
 };
 
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const nonce = await getCspNonce()
+  const requestHeaders = await headers()
+  const analyticsEnabled = requestHeaders.get("x-analytics-enabled") === "1"
+
   return (
     <html lang="en" suppressHydrationWarning data-scroll-behavior="smooth">
       <head>
-        <link rel="dns-prefetch" href="https://cloud.umami.is" />
+        {analyticsEnabled && process.env.NEXT_PUBLIC_UMAMI_WEBSITE_ID && (
+          <link rel="dns-prefetch" href="https://cloud.umami.is" />
+        )}
       </head>
       <body
         className={`${geistSans.variable} ${playfair.variable} antialiased`}
@@ -128,6 +136,8 @@ export default function RootLayout({
           <LazyToaster />
         </ThemeProvider>
         <script
+          suppressHydrationWarning
+          nonce={nonce}
           type="application/ld+json"
           dangerouslySetInnerHTML={{
             __html: JSON.stringify({
@@ -140,9 +150,10 @@ export default function RootLayout({
           }}
         />
         {/* Umami Analytics - Privacy-respecting, GDPR-compliant */}
-        {process.env.NEXT_PUBLIC_UMAMI_WEBSITE_ID && (
+        {analyticsEnabled && process.env.NEXT_PUBLIC_UMAMI_WEBSITE_ID && (
           <Script
             defer
+            nonce={nonce}
             src={process.env.NEXT_PUBLIC_UMAMI_URL || "https://cloud.umami.is/script.js"}
             data-website-id={process.env.NEXT_PUBLIC_UMAMI_WEBSITE_ID}
             strategy="afterInteractive"

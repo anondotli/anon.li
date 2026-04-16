@@ -65,7 +65,7 @@ export default async function UsagePage() {
                             <div>
                                 <CardTitle className="text-lg font-medium">Random Aliases</CardTitle>
                                 <CardDescription className="text-sm">
-                                    Auto-generated anonymous emails
+                                    Auto-generated alias addresses
                                 </CardDescription>
                             </div>
                         </div>

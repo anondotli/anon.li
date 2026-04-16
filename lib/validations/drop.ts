@@ -21,7 +21,6 @@ const fileFields = {
         .refine(v => !/^(text\/html|application\/javascript|application\/x-javascript|text\/javascript|application\/xhtml\+xml)$/i.test(v), "This MIME type is not allowed"),
     chunkCount: z.number().int().positive().max(10000),
     chunkSize: z.number().int().positive(),
-    sessionToken: z.string().optional(),
 };
 
 /**

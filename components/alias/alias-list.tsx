@@ -1,9 +1,13 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
+import { useRouter } from "next/navigation"
 import { AliasItem } from "@/components/alias"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
+import { useVault } from "@/components/vault/vault-provider"
+import { decryptVaultText, encryptVaultText } from "@/lib/vault/crypto"
+import { updateAliasEncryptedMetadataAction } from "@/actions/alias"
 import {
     Select,
     SelectContent,
@@ -23,8 +27,10 @@ interface Alias {
         pgpPublicKey: string | null
     } | null
     active: boolean
-    label?: string | null
-    note?: string | null
+    legacyLabel?: string | null
+    legacyNote?: string | null
+    encryptedLabel?: string | null
+    encryptedNote?: string | null
     emailsReceived: number
     emailsBlocked: number
     lastEmailAt?: Date | null
@@ -49,11 +55,156 @@ interface AliasListProps {
 type FilterStatus = "all" | "active" | "paused"
 type SortBy = "recent" | "name" | "emails" | "lastEmail"
 
+interface DecryptedAliasMetadata {
+    label: string | null
+    note: string | null
+    labelStatus: "empty" | "decrypted" | "legacy" | "error"
+    noteStatus: "empty" | "decrypted" | "legacy" | "error"
+}
+
+function emptyMetadata(): DecryptedAliasMetadata {
+    return {
+        label: null,
+        note: null,
+        labelStatus: "empty",
+        noteStatus: "empty",
+    }
+}
+
 export function AliasList({ aliases, recipients = [] }: AliasListProps) {
+    const router = useRouter()
+    const vault = useVault()
     const [searchQuery, setSearchQuery] = useState("")
     const [filterStatus, setFilterStatus] = useState<FilterStatus>("all")
     const [filterDomain, setFilterDomain] = useState<string>("all")
     const [sortBy, setSortBy] = useState<SortBy>("recent")
+    const [metadataByAliasId, setMetadataByAliasId] = useState<Record<string, DecryptedAliasMetadata>>({})
+    const migrationAttemptsRef = useRef(new Set<string>())
+
+    useEffect(() => {
+        if (vault.status !== "unlocked") return
+
+        const vaultKey = vault.getVaultKey()
+        if (!vaultKey) return
+        const unlockedVaultKey: CryptoKey = vaultKey
+
+        let cancelled = false
+
+        async function decryptAll() {
+            const entries = await Promise.all(aliases.map(async (alias) => {
+                const metadata = emptyMetadata()
+
+                if (alias.encryptedLabel) {
+                    try {
+                        metadata.label = await decryptVaultText(alias.encryptedLabel, unlockedVaultKey, {
+                            aliasId: alias.id,
+                            field: "label",
+                        })
+                        metadata.labelStatus = "decrypted"
+                    } catch {
+                        metadata.labelStatus = "error"
+                    }
+                } else if (alias.legacyLabel) {
+                    metadata.label = alias.legacyLabel
+                    metadata.labelStatus = "legacy"
+                }
+
+                if (alias.encryptedNote) {
+                    try {
+                        metadata.note = await decryptVaultText(alias.encryptedNote, unlockedVaultKey, {
+                            aliasId: alias.id,
+                            field: "note",
+                        })
+                        metadata.noteStatus = "decrypted"
+                    } catch {
+                        metadata.noteStatus = "error"
+                    }
+                } else if (alias.legacyNote) {
+                    metadata.note = alias.legacyNote
+                    metadata.noteStatus = "legacy"
+                }
+
+                return [alias.id, metadata] as const
+            }))
+
+            if (!cancelled) {
+                setMetadataByAliasId(Object.fromEntries(entries))
+            }
+        }
+
+        void decryptAll()
+
+        return () => {
+            cancelled = true
+        }
+    }, [aliases, vault])
+
+    useEffect(() => {
+        if (vault.status !== "unlocked") return
+
+        const vaultKey = vault.getVaultKey()
+        if (!vaultKey) return
+        const unlockedVaultKey: CryptoKey = vaultKey
+
+        const aliasesToMigrate = aliases.filter((alias) =>
+            ((alias.legacyLabel && !alias.encryptedLabel) || (alias.legacyNote && !alias.encryptedNote))
+            && !migrationAttemptsRef.current.has(alias.id)
+        )
+
+        if (aliasesToMigrate.length === 0) return
+
+        let cancelled = false
+
+        async function migrateLegacyMetadata() {
+            let migrated = false
+
+            for (const alias of aliasesToMigrate) {
+                migrationAttemptsRef.current.add(alias.id)
+
+                const payload: {
+                    encryptedLabel?: string
+                    encryptedNote?: string
+                    clearLegacyLabel?: boolean
+                    clearLegacyNote?: boolean
+                } = {}
+
+                try {
+                    if (alias.legacyLabel && !alias.encryptedLabel) {
+                        payload.encryptedLabel = await encryptVaultText(alias.legacyLabel, unlockedVaultKey, {
+                            aliasId: alias.id,
+                            field: "label",
+                        })
+                        payload.clearLegacyLabel = true
+                    }
+
+                    if (alias.legacyNote && !alias.encryptedNote) {
+                        payload.encryptedNote = await encryptVaultText(alias.legacyNote, unlockedVaultKey, {
+                            aliasId: alias.id,
+                            field: "note",
+                        })
+                        payload.clearLegacyNote = true
+                    }
+
+                    const result = await updateAliasEncryptedMetadataAction(alias.id, payload)
+                    if (result.success) {
+                        migrated = true
+                    }
+                } catch {
+                    migrationAttemptsRef.current.delete(alias.id)
+                }
+            }
+
+            if (!cancelled && migrated) {
+                router.refresh()
+            }
+        }
+
+        void migrateLegacyMetadata()
+
+        return () => {
+            cancelled = true
+        }
+    }, [aliases, router, vault])
 
     const domains = useMemo(() => {
         const unique = [...new Set(aliases.map(a => a.domain))]
@@ -69,8 +220,8 @@ export function AliasList({ aliases, recipients = [] }: AliasListProps) {
             const query = searchQuery.toLowerCase()
             result = result.filter(alias =>
                 alias.email.toLowerCase().includes(query) ||
-                alias.label?.toLowerCase().includes(query) ||
-                alias.note?.toLowerCase().includes(query)
+                metadataByAliasId[alias.id]?.label?.toLowerCase().includes(query) ||
+                metadataByAliasId[alias.id]?.note?.toLowerCase().includes(query)
             )
         }
 
@@ -109,7 +260,7 @@ export function AliasList({ aliases, recipients = [] }: AliasListProps) {
         }
 
         return result
-    }, [aliases, searchQuery, filterStatus, filterDomain, sortBy])
+    }, [aliases, metadataByAliasId, searchQuery, filterStatus, filterDomain, sortBy])
 
     const hasFilters = searchQuery || filterStatus !== "all" || filterDomain !== "all"
 
@@ -224,7 +375,12 @@ export function AliasList({ aliases, recipients = [] }: AliasListProps) {
             ) : (
                 <div className="grid gap-4">
                     {filteredAliases.map((alias) => (
-                        <AliasItem key={alias.id} alias={alias} recipients={recipients} />
+                        <AliasItem
+                            key={alias.id}
+                            alias={alias}
+                            metadata={metadataByAliasId[alias.id] ?? emptyMetadata()}
+                            recipients={recipients}
+                        />
                     ))}
                 </div>
             )}

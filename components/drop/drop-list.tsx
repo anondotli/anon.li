@@ -5,7 +5,6 @@ import { useState, useEffect, Fragment, useTransition, useCallback } from "react
 import { toast } from "sonner";
 import {
   Clock,
-  AlertTriangle,
   Lock,
   Link2Off,
   ChevronRight,
@@ -33,9 +32,11 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { cn, formatBytes } from "@/lib/utils";
-import { getStoredEncryptionKey, removeStoredEncryptionKey } from "@/lib/upload-resume.client";
 import { cryptoService } from "@/lib/crypto.client";
 import { buildDropShareUrl } from "@/lib/drop-share-url";
+import { fetchWrappedDropKeys } from "@/lib/vault/drop-keys-client";
+import { exportKeyBase64Url } from "@/lib/vault/crypto";
+import { useVault } from "@/components/vault/vault-provider";
 import { toggleDropAction, deleteDropAction } from "@/actions/drop";
 import type { DropData, StorageData } from "@/actions/drop";
 import { DropListActions } from "@/components/drop/drop-list-actions";
@@ -51,11 +52,15 @@ interface DropFileItem {
 }
 
 interface DropItem extends Omit<DropData, 'files'> {
-  // Override files with decrypted version
   files: DropFileItem[];
-  // Client-side computed
   decryptedTitle?: string;
-  hasLocalKey?: boolean;
+  keyString: string | null;
+  keyUnavailable: boolean;
+}
+
+interface ResolvedDropKeyMaterial {
+  key: CryptoKey | null;
+  keyString: string | null;
 }
 
 interface DropListProps {
@@ -66,6 +71,7 @@ interface DropListProps {
 }
 
 export function DropList({ initialDrops, storage, onDropsChange }: DropListProps) {
+  const { unwrapDropKey } = useVault();
   const [drops, setDrops] = useState<DropItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [deleteItem, setDeleteItem] = useState<DropItem | null>(null);
@@ -73,19 +79,42 @@ export function DropList({ initialDrops, storage, onDropsChange }: DropListProps
   const [isPending, startTransition] = useTransition();
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  // Decrypt titles and file names when initialDrops changes
+  const resolveDropKeys = useCallback(async (dropsToDecrypt: DropData[]) => {
+    const wrappedKeys = await fetchWrappedDropKeys();
+    const wrappedKeyMap = new Map(wrappedKeys.map((wrappedKey) => [wrappedKey.dropId, wrappedKey]));
+
+    const resolvedKeys = await Promise.all(
+      dropsToDecrypt.map(async (drop) => {
+        const wrappedKey = wrappedKeyMap.get(drop.id);
+        if (!wrappedKey) {
+          return [drop.id, { key: null, keyString: null }] as const;
+        }
+
+        try {
+          const key = await unwrapDropKey(wrappedKey.wrappedKey);
+          const keyString = await exportKeyBase64Url(key);
+          return [drop.id, { key, keyString }] as const;
+        } catch {
+          return [drop.id, { key: null, keyString: null }] as const;
+        }
+      })
+    );
+
+    return new Map<string, ResolvedDropKeyMaterial>(resolvedKeys);
+  }, [unwrapDropKey]);
+
   const decryptDrops = useCallback(async (dropsToDecrypt: DropData[]) => {
     try {
+      const resolvedKeys = await resolveDropKeys(dropsToDecrypt);
+
       const processedDrops = await Promise.all(
         dropsToDecrypt.map(async (drop) => {
-          const keyString = await getStoredEncryptionKey(drop.id);
-          const hasLocalKey = !!keyString;
+          const { key, keyString } = resolvedKeys.get(drop.id) ?? { key: null, keyString: null };
 
           let decryptedTitle: string | undefined;
 
-          if (keyString && drop.encryptedTitle && drop.iv) {
+          if (key && drop.encryptedTitle && drop.iv) {
             try {
-              const key = await cryptoService.importKey(keyString);
               const iv = new Uint8Array(cryptoService.base64UrlToArrayBuffer(drop.iv));
               decryptedTitle = await cryptoService.decryptFilename(drop.encryptedTitle, key, iv);
             } catch {
@@ -97,9 +126,8 @@ export function DropList({ initialDrops, storage, onDropsChange }: DropListProps
           const processedFiles = await Promise.all(
             drop.files.map(async (file) => {
               let decryptedName: string | undefined;
-              if (keyString && file.encryptedName && file.iv) {
+              if (key && file.encryptedName && file.iv) {
                 try {
-                  const key = await cryptoService.importKey(keyString);
                   const iv = new Uint8Array(cryptoService.base64UrlToArrayBuffer(file.iv));
                   decryptedName = await cryptoService.decryptFilename(file.encryptedName, key, iv);
                 } catch {
@@ -113,21 +141,29 @@ export function DropList({ initialDrops, storage, onDropsChange }: DropListProps
           return {
             ...drop,
             decryptedTitle,
-            hasLocalKey,
             files: processedFiles,
+            keyString,
+            keyUnavailable: !drop.customKey && !keyString,
           };
         })
       );
 
       setDrops(processedDrops);
     } catch {
-      toast.error("Failed to decrypt drops");
+      toast.error("Failed to load some drop details");
+      setDrops(dropsToDecrypt.map((drop) => ({
+        ...drop,
+        files: drop.files.map((file) => ({ ...file })),
+        keyString: null,
+        keyUnavailable: !drop.customKey,
+      })));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [resolveDropKeys]);
 
   useEffect(() => {
+    setLoading(true);
     decryptDrops(initialDrops);
   }, [initialDrops, decryptDrops]);
 
@@ -138,7 +174,6 @@ export function DropList({ initialDrops, storage, onDropsChange }: DropListProps
         toast.error(result.error);
         return;
       }
-      removeStoredEncryptionKey(drop.id);
       toast.success("Drop deleted");
       setDeleteItem(null);
       onDropsChange?.();
@@ -148,9 +183,13 @@ export function DropList({ initialDrops, storage, onDropsChange }: DropListProps
   };
 
   const handleDownload = async (drop: DropItem) => {
-    const keyString = await getStoredEncryptionKey(drop.id);
-    const url = buildDropShareUrl(window.location.origin, drop.id, keyString, drop.customKey);
-    window.open(url, '_blank');
+    if (!drop.customKey && !drop.keyString) {
+      toast.error("Encryption key unavailable");
+      return;
+    }
+
+    const url = buildDropShareUrl(window.location.origin, drop.id, drop.keyString, drop.customKey);
+    window.open(url, "_blank", "noopener,noreferrer");
   };
 
   const handleToggleLink = (drop: DropItem) => {
@@ -167,11 +206,15 @@ export function DropList({ initialDrops, storage, onDropsChange }: DropListProps
   };
 
   const handleCopyLink = async (drop: DropItem) => {
-    const keyString = await getStoredEncryptionKey(drop.id);
-    const fullUrl = buildDropShareUrl(window.location.origin, drop.id, keyString, drop.customKey);
+    if (!drop.customKey && !drop.keyString) {
+      toast.error("Encryption key unavailable");
+      return;
+    }
+
+    const shareUrl = buildDropShareUrl(window.location.origin, drop.id, drop.keyString, drop.customKey);
 
     try {
-      await navigator.clipboard.writeText(fullUrl);
+      await navigator.clipboard.writeText(shareUrl);
       setCopiedId(drop.id);
       toast.success("Link copied to clipboard");
       setTimeout(() => setCopiedId(null), 2000);
@@ -221,18 +264,6 @@ export function DropList({ initialDrops, storage, onDropsChange }: DropListProps
         )}
       </div>
 
-      {/* Warning about encryption keys */}
-      <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-lg">
-        <p className="text-sm text-amber-600 dark:text-amber-400 flex items-start gap-2">
-          <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-          <span>
-            <strong>Save your drop links!</strong>{" "} Encryption keys are stored locally in your browser.
-            If you clear browser data or use a different device, you&apos;ll need the original link
-            to access your drops.
-          </span>
-        </p>
-      </div>
-
       {/* Drop list */}
       {drops.length === 0 ? (
         <div className="text-center py-12 text-muted-foreground">
@@ -254,6 +285,7 @@ export function DropList({ initialDrops, storage, onDropsChange }: DropListProps
             </TableHeader>
             <TableBody>
               {drops.map((drop) => {
+                const origin = typeof window !== "undefined" ? window.location.origin : "";
                 const hasMultipleFiles = drop.files.length > 1;
                 const isExpanded = expandedDrops.has(drop.id);
                 const singleFile = drop.files.length === 1 ? drop.files[0] : null;
@@ -272,6 +304,9 @@ export function DropList({ initialDrops, storage, onDropsChange }: DropListProps
                 const displayName = drop.decryptedTitle
                   || singleFile?.decryptedName
                   || (hasMultipleFiles ? `${drop.files.length} files` : `Drop ${drop.id.slice(0, 8)}...`);
+                const linkUnavailableReason = drop.keyUnavailable ? "Key unavailable" : null;
+                const dropUrl = buildDropShareUrl(origin, drop.id, null, drop.customKey);
+                const encryptionKey = drop.customKey ? null : drop.keyString;
 
                 return (
                   <Fragment key={drop.id}>
@@ -343,11 +378,12 @@ export function DropList({ initialDrops, storage, onDropsChange }: DropListProps
                       <TableCell onClick={(e) => e.stopPropagation()}>
                         <DropListActions
                           copied={copiedId === drop.id}
-                          customKey={drop.customKey}
                           disabled={drop.disabled}
-                          dropId={drop.id}
+                          dropUrl={dropUrl}
+                          encryptionKey={encryptionKey}
                           expired={expired}
                           isPending={isPending}
+                          linkUnavailableReason={linkUnavailableReason}
                           takenDown={drop.takenDown}
                           title={displayName}
                           onCopyLink={() => handleCopyLink(drop)}

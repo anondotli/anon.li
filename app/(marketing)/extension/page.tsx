@@ -5,13 +5,14 @@ import { Mail, FileUp, QrCode, Keyboard, Key, MousePointerClick, Download, Check
 import { FeatureCard } from "@/components/marketing/feature-card"
 import { StepCard } from "@/components/marketing/step-card"
 import { BrowserBadges } from "./browser-badges"
+import { getCspNonce } from "@/lib/csp"
 
 export const metadata: Metadata = {
     title: "Browser Extension",
-    description: "Manage anonymous email aliases and encrypted drops directly from your browser. One-click alias generation, drop management, QR sharing, and keyboard shortcuts.",
+    description: "Manage private email aliases and encrypted drops directly from your browser. One-click alias generation, drop management, QR sharing, and keyboard shortcuts.",
     openGraph: {
         title: "anon.li Browser Extension - Privacy in Your Browser",
-        description: "Manage anonymous email aliases and encrypted drops directly from your browser. One-click alias generation, drop management, QR sharing, and keyboard shortcuts.",
+        description: "Manage private email aliases and encrypted drops directly from your browser. One-click alias generation, drop management, QR sharing, and keyboard shortcuts.",
         url: "https://anon.li/extension",
     },
     alternates: {
@@ -19,7 +20,9 @@ export const metadata: Metadata = {
     },
 }
 
-export default function ExtensionPage() {
+export default async function ExtensionPage() {
+    const nonce = await getCspNonce()
+
     return (
         <>
             {/* Hero */}
@@ -83,7 +86,7 @@ export default function ExtensionPage() {
                         <FeatureCard
                             icon={<Mail className="h-6 w-6" />}
                             title="One-Click Aliases"
-                            description="Auto-detects email fields on any website. Generate and fill anonymous aliases with a single click."
+                            description="Auto-detects email fields on any website. Generate and fill aliases with a single click."
                         />
                         <FeatureCard
                             icon={<FileUp className="h-6 w-6" />}
@@ -102,8 +105,8 @@ export default function ExtensionPage() {
                         />
                         <FeatureCard
                             icon={<Key className="h-6 w-6" />}
-                            title="Remember Drop Keys"
-                            description="Optionally save decryption keys locally on this browser profile after you open a Drop link."
+                            title="Vault Encryption"
+                            description="All your encryption keys are stored in your encrypted vault, protected by your password."
                         />
                         <FeatureCard
                             icon={<MousePointerClick className="h-6 w-6" />}
@@ -227,6 +230,8 @@ export default function ExtensionPage() {
 
             {/* JSON-LD */}
             <script
+                nonce={nonce}
+                suppressHydrationWarning
                 type="application/ld+json"
                 dangerouslySetInnerHTML={{
                     __html: JSON.stringify({
@@ -240,7 +245,7 @@ export default function ExtensionPage() {
                             "price": "0",
                             "priceCurrency": "USD",
                         },
-                        "description": "Browser extension for managing anonymous email aliases and encrypted file drops. One-click alias generation, drop management, QR sharing, and keyboard shortcuts.",
+                        "description": "Browser extension for managing private email aliases and encrypted file drops. One-click alias generation, drop management, QR sharing, and keyboard shortcuts.",
                         "url": "https://anon.li/extension",
                         "softwareVersion": "latest",
                         "author": {

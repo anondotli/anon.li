@@ -38,7 +38,7 @@ export function AddDomainDialog() {
             if (result.error) {
                 toast.error(result.error)
             } else {
-                analytics.aliasDomainConnected(sanitized)
+                analytics.aliasDomainConnected()
                 toast.success("Domain added successfully")
                 setOpen(false)
                 setDomain("")

@@ -13,7 +13,7 @@ export function WelcomeEmail() {
                 <FeatureRow
                     icon="&#128231;"
                     title="Email Aliases"
-                    description="Generate anonymous addresses for signups, newsletters, and more."
+                    description="Generate private addresses for signups, newsletters, and more."
                 />
                 <FeatureRow
                     icon="&#128193;"

@@ -25,8 +25,10 @@ import {
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import Link from "next/link"
-import { createAliasAction } from "@/actions/alias"
+import { createAliasAction, updateAliasEncryptedMetadataAction } from "@/actions/alias"
 import { analytics } from "@/lib/analytics"
+import { useVault } from "@/components/vault/vault-provider"
+import { encryptVaultText } from "@/lib/vault/crypto"
 
 interface Domain {
     id: string
@@ -106,6 +108,7 @@ function DomainSelector({
 }
 
 export function CreateAliasDialog({ domains, recipients }: CreateAliasDialogProps) {
+    const vault = useVault()
     const [open, setOpen] = useState(false)
     const [mode, setMode] = useState<"quick" | "custom">("quick")
     const [loading, setLoading] = useState(false)
@@ -144,13 +147,34 @@ export function CreateAliasDialog({ domains, recipients }: CreateAliasDialogProp
                 format: mode === "quick" ? "RANDOM" : "CUSTOM",
                 domain,
                 recipientId,
-                label: label.trim() || undefined,
                 ...(mode === "custom" ? { localPart } : {}),
             })
 
             if (!result.success) {
                 toast.error(result.error || "Failed to create alias")
             } else {
+                const createdAlias = result.data?.alias
+                const trimmedLabel = label.trim()
+
+                if (createdAlias && trimmedLabel) {
+                    const vaultKey = vault.getVaultKey()
+                    if (vault.status !== "unlocked" || !vaultKey) {
+                        toast.error("Alias created, but the vault is locked so the label was not saved")
+                    } else {
+                        const encryptedLabel = await encryptVaultText(trimmedLabel, vaultKey, {
+                            aliasId: createdAlias.id,
+                            field: "label",
+                        })
+                        const metadataResult = await updateAliasEncryptedMetadataAction(createdAlias.id, {
+                            encryptedLabel,
+                            clearLegacyLabel: true,
+                        })
+                        if (metadataResult.error) {
+                            toast.error("Alias created, but the label was not saved")
+                        }
+                    }
+                }
+
                 analytics.aliasCreated(mode === "quick" ? "random" : "custom")
                 toast.success("Alias created! Ready to use.")
                 setOpen(false)
@@ -246,6 +270,7 @@ export function CreateAliasDialog({ domains, recipients }: CreateAliasDialogProp
                             value={label}
                             onChange={(e) => setLabel(e.target.value)}
                             className="h-10"
+                            maxLength={50}
                         />
                     </div>
 

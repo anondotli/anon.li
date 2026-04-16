@@ -14,8 +14,13 @@ import { getPlanLimits, getDropLimits, getRecipientLimit } from "@/lib/limits";
 import { ALIAS_LIMITS } from "@/config/plans";
 import { DOWNGRADE_SCHEDULING_DELAY_DAYS, DOWNGRADE_DELETION_DELAY_DAYS } from "@/lib/constants";
 import { deleteObject } from "@/lib/storage";
+import type { Prisma } from "@prisma/client";
 
 const logger = createLogger("BillingDowngrade");
+
+type DropWithStorageFiles = Prisma.DropGetPayload<{
+    include: { files: { select: { id: true; storageKey: true; size: true } } }
+}>
 
 /**
  * Fisher-Yates shuffle and return the first `count` items.
@@ -344,13 +349,12 @@ export class BillingDowngradeService {
                 where: { userId, deletedAt: null },
                 include: { files: { select: { id: true, storageKey: true, size: true } } },
                 orderBy: { createdAt: "asc" },
-            });
+            }) as DropWithStorageFiles[];
 
             let currentStorage = storageUsed;
             for (const drop of drops) {
                 if (currentStorage <= maxStorage) break;
 
-                // @ts-expect-error - Prisma dynamic include types get lost in the for...of loop
                 const dropFiles = drop.files;
                 const dropSize = dropFiles.reduce((sum: bigint, f: { size: bigint }) => sum + f.size, BigInt(0));
 

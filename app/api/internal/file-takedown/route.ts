@@ -1,12 +1,11 @@
 import { prisma } from "@/lib/prisma"
 import { NextResponse } from "next/server"
-import crypto from "crypto"
 import { z } from "zod"
 import { Resend } from "resend"
 import { render } from "@react-email/render"
 import { DropTakedownEmail } from "@/components/email/drop-takedown"
 import { AccountBannedEmail } from "@/components/email/account-banned"
-import { isInternalRateLimited } from "@/lib/internal-api-auth"
+import { isInternalRateLimited, validateInternalApiSecret } from "@/lib/internal-api-auth"
 import { createLogger } from "@/lib/logger"
 
 const logger = createLogger("FileTakedownAPI")
@@ -29,7 +28,7 @@ const takedownSchema = z.object({
 })
 
 export async function POST(req: Request) {
-    if (!validateTakedownRequest(req)) {
+    if (!validateInternalApiSecret(req)) {
         return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
@@ -86,18 +85,6 @@ export async function POST(req: Request) {
         logger.error("Drop takedown error", error)
         return NextResponse.json({ error: "Internal Server Error" }, { status: 500 })
     }
-}
-
-function validateTakedownRequest(req: Request): boolean {
-    const authHeader = req.headers.get("authorization")
-    const secret = process.env.MAIL_API_SECRET
-    if (!secret) return false
-
-    const providedToken = authHeader?.startsWith("Bearer ") ? authHeader.split(" ")[1] : ""
-    const secretHash = crypto.createHash("sha256").update(secret).digest()
-    const providedHash = crypto.createHash("sha256").update(providedToken || "").digest()
-
-    return !!providedToken && crypto.timingSafeEqual(secretHash, providedHash)
 }
 
 async function markDropAsTakenDown(dropId: string, reason: string) {

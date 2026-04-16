@@ -5,13 +5,14 @@ import { Terminal, Download, Mail, Lock, Key, Globe, CheckCircle2 } from "lucide
 import { FeatureCard } from "@/components/marketing/feature-card"
 import { StepCard } from "@/components/marketing/step-card"
 import { InstallCommands } from "./install-commands"
+import { getCspNonce } from "@/lib/csp"
 
 export const metadata: Metadata = {
     title: "CLI",
-    description: "Manage anonymous email aliases and encrypted file drops from your terminal. Cross-platform, open source, end-to-end encrypted.",
+    description: "Manage private email aliases and encrypted file drops from your terminal. Cross-platform, open source, end-to-end encrypted.",
     openGraph: {
         title: "anon.li CLI - Command-Line Privacy Tools",
-        description: "Manage anonymous email aliases and encrypted file drops from your terminal. Cross-platform, open source, end-to-end encrypted.",
+        description: "Manage private email aliases and encrypted file drops from your terminal. Cross-platform, open source, end-to-end encrypted.",
         url: "https://anon.li/cli",
     },
     alternates: {
@@ -19,7 +20,9 @@ export const metadata: Metadata = {
     },
 }
 
-export default function CliPage() {
+export default async function CliPage() {
+    const nonce = await getCspNonce()
+
     return (
         <>
             {/* Hero */}
@@ -43,7 +46,7 @@ export default function CliPage() {
                                 <span className="italic text-muted-foreground">In Your Terminal.</span>
                             </h1>
                             <p className="mx-auto max-w-2xl text-muted-foreground md:text-xl lg:text-2xl leading-relaxed font-light animate-in fade-in slide-in-from-bottom-6 duration-1000 fill-mode-both delay-200">
-                                Manage anonymous email aliases and share encrypted files - all from the command line. Fast, scriptable & open source.
+                                Manage private email aliases and share encrypted files - all from the command line. Fast, scriptable & open source.
                             </p>
                         </div>
 
@@ -88,7 +91,7 @@ export default function CliPage() {
                         <FeatureCard
                             icon={<Mail className="h-6 w-6" />}
                             title="Email Aliases"
-                            description="Create, list, and manage anonymous email aliases. Forward to your real inbox without exposing it."
+                            description="Create, list, and manage private email aliases. Forward to your real inbox without exposing it."
                         />
                         <FeatureCard
                             icon={<Globe className="h-6 w-6" />}
@@ -98,7 +101,7 @@ export default function CliPage() {
                         <FeatureCard
                             icon={<Key className="h-6 w-6" />}
                             title="API Keys & Domains"
-                            description="Manage API keys and custom domains from the terminal. Automate your privacy workflows."
+                            description="Manage custom domains and automate privacy workflows from the terminal. API keys are created and revoked from your dashboard."
                         />
                     </div>
                 </div>
@@ -124,7 +127,7 @@ export default function CliPage() {
                                 <div><span className="text-muted-foreground select-none">$ </span><span className="text-primary">anonli drop upload .</span><span className="text-muted-foreground/60">   # Upload encrypted files</span></div>
                                 <div><span className="text-muted-foreground select-none">$ </span><span className="text-primary">anonli drop list</span><span className="text-muted-foreground/60">       # List your drops</span></div>
                                 <div><span className="text-muted-foreground select-none">$ </span><span className="text-primary">anonli drop download</span><span className="text-muted-foreground/60">   # Download and decrypt a drop</span></div>
-                                <div><span className="text-muted-foreground select-none">$ </span><span className="text-primary">anonli apikey</span><span className="text-muted-foreground/60">          # Manage API keys</span></div>
+                                <div><span className="text-muted-foreground select-none">$ </span><span className="text-primary">anonli recipient list</span><span className="text-muted-foreground/60">  # List recipients</span></div>
                                 <div><span className="text-muted-foreground select-none">$ </span><span className="text-primary">anonli whoami</span><span className="text-muted-foreground/60">          # Check account status</span></div>
                             </div>
                         </div>
@@ -199,6 +202,8 @@ export default function CliPage() {
 
             {/* JSON-LD */}
             <script
+                nonce={nonce}
+                suppressHydrationWarning
                 type="application/ld+json"
                 dangerouslySetInnerHTML={{
                     __html: JSON.stringify({
@@ -212,7 +217,7 @@ export default function CliPage() {
                             "price": "0",
                             "priceCurrency": "USD",
                         },
-                        "description": "Command-line tool for managing anonymous email aliases and encrypted file drops.",
+                        "description": "Command-line tool for managing private email aliases and encrypted file drops.",
                         "url": "https://anon.li/cli",
                         "downloadUrl": "https://www.npmjs.com/package/anonli",
                         "softwareVersion": "latest",

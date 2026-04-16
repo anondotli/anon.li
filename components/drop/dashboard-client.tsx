@@ -55,7 +55,6 @@ export function DropDashboardClient({ userTier, initialDrops, initialStorage }: 
                 <CardContent>
                     <FileUploader
                         userTier={userTier}
-                        isAuthenticated={true}
                         onUploadComplete={handleUploadComplete}
                         maxStorage={storageLimit}
                         usedStorage={storageUsed}

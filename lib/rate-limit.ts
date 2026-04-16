@@ -39,7 +39,9 @@ export const monthlyApiLimiters = {
 // Rate limiters for different endpoints (per-request abuse prevention)
 export const rateLimiters = {
   fileUpload: createLimiter("ratelimit:file:upload", 50, "1 h"),
-  fileUploadAuth: createLimiter("ratelimit:file:upload:auth", 100, "1 h"),
+  // Authenticated uploads create one file record per file, so normal multi-file
+  // drops and retry-heavy sessions need a much higher budget than guests.
+  fileUploadAuth: createLimiter("ratelimit:file:upload:auth", 500, "1 h"),
   aliasCreate: createLimiter("ratelimit:alias:create", 60, "1 h"),
   auth: createLimiter("ratelimit:auth", 10, "15 m"),
   apiKey: createLimiter("ratelimit:apikey", 30, "1 h"),
@@ -61,14 +63,28 @@ export const rateLimiters = {
   userExport: createLimiter("ratelimit:user:export", 5, "1 h"),
   dropList: createLimiter("ratelimit:drop:list", 60, "1 m"),
   dropOps: createLimiter("ratelimit:drop:ops", 100, "1 h"),
-  dropCreate: createLimiter("ratelimit:drop:create", 20, "1 h"),
+  // Upload retries create a fresh drop ID today, so the create budget needs to
+  // tolerate flaky networks without forcing users to wait an hour.
+  dropCreate: createLimiter("ratelimit:drop:create", 60, "1 h"),
+  // Aborting stale multipart uploads is cleanup, not user-visible abuse. Keep
+  // this separate from dropOps so retries/cancels do not starve normal actions.
+  dropAbortUpload: createLimiter("ratelimit:drop:abort-upload", 300, "1 h"),
   dropDownload: createLimiter("ratelimit:drop:download", 100, "1 h"),
   dropMetadata: createLimiter("ratelimit:drop:metadata", 120, "1 m"),
   dropMetadataPerDrop: createLimiter("ratelimit:drop:metadata:perdrop", 200, "1 h"),
   stripeOps: createLimiter("ratelimit:stripe:ops", 10, "1 h"),
   profileUpdate: createLimiter("ratelimit:profile:update", 30, "1 h"),
+  vaultBootstrap: createLimiter("ratelimit:vault:bootstrap", 5, "1 m"),
+  vaultSetup: createLimiter("ratelimit:vault:setup", 5, "1 h"),
+  vaultOps: createLimiter("ratelimit:vault:ops", 60, "1 h"),
+  vaultDropKeysRead: createLimiter("ratelimit:vault:drop-keys:read", 300, "1 h"),
+  passwordReset: createLimiter("ratelimit:password:reset", 5, "1 h"),
+  passwordResetEmail: createLimiter("ratelimit:password:reset:email", 3, "1 h"),
+  cspReport: createLimiter("ratelimit:csp:report", 20, "1 m"),
   internal: createLimiter("ratelimit:internal", 1000, "1 m"),
 };
+
+export type RateLimitKey = keyof typeof rateLimiters
 
 /**
  * Get client IP address from request headers.

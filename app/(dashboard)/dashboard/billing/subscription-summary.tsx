@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import { useState } from "react"
 import { Card, CardContent, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -14,6 +15,12 @@ interface SubscriptionSummaryProps {
     currentPeriodEnd?: Date
     paymentMethod?: string
     product?: string
+}
+
+function getPricingHref(product?: string) {
+    if (product === "alias") return "/pricing?alias"
+    if (product === "drop") return "/pricing?drop"
+    return "/pricing"
 }
 
 export function SubscriptionSummary({ planId, status, currentPeriodEnd, paymentMethod, product }: SubscriptionSummaryProps) {
@@ -48,6 +55,15 @@ export function SubscriptionSummary({ planId, status, currentPeriodEnd, paymentM
                                 Current plan and billing status
                             </p>
                         </div>
+                        {!isPaid && (
+                            <Button
+                                asChild
+                                variant="default"
+                                className="w-full sm:w-auto rounded-full px-6 bg-primary text-primary-foreground hover:bg-primary/90"
+                            >
+                                <Link href={getPricingHref(product)}>Upgrade Plan</Link>
+                            </Button>
+                        )}
                         {isPaid && !isCrypto && (
                             <ManageSubscriptionButton
                                 variant="default"

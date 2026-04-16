@@ -89,7 +89,13 @@ async function processCryptoRenewalReminders(): Promise<{ sent: number; errors: 
             logger.warn("Redis unavailable — skipping crypto renewal reminders to prevent duplicates");
             break;
         }
-        const alreadySent = await redisClient.get(reminderKey);
+        let alreadySent: string | null = null
+        try {
+            alreadySent = await redisClient.get(reminderKey);
+        } catch (error) {
+            logger.warn("Redis unavailable — skipping crypto renewal reminders to prevent duplicates", { reminderKey, error });
+            break;
+        }
         if (alreadySent) continue;
 
         try {
@@ -104,7 +110,11 @@ async function processCryptoRenewalReminders(): Promise<{ sent: number; errors: 
             });
 
             // Mark as sent (TTL: 30 days)
-            await redisClient.set(reminderKey, "1", { ex: 86400 * 30 });
+            try {
+                await redisClient.set(reminderKey, "1", { ex: 86400 * 30 });
+            } catch (error) {
+                logger.warn("Failed to persist crypto renewal reminder dedupe key", { reminderKey, userId: user.id, error });
+            }
 
             sent++;
         } catch (error) {

@@ -21,11 +21,11 @@ export function ProductsSection() {
                             </div>
                             <div>
                                 <h3 className="text-xl md:text-2xl font-bold">anon.li Alias</h3>
-                                <p className="text-sm text-muted-foreground">Anonymous Email Aliases</p>
+                                <p className="text-sm text-muted-foreground">Private Email Aliases</p>
                             </div>
                         </div>
                         <p className="text-muted-foreground leading-relaxed font-light text-base mb-5">
-                            Generate email aliases that forward to your real inbox. Sign up anywhere without exposing your identity. Reply anonymously. Block spam instantly.
+                            Generate email aliases that forward to your real inbox. Sign up anywhere without exposing your real address. Reply via alias. Block spam instantly.
                         </p>
                         <div className="grid grid-cols-2 gap-4">
                             <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -38,7 +38,7 @@ export function ProductsSection() {
                             </div>
                             <div className="flex items-center gap-2 text-sm text-muted-foreground">
                                 <MessageSquareReply className="h-4 w-4 text-primary" />
-                                <span>Anonymous Replies</span>
+                                <span>Reply by Alias</span>
                             </div>
                             <div className="flex items-center gap-2 text-sm text-muted-foreground">
                                 <Shield className="h-4 w-4 text-primary" />

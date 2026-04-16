@@ -2,7 +2,7 @@
  * Deletion Lifecycle Service
  *
  * Manages account deletion through a state machine:
- *   pending → active_systems_deleted → backup_retention → completed
+ *   pending → backup_retention → completed
  *
  * Each transition is idempotent and can be retried safely.
  */
@@ -10,16 +10,17 @@
 import { prisma } from "@/lib/prisma"
 import { eraseUserDrops } from "@/lib/services/erasure"
 import { createLogger } from "@/lib/logger"
+import { getVaultSchemaState } from "@/lib/vault/schema"
 
 const logger = createLogger("DeletionService")
 
-/** Days to retain data after active systems are deleted */
+/** Days to retain data after active-system deletion */
 const BACKUP_RETENTION_DAYS = 30
 
 export class DeletionService {
     /**
-     * Request account deletion. Creates a DeletionRequest in "pending" state
-     * and immediately revokes all sessions.
+     * Request account deletion. Creates a DeletionRequest in "pending" state,
+     * immediately revokes all sessions, and blocks new sign-ins.
      */
     static async requestDeletion(userId: string): Promise<string> {
         // Revoke all sessions immediately
@@ -71,6 +72,8 @@ export class DeletionService {
         const userId = request.userId
 
         try {
+            const vaultSchema = await getVaultSchemaState()
+
             // Step 1: Delete aliases
             if (!request.aliasesDeleted) {
                 await prisma.alias.deleteMany({ where: { userId } })
@@ -122,18 +125,34 @@ export class DeletionService {
                 })
             }
 
+            const authCleanupOperations = [
+                prisma.account.deleteMany({ where: { userId } }),
+                prisma.twoFactor.deleteMany({ where: { userId } }),
+            ]
+
+            if (vaultSchema.dropOwnerKeys) {
+                authCleanupOperations.push(prisma.dropOwnerKey.deleteMany({ where: { userId } }))
+            }
+
+            if (vaultSchema.userSecurity) {
+                authCleanupOperations.push(prisma.userSecurity.deleteMany({ where: { userId } }))
+            }
+
+            await prisma.$transaction(authCleanupOperations)
+
             // Delete other resources
             await prisma.apiKey.deleteMany({ where: { userId } })
             await prisma.recipient.deleteMany({ where: { userId } })
             await prisma.subscription.deleteMany({ where: { userId } })
 
-            // Mark as active_systems_deleted
+            // Active systems are now wiped; retain the user row only until the
+            // backup retention window elapses so the final hard delete can run.
             await prisma.deletionRequest.update({
                 where: { id: requestId },
-                data: { status: "active_systems_deleted" },
+                data: { status: "backup_retention" },
             })
 
-            logger.info("Active systems deleted", { userId, requestId })
+            logger.info("Deletion entered backup retention", { userId, requestId })
         } catch (error) {
             logger.error("Deletion processing failed", error, { userId, requestId })
             throw error
@@ -172,7 +191,9 @@ export class DeletionService {
 
         const requests = await prisma.deletionRequest.findMany({
             where: {
-                status: "active_systems_deleted",
+                status: {
+                    in: ["active_systems_deleted", "backup_retention"],
+                },
                 requestedAt: { lt: cutoff },
             },
             select: { id: true },

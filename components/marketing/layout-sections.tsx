@@ -23,7 +23,7 @@ export function HowItWorksSection() {
                         </div>
                         <StepItem number="1" title="Create an Alias" description="Generate random or custom aliases like shop@anon.li in one click." />
                         <StepItem number="2" title="Use Anywhere" description="Sign up for newsletters, apps, or services without exposing your real email." />
-                        <StepItem number="3" title="Stay Hidden" description="All emails forward to your inbox. Reply anonymously from your alias." />
+                        <StepItem number="3" title="Stay Private" description="All emails forward to your inbox. Reply via your alias while keeping your real address hidden." />
                     </div>
 
                     {/* File Steps */}

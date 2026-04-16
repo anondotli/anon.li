@@ -14,6 +14,8 @@ export interface RateLimitResult {
     reset: Date
 }
 
+export type ApiQuotaType = "alias" | "drop"
+
 type UserSubscription = { stripePriceId?: string | null, stripeCurrentPeriodEnd?: Date | null }
 
 type LimiterMap = { free: Ratelimit | null, plus: Ratelimit | null, pro: Ratelimit | null }
@@ -49,7 +51,38 @@ async function checkTieredQuota(
     }
 }
 
-export async function checkApiRateLimit(
+async function readTieredQuota(
+    userId: string,
+    user: UserSubscription,
+    limitConfig: Record<string, { apiRequests: number }>,
+    limiterMap: LimiterMap,
+): Promise<RateLimitResult> {
+    const tier = getEffectiveTier(user)
+    const tierConfig = limitConfig[tier]
+    if (!tierConfig) {
+        return { success: true, limit: -1, remaining: -1, reset: new Date() }
+    }
+    const limit = tierConfig.apiRequests
+
+    if (limit === -1) {
+        return { success: true, limit: -1, remaining: -1, reset: new Date() }
+    }
+
+    const limiter = limiterMap[tier]
+    if (!limiter) {
+        return { success: true, limit, remaining: limit, reset: new Date() }
+    }
+
+    const result = await limiter.getRemaining(userId)
+    return {
+        success: result.remaining > 0,
+        limit: result.limit,
+        remaining: result.remaining,
+        reset: new Date(result.reset),
+    }
+}
+
+async function checkApiRateLimit(
     userId: string,
     user: UserSubscription,
 ): Promise<RateLimitResult> {
@@ -60,7 +93,7 @@ export async function checkApiRateLimit(
     })
 }
 
-export async function checkDropApiRateLimit(
+async function checkDropApiRateLimit(
     userId: string,
     user: UserSubscription,
 ): Promise<RateLimitResult> {
@@ -71,21 +104,36 @@ export async function checkDropApiRateLimit(
     })
 }
 
-/**
- * Enforce monthly quota for a user. Throws RateLimitError if exceeded.
- * Used by service-layer methods so quota is enforced regardless of entry point.
- */
-export async function enforceMonthlyQuota(
+export async function readApiRateLimit(
     userId: string,
-    type: "alias" | "drop",
-    user: { stripePriceId?: string | null; stripeCurrentPeriodEnd?: Date | null }
-): Promise<void> {
-    const checker = type === "alias" ? checkApiRateLimit : checkDropApiRateLimit
-    const result = await checker(userId, user)
-    if (!result.success) {
-        const { RateLimitError } = await import("@/lib/api-error-utils")
-        throw new RateLimitError("Monthly request limit exceeded. Upgrade your plan for more requests.")
-    }
+    user: UserSubscription,
+): Promise<RateLimitResult> {
+    return readTieredQuota(userId, user, ALIAS_LIMITS, {
+        free: monthlyApiLimiters.free,
+        plus: monthlyApiLimiters.plus,
+        pro: monthlyApiLimiters.pro,
+    })
+}
+
+export async function readDropApiRateLimit(
+    userId: string,
+    user: UserSubscription,
+): Promise<RateLimitResult> {
+    return readTieredQuota(userId, user, DROP_LIMITS, {
+        free: monthlyApiLimiters.dropFree,
+        plus: monthlyApiLimiters.dropPlus,
+        pro: monthlyApiLimiters.dropPro,
+    })
+}
+
+export async function checkApiQuota(
+    userId: string,
+    user: UserSubscription,
+    type: ApiQuotaType,
+): Promise<RateLimitResult> {
+    return type === "alias"
+        ? checkApiRateLimit(userId, user)
+        : checkDropApiRateLimit(userId, user)
 }
 
 /**

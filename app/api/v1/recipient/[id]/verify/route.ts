@@ -4,54 +4,29 @@
  * Authentication: API key only (Bearer ak_...)
  */
 
-import { validateApiKey } from "@/lib/api-auth"
-import { createRateLimitHeaders } from "@/lib/api-rate-limit"
+import { apiError, apiSuccess, ErrorCodes } from "@/lib/api-response"
+import { withPolicy } from "@/lib/route-policy"
 import { RecipientService } from "@/lib/services/recipient"
-import {
-    generateRequestId,
-    apiSuccess,
-    apiError,
-    apiErrorFromUnknown,
-    apiRateLimitError,
-    withApiHeaders,
-    ErrorCodes,
-} from "@/lib/api-response"
 
-export const dynamic = 'force-dynamic'
+export const dynamic = "force-dynamic"
 
 interface RouteParams {
     params: Promise<{ id: string }>
 }
 
-/**
- * POST /api/v1/recipient/[id]/verify
- * Resend verification email
- */
-export async function POST(req: Request, { params }: RouteParams) {
-    const requestId = generateRequestId()
-    const { id } = await params
+export const POST = withPolicy<RouteParams>(
+    {
+        auth: "api_key",
+        requireCsrf: true,
+        rateLimit: "emailResend",
+    },
+    async (ctx, routeContext) => {
+        if (!ctx.userId) {
+            return apiError("Unauthorized", ErrorCodes.UNAUTHORIZED, ctx.requestId, 401)
+        }
 
-    const result = await validateApiKey(req)
-    if (!result) {
-        return apiError("Unauthorized - API key required", ErrorCodes.UNAUTHORIZED, requestId, 401)
-    }
-
-    if (!result.rateLimit.success) {
-        return withApiHeaders(
-            apiRateLimitError(requestId, result.rateLimit.reset, true),
-            requestId,
-            createRateLimitHeaders(result.rateLimit)
-        )
-    }
-
-    try {
-        await RecipientService.resendVerification(result.user.id, id)
-        return withApiHeaders(
-            apiSuccess({ sent: true }, requestId),
-            requestId,
-            createRateLimitHeaders(result.rateLimit)
-        )
-    } catch (error) {
-        return apiErrorFromUnknown(error, requestId)
-    }
-}
+        const { id } = await routeContext!.params
+        await RecipientService.resendVerification(ctx.userId, id)
+        return apiSuccess({ sent: true }, ctx.requestId)
+    },
+)

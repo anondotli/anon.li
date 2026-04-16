@@ -54,21 +54,30 @@ vi.mock("@/lib/resend", () => ({
     sendCryptoRenewalReminderEmail: vi.fn().mockResolvedValue({ success: true }),
 }));
 
+vi.mock("@/lib/services/billing-downgrade", () => ({
+    BillingDowngradeService: {
+        processSchedulingBatch: vi.fn().mockResolvedValue({ processed: 0, errors: 0 }),
+        processDeletionBatch: vi.fn().mockResolvedValue({ processed: 0, errors: 0 }),
+    },
+}));
+
+vi.mock("@/lib/data/user", () => ({
+    getCryptoRenewalReminderUsers: vi.fn().mockResolvedValue([]),
+}));
+
 import { GET, POST } from "@/app/api/cron/billing/route";
 
-const originalEnv = process.env;
-
 describe("Billing Cron Endpoint", () => {
+    let savedCronSecret: string | undefined;
+
     beforeEach(() => {
         vi.clearAllMocks();
-        process.env = {
-            ...originalEnv,
-            CRON_SECRET: "test-cron-secret",
-        };
+        savedCronSecret = process.env.CRON_SECRET;
+        process.env.CRON_SECRET = "test-cron-secret";
     });
 
     afterEach(() => {
-        process.env = originalEnv;
+        process.env.CRON_SECRET = savedCronSecret;
     });
 
     for (const [method, handler] of [["GET", GET], ["POST", POST]] as const) {

@@ -62,12 +62,16 @@ describe('/api/internal/file-takedown', () => {
 
     const createRequest = (options: {
         token?: string | null
+        apiSecret?: string
         body?: Record<string, unknown>
     } = {}) => {
         const headers = new Headers()
 
         if (options.token !== null) {
             headers.set('Authorization', `Bearer ${options.token ?? 'test-secret-123'}`)
+        }
+        if (options.apiSecret) {
+            headers.set('X-API-Secret', options.apiSecret)
         }
 
         return new Request('http://localhost/api/internal/file-takedown', {
@@ -88,6 +92,13 @@ describe('/api/internal/file-takedown', () => {
             const request = createRequest({ token: null })
             const response = await POST(request)
             expect(response.status).toBe(401)
+        })
+
+        it('accepts the shared X-API-Secret header', async () => {
+            mockDropFindUnique.mockResolvedValue(null)
+            const request = createRequest({ token: null, apiSecret: 'test-secret-123', body: { dropId: 'drop-123', reason: 'violation' } })
+            const response = await POST(request)
+            expect(response.status).toBe(404)
         })
     })
 

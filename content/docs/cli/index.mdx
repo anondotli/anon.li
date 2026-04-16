@@ -3,7 +3,7 @@ title: "CLI"
 summary: "Install and use the anon.li command-line tool to manage aliases, drops, domains, and more from your terminal."
 ---
 
-The anon.li CLI (`anonli`) lets you manage aliases, encrypted file drops, recipients, domains, and API keys directly from your terminal. It supports scripting with `--json` output and quiet mode.
+The anon.li CLI (`anonli`) lets you manage aliases, encrypted file drops, recipients, and domains directly from your terminal. It authenticates with an API key from your dashboard and supports scripting with `--json` output and quiet mode.
 
 ## Installation
 
@@ -195,20 +195,9 @@ anonli whoami
 
 Displays your email, plan tier, alias usage, recipient count, domain count, drop count, and storage usage.
 
-### `anonli apikey`
+### API keys
 
-Manage API keys:
-
-```bash
-# List all keys
-anonli apikey list
-
-# Create a new key
-anonli apikey create --label "CI/CD"
-
-# Delete a key
-anonli apikey delete <key-id>
-```
+Create and revoke API keys from [Dashboard -> API Keys](/dashboard/api-keys). Existing API keys cannot create or delete other API keys.
 
 ### `anonli subscribe`
 

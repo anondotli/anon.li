@@ -204,7 +204,7 @@ function Install-Anonli {
 
     # ── Header ───────────────────────────────────────────────────────────
     Write-Host $Logo -ForegroundColor Cyan
-    Write-Host "  Encrypted drops & anonymous aliases" -ForegroundColor DarkGray
+    Write-Host "  Encrypted drops & private aliases" -ForegroundColor DarkGray
     Write-Host ""
 
     # ── Uninstall mode ───────────────────────────────────────────────────

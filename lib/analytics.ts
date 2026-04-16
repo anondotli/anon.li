@@ -13,7 +13,12 @@ declare global {
 
 function trackEvent(event: string, data?: Record<string, string | number>) {
     if (typeof window !== "undefined" && window.umami) {
-        window.umami.track(event, data)
+        if (data) {
+            window.umami.track(event, data)
+            return
+        }
+
+        window.umami.track(event)
     }
 }
 
@@ -25,8 +30,8 @@ export const analytics = {
         trackEvent("drop_upload_started", { file_count: fileCount }),
 
     /** Drop: upload completed successfully */
-    dropUploadCompleted: (dropId: string) =>
-        trackEvent("drop_upload_completed", { drop_id: dropId }),
+    dropUploadCompleted: () =>
+        trackEvent("drop_upload_completed"),
 
     /** Drop: share link copied */
     dropShareLinkCopied: () =>
@@ -37,8 +42,8 @@ export const analytics = {
         trackEvent("alias_created", { format }),
 
     /** Alias: custom domain connected */
-    aliasDomainConnected: (domain: string) =>
-        trackEvent("alias_domain_connected", { domain }),
+    aliasDomainConnected: () =>
+        trackEvent("alias_domain_connected"),
 
     /** Billing: upgrade button clicked */
     upgradeClicked: (product: string, tier: string) =>

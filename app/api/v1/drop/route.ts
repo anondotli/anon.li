@@ -10,10 +10,23 @@ import { z } from "zod"
 import { apiError, apiList, apiSuccess, ErrorCodes, zodErrorToDetails } from "@/lib/api-response"
 import { getDropLimits } from "@/lib/limits"
 import { prisma } from "@/lib/prisma"
-import { getClientIp } from "@/lib/rate-limit"
 import { withPolicy } from "@/lib/route-policy"
 import { DropService, type DropListItem } from "@/lib/services/drop"
-import { validateTurnstileToken } from "@/lib/turnstile"
+import {
+    DropOwnerKeyConflictError,
+    persistOwnedDropKey,
+} from "@/lib/vault/drop-owner-keys"
+import {
+    vaultGenerationSchema,
+    vaultIdSchema,
+    wrappedDropKeySchema,
+} from "@/lib/vault/validation"
+
+const ownerKeySchema = z.object({
+    wrappedKey: wrappedDropKeySchema,
+    vaultId: vaultIdSchema,
+    vaultGeneration: vaultGenerationSchema,
+})
 
 const createDropSchema = z.object({
     iv: z.string().regex(/^[A-Za-z0-9_-]{16}$/, "IV must be 16 base64url characters"),
@@ -27,8 +40,8 @@ const createDropSchema = z.object({
     customKeyIv: z.string().length(16).optional(),
     hideBranding: z.boolean().optional(),
     notifyOnDownload: z.boolean().optional(),
-    fileCount: z.number().int().positive(),
-    turnstileToken: z.string().nullish().transform((val) => val ?? undefined),
+    fileCount: z.number().int().positive().optional(),
+    ownerKey: ownerKeySchema.optional(),
 }).refine((data) => {
     if (data.customKey) {
         return !!data.salt && !!data.customKeyData && !!data.customKeyIv
@@ -42,6 +55,7 @@ const createDropSchema = z.object({
 export const GET = withPolicy(
     {
         auth: "api_key_or_session",
+        apiQuota: "drop",
         rateLimit: "dropList",
     },
     async (ctx) => {
@@ -86,13 +100,17 @@ export const GET = withPolicy(
 
 export const POST = withPolicy(
     {
-        auth: "optional_api_key_or_session",
+        auth: "api_key_or_session",
+        apiQuota: "drop",
         requireCsrf: true,
         checkBan: "upload",
         rateLimit: "dropCreate",
-        rateLimitIdentifier: async (ctx) => ctx.userId ?? await getClientIp(),
     },
     async (ctx) => {
+        if (!ctx.userId) {
+            return apiError("Authentication required to create drops", ErrorCodes.UNAUTHORIZED, ctx.requestId, 401)
+        }
+
         const body = await ctx.request.json()
         const validation = createDropSchema.safeParse(body)
 
@@ -106,34 +124,59 @@ export const POST = withPolicy(
             )
         }
 
-        if (!ctx.userId && process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY) {
-            const token = validation.data.turnstileToken
-            if (!token) {
-                return apiError(
-                    "Missing Turnstile token. Please refresh.",
-                    ErrorCodes.VALIDATION_ERROR,
-                    ctx.requestId,
-                    400
-                )
+        const { ownerKey, ...dropInput } = validation.data
+
+        if (ownerKey) {
+            const security = await prisma.userSecurity.findUnique({
+                where: { userId: ctx.userId },
+                select: { id: true, vaultGeneration: true },
+            })
+
+            if (!security) {
+                return apiError("Vault security is not configured", ErrorCodes.NOT_FOUND, ctx.requestId, 404)
             }
 
-            const isValid = await validateTurnstileToken(token)
-            if (!isValid) {
-                return apiError(
-                    "Turnstile verification failed. Are you a robot?",
-                    ErrorCodes.VALIDATION_ERROR,
-                    ctx.requestId,
-                    400
-                )
+            if (security.id !== ownerKey.vaultId) {
+                return apiError("Vault identity mismatch", ErrorCodes.CONFLICT, ctx.requestId, 409)
+            }
+
+            if (security.vaultGeneration !== ownerKey.vaultGeneration) {
+                return apiError("Vault generation mismatch", ErrorCodes.CONFLICT, ctx.requestId, 409)
             }
         }
 
-        const result = await DropService.createDrop(ctx.userId, validation.data)
+        const result = await DropService.createDrop(ctx.userId, dropInput)
+
+        if (ownerKey) {
+            try {
+                await persistOwnedDropKey(
+                    prisma,
+                    ctx.userId,
+                    result.dropId,
+                    ownerKey.wrappedKey,
+                    ownerKey.vaultGeneration,
+                )
+            } catch (error) {
+                await prisma.drop.deleteMany({
+                    where: {
+                        id: result.dropId,
+                        userId: ctx.userId,
+                        uploadComplete: false,
+                    },
+                })
+
+                if (error instanceof DropOwnerKeyConflictError) {
+                    return apiError("Drop key not found", ErrorCodes.NOT_FOUND, ctx.requestId, 404)
+                }
+
+                return apiError("Failed to store drop encryption key", ErrorCodes.INTERNAL_ERROR, ctx.requestId, 500)
+            }
+        }
 
         return apiSuccess({
             drop_id: result.dropId,
-            session_token: result.sessionToken,
             expires_at: result.expiresAt?.toISOString() || null,
+            owner_key_stored: Boolean(ownerKey),
         }, ctx.requestId)
     }
 )

@@ -7,6 +7,7 @@ import { isRedirectError } from "next/dist/client/components/redirect-error"
 import { redirect } from "next/navigation"
 import { rateLimit } from "@/lib/rate-limit"
 import { createLogger } from "@/lib/logger"
+import { getAuthUserState } from "@/lib/data/auth"
 
 const logger = createLogger("StripePortal")
 
@@ -17,6 +18,21 @@ export async function createPortalSession() {
         return {
             status: "error",
             message: "Not authenticated",
+        }
+    }
+
+    if (session.user.twoFactorEnabled && !session.twoFactorVerified) {
+        return {
+            status: "error",
+            message: "Two-factor authentication required",
+        }
+    }
+
+    const authUser = await getAuthUserState(session.user.id)
+    if (!authUser || authUser.banned) {
+        return {
+            status: "error",
+            message: "Unauthorized",
         }
     }
 

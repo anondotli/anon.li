@@ -8,7 +8,6 @@ import { getPlanLimits } from "@/lib/limits"
 import { generateDkimKeys } from "@/lib/dkim"
 import { createLogger } from "@/lib/logger"
 import { ValidationError, NotFoundError, ForbiddenError } from "@/lib/api-error-utils"
-import { enforceMonthlyQuota } from "@/lib/api-rate-limit"
 import { encryptField } from "@/lib/field-encryption"
 
 const logger = createLogger("DomainService")
@@ -58,8 +57,6 @@ export class DomainService {
         if (!user) {
             throw new NotFoundError("User not found")
         }
-
-        await enforceMonthlyQuota(userId, "alias", user)
 
         const { domains: domainsLimit } = getPlanLimits(user)
 
@@ -117,12 +114,6 @@ export class DomainService {
         if (domain.userId !== userId) {
             throw new ForbiddenError("You don't have permission to verify this domain")
         }
-
-        const user = await prisma.user.findUnique({
-            where: { id: userId },
-            select: { stripePriceId: true, stripeCurrentPeriodEnd: true }
-        })
-        if (user) await enforceMonthlyQuota(userId, "alias", user)
 
         try {
             // 1. MX Verification
@@ -225,12 +216,6 @@ export class DomainService {
             throw new ForbiddenError("You don't have permission to modify this domain")
         }
 
-        const user = await prisma.user.findUnique({
-            where: { id: userId },
-            select: { stripePriceId: true, stripeCurrentPeriodEnd: true }
-        })
-        if (user) await enforceMonthlyQuota(userId, "alias", user)
-
         const keys = await generateDkimKeys()
         const encryptedPrivateKey = process.env.DKIM_ENCRYPTION_KEY
             ? encryptField(keys.privateKey, "DKIM_ENCRYPTION_KEY")
@@ -269,12 +254,6 @@ export class DomainService {
         if (domain.userId !== userId) {
             throw new ForbiddenError("You don't have permission to delete this domain")
         }
-
-        const user = await prisma.user.findUnique({
-            where: { id: userId },
-            select: { stripePriceId: true, stripeCurrentPeriodEnd: true }
-        })
-        if (user) await enforceMonthlyQuota(userId, "alias", user)
 
         // Delete domain and associated aliases atomically
         await prisma.$transaction([

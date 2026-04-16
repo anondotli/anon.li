@@ -1,10 +1,8 @@
 "use server"
 
-import { auth } from "@/auth"
 import { revalidatePath } from "next/cache"
 import { DropService } from "@/lib/services/drop"
 import { rateLimit, getClientIp } from "@/lib/rate-limit"
-import { validateTurnstileToken } from "@/lib/turnstile"
 import { getChunkPresignedUrls, getPresignedDownloadUrl } from "@/lib/storage"
 import { prisma } from "@/lib/prisma"
 import type { DropMetadata } from "@/lib/drop.client"
@@ -13,6 +11,15 @@ import { z } from "zod"
 import { createLogger } from "@/lib/logger"
 import { type ActionState, runSecureAction } from "@/lib/safe-action"
 import { addFileActionSchema } from "@/lib/validations/drop"
+import {
+    DropOwnerKeyConflictError,
+    persistOwnedDropKey,
+} from "@/lib/vault/drop-owner-keys"
+import {
+    vaultGenerationSchema,
+    vaultIdSchema,
+    wrappedDropKeySchema,
+} from "@/lib/vault/validation"
 
 const logger = createLogger("DropActions")
 
@@ -69,7 +76,9 @@ const createDropSchema = z.object({
     hideBranding: z.boolean().optional(),
     notifyOnDownload: z.boolean().optional(),
     fileCount: z.number().int().positive().optional(),
-    turnstileToken: z.string().optional(),
+    wrappedKey: wrappedDropKeySchema,
+    vaultId: vaultIdSchema,
+    vaultGeneration: vaultGenerationSchema,
 }).refine((data) => {
     if (data.customKey) {
         return !!data.salt && !!data.customKeyData && !!data.customKeyIv;
@@ -92,7 +101,6 @@ const finishDropSchema = z.object({
             etag: z.string().min(1),
         })).min(1),
     })).min(1),
-    sessionToken: z.string().optional(),
 });
 
 // ============================================================================
@@ -102,7 +110,6 @@ const finishDropSchema = z.object({
 export type CreateDropActionResult = {
     error?: string
     dropId?: string
-    sessionToken?: string | null
     expiresAt?: string | null
 }
 
@@ -118,59 +125,84 @@ export type FinishDropActionResult = {
     success?: boolean
 }
 
+async function persistDropOwnerKey(userId: string, dropId: string, wrappedKey: string, vaultId: string, vaultGeneration: number) {
+    const security = await prisma.userSecurity.findUnique({
+        where: { userId },
+        select: { id: true, vaultGeneration: true },
+    })
+
+    if (!security) {
+        throw new Error("Vault security is not configured")
+    }
+
+    if (security.id !== vaultId) {
+        throw new Error("Vault identity mismatch")
+    }
+
+    if (security.vaultGeneration !== vaultGeneration) {
+        throw new Error("Vault generation mismatch")
+    }
+
+    await persistOwnedDropKey(prisma, userId, dropId, wrappedKey, vaultGeneration)
+}
+
 // ============================================================================
 // Server Actions for Upload Flow
 // ============================================================================
 
 /**
  * Create a new drop (collection for grouping files).
- * For anonymous users, requires Turnstile verification.
+ * Requires authentication.
  */
 export async function createDropAction(
     input: z.infer<typeof createDropSchema>
 ): Promise<CreateDropActionResult> {
-    try {
-        const session = await auth()
-        const userId = session?.user?.id || null
+    const result = await runSecureAction(
+        { schema: createDropSchema, data: input, rateLimitKey: "dropCreate" },
+        async (validated, userId): Promise<CreateDropActionResult> => {
+            const { wrappedKey, vaultId, vaultGeneration, ...dropInput } = validated
+            const result = await DropService.createDrop(userId, dropInput)
 
-
-        // Rate limiting
-        const clientIp = await getClientIp()
-        const identifier = userId || clientIp
-        const rateLimited = await rateLimit("dropCreate", identifier)
-        if (rateLimited) {
-            return { error: "Too many requests. Please try again later." }
-        }
-
-        // Validate input
-        const validation = createDropSchema.safeParse(input)
-        if (!validation.success) {
-            return { error: validation.error.issues[0]?.message || "Invalid input" }
-        }
-
-        // Turnstile verification for anonymous users
-        if (!userId && process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY) {
-            const token = validation.data.turnstileToken
-            if (!token) {
-                return { error: "Missing Turnstile token. Please refresh." }
+            try {
+                await persistDropOwnerKey(
+                    userId,
+                    result.dropId,
+                    wrappedKey,
+                    vaultId,
+                    vaultGeneration
+                )
+            } catch (keyError) {
+                if (keyError instanceof DropOwnerKeyConflictError) {
+                    logger.warn("Drop owner key persistence rejected due to ownership conflict", {
+                        dropId: result.dropId,
+                        userId,
+                    })
+                }
+                logger.error("Failed to persist drop owner key", keyError, { dropId: result.dropId, userId })
+                await prisma.drop.deleteMany({
+                    where: {
+                        id: result.dropId,
+                        userId,
+                        uploadComplete: false,
+                    },
+                }).catch((cleanupError) => {
+                    logger.error("Failed to roll back drop after key persistence error", cleanupError, {
+                        dropId: result.dropId,
+                        userId,
+                    })
+                })
+                return { error: "Failed to store drop encryption key" }
             }
-            const isValid = await validateTurnstileToken(token)
-            if (!isValid) {
-                return { error: "Turnstile verification failed. Are you a robot?" }
+
+            return {
+                dropId: result.dropId,
+                expiresAt: result.expiresAt?.toISOString() || null,
             }
         }
+    )
 
-        const result = await DropService.createDrop(userId, validation.data)
-
-        return {
-            dropId: result.dropId,
-            sessionToken: result.sessionToken,
-            expiresAt: result.expiresAt?.toISOString() || null,
-        }
-    } catch (error) {
-        logger.error("createDropAction error", error)
-        return { error: "Failed to create drop" }
-    }
+    if (result.error) return { error: result.error }
+    return result.data ?? { error: "Failed to create drop" }
 }
 
 /**
@@ -180,48 +212,32 @@ export async function createDropAction(
 export async function addFileToDropAction(
     input: z.infer<typeof addFileSchema>
 ): Promise<AddFileActionResult> {
-    try {
-        const session = await auth()
-        const userId = session?.user?.id || null
+    const result = await runSecureAction(
+        { schema: addFileSchema, data: input, rateLimitKey: "fileUploadAuth" },
+        async (validated, userId): Promise<AddFileActionResult> => {
+            const result = await DropService.addFile(userId, validated)
 
+            // Generate presigned URLs for chunk uploads
+            const partNumbers = Array.from(
+                { length: validated.chunkCount },
+                (_, i) => i + 1
+            )
+            const uploadUrls = await getChunkPresignedUrls(
+                result.storageKey,
+                result.s3UploadId,
+                partNumbers
+            )
 
-        // Rate limiting
-        const clientIp = await getClientIp()
-        const identifier = userId || clientIp
-        const rateLimitType = userId ? "fileUploadAuth" : "fileUpload"
-        const rateLimited = await rateLimit(rateLimitType, identifier)
-        if (rateLimited) {
-            return { error: "Too many requests. Please try again later." }
+            return {
+                fileId: result.fileId,
+                s3UploadId: result.s3UploadId,
+                uploadUrls,
+            }
         }
+    )
 
-        // Validate input
-        const validation = addFileSchema.safeParse(input)
-        if (!validation.success) {
-            return { error: validation.error.issues[0]?.message || "Invalid input" }
-        }
-
-        const result = await DropService.addFile(userId, validation.data)
-
-        // Generate presigned URLs for chunk uploads
-        const partNumbers = Array.from(
-            { length: validation.data.chunkCount },
-            (_, i) => i + 1
-        )
-        const uploadUrls = await getChunkPresignedUrls(
-            result.storageKey,
-            result.s3UploadId,
-            partNumbers
-        )
-
-        return {
-            fileId: result.fileId,
-            s3UploadId: result.s3UploadId,
-            uploadUrls,
-        }
-    } catch (error) {
-        logger.error("addFileToDropAction error", error)
-        return { error: "Failed to add file" }
-    }
+    if (result.error) return { error: result.error }
+    return result.data ?? { error: "Failed to add file" }
 }
 
 /**
@@ -231,35 +247,20 @@ export async function addFileToDropAction(
 export async function finishDropAction(
     input: z.infer<typeof finishDropSchema>
 ): Promise<FinishDropActionResult> {
-    try {
-        const session = await auth()
-        const userId = session?.user?.id || null
+    const result = await runSecureAction(
+        { schema: finishDropSchema, data: input, rateLimitKey: "dropOps" },
+        async (validated, userId): Promise<FinishDropActionResult> => {
+            const { dropId, files } = validated
 
+            await DropService.finishDrop(dropId, files, userId)
 
-        // Rate limiting
-        const clientIp = await getClientIp()
-        const identifier = userId || clientIp
-        const rateLimited = await rateLimit("dropOps", identifier)
-        if (rateLimited) {
-            return { error: "Too many requests. Please try again later." }
+            revalidatePath("/dashboard/drop")
+            return { success: true }
         }
+    )
 
-        // Validate input
-        const validation = finishDropSchema.safeParse(input)
-        if (!validation.success) {
-            return { error: validation.error.issues[0]?.message || "Invalid input" }
-        }
-
-        const { dropId, files, sessionToken } = validation.data
-
-        await DropService.finishDrop(dropId, files, userId, sessionToken)
-
-        revalidatePath("/dashboard/drop")
-        return { success: true }
-    } catch (error) {
-        logger.error("finishDropAction error", error)
-        return { error: "Failed to finish drop" }
-    }
+    if (result.error) return { error: result.error }
+    return result.data ?? { error: "Failed to finish drop" }
 }
 
 /**

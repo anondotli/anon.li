@@ -16,8 +16,10 @@ vi.mock('@/lib/prisma', () => ({
 
 // Mock storage
 vi.mock('@/lib/storage', () => ({
+    abortMultipartUpload: vi.fn(),
     deleteObject: vi.fn(),
     deleteObjects: vi.fn(),
+    getPresignedDownloadUrl: vi.fn(),
 }));
 
 // Mock drop-storage

@@ -90,8 +90,10 @@ export function DeleteAccountSection() {
                                 </AlertDialogTitle>
                                 <AlertDialogDescription>
                                     This action cannot be undone. Your aliases, domains, files,
-                                    drops, API keys, and recipients are deleted immediately. Your
-                                    account record is permanently removed after 30 days.
+                                    drops, API keys, sign-in credentials, and encrypted vault
+                                    access are revoked immediately. Any saved local browser trust
+                                    stops working once this account is deleted. Your account
+                                    record is permanently removed after 30 days.
                                 </AlertDialogDescription>
                             </AlertDialogHeader>
                             <div className="space-y-2 py-4">

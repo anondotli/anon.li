@@ -1,7 +1,6 @@
 import crypto from "crypto"
 import { createApiKeyRecord, deleteApiKeyById, getApiKeyById } from "@/lib/data/api-key"
 import { getUserById } from "@/lib/data/user"
-import { enforceMonthlyQuota } from "@/lib/api-rate-limit"
 import { NotFoundError } from "@/lib/api-error-utils"
 
 export class ApiKeyService {
@@ -19,7 +18,7 @@ export class ApiKeyService {
         const user = await getUserById(userId)
         if (!user) throw new NotFoundError("User not found")
 
-        await enforceMonthlyQuota(userId, "alias", user)
+        const normalizedLabel = label.trim() || "My API Key"
 
         // No key count limit - API requests are rate limited instead
 
@@ -32,7 +31,7 @@ export class ApiKeyService {
             userId,
             keyHash,
             keyPrefix,
-            label: label || "My API Key",
+            label: normalizedLabel,
             expiresAt: expiresAt ?? null,
         })
 

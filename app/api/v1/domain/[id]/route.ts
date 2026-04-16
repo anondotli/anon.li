@@ -5,21 +5,12 @@
  * Authentication: API key only (Bearer ak_...)
  */
 
-import { validateApiKey } from "@/lib/api-auth"
-import { createRateLimitHeaders } from "@/lib/api-rate-limit"
-import { DomainService } from "@/lib/services/domain"
+import { apiError, apiSuccess, ErrorCodes } from "@/lib/api-response"
 import { prisma } from "@/lib/prisma"
-import {
-    generateRequestId,
-    apiSuccess,
-    apiError,
-    apiErrorFromUnknown,
-    apiRateLimitError,
-    withApiHeaders,
-    ErrorCodes,
-} from "@/lib/api-response"
+import { withPolicy } from "@/lib/route-policy"
+import { DomainService } from "@/lib/services/domain"
 
-export const dynamic = 'force-dynamic'
+export const dynamic = "force-dynamic"
 
 interface RouteParams {
     params: Promise<{ id: string }>
@@ -50,7 +41,6 @@ function toApiFormat(domain: {
         dkim_public_key: domain.dkimPublicKey,
         dkim_selector: domain.dkimSelector,
         created_at: domain.createdAt.toISOString(),
-        // DNS records to configure
         dns_records: {
             ownership: {
                 type: "TXT",
@@ -68,84 +58,50 @@ function toApiFormat(domain: {
                 host: domain.domain,
                 value: "v=spf1 include:anon.li ~all",
             },
-            dkim: domain.dkimPublicKey && domain.dkimSelector ? {
-                type: "TXT",
-                host: `${domain.dkimSelector}._domainkey.${domain.domain}`,
-                value: `v=DKIM1; k=rsa; p=${domain.dkimPublicKey.replace(/-----BEGIN PUBLIC KEY-----/g, "").replace(/-----END PUBLIC KEY-----/g, "").replace(/[\n\r\s]/g, "")}`,
-            } : null,
+            dkim: domain.dkimPublicKey && domain.dkimSelector
+                ? {
+                    type: "TXT",
+                    host: `${domain.dkimSelector}._domainkey.${domain.domain}`,
+                    value: `v=DKIM1; k=rsa; p=${domain.dkimPublicKey.replace(/-----BEGIN PUBLIC KEY-----/g, "").replace(/-----END PUBLIC KEY-----/g, "").replace(/[\n\r\s]/g, "")}`,
+                }
+                : null,
         },
     }
 }
 
-/**
- * GET /api/v1/domain/[id]
- * Get domain details with DNS records
- */
-export async function GET(req: Request, { params }: RouteParams) {
-    const requestId = generateRequestId()
-    const { id } = await params
-
-    const result = await validateApiKey(req)
-    if (!result) {
-        return apiError("Unauthorized - API key required", ErrorCodes.UNAUTHORIZED, requestId, 401)
-    }
-
-    if (!result.rateLimit.success) {
-        return withApiHeaders(
-            apiRateLimitError(requestId, result.rateLimit.reset, true),
-            requestId,
-            createRateLimitHeaders(result.rateLimit)
-        )
-    }
-
-    try {
-        const domain = await prisma.domain.findUnique({
-            where: { id },
-        })
-
-        if (!domain || domain.userId !== result.user.id) {
-            return apiError("Domain not found", ErrorCodes.NOT_FOUND, requestId, 404)
+export const GET = withPolicy<RouteParams>(
+    {
+        auth: "api_key",
+        rateLimit: "api",
+    },
+    async (ctx, routeContext) => {
+        if (!ctx.userId) {
+            return apiError("Unauthorized", ErrorCodes.UNAUTHORIZED, ctx.requestId, 401)
         }
 
-        return withApiHeaders(
-            apiSuccess(toApiFormat(domain), requestId),
-            requestId,
-            createRateLimitHeaders(result.rateLimit)
-        )
-    } catch (error) {
-        return apiErrorFromUnknown(error, requestId)
-    }
-}
+        const { id } = await routeContext!.params
+        const domain = await prisma.domain.findUnique({ where: { id } })
+        if (!domain || domain.userId !== ctx.userId) {
+            return apiError("Domain not found", ErrorCodes.NOT_FOUND, ctx.requestId, 404)
+        }
 
-/**
- * DELETE /api/v1/domain/[id]
- * Delete a domain
- */
-export async function DELETE(req: Request, { params }: RouteParams) {
-    const requestId = generateRequestId()
-    const { id } = await params
+        return apiSuccess(toApiFormat(domain), ctx.requestId)
+    },
+)
 
-    const result = await validateApiKey(req)
-    if (!result) {
-        return apiError("Unauthorized - API key required", ErrorCodes.UNAUTHORIZED, requestId, 401)
-    }
+export const DELETE = withPolicy<RouteParams>(
+    {
+        auth: "api_key",
+        requireCsrf: true,
+        rateLimit: "domainOps",
+    },
+    async (ctx, routeContext) => {
+        if (!ctx.userId) {
+            return apiError("Unauthorized", ErrorCodes.UNAUTHORIZED, ctx.requestId, 401)
+        }
 
-    if (!result.rateLimit.success) {
-        return withApiHeaders(
-            apiRateLimitError(requestId, result.rateLimit.reset, true),
-            requestId,
-            createRateLimitHeaders(result.rateLimit)
-        )
-    }
-
-    try {
-        await DomainService.deleteDomain(result.user.id, id)
-        return withApiHeaders(
-            apiSuccess({ deleted: true }, requestId),
-            requestId,
-            createRateLimitHeaders(result.rateLimit)
-        )
-    } catch (error) {
-        return apiErrorFromUnknown(error, requestId)
-    }
-}
+        const { id } = await routeContext!.params
+        await DomainService.deleteDomain(ctx.userId, id)
+        return apiSuccess({ deleted: true }, ctx.requestId)
+    },
+)

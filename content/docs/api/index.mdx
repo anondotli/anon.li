@@ -9,7 +9,7 @@ Anon.li provides developer-friendly REST APIs for both email aliasing and encryp
 
 ### 1. Create an API Key
 
-Generate an API key in your [Dashboard](/dashboard/api-keys). Your key will start with `ak_` and should be kept secret.
+Generate an API key in your [Dashboard](/dashboard/api-keys). Your key will start with `ak_` and should be kept secret. API keys are created and deleted from your signed-in dashboard session; an existing API key cannot create or delete other API keys.
 
 ### 2. Authenticate Requests
 
@@ -59,6 +59,7 @@ https://anon.li/api/v1
 
 - **API Key Authentication** - Secure Bearer token authentication
 - **Rate Limiting** - Protection against abuse with per-endpoint limits
+- **Monthly API Quotas** - API-key requests count against your Alias or Drop monthly API quota; dashboard actions use separate abuse-prevention limits
 - **End-to-End Encryption** - Drop files are encrypted client-side before upload
 - **Zero-Knowledge File Sharing** - Drop keys stay client-side and do not reach our servers
 - **Transient Email Forwarding** - Alias forwards mail to your inbox instead of providing hosted mailbox storage

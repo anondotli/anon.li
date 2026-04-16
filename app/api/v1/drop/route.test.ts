@@ -74,6 +74,7 @@ vi.mock("@/lib/services/drop", () => ({
 vi.mock("@/lib/rate-limit", () => ({
     rateLimit: vi.fn().mockResolvedValue(null),
     getClientIp: vi.fn().mockResolvedValue("127.0.0.1"),
+    rateLimiters: {},
     monthlyApiLimiters: {
         dropFree: null,
         dropPlus: null,
@@ -82,6 +83,12 @@ vi.mock("@/lib/rate-limit", () => ({
 }));
 
 vi.mock("@/lib/api-rate-limit", () => ({
+    checkApiQuota: vi.fn().mockResolvedValue({
+        success: true,
+        limit: 500,
+        remaining: 499,
+        reset: new Date(),
+    }),
     checkApiRateLimit: vi.fn().mockResolvedValue({
         success: true,
         limit: 500,
@@ -212,7 +219,6 @@ describe("POST /api/v1/drop validation", () => {
         // Mock DropService.createDrop
         const mockCreateDrop = vi.fn().mockResolvedValue({
             dropId: "drop-123",
-            sessionToken: null,
             expiresAt: new Date()
         });
 
@@ -250,7 +256,6 @@ describe("POST /api/v1/drop validation", () => {
         const { DropService } = await import("@/lib/services/drop");
         DropService.createDrop = vi.fn().mockResolvedValue({
             dropId: "drop-public",
-            sessionToken: null,
             expiresAt: new Date()
         });
 

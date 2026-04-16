@@ -134,9 +134,14 @@ export default async function RecipientDetailPage({
                                         >
                                             {alias.email}
                                         </Link>
-                                        {alias.label && (
+                                        {(alias.encryptedLabel || alias.encryptedNote) && (
                                             <span className="ml-2 text-xs text-muted-foreground">
-                                                ({alias.label})
+                                                (encrypted metadata)
+                                            </span>
+                                        )}
+                                        {(alias.legacyLabel || alias.legacyNote) && (
+                                            <span className="ml-2 text-xs text-muted-foreground">
+                                                (metadata pending migration)
                                             </span>
                                         )}
                                     </div>

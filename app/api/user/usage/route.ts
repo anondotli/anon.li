@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { getUserBillingState } from "@/lib/data/user"
 import { rateLimit } from "@/lib/rate-limit"
-import { checkApiRateLimit, checkDropApiRateLimit } from "@/lib/api-rate-limit"
+import { readApiRateLimit, readDropApiRateLimit } from "@/lib/api-rate-limit"
 import { createLogger } from "@/lib/logger"
 
 const logger = createLogger("UserUsageAPI")
@@ -43,8 +43,8 @@ export async function GET() {
         }
 
         const [aliasResult, dropResult] = await Promise.all([
-            checkApiRateLimit(session.user.id, user),
-            checkDropApiRateLimit(session.user.id, user),
+            readApiRateLimit(session.user.id, user),
+            readDropApiRateLimit(session.user.id, user),
         ])
 
         return NextResponse.json({

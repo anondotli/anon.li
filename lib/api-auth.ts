@@ -1,14 +1,8 @@
 import { auth } from "@/auth"
 import { getAuthApiKeyRecord, getAuthUserState, touchApiKeyLastUsed } from "@/lib/data/auth"
-import { createRateLimitHeaders, type RateLimitResult } from "@/lib/api-rate-limit"
+import { checkApiQuota, createRateLimitHeaders, type ApiQuotaType, type RateLimitResult } from "@/lib/api-rate-limit"
 import { rateLimiters } from "@/lib/rate-limit"
 import { ApiKeyService } from "@/lib/services/api-key"
-import {
-    apiError,
-    apiRateLimitError,
-    withApiHeaders,
-    ErrorCodes,
-} from "@/lib/api-response"
 
 /**
  * SafeUser contains only the fields needed by API consumers.
@@ -39,7 +33,7 @@ interface SessionRateLimitResult {
  * Validate an API key and check rate limits
  * Returns user and rate limit info, or null if invalid
  */
-export async function validateApiKey(req: Request): Promise<ApiKeyValidationResult | null> {
+export async function validateApiKey(req: Request, quotaType?: ApiQuotaType): Promise<ApiKeyValidationResult | null> {
     const authHeader = req.headers.get("authorization")
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
         return null
@@ -70,11 +64,13 @@ export async function validateApiKey(req: Request): Promise<ApiKeyValidationResu
         return null
     }
 
-    // Track last usage (fire-and-forget to avoid latency)
-    touchApiKeyLastUsed(apiKey.id).catch(() => {})
+    const rateLimit: RateLimitResult = quotaType
+        ? await checkApiQuota(apiKey.user.id, apiKey.user, quotaType)
+        : { success: true, limit: -1, remaining: -1, reset: new Date() }
 
-    // Service layer enforces monthly quota — pass-through here to avoid double-counting
-    const rateLimit: RateLimitResult = { success: true, limit: -1, remaining: -1, reset: new Date() }
+    // Track last usage (fire-and-forget to avoid latency) after authentication,
+    // even when the monthly quota rejects the request.
+    touchApiKeyLastUsed(apiKey.id).catch(() => {})
 
     return {
         user: apiKey.user,
@@ -118,9 +114,9 @@ export function hasExplicitApiKey(req: Request): boolean {
  * Validate request from either API key or session
  * Session-based requests have relaxed rate limiting (100/min) since Cloudflare handles DDoS
  */
-export async function validateRequest(req: Request) {
-    // 1. Try API Key (with strict monthly rate limiting)
-    const apiKeyResult = await validateApiKey(req)
+export async function validateRequest(req: Request, quotaType?: ApiQuotaType) {
+    // 1. Try API Key (with strict monthly rate limiting when quotaType is set)
+    const apiKeyResult = await validateApiKey(req, quotaType)
     if (apiKeyResult) {
         return {
             user: apiKeyResult.user,
@@ -172,30 +168,6 @@ export async function validateRequest(req: Request) {
 }
 
 /**
- * Validate API key and check rate limits, returning an error Response or the validated result.
- * Eliminates the repeated 8-line auth boilerplate across API routes.
- */
-export async function requireApiKey(
-    req: Request,
-    requestId: string
-): Promise<{ error: Response } | { result: ApiKeyValidationResult }> {
-    const result = await validateApiKey(req)
-    if (!result) {
-        return { error: apiError("Unauthorized - API key required", ErrorCodes.UNAUTHORIZED, requestId, 401) }
-    }
-    if (!result.rateLimit.success) {
-        return {
-            error: withApiHeaders(
-                apiRateLimitError(requestId, result.rateLimit.reset, true),
-                requestId,
-                createRateLimitHeaders(result.rateLimit)
-            )
-        }
-    }
-    return { result }
-}
-
-/**
  * Create rate limit headers for session-based API responses
  */
 function createSessionRateLimitHeaders(result: SessionRateLimitResult): Headers {
@@ -221,5 +193,3 @@ export async function requireSession(): Promise<{ userId: string } | null> {
 
     return { userId: session.user.id }
 }
-
-

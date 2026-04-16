@@ -13,7 +13,7 @@
 <p align="center">
   <a href="https://www.gnu.org/licenses/agpl-3.0"><img src="https://img.shields.io/badge/License-AGPL_v3-blue.svg" alt="License: AGPL v3" /></a>
   <a href="https://status.anon.li"><img src="https://img.shields.io/badge/uptime-99.9%25-brightgreen.svg" alt="Uptime" /></a>
-  <a href="https://github.com/anondotli/anon.li/stargazers"><img src="https://img.shields.io/github/stars/anondotli/anon.li?style=social" alt="GitHub Stars" /></a>
+  <a href="https://codeberg.org/anonli/anon.li"><img src="https://img.shields.io/badge/source-Codeberg-blue" alt="Source on Codeberg" /></a>
 </p>
 
 ---
@@ -31,11 +31,12 @@ We built anon.li because we were tired of handing our sensitive files and real e
 ## Products
 
 ### Alias - Anonymous Email Forwarding
-Create unique aliases for every service. Reply from your aliases without ever exposing your real identity. Emails pass through our servers in real-time and are **never** stored on disk.
-* Unlimited aliases (Pro)
+Create unique aliases for every service. Reply from your aliases without ever exposing your real identity. Emails pass through our servers for forwarding instead of being stored in a hosted mailbox.
+* 10 random + 1 custom alias on Free; unlimited random + 100 custom aliases on Pro
 * Anonymous replies via SRS
-* Optional PGP encryption
-* Custom domain support
+* Optional PGP encryption per recipient
+* Custom domain support on paid plans
+* Encrypted labels and notes in your vault
 * One-click disable to instantly stop spam
 
 ### Drop - End-to-End Encrypted File Sharing
@@ -43,6 +44,7 @@ Share files securely. Everything is encrypted in your browser using AES-256-GCM.
 * Zero-knowledge architecture
 * Automatic expiration (1–30 days)
 * Download limits and password protection
+* File previews count as downloads because they expose full encrypted file bytes
 * Up to 250GB per transfer (Pro)
 * No account required for the recipient to download
 
@@ -76,11 +78,7 @@ anon.li Drop uploads and downloads blob data directly between the browser and R2
 
 1.  Create an R2 bucket and attach a custom domain (e.g., `r2.anon.li`) via the Cloudflare dashboard.
 2.  Set `R2_PUBLIC_ENDPOINT=https://r2.anon.li` in your `.env`. The app refuses to start without this.
-3.  Configure the bucket's CORS rules to allow direct browser interaction by running our helper script:
-    ```bash
-    bun run scripts/configure-r2-cors.ts
-    ```
-    *(This reads `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, and `R2_BUCKET_NAME` from your environment.)*
+3.  Configure the bucket's CORS rules to allow direct browser interaction.
 
 -----
 
@@ -88,7 +86,7 @@ anon.li Drop uploads and downloads blob data directly between the browser and R2
 
 | Feature | anon.li | SimpleLogin | addy.io | Firefox Relay |
 |---|---|---|---|---|
-| **Email aliases** | 10 (free) / unlimited | Unlimited (paid) | Unlimited (paid) | 5 (free) / unlimited (paid) |
+| **Email aliases** | 10 random + 1 custom (free) / unlimited random + 100 custom (Pro) | Unlimited (paid) | Unlimited (paid) | 5 (free) / unlimited (paid) |
 | **Anonymous replies** | Yes | Yes | Yes | No |
 | **PGP encryption** | Yes | Yes | Yes | No |
 | **Custom domains** | Yes (paid) | Yes (paid) | Yes (paid) | No |
@@ -98,8 +96,8 @@ anon.li Drop uploads and downloads blob data directly between the browser and R2
 | **File expiry controls** | Yes | N/A | N/A | N/A |
 | **Open source** | Yes (AGPL) | Yes (acquired by Proton) | Yes | Partial |
 | **Independent** | Yes | No (Proton) | Yes | No (Mozilla) |
-| **Free tier** | 10 aliases + 5GB drops | 10 aliases | 10 aliases | 5 aliases |
-| **Paid from** | $1.99/mo | $4/mo | $1/mo | $1.99/mo |
+| **Free tier** | 10 random aliases, 1 custom alias, 5GB Drop bandwidth | 10 aliases | 10 aliases | 5 aliases |
+| **Paid from** | Alias $2.49/mo, Drop $2.99/mo, Bundle $3.99/mo | $4/mo | $1/mo | $1.99/mo |
 
 *See our detailed breakdown pages: [vs SimpleLogin](https://anon.li/compare/simplelogin) · [vs Proton](https://anon.li/compare/proton) · [vs WeTransfer](https://anon.li/compare/wetransfer)*
 
@@ -107,14 +105,14 @@ anon.li Drop uploads and downloads blob data directly between the browser and R2
 
 ## Tech Stack
 
-**Next.js 16** (App Router) · **React 19** · **PostgreSQL** + **Prisma** · **Better Auth** (magic links + TOTP 2FA) · **Cloudflare R2** · **Stripe** · **Upstash Redis** · **Resend** · **Tailwind CSS** + **shadcn/ui**
+**Next.js 16** (App Router) · **React 19** · **PostgreSQL** + **Prisma** · **Better Auth** (magic links, email/password, TOTP 2FA) · **Cloudflare R2** · **Stripe** · **Upstash Redis** · **Resend** · **Tailwind CSS** + **shadcn/ui**
 
 ## Links
 
   - **Live site**: [anon.li](https://anon.li)
   - **Security architecture**: [anon.li/security](https://anon.li/security)
   - **API docs**: [anon.li/docs/api](https://anon.li/docs/api)
-  - **Contributing**: [CONTRIBUTING.md](https://www.google.com/search?q=CONTRIBUTING.md)
+  - **Source code**: [codeberg.org/anonli/anon.li](https://codeberg.org/anonli/anon.li)
   - **Report vulnerabilities**: [security@anon.li](mailto:security@anon.li)
 
 -----
@@ -123,4 +121,4 @@ anon.li Drop uploads and downloads blob data directly between the browser and R2
 
 Jurisdiction: Liechtenstein · [Privacy Policy](https://anon.li/privacy) · [Terms](https://anon.li/terms) · [AUP](https://anon.li/docs/legal/aup) · [DMCA](https://anon.li/docs/legal/dmca)
 
-**[GNU Affero General Public License v3.0](https://www.google.com/search?q=LICENSE)** - Copyright © 2026 anon.li.
+**[GNU Affero General Public License v3.0](https://codeberg.org/anonli/anon.li/src/branch/main/LICENSE)** - Copyright © 2026 anon.li.

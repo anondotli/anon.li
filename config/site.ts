@@ -27,7 +27,7 @@ export const siteConfig: Record<ProductContext | "pricing" | "about" | "security
     name: "anon.li",
     shortName: "anon.li",
     productName: null,
-    description: "Protect your identity with anonymous email aliases and end-to-end encrypted file sharing. Forward emails to your real inbox without exposing your personal address. Zero-knowledge, open source security, and privacy-focused.",
+    description: "Protect your identity with private email aliases and end-to-end encrypted file sharing. Sign up free, forward email without exposing your personal address, and share files with client-side encryption.",
     url: "https://anon.li",
     pricingLink: "/pricing",
     ctaLink: "/register",
@@ -38,7 +38,7 @@ export const siteConfig: Record<ProductContext | "pricing" | "about" | "security
       },
       keywords: [
         "email forwarding",
-        "anonymous email",
+        "private email",
         "email alias",
         "privacy",
         "security",
@@ -71,7 +71,7 @@ export const siteConfig: Record<ProductContext | "pricing" | "about" | "security
     ctaLink: "/register",
     metadata: {
       title: "Privacy-First Email Aliases",
-      keywords: ["email alias", "anonymous email", "forwarding", "privacy"],
+      keywords: ["email alias", "private email", "forwarding", "privacy"],
     }
   },
   drop: {
@@ -97,7 +97,7 @@ export const siteConfig: Record<ProductContext | "pricing" | "about" | "security
     ctaLink: "/register",
     metadata: {
       title: "Pricing",
-      description: "Simple, transparent pricing. Free plan available forever. Upgrade for custom domains and unlimited bandwidth.",
+      description: "Simple, transparent pricing. Free plan available forever. Upgrade for custom domains, higher API quotas, and larger encrypted file transfers.",
     }
   },
   about: {

@@ -11,9 +11,13 @@ import * as storage from "@/lib/storage";
 // Mock dependencies
 vi.mock("@/lib/prisma", () => ({
     prisma: {
+        $transaction: vi.fn(),
         $executeRaw: vi.fn().mockResolvedValue(1),
         dropFile: {
             findUnique: vi.fn(),
+            update: vi.fn(),
+        },
+        uploadChunk: {
             update: vi.fn(),
         },
         user: {
@@ -23,6 +27,7 @@ vi.mock("@/lib/prisma", () => ({
             findFirst: vi.fn(),
         },
         drop: {
+            findUnique: vi.fn(),
             update: vi.fn(),
         },
         orphanedFile: {
@@ -32,7 +37,9 @@ vi.mock("@/lib/prisma", () => ({
 }));
 
 vi.mock("@/lib/storage", () => ({
+    abortMultipartUpload: vi.fn(),
     completeMultipartUpload: vi.fn(),
+    getPresignedDownloadUrl: vi.fn(),
     getObjectMetadata: vi.fn(),
     deleteObject: vi.fn(),
     generateStorageKey: vi.fn(),
@@ -121,5 +128,28 @@ describe("DropService.completeFileUpload", () => {
         expect(storage.getObjectMetadata).toHaveBeenCalled();
         expect(storage.deleteObject).toHaveBeenCalledWith("d/fi/file-oversized");
         expect(prisma.dropFile.update).not.toHaveBeenCalled();
+    });
+});
+
+describe("DropService.finishDrop", () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+    });
+
+    it("rejects files that do not belong to the drop before updating chunks", async () => {
+        (prisma.drop.findUnique as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+            id: "drop-123",
+            userId: "user-123",
+            files: [{ id: "owned-file" }],
+        });
+
+        await expect(DropService.finishDrop(
+            "drop-123",
+            [{ fileId: "foreign-file", chunks: [{ chunkIndex: 0, etag: "etag-1" }] }],
+            "user-123"
+        )).rejects.toThrow("File not found");
+
+        expect(prisma.$transaction).not.toHaveBeenCalled();
+        expect(prisma.uploadChunk.update).not.toHaveBeenCalled();
     });
 });

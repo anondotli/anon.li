@@ -29,49 +29,6 @@ vi.mock('@/lib/prisma', () => ({
     },
 }))
 
-// Mock config/plans — must include ALL exports that any transitive dependency needs.
-// subscription.ts imports from @/config/plans, and when tests run in the same bun process,
-// this mock may be used for limits.ts too (which imports ALIAS_LIMITS, STORAGE_LIMITS, etc.)
-vi.mock('@/config/plans', () => {
-    const freePlan = {
-        id: 'bundle_free',
-        name: 'Free',
-        description: 'Free plan',
-        price: { monthly: 0, yearly: 0 },
-        features: [],
-    }
-    const plusPlan = {
-        id: 'bundle_plus',
-        name: 'Plus',
-        description: 'Plus plan',
-        price: { monthly: 4.99, yearly: 47.89 },
-        priceIds: { monthly: 'price_bundle_plus_monthly', yearly: 'price_bundle_plus_yearly' },
-        features: [],
-    }
-    return {
-        BUNDLE_PLANS: { free: freePlan, plus: plusPlan, pro: plusPlan },
-        ALIAS_PLANS: { free: freePlan, plus: plusPlan, pro: plusPlan },
-        DROP_PLANS: { free: freePlan, plus: plusPlan, pro: plusPlan },
-        ALIAS_LIMITS: {
-            free: { random: 10, custom: 1, domains: 0, recipients: 1, apiRequests: 500 },
-            plus: { random: 50, custom: 10, domains: 3, recipients: 5, apiRequests: 10000 },
-            pro: { random: -1, custom: 100, domains: 10, recipients: 10, apiRequests: 100000 },
-        },
-        STORAGE_LIMITS: { guest: 3221225472, free: 5368709120, plus: 53687091200, pro: 268435456000 },
-        DROP_SIZE_LIMITS: { guest: 3221225472, free: 5368709120, plus: 53687091200, pro: 268435456000 },
-        EXPIRY_LIMITS: { free: 7, plus: 30, pro: 365 },
-        DROP_FEATURES: {
-            free: { downloadLimits: false },
-            plus: { downloadLimits: true },
-            pro: { downloadLimits: true },
-        },
-        getPlanFromPriceId: (priceId: string) => {
-            if (priceId === 'price_bundle_plus_monthly') return { product: 'bundle', tier: 'plus' }
-            return null
-        },
-    }
-})
-
 describe('getUserSubscriptionPlan', () => {
     beforeEach(() => {
         vi.clearAllMocks()

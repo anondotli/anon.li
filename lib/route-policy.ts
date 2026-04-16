@@ -4,6 +4,16 @@
  * Replaces ad-hoc auth boilerplate across API routes with a single composable
  * middleware. Each route declares its trust model in one line.
  *
+ * Policy matrix for app/api/v1:
+ * - Alias routes: auth `api_key`, `apiQuota: "alias"`, `checkBan: "alias"` on create.
+ * - Drop routes: auth `api_key_or_session` or `none`, `apiQuota: "drop"` where the route
+ *   consumes drop API quota, `checkBan: "upload"` on create/upload actions.
+ * - Recipient, domain, api-key, me, checkout: no monthly `apiQuota`; use explicit
+ *   per-route limiter keys (`recipientOps`, `domainCreate`, `domainOps`, `apiKey`,
+ *   `emailResend`, `pgpOps`, `api`, `stripeOps`).
+ * - All POST/PATCH/PUT/DELETE handlers declare `requireCsrf: true`; CSRF is enforced
+ *   only for session-authenticated requests and skipped for API-key callers.
+ *
  * Usage:
  *   export const GET = withPolicy({ auth: "api_key_or_session" }, async (ctx) => {
  *       // ctx.userId is guaranteed non-null
@@ -14,7 +24,7 @@
 
 import { auth } from "@/auth"
 import { validateApiKey, hasExplicitApiKey } from "@/lib/api-auth"
-import { createRateLimitHeaders } from "@/lib/api-rate-limit"
+import { createRateLimitHeaders, type ApiQuotaType } from "@/lib/api-rate-limit"
 import { getAuthUserState } from "@/lib/data/auth"
 import { prisma } from "@/lib/prisma"
 import { rateLimiters, rateLimit } from "@/lib/rate-limit"
@@ -47,6 +57,8 @@ interface RoutePolicy {
     rateLimitIdentifier?: string | ((ctx: PolicyContext, routeContext?: unknown) => string | null | Promise<string | null>)
     /** Check ban flags (true = general, "upload" = banFileUpload, "alias" = banAliasCreation) */
     checkBan?: boolean | "upload" | "alias"
+    /** Monthly API quota bucket consumed by API-key requests only */
+    apiQuota?: ApiQuotaType
 }
 
 // ─── Request context passed to handlers ─────────────────────────────────────
@@ -69,7 +81,7 @@ interface PolicyContext {
     rateLimitHeaders: Headers | null
 }
 
-type PolicyHandler<TRouteContext = unknown> = (ctx: PolicyContext, routeContext?: TRouteContext) => Promise<Response>
+type PolicyHandler<TRouteContext = void> = (ctx: PolicyContext, routeContext: TRouteContext) => Promise<Response>
 
 // ─── Main middleware ────────────────────────────────────────────────────────
 
@@ -77,8 +89,10 @@ type PolicyHandler<TRouteContext = unknown> = (ctx: PolicyContext, routeContext?
  * Wrap a route handler with declarative policy enforcement.
  * Returns a standard Next.js route handler function.
  */
-export function withPolicy<TRouteContext = unknown>(policy: RoutePolicy, handler: PolicyHandler<TRouteContext>) {
-    return async (request: Request, routeContext?: TRouteContext): Promise<Response> => {
+export function withPolicy(policy: RoutePolicy, handler: PolicyHandler<void>): (request: Request) => Promise<Response>
+export function withPolicy<TRouteContext>(policy: RoutePolicy, handler: PolicyHandler<TRouteContext>): (request: Request, routeContext: TRouteContext) => Promise<Response>
+export function withPolicy<TRouteContext = void>(policy: RoutePolicy, handler: PolicyHandler<TRouteContext>) {
+    return async (request: Request, routeContext: TRouteContext): Promise<Response> => {
         const requestId = generateRequestId()
         const require2FA = policy.require2FA ?? true
 
@@ -91,7 +105,7 @@ export function withPolicy<TRouteContext = unknown>(policy: RoutePolicy, handler
             // ── Authentication ──────────────────────────────────────────
 
             if (policy.auth === "api_key") {
-                const result = await validateApiKey(request)
+                const result = await validateApiKey(request, policy.apiQuota)
                 if (!result) {
                     return apiError("Unauthorized - API key required", ErrorCodes.UNAUTHORIZED, requestId, 401)
                 }
@@ -125,7 +139,7 @@ export function withPolicy<TRouteContext = unknown>(policy: RoutePolicy, handler
                 user = dbUser
             } else if (policy.auth === "api_key_or_session" || policy.auth === "optional_api_key_or_session") {
                 // Try API key first
-                const apiKeyResult = await validateApiKey(request)
+                const apiKeyResult = await validateApiKey(request, policy.apiQuota)
                 if (apiKeyResult) {
                     if (!apiKeyResult.rateLimit.success) {
                         return withApiHeaders(

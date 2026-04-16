@@ -2,6 +2,74 @@ import { NextResponse, type NextRequest } from "next/server";
 import crypto from "crypto";
 import { getSessionCookie } from "better-auth/cookies";
 import { nanoid } from "nanoid";
+import { shouldEnableAnalytics } from "@/lib/analytics-policy";
+
+const DEFAULT_UMAMI_SCRIPT_URL = "https://cloud.umami.is/script.js"
+const DEFAULT_UMAMI_API_URL = "https://api-gateway.umami.dev/api/send"
+const TURNSTILE_ORIGIN = "https://challenges.cloudflare.com"
+
+function getOrigin(url: string | undefined, fallback: string): string {
+    try {
+        return new URL(url || fallback).origin
+    } catch {
+        return new URL(fallback).origin
+    }
+}
+
+function extractOrigin(url: string | undefined): string | null {
+    if (!url) return null
+
+    try {
+        return new URL(url).origin
+    } catch {
+        return null
+    }
+}
+
+function buildCsp(nonce: string, analyticsEnabled: boolean) {
+    const isDev = process.env.NODE_ENV === "development"
+    const umamiOrigin = getOrigin(process.env.NEXT_PUBLIC_UMAMI_URL, DEFAULT_UMAMI_SCRIPT_URL)
+    const umamiApiOrigin = getOrigin(process.env.NEXT_PUBLIC_UMAMI_API_URL, DEFAULT_UMAMI_API_URL)
+    const turnstileEnabled = Boolean(process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY)
+    const r2PublicOrigin = extractOrigin(process.env.R2_PUBLIC_ENDPOINT)
+    const r2DirectOrigin = extractOrigin(process.env.R2_ENDPOINT)
+
+    const scriptSrc = [
+        "'self'",
+        isDev ? null : `'nonce-${nonce}'`,
+        isDev ? null : "'strict-dynamic'",
+        isDev ? "'unsafe-inline'" : null,
+        isDev ? "'unsafe-eval'" : null,
+        analyticsEnabled ? umamiOrigin : null,
+        turnstileEnabled ? TURNSTILE_ORIGIN : null,
+    ].filter((value): value is string => Boolean(value)).join(" ")
+
+    const connectSrc = [
+        "'self'",
+        analyticsEnabled ? umamiOrigin : null,
+        analyticsEnabled ? umamiApiOrigin : null,
+        r2PublicOrigin,
+        r2DirectOrigin,
+    ].filter((value): value is string => Boolean(value)).join(" ")
+
+    const frameSrc = turnstileEnabled ? TURNSTILE_ORIGIN : "'none'"
+
+    return [
+        "default-src 'self'",
+        `script-src ${scriptSrc}`,
+        "style-src 'self' 'unsafe-inline'",
+        "img-src 'self' data: blob: https://*.googleusercontent.com https://avatars.githubusercontent.com https://www.google.com https://*.gstatic.com",
+        "media-src 'self' blob:",
+        "font-src 'self' data:",
+        `connect-src ${connectSrc}`,
+        `frame-src ${frameSrc}`,
+        "object-src 'none'",
+        "base-uri 'self'",
+        "form-action 'self'",
+        "frame-ancestors 'none'",
+        "upgrade-insecure-requests",
+    ].join("; ")
+}
 
 export default async function proxy(req: NextRequest) {
     const { nextUrl } = req
@@ -14,7 +82,6 @@ export default async function proxy(req: NextRequest) {
         const expectedSecret = process.env.MAIL_API_SECRET
 
         if (!expectedSecret) {
-            console.error("MAIL_API_SECRET not configured")
             return NextResponse.json(
                 { error: "Internal server error" },
                 { status: 500 }
@@ -38,16 +105,27 @@ export default async function proxy(req: NextRequest) {
 
     const needsAuth = pathname.startsWith('/dashboard')
         || pathname.startsWith('/admin')
-        || pathname === '/verify-2fa'
+        || pathname === '/2fa'
 
     if (needsAuth && !getSessionCookie(req)) {
         return NextResponse.redirect(new URL('/login', nextUrl))
     }
 
-    const response = NextResponse.next();
+    const nonce = crypto.randomBytes(16).toString("base64")
+    const analyticsEnabled = shouldEnableAnalytics(pathname)
+    const requestHeaders = new Headers(req.headers)
+    requestHeaders.set("x-nonce", nonce)
+    requestHeaders.set("x-analytics-enabled", analyticsEnabled ? "1" : "0")
+
+    const response = NextResponse.next({
+        request: {
+            headers: requestHeaders,
+        },
+    });
 
     // Attach request ID for downstream logging and client debugging
     response.headers.set("X-Request-Id", requestId)
+    response.headers.set("Content-Security-Policy", buildCsp(nonce, analyticsEnabled))
 
     // CORS for API routes
     if (pathname.startsWith("/api/")) {

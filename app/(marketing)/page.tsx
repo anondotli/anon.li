@@ -2,8 +2,11 @@ import { HeroSection } from "@/components/marketing/hero-section";
 import { ProductsSection } from "@/components/marketing/products-section";
 import { FeaturesSection } from "@/components/marketing/features-section";
 import { HowItWorksSection, CtaSection } from "@/components/marketing/layout-sections";
+import { getCspNonce } from "@/lib/csp";
 
-export default function LandingPage() {
+export default async function LandingPage() {
+    const nonce = await getCspNonce()
+
     return (
         <>
             <HeroSection />
@@ -14,6 +17,8 @@ export default function LandingPage() {
 
             {/* Structured Data */}
             <script
+                nonce={nonce}
+                suppressHydrationWarning
                 type="application/ld+json"
                 dangerouslySetInnerHTML={{
                     __html: JSON.stringify({

@@ -3,7 +3,7 @@ title: "Security"
 summary: "A comprehensive overview of anon.li's security architecture, cryptographic design, and privacy practices."
 ---
 
-anon.li provides two core services: **Alias** (anonymous email forwarding) and **Drop** (end-to-end encrypted file sharing). Drop is zero-knowledge by design. Alias has a different trust model: email content is processed transiently for forwarding to your real inbox, and the delivered copy can be protected with optional PGP. This document details the security architecture behind both products, our trust model, and the privacy guarantees we provide.
+anon.li provides two core services: **Alias** (private email forwarding) and **Drop** (end-to-end encrypted file sharing). Drop is zero-knowledge by design. Alias has a different trust model: email content is processed transiently for forwarding to your real inbox, and the delivered copy can be protected with optional PGP. This document details the security architecture behind both products, our trust model, and the privacy guarantees we provide.
 
 Our full source code is available on [Codeberg](https://codeberg.org/anonli). We use only standard, well-audited cryptographic primitives - no custom cryptography.
 
@@ -35,7 +35,7 @@ Emails are forwarded in real-time through our Haraka mail server. The system doe
 
 ### PGP Encryption
 
-Users can upload an OpenPGP public key in their settings. When enabled, the forwarded copy of each email is encrypted with the user's public key before delivery using [OpenPGP.js](https://openpgpjs.org/). This protects the delivered message in the destination mailbox and limits exposure after forwarding, but standard alias forwarding still requires transient server-side processing of the original message. Public key fingerprints are cached using SHA-256 hashes for efficient lookup.
+Users can upload an OpenPGP public key on a verified recipient. When enabled, the forwarded copy for aliases routed to that recipient is encrypted with the recipient's public key before delivery using [OpenPGP.js](https://openpgpjs.org/). This protects the delivered message in the destination mailbox and limits exposure after forwarding, but standard alias forwarding still requires transient server-side processing of the original message. Public key fingerprints are cached using SHA-256 hashes for efficient lookup.
 
 ### Sender Rewriting Scheme (SRS)
 
@@ -118,9 +118,15 @@ The derived key wraps (encrypts) the file encryption key. The salt and wrapped k
 
 ## Authentication & Access Control
 
-### Passwordless Authentication
+### Magic Links and Password-Protected Vault Access
 
-anon.li uses magic link authentication - there is no password database to breach. Users receive a one-time login link via email, eliminating the risk of credential stuffing, password reuse, and brute-force attacks.
+anon.li supports magic links for verification and recovery, and password-based sign-in for vault-enabled accounts. Credential accounts store password verifier data rather than plaintext passwords, while vault-enabled accounts also maintain salts and a password-wrapped vault key in `user_security`.
+
+Vault passwords never leave the browser. The client derives auth secrets and key-encryption keys with Argon2id, then sends only derived material and wrapped keys to the server. Trusted-browser unlock is implemented as a locally wrapped capsule stored on the device, not as a server-side bypass.
+
+Alias labels and notes are being migrated into this vault-backed model. New metadata writes use `encrypted_label` and `encrypted_note` after a successful unlock, while legacy plaintext metadata can still exist for accounts that have not completed the client-side migration yet.
+
+Password resets revoke active sessions and invalidate saved local browser trust by clearing vault materials and wrapped Drop owner keys. During account deletion, sessions, API keys, credential accounts, 2FA data, and encrypted vault materials are revoked before the retained user row is hard-deleted after the backup window.
 
 ### Two-Factor Authentication (TOTP)
 
@@ -128,7 +134,7 @@ Users can enable TOTP-based 2FA using any standard authenticator app.
 
 - **Secret storage**: TOTP secrets are encrypted at rest using AES-256-GCM via [better-auth](https://www.better-auth.com/)'s `symmetricEncrypt`, keyed by the server-side `AUTH_SECRET`
 - **Backup codes**: 8 codes in `XXXXX-XXXXXXXXXXX` format (16 alphanumeric characters, ~95 bits of entropy), encrypted at rest using AES-256-GCM (same mechanism as TOTP secrets). Backup code verification is handled by better-auth's built-in verification
-- **Enforcement**: 2FA is checked on every authenticated request (both session-based and API). Sessions that require 2FA but haven't completed verification are rejected with 401
+- **Enforcement**: 2FA is checked on authenticated browser-session requests and server actions. API keys are bearer credentials and do not perform an interactive 2FA step per request, so they should be created only from a verified session and revoked immediately if exposed
 
 ### API Keys
 
@@ -136,6 +142,7 @@ Users can enable TOTP-based 2FA using any standard authenticator app.
 - **Storage**: Only the SHA-256 hash of the key is stored in the database - the plaintext key is shown once at creation and never retrievable again
 - **Validation**: If a request includes a `Bearer ak_` header, it is treated as an explicit API key authentication attempt. Invalid API keys return 401 immediately - there is no silent fallback to session authentication. This prevents confused-deputy attacks where an invalid key might accidentally inherit an active browser session
 - **Revocation**: Instant - deleting an API key immediately invalidates all requests using it (no caching layer)
+- **Management**: Creating, listing, and deleting API keys requires an authenticated browser session with 2FA verified when enabled. API keys cannot create or delete other API keys
 
 ### CSRF Protection
 
@@ -147,19 +154,19 @@ All state-mutating requests from browser sessions are validated against Origin a
 
 ### Rate Limiting
 
-All endpoints are protected by sliding-window rate limiting via [Upstash Redis](https://upstash.com/). Limits are tuned per-endpoint based on expected usage patterns. Examples:
+Public API routes and sensitive user actions are protected by sliding-window rate limiting via [Upstash Redis](https://upstash.com/). Limits are tuned per-endpoint based on expected usage patterns. Examples:
 
 | Action | Limit | Window |
 |---|---|---|
 | Login / Register | 10 | 60 seconds |
 | 2FA verification | 10 | 15 minutes |
 | API requests (general) | 100 | 1 minute |
-| File upload (authenticated) | 100 | 1 hour |
-| File upload (guest) | 50 | 1 hour |
-| Drop creation | 20 | 1 hour |
+| File upload (authenticated) | 500 | 1 hour |
+| Drop creation | 60 | 1 hour |
+| Upload abort / cleanup | 300 | 1 hour |
 | Abuse reports | 5 | 1 hour |
 
-Paid plans include monthly API quota limits enforced at the account level.
+Paid plans include monthly API quota limits for API-key-authenticated requests. Dashboard/session actions use separate abuse-prevention limits and do not consume monthly API request quota.
 
 ### IP Handling
 
@@ -167,7 +174,7 @@ Paid plans include monthly API quota limits enforced at the account level.
 
 ### Bot Protection
 
-Unauthenticated actions (registration, abuse reports, guest uploads) are protected by [Cloudflare Turnstile](https://www.cloudflare.com/products/turnstile/) CAPTCHA verification when enabled in production. Turnstile is enforced in the production deployment but is configurable via environment variables for development and self-hosted instances.
+Unauthenticated abuse reports are protected by [Cloudflare Turnstile](https://www.cloudflare.com/products/turnstile/) CAPTCHA verification when enabled in production. Turnstile is enforced in the production deployment but is configurable via environment variables for development and self-hosted instances.
 
 ### Transport Security
 
@@ -187,7 +194,7 @@ All required environment variables (encryption keys, API credentials, secrets) a
 
 ### Reporting System
 
-Anyone can submit an abuse report with Cloudflare Turnstile verification. Reports are deduplicated by IP hash and resource ID within a 24-hour window to prevent spam. Each report receives a tracking token for anonymous status checks - reporters don't need an account to follow up.
+Anyone can submit an abuse report with Cloudflare Turnstile verification. Reports are deduplicated by IP hash and resource ID within a 24-hour window to prevent spam. Each report receives a tracking token for private status checks, so reporters do not need to create an account to follow up.
 
 ### Report Encryption
 
@@ -210,9 +217,9 @@ Reporters receive email notifications when their report is reviewed. Affected us
 | Email content | Designed not to be stored at rest; depends on the separate mail server |
 | Mail server logs | 7 days maximum, auto-purged |
 | Encrypted files | User-configured expiry (1–30 days) or manual deletion |
-| Account data | Aliases, domains, files, drops, API keys, and recipients deleted immediately on account deletion. The user record itself is hard-deleted after 30 days |
+| Account data | Aliases, domains, files, drops, API keys, recipients, sign-in credentials, and vault materials deleted from active systems immediately on account deletion. The user record itself is hard-deleted after 30 days |
 | IP addresses | Never stored in sessions; hashed for abuse reports only; ephemeral in rate-limit cache |
-| Analytics | [Umami](https://umami.is/) - cookie-free, no PII collected |
+| Analytics | [Umami](https://umami.is/) on non-sensitive marketing/product pages only; disabled on Drop upload/download, auth, dashboard, and vault routes; event payloads exclude drop IDs and custom domains |
 
 We do not serve advertising, build user profiles, or sell data to third parties.
 

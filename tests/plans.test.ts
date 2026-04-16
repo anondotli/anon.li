@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest"
+import { describe, expect, it } from "vitest"
 
 import { ALIAS_PLANS, BUNDLE_PLANS, PLAN_ENTITLEMENTS } from "@/config/plans"
 

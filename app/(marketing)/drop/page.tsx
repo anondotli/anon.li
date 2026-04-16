@@ -9,6 +9,7 @@ import { InteractiveDotGrid } from "@/components/marketing/dot-grid"
 import { TrustIndicatorBar } from "@/components/marketing/trust-indicator-bar"
 
 import { siteConfig } from "@/config/site"
+import { getCspNonce } from "@/lib/csp"
 
 export const metadata: Metadata = {
     title: siteConfig.drop.metadata?.title,
@@ -24,6 +25,8 @@ export const metadata: Metadata = {
 }
 
 export default async function DropProductPage() {
+    const nonce = await getCspNonce()
+
     return (
         <>
             <section className="relative w-full py-12 md:py-20 lg:py-24 flex items-center justify-center min-h-[80vh] overflow-hidden">
@@ -181,7 +184,7 @@ export default async function DropProductPage() {
                                 dropbox={false}
                             />
                             <ComparisonRow
-                                feature="No Account Required"
+                                feature="Free Account"
                                 anon={true}
                                 wetransfer={true}
                                 dropbox={false}
@@ -232,7 +235,7 @@ export default async function DropProductPage() {
                                 Ready to share files privately?
                             </h2>
                             <p className="text-lg opacity-90 font-light max-w-2xl mx-auto">
-                                No sign-up required for basic sharing. Get started in seconds.
+                                Sign up for free and start sharing in seconds.
                             </p>
                             <div className="flex flex-col sm:flex-row justify-center pt-4 gap-3">
                                 <Button asChild size="lg" variant="secondary" className="rounded-full px-8 bg-background text-foreground hover:bg-secondary transition-colors border-none font-medium">
@@ -252,6 +255,8 @@ export default async function DropProductPage() {
             </section>
 
             <script
+                nonce={nonce}
+                suppressHydrationWarning
                 type="application/ld+json"
                 dangerouslySetInnerHTML={{
                     __html: JSON.stringify({

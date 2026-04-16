@@ -43,6 +43,52 @@ export async function sendWelcomeEmail(email: string) {
     }
 }
 
+export async function sendAccountVerificationEmail(email: string, url: string) {
+    try {
+        const resend = getResendClient()
+
+        const { data, error } = await resend.emails.send({
+            from: "anon.li <hi@anon.li>",
+            to: email,
+            subject: "Verify your anon.li email address",
+            text: `Verify your email address to finish setting up your anon.li account.\n\n${url}\n\nIf you didn't create this account, you can ignore this email.`,
+        })
+
+        if (error) {
+            logger.error("Failed to send account verification email", error)
+            return { success: false, error }
+        }
+
+        return { success: true, data }
+    } catch (error) {
+        logger.error("Failed to send account verification email", error)
+        return { success: false, error }
+    }
+}
+
+export async function sendPasswordResetEmail(email: string, url: string) {
+    try {
+        const resend = getResendClient()
+
+        const { data, error } = await resend.emails.send({
+            from: "anon.li <hi@anon.li>",
+            to: email,
+            subject: "Reset your anon.li password",
+            text: `Reset your anon.li password using the secure link below:\n\n${url}\n\nIf you didn't request this, you can ignore this email.`,
+        })
+
+        if (error) {
+            logger.error("Failed to send password reset email", error)
+            return { success: false, error }
+        }
+
+        return { success: true, data }
+    } catch (error) {
+        logger.error("Failed to send password reset email", error)
+        return { success: false, error }
+    }
+}
+
 export async function sendSubscriptionCanceledEmail(email: string, expiryDate: Date) {
     try {
         const resend = getResendClient()
@@ -102,9 +148,9 @@ export async function sendDropExpiringEmail(email: string, dropName: string, dro
         const safeName = sanitizeFilename(dropName, 50)
 
         const { data, error } = await resend.emails.send({
-            from: "anon.li <files@anon.li>",
+            from: "anon.li <hi@anon.li>",
             to: email,
-            subject: sanitizeEmailSubject(`Your drop "${safeName}" expires soon`),
+            subject: sanitizeEmailSubject(`Your drop expires soon`),
             react: React.createElement(FileExpiringEmail, { fileName: safeName, fileId: dropId, hoursRemaining }),
         })
 
@@ -127,9 +173,9 @@ export async function sendDownloadLimitReachedEmail(email: string, fileName: str
         const safeName = sanitizeFilename(fileName, 50)
 
         const { data, error } = await resend.emails.send({
-            from: "anon.li <files@anon.li>",
+            from: "anon.li <hi@anon.li>",
             to: email,
-            subject: sanitizeEmailSubject(`Download limit reached for "${safeName}"`),
+            subject: sanitizeEmailSubject(`Download limit reached for a drop`),
             react: React.createElement(DownloadLimitReachedEmail, { fileName: safeName, fileId, downloads }),
         })
 
@@ -227,7 +273,7 @@ interface SendEmailProps {
     from?: string;
 }
 
-export async function sendEmail({ to, subject, react, from = "anon.li <files@anon.li>" }: SendEmailProps) {
+export async function sendEmail({ to, subject, react, from = "anon.li <hi@anon.li>" }: SendEmailProps) {
     try {
         const resend = getResendClient()
 

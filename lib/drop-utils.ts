@@ -1,19 +1,12 @@
 /**
  * Shared utilities for anon.li Drop feature
- * Handles session tokens, expiry calculation, and validation
+ * Handles expiry calculation and validation
  */
 
-import crypto from "crypto";
-import { prisma } from "@/lib/prisma";
 import { getDropLimits } from "@/lib/limits";
 import { getUserById } from "@/lib/data/user";
-import { DROP_SIZE_LIMITS } from "@/config/plans";
 import { formatBytes } from "@/lib/utils";
 import { ValidationError } from "@/lib/api-error-utils";
-
-// Session token configuration
-const SESSION_TOKEN_LENGTH = 32; // 256 bits
-const SESSION_TOKEN_EXPIRY = 4 * 60 * 60 * 1000; // 4 hours
 
 // Input length limits for security
 const INPUT_LIMITS = {
@@ -26,32 +19,10 @@ const INPUT_LIMITS = {
 } as const;
 
 interface UserLimits {
-    userId: string | null;
+    userId: string;
     limits: ReturnType<typeof getDropLimits>;
     storageUsed: bigint;
     user: { stripePriceId: string | null; stripeCurrentPeriodEnd: Date | null } | null;
-}
-
-/**
- * Generate a cryptographically secure session token for anonymous uploads
- * This replaces IP hash storage for better privacy
- */
-export function generateSessionToken(): string {
-    return crypto.randomBytes(SESSION_TOKEN_LENGTH).toString("base64url");
-}
-
-/**
- * Hash a session token for storage (we never store raw tokens)
- */
-function hashSessionToken(token: string): string {
-    return crypto.createHash("sha256").update(token).digest("hex");
-}
-
-/**
- * Get session token expiry timestamp
- */
-function getSessionTokenExpiry(): Date {
-    return new Date(Date.now() + SESSION_TOKEN_EXPIRY);
 }
 
 /**
@@ -96,16 +67,7 @@ export function calculateExpiry(
 /**
  * Get user and their limits, with ban checking
  */
-export async function getUserAndLimits(userId: string | null): Promise<UserLimits> {
-    if (!userId) {
-        return {
-            userId: null,
-            limits: getDropLimits(null),
-            storageUsed: BigInt(0),
-            user: null,
-        };
-    }
-
+export async function getUserAndLimits(userId: string): Promise<UserLimits> {
     const user = await getUserById(userId);
     if (user) {
         if (user.banned || user.banFileUpload) {
@@ -124,7 +86,7 @@ export async function getUserAndLimits(userId: string | null): Promise<UserLimit
     }
 
     return {
-        userId: null,
+        userId,
         limits: getDropLimits(null),
         storageUsed: BigInt(0),
         user: null,
@@ -138,19 +100,16 @@ export function validateFileSize(
     size: number,
     storageUsed: bigint,
     storageLimit: bigint,
-    isGuest: boolean,
     maxFileSizeLimit?: number
 ): void {
-    // Per-file size cap: guest uses guest limit, authenticated uses tier limit
-    const perFileCap = isGuest
-        ? DROP_SIZE_LIMITS.guest
-        : maxFileSizeLimit ?? Math.max(0, Number(storageLimit - storageUsed));
+    // Per-file size cap
+    const perFileCap = maxFileSizeLimit ?? Math.max(0, Number(storageLimit - storageUsed));
 
     if (size > perFileCap) {
         throw new Error(`File size exceeds limit. Max: ${formatBytes(perFileCap)}`);
     }
 
-    if (!isGuest && storageUsed + BigInt(size) > storageLimit) {
+    if (storageUsed + BigInt(size) > storageLimit) {
         throw new Error("Storage limit exceeded. Please upgrade your plan.");
     }
 }
@@ -210,65 +169,4 @@ export function enforceFeatureFlags(
         notifyOnDownload: (requested.notifyOnDownload ?? false) && features.downloadNotifications,
         customKey: (requested.customKey ?? false) && features.customKey,
     };
-}
-
-/**
- * Store a session token for a drop (for anonymous upload verification)
- */
-export async function storeDropSession(
-    dropId: string,
-    sessionToken: string
-): Promise<void> {
-    const tokenHash = hashSessionToken(sessionToken);
-    const expiresAt = getSessionTokenExpiry();
-
-    await prisma.uploadToken.create({
-        data: {
-            dropId,
-            tokenHash,
-            expiresAt,
-        },
-    });
-}
-
-/**
- * Verify a session token for a drop
- */
-export async function verifyDropSession(
-    dropId: string,
-    sessionToken: string
-): Promise<boolean> {
-    const tokenHash = hashSessionToken(sessionToken);
-
-    const session = await prisma.uploadToken.findFirst({
-        where: {
-            dropId,
-            tokenHash,
-            expiresAt: { gt: new Date() },
-        },
-    });
-
-    return !!session;
-}
-
-/**
- * Invalidate all session tokens for a drop (called after completion)
- */
-export async function invalidateDropSessions(dropId: string): Promise<void> {
-    await prisma.uploadToken.deleteMany({
-        where: { dropId },
-    });
-}
-
-/**
- * Clean up expired session tokens
- */
-export async function cleanupExpiredSessions(): Promise<number> {
-    const result = await prisma.uploadToken.deleteMany({
-        where: {
-            expiresAt: { lt: new Date() },
-        },
-    });
-
-    return result.count;
 }

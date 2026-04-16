@@ -44,8 +44,10 @@ export default async function DashboardPage() {
         format: string
         domain: string
         active: boolean
-        label: string | null
-        note: string | null
+        legacyLabel: string | null
+        legacyNote: string | null
+        encryptedLabel: string | null
+        encryptedNote: string | null
         emailsReceived: number
         emailsBlocked: number
         lastEmailAt: Date | null
@@ -87,7 +89,7 @@ export default async function DashboardPage() {
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-border/40 pb-6">
                 <div className="space-y-1">
                     <h2 className="text-3xl font-medium tracking-tight font-serif">Aliases</h2>
-                    <p className="text-muted-foreground font-light">Manage your anonymous email aliases.</p>
+                    <p className="text-muted-foreground font-light">Manage your private email aliases.</p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                     <Button variant="outline" asChild>

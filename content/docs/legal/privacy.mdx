@@ -2,7 +2,7 @@
 title: Privacy Policy
 summary: How we handle and protect your data at anon.li
 description: How we handle and protect your data at anon.li
-lastUpdated: "2026-04-04"
+lastUpdated: "2026-04-15"
 ---
 
 ## 1. Introduction
@@ -17,12 +17,12 @@ We adhere to the principle of data minimization. We only collect the information
 
 ### 2.1. Account Information
 
-- **Email Address**: Required for authentication, sending system notifications (e.g., login links), and as the destination for forwarded emails.
+- **Email Address**: Required for authentication, sending system notifications (e.g., verification, password reset, and magic links), and as the destination for forwarded emails.
 - **Subscription Data**: We process payment information through our third-party provider, Stripe. We do not store full credit card numbers on our servers.
 
 ### 2.2. Service Data (Alias and Drop)
 
-- **Email Aliases**: We store the aliases you create and their associated configurations (destination address, descriptions, custom domains).
+- **Email Aliases**: We store the aliases you create and their associated configurations (destination address, custom domains, and encrypted label/note metadata where configured).
 - **Encrypted Files**: Files uploaded via anon.li Drop are encrypted in your browser before upload using AES-256-GCM. We store only encrypted data and cannot access the unencrypted content of your files.
 
 ### 2.3. Email Traffic Data
@@ -35,9 +35,9 @@ We adhere to the principle of data minimization. We only collect the information
 ### 2.4. Technical Data
 
 - **Cookies**: We use only essential, first-party cookies to manage your authenticated session. We do not use third-party tracking or advertising cookies.
-- **Analytics**: We use Umami, a privacy-respecting, cookie-free analytics platform, to understand aggregate usage patterns. Umami does not collect personal data, use cookies, or track users across sites. No data is shared with third parties.
+- **Analytics**: We use Umami, a privacy-respecting, cookie-free analytics platform, to understand aggregate usage patterns on non-sensitive marketing and product pages. We do not send identifying values such as drop IDs or custom domains, and Umami is not loaded on Drop upload/download pages, auth pages, dashboard pages, or vault routes.
 - **IP Addresses**: We may process IP addresses for security purposes (rate limiting, fraud prevention, DDoS protection) but do not link them to your identity for tracking purposes.
-- **Session Metadata**: Active login sessions may include technical metadata such as approximate IP address and user agent so you can review and manage signed-in devices from your dashboard.
+- **Session Metadata**: Active login sessions include device metadata such as user agent so you can review and manage signed-in devices from your dashboard. We do not store IP addresses in session records.
 
 ## 3. How We Use Your Information
 
@@ -65,7 +65,7 @@ We share data only with trusted partners necessary for operation. All partners a
 
 ## 5. Data Retention
 
-- **Account Data**: Retained as long as your account is active. Upon account deletion, your data is permanently removed from our active databases within 30 days.
+- **Account Data**: Retained as long as your account is active. Upon account deletion, aliases, domains, files, drops, API keys, credentials, and vault materials are removed from active systems immediately; any saved local browser trust becomes unusable, and the retained user record and rolling backups are permanently removed within 30 days.
 - **Metadata Logs**: Automatically deleted after 7 days.
 - **Encrypted Files**: Deleted according to your configured expiration settings, or immediately upon manual deletion.
 - **Subscription Records**: Retained as required for tax and legal compliance (typically 7 years for financial records).
@@ -92,7 +92,7 @@ We implement robust security measures to protect your data:
 - **Encryption in Transit**: Connections to the service use TLS.
 - **Encrypted Sensitive Fields**: Security-sensitive application data such as TOTP secrets, backup codes, DKIM private keys, and abuse-report decryption keys are encrypted at rest by the application. Full database-at-rest guarantees also depend on the underlying infrastructure and storage providers.
 - **Zero-Knowledge Architecture**: For file sharing, encryption keys are generated in your browser and never transmitted to our servers.
-- **No Password Storage**: We use passwordless authentication via magic links.
+- **No Plaintext Password Storage**: anon.li supports magic-link verification and recovery, plus password-based sign-in for vault-enabled accounts. Passwords are stored only as verifier data, never in plaintext.
 - **Two-Factor Authentication**: Optional TOTP-based 2FA for additional account security.
 - **Open Source Transparency**: The public source repositories help users and researchers verify product behavior, but the deployed service still depends on infrastructure and operational controls outside the published code.
 

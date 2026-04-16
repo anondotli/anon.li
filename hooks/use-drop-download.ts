@@ -5,6 +5,14 @@ import { zipSync } from "fflate";
 import { MAX_ZIP_SIZE, MIN_CHUNK_SIZE, AUTH_TAG_SIZE } from "@/lib/constants";
 import { normalizeDropKeyInput } from "@/lib/drop-link";
 
+interface SaveFilePickerWindow extends Window {
+    showSaveFilePicker?: (options?: {
+        suggestedName?: string
+    }) => Promise<{
+        createWritable: () => Promise<WritableStream<Uint8Array>>
+    }>
+}
+
 /**
  * Sanitize filename to prevent path traversal and invalid characters
  */
@@ -258,10 +266,10 @@ export function useDropDownload({
             const decryptionStream = cryptoService.createDecryptionStream(key, iv, chunkSize);
             const decryptedStream = response.body.pipeThrough(decryptionStream);
 
-            if ('showSaveFilePicker' in window) {
+            const saveFilePicker = (window as SaveFilePickerWindow).showSaveFilePicker;
+            if (saveFilePicker) {
                 try {
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    const handle = await (window as any).showSaveFilePicker({
+                    const handle = await saveFilePicker({
                         suggestedName: file.decryptedName,
                     });
                     const writable = await handle.createWritable();
@@ -367,8 +375,7 @@ export function useDropDownload({
                 const downloadUrl = downloadUrls[file.id];
 
                 if (!downloadUrl) {
-                    console.error(`Missing download URL for file ${file.id}`);
-                    continue;
+                    throw new Error(`Missing download URL for ${file.decryptedName}`);
                 }
 
                 setCurrentFile(`Downloading ${file.decryptedName}...`);

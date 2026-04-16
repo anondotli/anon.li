@@ -10,6 +10,7 @@ import { InteractiveDotGrid } from "@/components/marketing/dot-grid"
 import { TrustIndicatorBar } from "@/components/marketing/trust-indicator-bar"
 
 import { siteConfig } from "@/config/site"
+import { getCspNonce } from "@/lib/csp"
 
 export const metadata: Metadata = {
     title: siteConfig.alias.metadata?.title,
@@ -26,6 +27,7 @@ export const metadata: Metadata = {
 
 export default async function AliasLandingPage() {
     const session = await auth()
+    const nonce = await getCspNonce()
 
     return (
         <>
@@ -53,7 +55,7 @@ export default async function AliasLandingPage() {
                                 <span className="italic text-muted-foreground">Protected Forever.</span>
                             </h1>
                             <p className="mx-auto max-w-2xl text-muted-foreground md:text-lg lg:text-xl leading-relaxed font-light animate-in fade-in slide-in-from-bottom-6 duration-1000 fill-mode-both delay-200">
-                                Create anonymous email aliases, forward to your real inbox, and reply safely without exposure.
+                                Create private email aliases, forward to your real inbox, and reply safely without exposing your real address.
                             </p>
                         </div>
 
@@ -85,8 +87,8 @@ export default async function AliasLandingPage() {
                     <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-3 max-w-6xl mx-auto">
                         <FeatureCard
                             icon={<Mail className="h-6 w-6" />}
-                            title="Anonymous Aliases"
-                            description="Generate a new identity for every site. Keep your real email private & secure from hackers & big data."
+                            title="Private Aliases"
+                            description="Generate a new address for every site. Keep your real email private and harder to correlate across services."
                         />
                         <FeatureCard
                             icon={<MessageSquareReply className="h-6 w-6" />}
@@ -96,7 +98,7 @@ export default async function AliasLandingPage() {
                         <FeatureCard
                             icon={<Key className="h-6 w-6" />}
                             title="PGP Encryption"
-                            description="Add a PGP key and we&apos;ll encrypt the forwarded copy before it reaches your inbox. Standard forwarding still requires transient server-side processing."
+                            description="Add a PGP key to a verified recipient and we&apos;ll encrypt forwarded copies before delivery. Standard forwarding still requires transient server-side processing."
                         />
                         <FeatureCard
                             icon={<Globe className="h-6 w-6" />}
@@ -146,7 +148,7 @@ export default async function AliasLandingPage() {
                             number="3"
                             icon={<Lock className="h-6 w-6" />}
                             title="Stay Private"
-                            description="We forward emails to your real inbox. Reply directly from your alias to stay hidden."
+                            description="We forward emails to your real inbox. Reply directly from your alias while keeping your real address hidden."
                         />
                     </div>
                 </div>
@@ -178,7 +180,7 @@ export default async function AliasLandingPage() {
   -H "Authorization: Bearer API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
-    "description": "Newsletter signup",
+    "format": "random_characters",
     "domain": "anon.li"
   }'`}
                             </pre>
@@ -216,6 +218,8 @@ export default async function AliasLandingPage() {
             </section>
 
             <script
+                nonce={nonce}
+                suppressHydrationWarning
                 type="application/ld+json"
                 dangerouslySetInnerHTML={{
                     __html: JSON.stringify({
@@ -229,7 +233,7 @@ export default async function AliasLandingPage() {
                             "price": "0",
                             "priceCurrency": "USD"
                         },
-                        "description": "Protect your identity with anonymous email aliases."
+                        "description": "Protect your identity with private email aliases."
                     })
                 }}
             />

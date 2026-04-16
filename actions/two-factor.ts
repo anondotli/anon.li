@@ -193,11 +193,16 @@ export async function regenerateBackupCodes(code: string): Promise<BackupCodesRe
 }
 
 /**
- * Server-side pre-check for 2FA login verification.
- * Validates session, rate limits, and code format before the client
- * calls better-auth's verify endpoint directly (so Set-Cookie headers work).
+ * Verifies a TOTP or backup code server-side and, on success, marks the current
+ * session as 2FA-verified.
+ *
+ * better-auth's verify-totp endpoint validates the code but does NOT update
+ * twoFactorVerified on existing sessions (its hook only covers email/password
+ * sign-in, not magic link or OAuth). This action both verifies the code and
+ * flips the flag in a single server-trusted operation, so callers cannot skip
+ * the verification step by invoking a separate "finalize" endpoint.
  */
-export async function checkTwoFactorRateLimit(
+export async function verifyTwoFactorLogin(
     code: string,
     mode: "totp" | "backup"
 ): Promise<TwoFactorActionResult> {
@@ -206,41 +211,36 @@ export async function checkTwoFactorRateLimit(
     if (!result?.session || !result?.user) return { error: "Not authenticated" }
     if (!result.user.twoFactorEnabled) return { error: "2FA is not enabled" }
 
-    // Rate limit verification attempts
     const rateLimited = await rateLimit("twoFactorVerify", result.user.id)
     if (rateLimited) {
         return { error: "Too many verification attempts. Please wait 15 minutes and try again." }
     }
 
-    // Sanitize and validate code format (reject bad formats before hitting the API)
-    if (mode === "totp") {
-        const sanitized = code.replace(/\s/g, "").slice(0, 6)
-        if (!/^\d{6}$/.test(sanitized)) {
-            return { error: "Invalid code format. Enter 6 digits." }
+    const sanitized = code.replace(/\s/g, "")
+
+    try {
+        if (mode === "totp") {
+            const totpCode = sanitized.slice(0, 6)
+            if (!/^\d{6}$/.test(totpCode)) {
+                return { error: "Invalid code format. Enter 6 digits." }
+            }
+            await betterAuth.api.verifyTOTP({
+                body: { code: totpCode },
+                headers: reqHeaders,
+            })
+        } else {
+            const backupCode = sanitized.slice(0, 17)
+            if (!/^[A-Za-z0-9]{5}-[A-Za-z0-9]{11}$/.test(backupCode)) {
+                return { error: "Invalid backup code format." }
+            }
+            await betterAuth.api.verifyBackupCode({
+                body: { code: backupCode },
+                headers: reqHeaders,
+            })
         }
-    } else {
-        const sanitized = code.replace(/\s/g, "").slice(0, 17)
-        if (!/^[A-Za-z0-9]{5}-[A-Za-z0-9]{11}$/.test(sanitized)) {
-            return { error: "Invalid backup code format." }
-        }
+    } catch (error: unknown) {
+        return { error: mapApiError(error) }
     }
-
-    return { success: true }
-}
-
-/**
- * Marks the current session as 2FA-verified in the DB so subsequent
- * auth checks see the updated value.
- *
- * Called AFTER the client-side authClient.twoFactor.verifyTotp() succeeds.
- * better-auth's verify-totp endpoint validates the code but does NOT update
- * twoFactorVerified on existing sessions (its hook only covers email/password
- * sign-in, not magic link or OAuth).
- */
-export async function finalizeTwoFactorVerification(): Promise<TwoFactorActionResult> {
-    const reqHeaders = await headers()
-    const result = await betterAuth.api.getSession({ headers: reqHeaders })
-    if (!result?.session || !result?.user) return { error: "Not authenticated" }
 
     await prisma.session.update({
         where: { id: result.session.id },

@@ -1,5 +1,6 @@
 import { cache } from "react"
 import { auth } from "@/lib/auth"
+import { getAuthUserState } from "@/lib/data/auth"
 import { headers } from "next/headers"
 
 interface AppSession {
@@ -23,13 +24,16 @@ async function getSessionInternal(): Promise<AppSession | null> {
 
     const result = await auth.api.getSession({ headers: h })
     if (!result?.user) return null
+    const authUser = await getAuthUserState(result.user.id)
+    if (!authUser) return null
+
     return {
         user: {
             id: result.user.id,
             name: result.user.name,
             email: result.user.email,
             image: result.user.image,
-            isAdmin: result.user.isAdmin ?? false,
+            isAdmin: authUser.isAdmin,
             twoFactorEnabled: result.user.twoFactorEnabled ?? false,
         },
         twoFactorVerified: result.session.twoFactorVerified ?? false,

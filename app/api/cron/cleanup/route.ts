@@ -7,6 +7,13 @@ import { withCronLock } from "@/lib/cron-lock";
 
 const logger = createLogger("CronCleanup");
 
+async function cleanupExpiredSessions(): Promise<number> {
+    const result = await prisma.session.deleteMany({
+        where: { expiresAt: { lt: new Date() } },
+    });
+    return result.count;
+}
+
 async function handleCron(req: NextRequest) {
     if (!validateCronAuth(req, "cleanup")) {
         return new NextResponse('Unauthorized', { status: 401 });
@@ -27,7 +34,6 @@ async function runCleanup(): Promise<NextResponse> {
         const now = new Date();
 
         const { DropCleanupService } = await import("@/lib/services/drop-cleanup");
-        const { cleanupExpiredSessions } = await import("@/lib/drop-utils");
 
         const emptyResult = { found: 0, deleted: 0, errors: [] as string[] };
         const taskErrors: string[] = [];

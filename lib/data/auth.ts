@@ -18,7 +18,7 @@ interface AuthApiKeyRecord {
 }
 
 export async function getAuthUserState(userId: string): Promise<AuthUserState | null> {
-    return await prisma.user.findUnique({
+    const user = await prisma.user.findUnique({
         where: { id: userId },
         select: {
             id: true,
@@ -27,12 +27,22 @@ export async function getAuthUserState(userId: string): Promise<AuthUserState | 
             stripeSubscriptionId: true,
             stripePriceId: true,
             stripeCurrentPeriodEnd: true,
+            deletionRequest: {
+                select: { id: true },
+            },
         },
     })
+
+    if (!user || user.deletionRequest) {
+        return null
+    }
+
+    const { deletionRequest: _deletionRequest, ...authUser } = user
+    return authUser
 }
 
 export async function getAuthApiKeyRecord(keyHash: string): Promise<(AuthApiKeyRecord & { expiresAt: Date | null }) | null> {
-    return await prisma.apiKey.findUnique({
+    const apiKey = await prisma.apiKey.findUnique({
         where: { keyHash },
         select: {
             id: true,
@@ -44,10 +54,23 @@ export async function getAuthApiKeyRecord(keyHash: string): Promise<(AuthApiKeyR
                     stripeSubscriptionId: true,
                     stripePriceId: true,
                     stripeCurrentPeriodEnd: true,
+                    deletionRequest: {
+                        select: { id: true },
+                    },
                 },
             },
         },
     })
+
+    if (!apiKey || apiKey.user.deletionRequest) {
+        return null
+    }
+
+    const { deletionRequest: _deletionRequest, ...user } = apiKey.user
+    return {
+        ...apiKey,
+        user,
+    }
 }
 
 export async function touchApiKeyLastUsed(apiKeyId: string): Promise<void> {

@@ -27,10 +27,6 @@ export const docsConfig: DocsConfig = {
                     href: "/docs/extension",
                 },
                 {
-                    title: "MCP Server",
-                    href: "/docs/mcp",
-                },
-                {
                     title: "Security",
                     href: "/docs/security",
                 },

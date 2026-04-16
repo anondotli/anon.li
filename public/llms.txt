@@ -1,15 +1,15 @@
 # anon.li
 
-> Privacy-first platform providing anonymous email aliases and end-to-end encrypted file sharing.
+> Privacy-first platform providing private email aliases and end-to-end encrypted file sharing.
 
 ## About
 
 anon.li is a privacy-focused platform with two core products:
 
-- **Alias**: Anonymous email forwarding. Create disposable email aliases that forward to your real inbox without exposing your personal address. Supports custom domains, PGP encryption, and reply-via-alias.
-- **Drop**: End-to-end encrypted file sharing. Upload files encrypted in your browser with AES-256-GCM. Zero-knowledge architecture — the server never sees your encryption keys.
+- **Alias**: Private email forwarding. Create disposable email aliases that forward to your real inbox without exposing your personal address. Supports custom domains, PGP encryption, and reply-via-alias.
+- **Drop**: End-to-end encrypted file sharing. Upload files encrypted in your browser with AES-256-GCM. Zero-knowledge architecture — the server never sees your encryption keys. Public previews count as downloads because they expose the full encrypted file bytes.
 
-All services are open source and designed with a zero-trust security model.
+All services are open source and designed with a zero-trust security model. API keys are managed from an authenticated dashboard session; API-key requests count against monthly API quotas.
 
 ## Key Pages
 
@@ -37,7 +37,6 @@ All services are open source and designed with a zero-trust security model.
 - [CLI: Domain Commands](https://anon.li/docs/cli/domain)
 - [CLI: Recipient Commands](https://anon.li/docs/cli/recipient)
 - [Browser Extension](https://anon.li/docs/extension)
-- [MCP Integration](https://anon.li/docs/mcp)
 - [Security Architecture](https://anon.li/docs/security)
 
 ## Legal

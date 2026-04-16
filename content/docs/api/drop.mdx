@@ -8,11 +8,14 @@ The Drop API enables secure file sharing through a developer-friendly REST inter
 
 ## Authentication
 
-The Drop API supports three authentication modes depending on the endpoint and use case:
+The Drop API supports two authentication modes depending on the endpoint and use case:
 
 1. **API Key** (recommended for programmatic use) - pass `Authorization: Bearer ak_your_api_key_here`. Generate keys in your [Dashboard](/dashboard/api-keys).
 2. **Browser session** - automatic via logged-in session cookie. 2FA must be verified if enabled on the account.
-3. **Anonymous / Guest** - creating a drop (`POST /drop`) and uploading files does not require authentication. A Turnstile CAPTCHA token is required for guest uploads. Downloading a drop's files is always public for anyone with the drop ID.
+
+Downloading a drop's files is public for anyone with the drop ID and the required decryption material.
+
+API-key requests count against your monthly Drop API quota. Browser-session dashboard requests use separate abuse-prevention limits and do not consume monthly API quota.
 
 ```bash
 # API Key authentication
@@ -91,10 +94,15 @@ curl https://anon.li/api/v1/drop \
       "totalSize": "1048576"
     }
   ],
-  "total": 1,
-  "storage": {
-    "used": "5242880",
-    "limit": "1073741824"
+  "meta": {
+    "request_id": "req_1234567890abcdef",
+    "total": 1,
+    "limit": 50,
+    "offset": 0,
+    "storage": {
+      "used": "5242880",
+      "limit": "5368709120"
+    }
   }
 }
 ```
@@ -120,6 +128,7 @@ Create a new drop container for uploading encrypted files.
 | `fileCount` | number | Yes | Number of files to upload |
 | `expiry` | number | No | Days until expiration |
 | `maxDownloads` | number | No | Max download count |
+| `ownerKey` | object | No | Wrapped owner key metadata for dashboard key recovery. Include `wrappedKey`, `vaultId`, and `vaultGeneration` from the caller's current vault. |
 
 **Example Request**
 
@@ -131,7 +140,12 @@ curl -X POST https://anon.li/api/v1/drop \
     "iv": "base64_iv_here",
     "fileCount": 1,
     "expiry": 7,
-    "maxDownloads": 10
+    "maxDownloads": 10,
+    "ownerKey": {
+      "wrappedKey": "vault_wrapped_owner_key",
+      "vaultId": "vault_id_from_unlock_materials",
+      "vaultGeneration": 1
+    }
   }'
 ```
 
@@ -141,8 +155,8 @@ curl -X POST https://anon.li/api/v1/drop \
 {
   "data": {
     "drop_id": "abc123xyz",
-    "session_token": null,
-    "expires_at": "2026-01-15T00:00:00.000Z"
+    "expires_at": "2026-01-15T00:00:00.000Z",
+    "owner_key_stored": true
   },
   "meta": {
     "request_id": "req_1234567890abcdef"
@@ -178,10 +192,10 @@ Add an encrypted file to an existing drop.
 {
   "fileId": "file123",
   "s3UploadId": "upload-id",
-  "uploadUrls": [
-    "https://presigned-url-for-chunk-1...",
-    "https://presigned-url-for-chunk-2..."
-  ]
+  "uploadUrls": {
+    "1": "https://presigned-url-for-chunk-1...",
+    "2": "https://presigned-url-for-chunk-2..."
+  }
 }
 ```
 
@@ -260,6 +274,8 @@ No authentication or request body is required.
 
 The `downloadUrls` object maps each file ID to a presigned URL. These URLs are temporary and should be used immediately to fetch the encrypted file data.
 
+File previews use the same full-file encrypted bytes as downloads. Preview requests therefore count against the drop's download limit.
+
 ---
 
 ### Delete Drop
@@ -317,7 +333,7 @@ const encryptedName = Buffer.concat([
 ]).toString('base64url');
 
 // 4. Create drop
-const drop = await fetch('https://anon.li/api/v1/drop', {
+const createResponse = await fetch('https://anon.li/api/v1/drop', {
   method: 'POST',
   headers: {
     'Authorization': 'Bearer ak_...',
@@ -329,9 +345,10 @@ const drop = await fetch('https://anon.li/api/v1/drop', {
     expiry: 7
   })
 }).then(r => r.json());
+const drop = createResponse.data;
 
 // 5. Add file and get presigned upload URLs
-const file = await fetch(`https://anon.li/api/v1/drop/${drop.dropId}/file`, {
+const file = await fetch(`https://anon.li/api/v1/drop/${drop.drop_id}/file`, {
   method: 'POST',
   headers: {
     'Authorization': 'Bearer ak_...',
@@ -348,19 +365,30 @@ const file = await fetch(`https://anon.li/api/v1/drop/${drop.dropId}/file`, {
 }).then(r => r.json());
 
 // 6. Upload encrypted data to presigned URL
-await fetch(file.uploadUrls[0], {
+const uploadResponse = await fetch(file.uploadUrls[1], {
   method: 'PUT',
   body: encryptedData
 });
+const etag = uploadResponse.headers.get('ETag');
+if (!etag) throw new Error('Storage did not return an ETag');
 
-// 7. Complete the drop (marks it ready for download)
-await fetch(`https://anon.li/api/v1/drop/${drop.dropId}?action=complete`, {
+// 7. Finish the upload by recording chunk ETags and marking the drop ready
+await fetch(`https://anon.li/api/v1/drop/${drop.drop_id}?action=finish`, {
   method: 'PATCH',
-  headers: { 'Authorization': 'Bearer ak_...' }
+  headers: {
+    'Authorization': 'Bearer ak_...',
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    files: [{
+      fileId: file.fileId,
+      chunks: [{ chunkIndex: 0, etag }]
+    }]
+  })
 });
 
 // 8. Build share URL with key in fragment
-const shareUrl = `https://anon.li/d/${drop.dropId}#${key.toString('base64url')}`;
+const shareUrl = `https://anon.li/d/${drop.drop_id}#${key.toString('base64url')}`;
 console.log('Share URL:', shareUrl);
 ```
 
@@ -591,9 +619,12 @@ const metadata = JSON.parse(metadataJson);
 
 | Operation | Limit |
 | :--- | :--- |
-| Drop creation | 30 requests/hour |
+| Drop creation | 60 requests/hour |
 | Drop list | 60 requests/minute |
-| Drop delete | 60 requests/hour |
+| Drop operations | 100 requests/hour |
+| Upload abort / cleanup | 300 requests/hour |
+
+Monthly Drop API quotas for API-key requests are 500 on Free, 25,000 on Plus, and 100,000 on Pro.
 
 ## Plan Limits
 

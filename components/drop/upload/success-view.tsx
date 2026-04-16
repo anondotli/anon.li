@@ -7,7 +7,6 @@ import { Input } from "@/components/ui/input";
 import { formatBytes } from "@/lib/utils";
 import { generateMailtoLink, type DropShareOptions } from "@/lib/types/drop-types";
 import { toast } from "sonner";
-import { dropKeyRetentionDays, getDropKeyStoragePreferences } from "@/lib/upload-resume.client";
 import { analytics } from "@/lib/analytics";
 
 interface SuccessViewProps {
@@ -24,9 +23,6 @@ export function SuccessView({
   shareUrl, password, fileCount, totalSize, expiresAt, maxDownloads, onReset
 }: SuccessViewProps) {
   const [copied, setCopied] = useState(false);
-  const rememberKeys = typeof window === "undefined"
-    ? true
-    : getDropKeyStoragePreferences().rememberDropKeys;
 
   const copyLink = async () => {
     await navigator.clipboard.writeText(shareUrl);
@@ -116,14 +112,6 @@ export function SuccessView({
         </div>
       )}
 
-      <div className="rounded-xl border border-border/50 bg-secondary/30 p-4">
-        <p className="text-sm text-muted-foreground leading-relaxed">
-          {rememberKeys
-            ? `This browser is set to remember new drop keys for ${dropKeyRetentionDays} days so your dashboard can rebuild the full share link later.`
-            : "This browser is not remembering new drop keys, so keep the full share link somewhere safe."}
-        </p>
-      </div>
-
       {/* What recipient will see */}
       <details className="group">
         <summary className="text-sm text-muted-foreground cursor-pointer hover:text-foreground transition-colors list-none flex items-center gap-1">
@@ -139,7 +127,7 @@ export function SuccessView({
             {maxDownloads && <li>Remaining downloads out of {maxDownloads}</li>}
           </ul>
           <p className="text-xs text-muted-foreground/70 mt-2">
-            Files are decrypted in the recipient&apos;s browser. anon.li never sees the content.
+            Files are decrypted in the recipient&apos;s browser. We never see the content.
           </p>
         </div>
       </details>

@@ -22,7 +22,6 @@ import { getUserById } from "@/lib/data/user"
 import { sendRecipientVerificationEmail } from "@/lib/resend"
 import { createLogger } from "@/lib/logger"
 import { NotFoundError, ValidationError, ConflictError } from "@/lib/api-error-utils"
-import { enforceMonthlyQuota } from "@/lib/api-rate-limit"
 
 const logger = createLogger("RecipientService")
 
@@ -91,8 +90,6 @@ export class RecipientService {
             throw new NotFoundError("User not found")
         }
 
-        await enforceMonthlyQuota(userId, "alias", user)
-
         // Generate verification token before the transaction
         const verificationToken = randomBytes(32).toString("hex")
         const verificationExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000) // 24 hours
@@ -147,9 +144,6 @@ export class RecipientService {
         if (recipient.verified) {
             throw new ValidationError("Recipient is already verified")
         }
-
-        const user = await getUserById(userId)
-        if (user) await enforceMonthlyQuota(userId, "alias", user)
 
         // Generate new verification token
         const verificationToken = randomBytes(32).toString("hex")
@@ -207,9 +201,6 @@ export class RecipientService {
             throw new ValidationError(`Cannot delete recipient with ${recipient._count.aliases} active alias(es). Remove or reassign them first.`)
         }
 
-        const user = await getUserById(userId)
-        if (user) await enforceMonthlyQuota(userId, "alias", user)
-
         return await deleteRecipientById(recipientId, userId)
     }
 
@@ -226,9 +217,6 @@ export class RecipientService {
             throw new ValidationError("Cannot set an unverified recipient as default")
         }
 
-        const user = await getUserById(userId)
-        if (user) await enforceMonthlyQuota(userId, "alias", user)
-
         return await setDefaultRecipient(userId, recipientId)
     }
 
@@ -240,9 +228,6 @@ export class RecipientService {
         if (!recipient || recipient.userId !== userId) {
             throw new NotFoundError("Recipient not found")
         }
-
-        const user = await getUserById(userId)
-        if (user) await enforceMonthlyQuota(userId, "alias", user)
 
         // Validate PGP key
         const result = pgpKeySchema.safeParse({ publicKey, name })
@@ -284,9 +269,6 @@ export class RecipientService {
         if (!recipient || recipient.userId !== userId) {
             throw new NotFoundError("Recipient not found")
         }
-
-        const user = await getUserById(userId)
-        if (user) await enforceMonthlyQuota(userId, "alias", user)
 
         await updateRecipientPgpKey(recipientId, userId, {
             pgpPublicKey: null,
