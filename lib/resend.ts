@@ -69,12 +69,14 @@ export async function sendAccountVerificationEmail(email: string, url: string) {
 export async function sendPasswordResetEmail(email: string, url: string) {
     try {
         const resend = getResendClient()
+        const { PasswordResetEmail } = await import("@/components/email/password-reset")
 
         const { data, error } = await resend.emails.send({
             from: "anon.li <hi@anon.li>",
             to: email,
             subject: "Reset your anon.li password",
-            text: `Reset your anon.li password using the secure link below:\n\n${url}\n\nIf you didn't request this, you can ignore this email.`,
+            text: `Reset your anon.li password using the secure link below:\n\n${url}\n\nResetting your password makes previously encrypted vault data permanently inaccessible. After signing back in, you will need to create a new vault.\n\nIf you didn't request this, you can ignore this email.`,
+            react: React.createElement(PasswordResetEmail, { url }),
         })
 
         if (error) {
@@ -100,7 +102,7 @@ export async function sendSubscriptionCanceledEmail(email: string, expiryDate: D
         })
 
         const { data, error } = await resend.emails.send({
-            from: "anon.li <billing@anon.li>",
+            from: "anon.li <hi@anon.li>",
             to: email,
             subject: "Your anon.li subscription has ended",
             react: React.createElement(SubscriptionCanceledEmail, { expiryDate: formattedDate }),
@@ -198,7 +200,7 @@ export async function sendDomainDeletedEmail(email: string, domain: string) {
         const safeDomain = sanitizeDomain(domain)
 
         const { data, error } = await resend.emails.send({
-            from: "anon.li <domains@anon.li>",
+            from: "anon.li <hi@anon.li>",
             to: email,
             subject: sanitizeEmailSubject(`Domain "${safeDomain}" has been deleted`),
             react: React.createElement(DomainDeletedEmail, { domain: safeDomain }),
@@ -223,7 +225,7 @@ export async function sendDomainUnverifiedEmail(email: string, domain: string) {
         const safeDomain = sanitizeDomain(domain)
 
         const { data, error } = await resend.emails.send({
-            from: "anon.li <domains@anon.li>",
+            from: "anon.li <hi@anon.li>",
             to: email,
             subject: sanitizeEmailSubject(`Action Required: Verification lost for "${safeDomain}"`),
             react: React.createElement(DomainUnverifiedEmail, { domain: safeDomain }),
@@ -333,7 +335,7 @@ export async function sendDowngradeWarningEmail(
         const formatDate = (d: Date) => d.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })
 
         const { data, error } = await resend.emails.send({
-            from: "anon.li <billing@anon.li>",
+            from: "anon.li <hi@anon.li>",
             to: email,
             subject: "Your anon.li account has been downgraded",
             react: React.createElement(DowngradeWarningEmail, {
@@ -369,7 +371,7 @@ export async function sendResourcesScheduledForRemovalEmail(
         const formattedDate = deletionDate.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })
 
         const { data, error } = await resend.emails.send({
-            from: "anon.li <billing@anon.li>",
+            from: "anon.li <hi@anon.li>",
             to: email,
             subject: "anon.li: Resources scheduled for removal",
             react: React.createElement(ResourcesScheduledRemovalEmail, {
@@ -401,7 +403,7 @@ export async function sendResourcesDeletedEmail(
         const { ResourcesDeletedEmail } = await import("@/components/email/resources-deleted")
 
         const { data, error } = await resend.emails.send({
-            from: "anon.li <billing@anon.li>",
+            from: "anon.li <hi@anon.li>",
             to: email,
             subject: "anon.li: Resources have been removed",
             react: React.createElement(ResourcesDeletedEmail, {
@@ -438,7 +440,7 @@ export async function sendCryptoPaymentConfirmationEmail(
         })
 
         const { data, error } = await resend.emails.send({
-            from: "anon.li <billing@anon.li>",
+            from: "anon.li <hi@anon.li>",
             to: email,
             subject: "Your anon.li crypto payment has been confirmed",
             react: React.createElement(CryptoPaymentConfirmationEmail, {
@@ -469,7 +471,7 @@ export async function sendCryptoRenewalReminderEmail(
         const { CryptoRenewalReminderEmail } = await import("@/components/email/crypto-renewal-reminder")
 
         const { data, error } = await resend.emails.send({
-            from: "anon.li <billing@anon.li>",
+            from: "anon.li <hi@anon.li>",
             to: email,
             subject: `Your anon.li plan expires in ${details.daysRemaining} days`,
             react: React.createElement(CryptoRenewalReminderEmail, {

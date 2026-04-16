@@ -92,7 +92,7 @@ export function SetupPasswordPageContent() {
 
     const needsPassword = migrationStatus?.needsPassword ?? false
     const showConfirmPassword = needsPassword && (isPasswordFocused || password.length > 0)
-    const title = needsPassword ? "Set your password" : "Finish vault setup"
+    const title = needsPassword ? "Set your vault password" : "Finish vault setup"
     const description = needsPassword
         ? "Create the password that will unlock your encrypted vault on this account."
         : "Confirm your current password to upgrade this account into a fully encrypted vault."
@@ -174,7 +174,7 @@ export function SetupPasswordPageContent() {
                             <Lock className="h-6 w-6 text-primary" />
                         </div>
                         <div className="space-y-1">
-                            <CardTitle className="text-2xl font-bold">{title}</CardTitle>
+                            <CardTitle className="text-2xl font-bold font-serif">{title}</CardTitle>
                             <CardDescription>{description}</CardDescription>
                         </div>
                     </CardHeader>
@@ -182,7 +182,7 @@ export function SetupPasswordPageContent() {
                         <form onSubmit={onSubmit} className="space-y-5">
                             <div className="space-y-2">
                                 <Label htmlFor="password">
-                                    {needsPassword ? "New password" : "Current password"}
+                                    {needsPassword ? "Vault password" : "Current password"}
                                 </Label>
                                 <Input
                                     id="password"
@@ -252,7 +252,7 @@ export function SetupPasswordPageContent() {
                                         Saving...
                                     </>
                                 ) : needsPassword ? (
-                                    "Set password & create vault"
+                                    "Set vault password"
                                 ) : (
                                     "Finish vault setup"
                                 )}

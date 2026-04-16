@@ -129,13 +129,17 @@ function EnabledVaultProvider({ children }: { children: React.ReactNode }) {
             }
         }
 
-        broadcastVaultMessage({
-            type: "VAULT_UNLOCKED",
-            vaultGeneration: nextVaultGeneration,
-            vaultId: nextVaultId,
-            timestamp: Date.now(),
-            source: tabId,
-        })
+        try {
+            broadcastVaultMessage({
+                type: "VAULT_UNLOCKED",
+                vaultGeneration: nextVaultGeneration,
+                vaultId: nextVaultId,
+                timestamp: Date.now(),
+                source: tabId,
+            })
+        } catch {
+            // Unlock should not fail if cross-tab sync is unavailable.
+        }
     }, [tabId])
 
     const setLockedState = React.useCallback(() => {
@@ -356,22 +360,17 @@ function EnabledVaultProvider({ children }: { children: React.ReactNode }) {
                 vaultId: string
             }>("/api/vault/unlock")
 
+            const wrappedVaultKey = base64UrlToArrayBuffer(materials.passwordWrappedVaultKey)
+            let vaultKey: CryptoKey
+
             try {
                 const passwordKey = await derivePasswordKEK(password, materials.vaultSalt)
-                const vaultKey = await unwrapVaultKey(
-                    base64UrlToArrayBuffer(materials.passwordWrappedVaultKey),
-                    passwordKey,
-                )
-
-                await finishUnlock(vaultKey, materials.vaultGeneration, materials.vaultId, options)
+                vaultKey = await unwrapVaultKey(wrappedVaultKey, passwordKey)
             } catch {
-                clearVaultRuntime()
-                setVaultGeneration(null)
-                setVaultId(null)
-                setStatus("error")
-                setError("Incorrect password")
                 throw new Error("Incorrect password")
             }
+
+            await finishUnlock(vaultKey, materials.vaultGeneration, materials.vaultId, options)
         } catch (unlockError) {
             clearVaultRuntime()
             setVaultGeneration(null)

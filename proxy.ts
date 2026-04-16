@@ -7,6 +7,7 @@ import { shouldEnableAnalytics } from "@/lib/analytics-policy";
 const DEFAULT_UMAMI_SCRIPT_URL = "https://cloud.umami.is/script.js"
 const DEFAULT_UMAMI_API_URL = "https://api-gateway.umami.dev/api/send"
 const TURNSTILE_ORIGIN = "https://challenges.cloudflare.com"
+const TWO_FACTOR_COOKIE_NAMES = ["better-auth.two_factor", "__Secure-better-auth.two_factor"] as const
 
 function getOrigin(url: string | undefined, fallback: string): string {
     try {
@@ -71,6 +72,10 @@ function buildCsp(nonce: string, analyticsEnabled: boolean) {
     ].join("; ")
 }
 
+function hasPendingTwoFactorCookie(req: NextRequest) {
+    return TWO_FACTOR_COOKIE_NAMES.some((name) => Boolean(req.cookies.get(name)?.value))
+}
+
 export default async function proxy(req: NextRequest) {
     const { nextUrl } = req
     const pathname = nextUrl.pathname
@@ -107,7 +112,10 @@ export default async function proxy(req: NextRequest) {
         || pathname.startsWith('/admin')
         || pathname === '/2fa'
 
-    if (needsAuth && !getSessionCookie(req)) {
+    // Better Auth removes the normal session cookie while 2FA is pending.
+    // The 2FA page/action validates the signed temporary cookie.
+    const canAccessPendingTwoFactor = pathname === "/2fa" && hasPendingTwoFactorCookie(req)
+    if (needsAuth && !getSessionCookie(req) && !canAccessPendingTwoFactor) {
         return NextResponse.redirect(new URL('/login', nextUrl))
     }
 

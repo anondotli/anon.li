@@ -37,9 +37,16 @@ export function broadcastVaultMessage(message: VaultSyncMessage) {
     if (typeof window === "undefined") return
 
     if ("BroadcastChannel" in window) {
-        const channel = new BroadcastChannel(CHANNEL_NAME)
-        channel.postMessage(message)
-        channel.close()
+        try {
+            const channel = new BroadcastChannel(CHANNEL_NAME)
+            try {
+                channel.postMessage(message)
+            } finally {
+                channel.close()
+            }
+        } catch {
+            // Best effort only; the storage signal fallback below can still notify tabs.
+        }
     }
 
     safelyWriteStorageSignal(message)

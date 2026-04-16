@@ -30,7 +30,7 @@ export function RegisterPageContent() {
                                 Create an account
                             </h1>
                             <p className="mt-1 text-sm text-muted-foreground">
-                                Get started with your free account
+                                Continue with a magic link or social sign-in
                             </p>
                         </div>
                     </div>

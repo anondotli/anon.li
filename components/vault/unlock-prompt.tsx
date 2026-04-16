@@ -147,7 +147,7 @@ export function UnlockPrompt() {
                                 )}
                             </Button>
                             <div className="text-center space-y-1">
-                                <Link href="/login?mode=reset" className="text-sm font-medium text-primary hover:underline">
+                                <Link href="/reset" className="text-sm font-medium text-primary hover:underline">
                                     Forgot password?
                                 </Link>
                             </div>

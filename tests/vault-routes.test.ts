@@ -286,6 +286,57 @@ describe("vault routes", () => {
         expect(payload.data?.vaultGeneration).toBe(1)
     })
 
+    it("updates an existing credential account while creating initial vault security", async () => {
+        prisma.userSecurity.findUnique.mockResolvedValueOnce(null)
+        const tx = {
+            account: {
+                update: vi.fn().mockResolvedValue(undefined),
+                create: vi.fn().mockResolvedValue(undefined),
+            },
+            userSecurity: {
+                create: vi.fn().mockResolvedValue({
+                    id: "cmau000000000000000000001",
+                    vaultGeneration: 1,
+                }),
+            },
+        }
+        prisma.$transaction.mockImplementationOnce(async (callback: unknown) => {
+            if (typeof callback !== "function") return null
+            return callback(tx)
+        })
+        const { POST } = await import("@/app/api/vault/setup/route")
+
+        const response = await POST(new Request("http://localhost/api/vault/setup", {
+            method: "POST",
+            body: JSON.stringify({
+                authSecret: "a".repeat(32),
+                authSalt: "b".repeat(43),
+                vaultSalt: "c".repeat(43),
+                passwordWrappedVaultKey: "d".repeat(64),
+            }),
+        }))
+
+        const payload = await readJson(response)
+        expect(response.status).toBe(200)
+        expect(payload.data?.vaultGeneration).toBe(1)
+        expect(tx.account.update).toHaveBeenCalledWith({
+            where: { id: "account-123" },
+            data: { password: "hashed-secret" },
+        })
+        expect(tx.account.create).not.toHaveBeenCalled()
+        expect(tx.userSecurity.create).toHaveBeenCalledWith({
+            data: {
+                userId: "user-123",
+                authSalt: "b".repeat(43),
+                vaultSalt: "c".repeat(43),
+                passwordWrappedVaultKey: "d".repeat(64),
+                kdfVersion: 1,
+                migrationState: "complete",
+            },
+            select: { id: true, vaultGeneration: true },
+        })
+    })
+
     it("rejects unlock-materials without a session", async () => {
         getVaultSession.mockResolvedValueOnce(null)
         const { GET } = await import("@/app/api/vault/unlock/route")
@@ -491,6 +542,21 @@ describe("vault routes", () => {
         const payload = await readJson(response)
         expect(response.status).toBe(200)
         expect(payload.data?.hasVault).toBe(true)
+        expect(payload.data?.needsPassword).toBe(false)
         expect(payload.data?.vaultGeneration).toBe(1)
+    })
+
+    it("requires vault password setup when vault security is missing", async () => {
+        prisma.userSecurity.findUnique.mockResolvedValueOnce(null)
+        const { GET } = await import("@/app/api/vault/migration-status/route")
+
+        const response = await GET()
+
+        const payload = await readJson(response)
+        expect(response.status).toBe(200)
+        expect(payload.data?.hasPassword).toBe(true)
+        expect(payload.data?.hasVault).toBe(false)
+        expect(payload.data?.needsPassword).toBe(true)
+        expect(payload.data?.migrationState).toBe("pending")
     })
 })

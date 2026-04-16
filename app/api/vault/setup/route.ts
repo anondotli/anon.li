@@ -97,7 +97,7 @@ export async function POST(request: Request) {
         let createdSecurity: { id: string; vaultGeneration: number }
 
         if (validation.data.currentPassword) {
-            // Upgrading an existing credential account to vault
+            // Legacy upgrade path for an existing credential account.
             if (!credentialAccount?.password) {
                 logVaultWarn(ROUTE_NAME, "Vault setup upgrade attempted without credential account", {
                     requestId,
@@ -133,24 +133,24 @@ export async function POST(request: Request) {
                 })
             })
         } else {
-            // Creating a new credential account + vault (social-only user)
-            if (credentialAccount) {
-                logVaultWarn(ROUTE_NAME, "Vault setup attempted with an existing credential account", {
-                    requestId,
-                    userId: session.user.id,
-                })
-                return withNoStore(apiError("Password login already exists for this account", ErrorCodes.CONFLICT, requestId, 409))
-            }
-
+            // Magic-link/social users set or replace the credential secret during vault setup.
             createdSecurity = await prisma.$transaction(async (tx) => {
-                await tx.account.create({
-                    data: {
-                        userId: session.user.id,
-                        accountId: session.user.id,
-                        providerId: "credential",
-                        password: passwordHash,
-                    },
-                })
+                if (credentialAccount) {
+                    await tx.account.update({
+                        where: { id: credentialAccount.id },
+                        data: { password: passwordHash },
+                    })
+                } else {
+                    await tx.account.create({
+                        data: {
+                            userId: session.user.id,
+                            accountId: session.user.id,
+                            providerId: "credential",
+                            password: passwordHash,
+                        },
+                    })
+                }
+
                 return tx.userSecurity.create({
                     data: {
                         userId: session.user.id,

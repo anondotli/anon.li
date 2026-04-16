@@ -1,5 +1,6 @@
 "use server"
 
+import { createHash } from "node:crypto"
 import { auth } from "@/auth"
 import { auth as betterAuth } from "@/lib/auth"
 import { revalidatePath } from "next/cache"
@@ -26,6 +27,31 @@ type TwoFactorStatusResult = TwoFactorActionResult & {
 
 type BackupCodesResult = TwoFactorActionResult & {
     backupCodes?: string[]
+}
+
+type VerifyTwoFactorResponse = {
+    token?: string
+}
+
+const TWO_FACTOR_COOKIE_NAMES = ["better-auth.two_factor", "__Secure-better-auth.two_factor"] as const
+const SESSION_DATA_COOKIE_NAMES = ["better-auth.session_data", "__Secure-better-auth.session_data"] as const
+
+async function getPendingTwoFactorRateLimitId(): Promise<string | null> {
+    const cookieStore = await cookies()
+    const pendingCookie = TWO_FACTOR_COOKIE_NAMES
+        .map((name) => cookieStore.get(name)?.value)
+        .find((value): value is string => Boolean(value))
+
+    if (!pendingCookie) return null
+
+    return `pending:${createHash("sha256").update(pendingCookie).digest("base64url")}`
+}
+
+async function clearSessionCacheCookie() {
+    const cookieStore = await cookies()
+    for (const name of SESSION_DATA_COOKIE_NAMES) {
+        cookieStore.delete(name)
+    }
 }
 
 function mapApiError(error: unknown): string {
@@ -207,48 +233,62 @@ export async function verifyTwoFactorLogin(
     mode: "totp" | "backup"
 ): Promise<TwoFactorActionResult> {
     const reqHeaders = await headers()
-    const result = await betterAuth.api.getSession({ headers: reqHeaders })
-    if (!result?.session || !result?.user) return { error: "Not authenticated" }
-    if (!result.user.twoFactorEnabled) return { error: "2FA is not enabled" }
+    const existingSession = await betterAuth.api.getSession({ headers: reqHeaders })
 
-    const rateLimited = await rateLimit("twoFactorVerify", result.user.id)
+    let rateLimitId: string | null
+    if (existingSession?.session && existingSession.user) {
+        if (!existingSession.user.twoFactorEnabled) return { error: "2FA is not enabled" }
+        rateLimitId = existingSession.user.id
+    } else {
+        rateLimitId = await getPendingTwoFactorRateLimitId()
+        if (!rateLimitId) return { error: "Not authenticated" }
+    }
+
+    const rateLimited = await rateLimit("twoFactorVerify", rateLimitId)
     if (rateLimited) {
         return { error: "Too many verification attempts. Please wait 15 minutes and try again." }
     }
 
     const sanitized = code.replace(/\s/g, "")
 
+    let verification: VerifyTwoFactorResponse
     try {
         if (mode === "totp") {
             const totpCode = sanitized.slice(0, 6)
             if (!/^\d{6}$/.test(totpCode)) {
                 return { error: "Invalid code format. Enter 6 digits." }
             }
-            await betterAuth.api.verifyTOTP({
+            verification = await betterAuth.api.verifyTOTP({
                 body: { code: totpCode },
                 headers: reqHeaders,
-            })
+            }) as VerifyTwoFactorResponse
         } else {
             const backupCode = sanitized.slice(0, 17)
             if (!/^[A-Za-z0-9]{5}-[A-Za-z0-9]{11}$/.test(backupCode)) {
                 return { error: "Invalid backup code format." }
             }
-            await betterAuth.api.verifyBackupCode({
+            verification = await betterAuth.api.verifyBackupCode({
                 body: { code: backupCode },
                 headers: reqHeaders,
-            })
+            }) as VerifyTwoFactorResponse
         }
     } catch (error: unknown) {
         return { error: mapApiError(error) }
     }
 
+    const sessionWhere = existingSession?.session
+        ? { id: existingSession.session.id }
+        : verification.token
+            ? { token: verification.token }
+            : null
+
+    if (!sessionWhere) return { error: "Verification failed" }
+
     await prisma.session.update({
-        where: { id: result.session.id },
+        where: sessionWhere,
         data: { twoFactorVerified: true },
     })
-
-    const cookieStore = await cookies()
-    cookieStore.delete("better-auth.session_data")
+    await clearSessionCacheCookie()
 
     return { success: true }
 }

@@ -50,7 +50,7 @@ export async function GET() {
 
         return withNoStore(apiSuccess({
             vaultAvailable: true,
-            needsPassword: !credentialAccount,
+            needsPassword: !security,
             hasPassword: Boolean(credentialAccount),
             hasVault: Boolean(security),
             migrationState: security?.migrationState ?? "pending",

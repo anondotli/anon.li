@@ -1,5 +1,6 @@
 import { Metadata } from "next"
 import { redirect } from "next/navigation"
+import { cookies } from "next/headers"
 import { auth } from "@/auth"
 import { TwoFactorVerifyForm } from "./verify-form"
 import { LogoutButton } from "./logout-button"
@@ -9,10 +10,18 @@ export const metadata: Metadata = {
     description: "Enter your two-factor authentication code",
 }
 
+const TWO_FACTOR_COOKIE_NAMES = ["better-auth.two_factor", "__Secure-better-auth.two_factor"] as const
+
+async function hasPendingTwoFactorCookie() {
+    const cookieStore = await cookies()
+    return TWO_FACTOR_COOKIE_NAMES.some((name) => Boolean(cookieStore.get(name)?.value))
+}
+
 export default async function Verify2FAPage() {
     const session = await auth()
-    if (!session) redirect("/login")
-    if (!session.user.twoFactorEnabled || session.twoFactorVerified) {
+    const pendingTwoFactor = await hasPendingTwoFactorCookie()
+    if (!session && !pendingTwoFactor) redirect("/login")
+    if (session && (!session.user.twoFactorEnabled || session.twoFactorVerified)) {
         redirect("/dashboard/alias")
     }
 

@@ -8,7 +8,7 @@ import { createLogger } from "@/lib/logger"
 import { NotFoundError, ValidationError } from "@/lib/api-error-utils"
 import { safeDecryptReportKey } from "@/lib/report-crypto"
 
-const SYSTEM_EMAIL_FROM = "anon.li <noreply@anon.li>"
+const SYSTEM_EMAIL_FROM = "anon.li <hi@anon.li>"
 
 const logger = createLogger("AdminService")
 

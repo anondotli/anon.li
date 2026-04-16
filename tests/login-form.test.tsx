@@ -1,113 +1,122 @@
 /**
  * @vitest-environment jsdom
  */
-import { afterEach, describe, expect, it, vi } from "vitest"
-import { cleanup, fireEvent, render, screen } from "@testing-library/react"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 
-const push = vi.fn()
+const authMocks = vi.hoisted(() => ({
+    signInSocial: vi.fn(),
+    signInMagicLink: vi.fn(),
+}))
 
-vi.mock("next/navigation", () => ({
-    useRouter: () => ({
-        push,
-    }),
+const analyticsMocks = vi.hoisted(() => ({
+    registrationStarted: vi.fn(),
+    loginStarted: vi.fn(),
 }))
 
 vi.mock("@/lib/auth-client", () => ({
     authClient: {
         signIn: {
-            social: vi.fn(),
-            magicLink: vi.fn(),
-            email: vi.fn(),
-        },
-        signUp: {
-            email: vi.fn(),
+            social: authMocks.signInSocial,
+            magicLink: authMocks.signInMagicLink,
         },
     },
-}))
-
-vi.mock("@/actions/session", () => ({
-    requestPasswordResetAction: vi.fn(),
 }))
 
 vi.mock("@/lib/analytics", () => ({
     analytics: {
-        registrationStarted: vi.fn(),
-        loginStarted: vi.fn(),
+        registrationStarted: analyticsMocks.registrationStarted,
+        loginStarted: analyticsMocks.loginStarted,
     },
 }))
 
-vi.mock("@/lib/vault/crypto", () => ({
-    arrayBufferToBase64Url: vi.fn(),
-    base64UrlToArrayBuffer: vi.fn(),
-    deriveAuthSecret: vi.fn(),
-    derivePasswordKEK: vi.fn(),
-    unwrapVaultKey: vi.fn(),
-}))
-
-vi.mock("@/lib/vault/client", () => ({
-    readVaultApiData: vi.fn(),
-}))
-
-vi.mock("@/lib/vault/runtime", () => ({
-    setVaultRuntime: vi.fn(),
-}))
+beforeEach(() => {
+    authMocks.signInSocial.mockResolvedValue({ data: {}, error: null })
+    authMocks.signInMagicLink.mockResolvedValue({ data: {}, error: null })
+})
 
 afterEach(() => {
     cleanup()
-    push.mockReset()
+    vi.clearAllMocks()
 })
 
 describe("LoginForm", () => {
-    it("keeps password sign-in controls visible after the email field loses focus", async () => {
+    it("shows magic email and social sign-in without password fields", async () => {
         const { LoginForm } = await import("@/components/auth/login-form")
 
         render(<LoginForm mode="login" />)
 
-        expect(screen.queryByLabelText("Password")).toBeNull()
+        expect(screen.getByLabelText("Email address")).toBeTruthy()
+        expect(screen.getByRole("button", { name: "Send magic link" })).toBeTruthy()
         expect(screen.getByRole("button", { name: "Google" })).toBeTruthy()
-
-        const emailInput = screen.getByLabelText("Email address")
-        fireEvent.focus(emailInput)
-
-        expect(screen.getByLabelText("Password")).toBeTruthy()
-        expect(screen.queryByRole("button", { name: "Google" })).toBeNull()
-
-        fireEvent.blur(emailInput)
-
-        expect(screen.getByLabelText("Password")).toBeTruthy()
-        expect(screen.getByRole("button", { name: "Use magic link instead" })).toBeTruthy()
-        expect(screen.getByRole("button", { name: "Forgot password?" })).toBeTruthy()
-        expect(screen.queryByRole("button", { name: "Google" })).toBeNull()
+        expect(screen.getByRole("button", { name: "GitHub" })).toBeTruthy()
+        expect(screen.queryByLabelText("Password")).toBeNull()
+        expect(screen.queryByLabelText("Confirm password")).toBeNull()
     })
 
-    it("keeps registration password controls visible after the email field loses focus", async () => {
+    it("sends login magic links to the vault setup handoff", async () => {
+        const onEmailSentChange = vi.fn()
         const { LoginForm } = await import("@/components/auth/login-form")
 
-        render(<LoginForm mode="register" />)
+        render(<LoginForm mode="login" onEmailSentChange={onEmailSentChange} />)
 
-        expect(screen.queryByLabelText("Password")).toBeNull()
-        expect(screen.getByRole("button", { name: "Google" })).toBeTruthy()
+        fireEvent.change(screen.getByLabelText("Email address"), {
+            target: { value: " user@example.com " },
+        })
+        fireEvent.click(screen.getByRole("button", { name: "Send magic link" }))
 
-        const emailInput = screen.getByLabelText("Email address")
-        fireEvent.focus(emailInput)
+        await waitFor(() => {
+            expect(authMocks.signInMagicLink).toHaveBeenCalledWith({
+                email: "user@example.com",
+                callbackURL: "/setup",
+                newUserCallbackURL: "/setup",
+            })
+        })
 
-        expect(screen.getByLabelText("Password")).toBeTruthy()
-        expect(screen.queryByRole("button", { name: "Google" })).toBeNull()
-
-        fireEvent.blur(emailInput)
-
-        expect(screen.getByLabelText("Password")).toBeTruthy()
-        expect(screen.queryByRole("button", { name: "Google" })).toBeNull()
+        expect(analyticsMocks.loginStarted).toHaveBeenCalledWith("magic_link")
+        expect(screen.getByText("Check your inbox")).toBeTruthy()
+        expect(screen.getByText("user@example.com")).toBeTruthy()
+        await waitFor(() => {
+            expect(onEmailSentChange).toHaveBeenLastCalledWith(true)
+        })
     })
 
-    it("returns to an expanded password form after forgot-password mode", async () => {
+    it("sends registration magic links with the requested dashboard callback", async () => {
         const { LoginForm } = await import("@/components/auth/login-form")
 
-        render(<LoginForm mode="login" initialView="forgot-password" />)
+        render(<LoginForm mode="register" callbackUrl="/dashboard/drop" />)
 
-        fireEvent.click(screen.getByRole("button", { name: "Back to sign in" }))
+        fireEvent.change(screen.getByLabelText("Email address"), {
+            target: { value: "new@example.com" },
+        })
+        fireEvent.click(screen.getByRole("button", { name: "Create account" }))
 
-        expect(screen.getByLabelText("Password")).toBeTruthy()
-        expect(screen.getByRole("button", { name: "Use magic link instead" })).toBeTruthy()
+        await waitFor(() => {
+            expect(authMocks.signInMagicLink).toHaveBeenCalledWith({
+                email: "new@example.com",
+                name: "anon.li user",
+                callbackURL: "/setup?callbackUrl=%2Fdashboard%2Fdrop",
+                newUserCallbackURL: "/setup?callbackUrl=%2Fdashboard%2Fdrop",
+            })
+        })
+
+        expect(analyticsMocks.registrationStarted).toHaveBeenCalledWith("magic_link")
+        expect(screen.queryByLabelText("Password")).toBeNull()
+    })
+
+    it("routes social sign-in through vault setup", async () => {
+        const { LoginForm } = await import("@/components/auth/login-form")
+
+        render(<LoginForm mode="login" callbackUrl="/dashboard/settings" />)
+
+        fireEvent.click(screen.getByRole("button", { name: "Google" }))
+
+        await waitFor(() => {
+            expect(authMocks.signInSocial).toHaveBeenCalledWith({
+                provider: "google",
+                callbackURL: "/setup?callbackUrl=%2Fdashboard%2Fsettings",
+            })
+        })
+        expect(analyticsMocks.loginStarted).toHaveBeenCalledWith("google")
     })
 })

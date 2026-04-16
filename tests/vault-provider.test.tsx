@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  */
 import * as React from "react"
-import { act, cleanup, render, screen } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const getVaultRuntime = vi.fn()
@@ -26,6 +26,11 @@ const unwrapVaultKey = vi.fn()
 const unwrapVaultManagedKey = vi.fn()
 const wrapVaultManagedKey = vi.fn()
 let syncCallback: ((message: unknown) => void) | null = null
+
+async function flushPromises() {
+    await Promise.resolve()
+    await Promise.resolve()
+}
 
 vi.mock("@/lib/vault/runtime", () => ({
     getVaultRuntime: () => getVaultRuntime(),
@@ -128,6 +133,181 @@ describe("VaultProvider", () => {
 
         expect(screen.getByText("unlocked")).toBeTruthy()
         expect(getDeviceKey).not.toHaveBeenCalled()
+    })
+
+    it("unlocks with matching password materials", async () => {
+        const passwordKey = {} as CryptoKey
+        const vaultKey = {} as CryptoKey
+        getVaultRuntime.mockReturnValue({
+            key: null,
+            vaultGeneration: null,
+            vaultId: null,
+        })
+        readCapsule.mockReturnValue(null)
+        readVaultApiData.mockResolvedValue({
+            vaultSalt: "vault-salt",
+            passwordWrappedVaultKey: "wrapped-vault-key",
+            vaultGeneration: 2,
+            vaultId: "vault-123",
+        })
+        derivePasswordKEK.mockResolvedValue(passwordKey)
+        unwrapVaultKey.mockResolvedValue(vaultKey)
+
+        const { VaultProvider, useVault } = await import("@/components/vault/vault-provider")
+        function Probe() {
+            const context = useVault()
+            return (
+                <>
+                    <div>{`${context.status}:${context.error ?? "none"}`}</div>
+                    <button
+                        type="button"
+                        onClick={() => {
+                            void context.unlockWithPassword("correct-password", { trustBrowser: false }).catch(() => {})
+                        }}
+                    >
+                        Unlock test vault
+                    </button>
+                </>
+            )
+        }
+
+        render(
+            <VaultProvider>
+                <Probe />
+            </VaultProvider>,
+        )
+
+        await act(async () => {
+            await Promise.resolve()
+        })
+
+        fireEvent.click(screen.getByRole("button", { name: "Unlock test vault" }))
+        await act(async () => {
+            await flushPromises()
+        })
+
+        expect(screen.getByText("unlocked:none")).toBeTruthy()
+        expect(readVaultApiData).toHaveBeenCalledWith("/api/vault/unlock", undefined)
+        expect(derivePasswordKEK).toHaveBeenCalledWith("correct-password", "vault-salt")
+        expect(base64UrlToArrayBuffer).toHaveBeenCalledWith("wrapped-vault-key")
+        expect(unwrapVaultKey).toHaveBeenCalledWith(expect.any(ArrayBuffer), passwordKey)
+        expect(setVaultRuntime).toHaveBeenCalledWith(vaultKey, 2, "vault-123")
+    })
+
+    it("still unlocks when cross-tab unlock broadcast fails", async () => {
+        const passwordKey = {} as CryptoKey
+        const vaultKey = {} as CryptoKey
+        getVaultRuntime.mockReturnValue({
+            key: null,
+            vaultGeneration: null,
+            vaultId: null,
+        })
+        readCapsule.mockReturnValue(null)
+        readVaultApiData.mockResolvedValue({
+            vaultSalt: "vault-salt",
+            passwordWrappedVaultKey: "wrapped-vault-key",
+            vaultGeneration: 2,
+            vaultId: "vault-123",
+        })
+        derivePasswordKEK.mockResolvedValue(passwordKey)
+        unwrapVaultKey.mockResolvedValue(vaultKey)
+        broadcastVaultMessage.mockImplementation(() => {
+            throw new Error("Broadcast unavailable")
+        })
+
+        const { VaultProvider, useVault } = await import("@/components/vault/vault-provider")
+        function Probe() {
+            const context = useVault()
+            return (
+                <>
+                    <div>{`${context.status}:${context.error ?? "none"}`}</div>
+                    <button
+                        type="button"
+                        onClick={() => {
+                            void context.unlockWithPassword("correct-password", { trustBrowser: false }).catch(() => {})
+                        }}
+                    >
+                        Unlock test vault
+                    </button>
+                </>
+            )
+        }
+
+        render(
+            <VaultProvider>
+                <Probe />
+            </VaultProvider>,
+        )
+
+        await act(async () => {
+            await Promise.resolve()
+        })
+
+        fireEvent.click(screen.getByRole("button", { name: "Unlock test vault" }))
+        await act(async () => {
+            await flushPromises()
+        })
+
+        expect(screen.getByText("unlocked:none")).toBeTruthy()
+        expect(setVaultRuntime).toHaveBeenCalledWith(vaultKey, 2, "vault-123")
+        expect(broadcastVaultMessage).toHaveBeenCalledWith(expect.objectContaining({
+            type: "VAULT_UNLOCKED",
+        }))
+    })
+
+    it("surfaces incorrect password only when password unwrap fails", async () => {
+        const passwordKey = {} as CryptoKey
+        getVaultRuntime.mockReturnValue({
+            key: null,
+            vaultGeneration: null,
+            vaultId: null,
+        })
+        readCapsule.mockReturnValue(null)
+        readVaultApiData.mockResolvedValue({
+            vaultSalt: "vault-salt",
+            passwordWrappedVaultKey: "wrapped-vault-key",
+            vaultGeneration: 2,
+            vaultId: "vault-123",
+        })
+        derivePasswordKEK.mockResolvedValue(passwordKey)
+        unwrapVaultKey.mockRejectedValue(new Error("DataError"))
+
+        const { VaultProvider, useVault } = await import("@/components/vault/vault-provider")
+        function Probe() {
+            const context = useVault()
+            return (
+                <>
+                    <div>{`${context.status}:${context.error ?? "none"}`}</div>
+                    <button
+                        type="button"
+                        onClick={() => {
+                            void context.unlockWithPassword("wrong-password", { trustBrowser: false }).catch(() => {})
+                        }}
+                    >
+                        Unlock test vault
+                    </button>
+                </>
+            )
+        }
+
+        render(
+            <VaultProvider>
+                <Probe />
+            </VaultProvider>,
+        )
+
+        await act(async () => {
+            await Promise.resolve()
+        })
+
+        fireEvent.click(screen.getByRole("button", { name: "Unlock test vault" }))
+        await act(async () => {
+            await flushPromises()
+        })
+
+        expect(screen.getByText("error:Incorrect password")).toBeTruthy()
+        expect(clearVaultRuntime).toHaveBeenCalled()
+        expect(setVaultRuntime).not.toHaveBeenCalled()
     })
 
     it("falls back to locked if trusted-browser bootstrap hangs", async () => {

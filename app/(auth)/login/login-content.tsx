@@ -1,9 +1,8 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { LoginForm } from "@/components/auth"
-import type { LoginFormView } from "@/components/auth/login-form"
 import Link from "next/link"
 import { Icons } from "@/components/shared/icons"
 
@@ -16,15 +15,7 @@ export function LoginPageContent() {
     const [emailSent, setEmailSent] = useState(false)
     const searchParams = useSearchParams()
     const from = searchParams.get("from")
-    const requestedMode = searchParams.get("mode")
-    const requestedView: LoginFormView = requestedMode === "reset" ? "forgot-password" : "login"
-    const [view, setView] = useState<LoginFormView>(requestedView)
     const callbackUrl = (from && PRODUCT_DASHBOARDS[from]) || undefined
-    const isResetView = view === "forgot-password"
-
-    useEffect(() => {
-        setView(requestedView)
-    }, [requestedView])
 
     return (
         <div className="flex min-h-svh flex-col items-center justify-center px-4 py-24">
@@ -36,12 +27,10 @@ export function LoginPageContent() {
                         </Link>
                         <div className="text-center">
                             <h1 className="text-2xl font-semibold tracking-tight">
-                                {isResetView ? "Reset your password" : "Welcome back"}
+                                Welcome back
                             </h1>
                             <p className="mt-1 text-sm text-muted-foreground">
-                                {isResetView
-                                    ? "Enter your email and we’ll send you a secure reset link."
-                                    : "Sign in to your account"}
+                                Continue with a magic link or social sign-in
                             </p>
                         </div>
                     </div>
@@ -50,8 +39,6 @@ export function LoginPageContent() {
                     mode="login"
                     onEmailSentChange={setEmailSent}
                     callbackUrl={callbackUrl}
-                    initialView={view}
-                    onViewChange={setView}
                 />
                 {!emailSent && (
                     <p className="mt-6 text-center text-sm text-muted-foreground">
