@@ -38,6 +38,16 @@ function toArrayBuffer(value: BinaryLike): ArrayBuffer {
     return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
 }
 
+function toCryptoBufferSource(value: BinaryLike): BufferSource {
+    const bytes = toUint8Array(value)
+
+    if (typeof Buffer !== "undefined") {
+        return Buffer.from(bytes)
+    }
+
+    return toArrayBuffer(bytes)
+}
+
 export function arrayBufferToBase64Url(value: BinaryLike): string {
     const bytes = toUint8Array(value)
     let binary = ""
@@ -83,7 +93,7 @@ async function deriveBytes(password: string, salt: string | Uint8Array): Promise
 async function importAesKwKey(raw: BinaryLike, extractable = false) {
     return crypto.subtle.importKey(
         "raw",
-        toArrayBuffer(raw),
+        toCryptoBufferSource(raw),
         AES_KW_ALGORITHM,
         extractable,
         ["wrapKey", "unwrapKey"],
@@ -93,7 +103,7 @@ async function importAesKwKey(raw: BinaryLike, extractable = false) {
 async function importAesGcmKey(raw: BinaryLike, extractable = true): Promise<CryptoKey> {
     return crypto.subtle.importKey(
         "raw",
-        toArrayBuffer(raw),
+        toCryptoBufferSource(raw),
         AES_GCM_ALGORITHM,
         extractable,
         ["encrypt", "decrypt"],
@@ -124,7 +134,7 @@ export async function wrapVaultKey(vaultKey: CryptoKey, wrappingKey: CryptoKey):
 export async function unwrapVaultKey(wrappedKey: BinaryLike, unwrappingKey: CryptoKey): Promise<CryptoKey> {
     return crypto.subtle.unwrapKey(
         "raw",
-        toArrayBuffer(wrappedKey),
+        toCryptoBufferSource(wrappedKey),
         unwrappingKey,
         "AES-KW",
         AES_GCM_ALGORITHM,
@@ -157,7 +167,7 @@ export async function unwrapVaultManagedKey(wrappedKey: string, vaultKey: Crypto
     const wrappingKey = await getVaultWrappingKey(vaultKey)
     return crypto.subtle.unwrapKey(
         "raw",
-        base64UrlToArrayBuffer(wrappedKey),
+        toCryptoBufferSource(base64UrlToArrayBuffer(wrappedKey)),
         wrappingKey,
         "AES-KW",
         AES_GCM_ALGORITHM,
@@ -192,11 +202,11 @@ export async function encryptVaultText(
     const ciphertext = await crypto.subtle.encrypt(
         {
             name: "AES-GCM",
-            iv: toArrayBuffer(iv),
-            additionalData: toArrayBuffer(aliasMetadataAad(context.aliasId, context.field)),
+            iv: toCryptoBufferSource(iv),
+            additionalData: toCryptoBufferSource(aliasMetadataAad(context.aliasId, context.field)),
         },
         vaultKey,
-        encoded,
+        toCryptoBufferSource(encoded),
     )
 
     const envelope: VaultEncryptedTextEnvelope = {
@@ -222,11 +232,11 @@ export async function decryptVaultText(
     const plaintext = await crypto.subtle.decrypt(
         {
             name: "AES-GCM",
-            iv: base64UrlToArrayBuffer(envelope.iv),
-            additionalData: toArrayBuffer(aliasMetadataAad(context.aliasId, context.field)),
+            iv: toCryptoBufferSource(base64UrlToArrayBuffer(envelope.iv)),
+            additionalData: toCryptoBufferSource(aliasMetadataAad(context.aliasId, context.field)),
         },
         vaultKey,
-        base64UrlToArrayBuffer(envelope.ct),
+        toCryptoBufferSource(base64UrlToArrayBuffer(envelope.ct)),
     )
 
     return new TextDecoder().decode(plaintext)

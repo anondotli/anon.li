@@ -2,9 +2,12 @@ import { auth } from "@/auth"
 import { PricingGrid } from "./grid"
 import { prisma } from "@/lib/prisma"
 import { getUserSubscriptionPlan } from "@/lib/subscription"
+import { PricingSummary } from "./pricing-summary"
 
 import { Metadata } from "next"
 import { siteConfig } from "@/config/site"
+import { getCspNonce } from "@/lib/csp"
+import { getPricingJsonLd } from "@/lib/public-pricing"
 
 export const metadata: Metadata = {
     title: siteConfig.pricing.metadata?.title,
@@ -16,6 +19,7 @@ export const metadata: Metadata = {
 
 export default async function PricingPage() {
     const session = await auth()
+    const nonce = await getCspNonce()
 
     let currentPlanId: string | null = null
     if (session?.user?.id) {
@@ -28,5 +32,16 @@ export default async function PricingPage() {
         }
     }
 
-    return <PricingGrid user={session?.user || null} currentPlanId={currentPlanId} />
+    return (
+        <>
+            <PricingGrid user={session?.user || null} currentPlanId={currentPlanId} />
+            <PricingSummary />
+            <script
+                nonce={nonce}
+                suppressHydrationWarning
+                type="application/ld+json"
+                dangerouslySetInnerHTML={{ __html: JSON.stringify(getPricingJsonLd()) }}
+            />
+        </>
+    )
 }

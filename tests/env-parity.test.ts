@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest"
-import { readFileSync } from "fs"
-import { resolve } from "path"
-import { globSync } from "glob"
+import { readdirSync, readFileSync } from "fs"
+import { relative, resolve } from "path"
 
 /**
  * Ensures every `process.env.X` reference in the codebase is either
@@ -35,6 +34,40 @@ const SCRIPT_ONLY_VARS = new Set([
 ])
 
 const ALLOWLIST = new Set([...FRAMEWORK_VARS, ...TEST_ONLY_VARS, ...SCRIPT_ONLY_VARS])
+const IGNORED_SOURCE_DIRS = new Set([
+    ".git",
+    ".next",
+    "anon-video",
+    "build",
+    "cli",
+    "extension",
+    "haraka",
+    "node_modules",
+    "out",
+    "tests",
+])
+
+function findSourceFiles(root: string, directory = root): string[] {
+    const files: string[] = []
+
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+        const fullPath = resolve(directory, entry.name)
+        const relativePath = relative(root, fullPath).replace(/\\/g, "/")
+
+        if (entry.isDirectory()) {
+            if (!IGNORED_SOURCE_DIRS.has(relativePath)) {
+                files.push(...findSourceFiles(root, fullPath))
+            }
+            continue
+        }
+
+        if (entry.isFile() && relativePath !== "vitest.setup.ts" && /\.(ts|tsx)$/.test(entry.name)) {
+            files.push(relativePath)
+        }
+    }
+
+    return files.sort()
+}
 
 function getEnvVarsFromSchema(): Set<string> {
     const envTs = readFileSync(resolve(__dirname, "../lib/env.ts"), "utf-8")
@@ -62,21 +95,7 @@ function getEnvVarsFromExample(): Set<string> {
 
 function getEnvVarsFromCode(): Map<string, string[]> {
     const root = resolve(__dirname, "..")
-    const files = globSync("**/*.{ts,tsx}", {
-        cwd: root,
-        ignore: [
-            "node_modules/**",
-            ".next/**",
-            "out/**",
-            "build/**",
-            "extension/**",
-            "cli/**",
-            "haraka/**",
-            "tests/**",
-            "vitest.setup.ts",
-            "anon-video/**",
-        ],
-    })
+    const files = findSourceFiles(root)
 
     const envUsage = new Map<string, string[]>()
 

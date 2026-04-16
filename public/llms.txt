@@ -18,6 +18,7 @@ All services are open source and designed with a zero-trust security model. API 
 - [File Sharing (Drop)](https://anon.li/drop)
 - [Upload a File](https://anon.li/drop/upload)
 - [Pricing](https://anon.li/pricing)
+- [Pricing Data (JSON)](https://anon.li/pricing.json) — machine-readable products, tiers, USD prices, billing intervals, feature lists, and limits.
 - [Security](https://anon.li/security)
 - [About](https://anon.li/about)
 - [FAQ](https://anon.li/faq)
@@ -38,6 +39,15 @@ All services are open source and designed with a zero-trust security model. API 
 - [CLI: Recipient Commands](https://anon.li/docs/cli/recipient)
 - [Browser Extension](https://anon.li/docs/extension)
 - [Security Architecture](https://anon.li/docs/security)
+
+## Pricing
+
+Canonical machine-readable pricing is available at https://anon.li/pricing.json.
+
+- Bundle Plus: $3.99/month or $39.49/year. Bundle Pro: $5.99/month or $53.89/year.
+- Alias Plus: $2.49/month or $23.89/year. Alias Pro: $3.49/month or $35.89/year.
+- Drop Plus: $2.99/month or $29.89/year. Drop Pro: $4.49/month or $45.49/year.
+- Free plans are available for Bundle, Alias, and Drop.
 
 ## Legal
 

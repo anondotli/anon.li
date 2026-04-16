@@ -113,9 +113,11 @@ export default async function proxy(req: NextRequest) {
 
     const nonce = crypto.randomBytes(16).toString("base64")
     const analyticsEnabled = shouldEnableAnalytics(pathname)
+    const csp = buildCsp(nonce, analyticsEnabled)
     const requestHeaders = new Headers(req.headers)
     requestHeaders.set("x-nonce", nonce)
     requestHeaders.set("x-analytics-enabled", analyticsEnabled ? "1" : "0")
+    requestHeaders.set("Content-Security-Policy", csp)
 
     const response = NextResponse.next({
         request: {
@@ -125,7 +127,7 @@ export default async function proxy(req: NextRequest) {
 
     // Attach request ID for downstream logging and client debugging
     response.headers.set("X-Request-Id", requestId)
-    response.headers.set("Content-Security-Policy", buildCsp(nonce, analyticsEnabled))
+    response.headers.set("Content-Security-Policy", csp)
 
     // CORS for API routes
     if (pathname.startsWith("/api/")) {
