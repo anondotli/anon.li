@@ -361,10 +361,10 @@ function EnabledVaultProvider({ children }: { children: React.ReactNode }) {
             }>("/api/vault/unlock")
 
             const wrappedVaultKey = base64UrlToArrayBuffer(materials.passwordWrappedVaultKey)
-            let vaultKey: CryptoKey
+            const passwordKey = await derivePasswordKEK(password, materials.vaultSalt)
 
+            let vaultKey: CryptoKey
             try {
-                const passwordKey = await derivePasswordKEK(password, materials.vaultSalt)
                 vaultKey = await unwrapVaultKey(wrappedVaultKey, passwordKey)
             } catch {
                 throw new Error("Incorrect password")

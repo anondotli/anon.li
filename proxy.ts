@@ -41,6 +41,7 @@ function buildCsp(nonce: string, analyticsEnabled: boolean) {
         isDev ? null : "'strict-dynamic'",
         isDev ? "'unsafe-inline'" : null,
         isDev ? "'unsafe-eval'" : null,
+        "'wasm-unsafe-eval'",
         analyticsEnabled ? umamiOrigin : null,
         turnstileEnabled ? TURNSTILE_ORIGIN : null,
     ].filter((value): value is string => Boolean(value)).join(" ")

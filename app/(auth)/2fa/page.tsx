@@ -26,7 +26,7 @@ export default async function Verify2FAPage() {
     }
 
     return (
-        <div className="container relative min-h-screen flex-col items-center justify-center grid lg:max-w-none lg:grid-cols-1 lg:px-0 bg-background py-12 lg:py-0">
+        <div className="container relative min-h-screen flex-col items-center justify-center grid lg:max-w-none lg:grid-cols-1 lg:px-0 bg-background">
             <LogoutButton />
             <div className="lg:p-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
                 <div className="mx-auto flex w-full flex-col justify-center space-y-6 sm:w-[440px] p-8 sm:p-10 rounded-2xl border border-border/40 bg-card shadow-xl shadow-primary/5">
