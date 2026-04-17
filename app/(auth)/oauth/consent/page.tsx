@@ -37,7 +37,7 @@ export default async function OAuthConsentPage({ searchParams }: ConsentPageProp
         redirect(`/login?callbackUrl=${encodeURIComponent(next)}`)
     }
 
-    const client = await prisma.oAuthApplication.findUnique({
+    const client = await prisma.oauthApplication.findUnique({
         where: { clientId },
         select: { name: true, clientId: true, icon: true, disabled: true },
     }).catch(() => null)
