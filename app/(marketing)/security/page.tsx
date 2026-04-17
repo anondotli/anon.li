@@ -113,7 +113,7 @@ export default function SecurityPage() {
                             <p>• Export all your account data (GDPR compliant)</p>
                             <p>• Permanent account deletion on request</p>
                             <p>• Removes all aliases, drops, and domains</p>
-                            <p>• Data purged from active systems on deletion; backups cleared within 30 days</p>
+                            <p>• Live account data purged immediately on deletion</p>
                             <p>• Self-service from your dashboard settings</p>
                         </CardContent>
                     </Card>

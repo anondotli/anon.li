@@ -12,9 +12,13 @@ interface Drop {
     takenDown: boolean
     takedownReason: string | null
     downloads: number
+    maxDownloads: number | null
+    customKey: boolean
+    viewedAt: Date | null
     expiresAt: Date | null
     createdAt: Date
     user: { id: string; email: string } | null
+    ownerKey: { id: string; vaultGeneration: number; createdAt: Date } | null
     totalSize: number
     fileCount: number
 }
@@ -33,7 +37,8 @@ const filterOptions = [
     { value: "active", label: "Active" },
     { value: "disabled", label: "Disabled" },
     { value: "takendown", label: "Taken Down" },
-    { value: "anonymous", label: "Anonymous" }
+    { value: "anonymous", label: "Anonymous" },
+    { value: "incomplete", label: "Incomplete" }
 ]
 
 export function DropTable({ drops, total, page, totalPages, search, filter }: DropTableProps) {
@@ -72,6 +77,12 @@ export function DropTable({ drops, total, page, totalPages, search, filter }: Dr
                     {!drop.uploadComplete && (
                         <Badge variant="outline">Incomplete</Badge>
                     )}
+                    {drop.customKey && (
+                        <Badge variant="outline">Password</Badge>
+                    )}
+                    {drop.ownerKey && (
+                        <Badge variant="outline">Vault key</Badge>
+                    )}
                 </div>
             )
         },
@@ -89,7 +100,12 @@ export function DropTable({ drops, total, page, totalPages, search, filter }: Dr
         {
             header: "Downloads",
             accessor: (drop) => (
-                <div className="text-sm">{drop.downloads}</div>
+                <div className="text-sm">
+                    {drop.downloads}
+                    {drop.maxDownloads && (
+                        <span className="text-muted-foreground"> / {drop.maxDownloads}</span>
+                    )}
+                </div>
             )
         },
         {

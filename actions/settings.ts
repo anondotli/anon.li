@@ -5,9 +5,7 @@ import { runSecureAction, type ActionState } from "@/lib/safe-action"
 import { redirect } from "next/navigation"
 
 /**
- * Request account deletion. Initiates the deletion lifecycle:
- * Sessions are revoked immediately, resources are deleted progressively,
- * and the user record is hard-deleted after the backup retention period.
+ * Delete an account immediately from live systems.
  */
 export async function deleteAccountAction(): Promise<ActionState> {
     const result = await runSecureAction(

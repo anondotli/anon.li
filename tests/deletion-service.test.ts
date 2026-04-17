@@ -4,6 +4,9 @@ const mocks = vi.hoisted(() => ({
     deletionRequestFindUnique: vi.fn(),
     deletionRequestUpdate: vi.fn(),
     deletionRequestFindMany: vi.fn(),
+    deletionRequestUpsert: vi.fn(),
+    deletionRequestDelete: vi.fn(),
+    userDelete: vi.fn(),
     aliasDeleteMany: vi.fn(),
     domainDeleteMany: vi.fn(),
     dropDeleteMany: vi.fn(),
@@ -26,7 +29,10 @@ vi.mock("@/lib/prisma", () => ({
             findUnique: mocks.deletionRequestFindUnique,
             update: mocks.deletionRequestUpdate,
             findMany: mocks.deletionRequestFindMany,
+            upsert: mocks.deletionRequestUpsert,
+            delete: mocks.deletionRequestDelete,
         },
+        user: { delete: mocks.userDelete },
         alias: { deleteMany: mocks.aliasDeleteMany },
         domain: { deleteMany: mocks.domainDeleteMany },
         drop: { deleteMany: mocks.dropDeleteMany },
@@ -63,6 +69,9 @@ describe("DeletionService", () => {
         })
         mocks.deletionRequestUpdate.mockResolvedValue(undefined)
         mocks.deletionRequestFindMany.mockResolvedValue([])
+        mocks.deletionRequestUpsert.mockResolvedValue({ id: "dr_123" })
+        mocks.deletionRequestDelete.mockResolvedValue(undefined)
+        mocks.userDelete.mockResolvedValue(undefined)
         mocks.aliasDeleteMany.mockResolvedValue({ count: 0 })
         mocks.domainDeleteMany.mockResolvedValue({ count: 0 })
         mocks.dropDeleteMany.mockResolvedValue({ count: 0 })
@@ -77,7 +86,7 @@ describe("DeletionService", () => {
         mocks.transaction.mockImplementation(async (operations: Promise<unknown>[]) => Promise.all(operations))
     })
 
-    it("deletes auth material and transitions into backup retention", async () => {
+    it("deletes auth material and marks active systems deleted", async () => {
         mocks.deletionRequestFindUnique.mockResolvedValue({
             id: "dr_123",
             userId: "user_123",
@@ -97,7 +106,39 @@ describe("DeletionService", () => {
         expect(mocks.userSecurityDeleteMany).toHaveBeenCalledWith({ where: { userId: "user_123" } })
         expect(mocks.deletionRequestUpdate).toHaveBeenCalledWith({
             where: { id: "dr_123" },
-            data: { status: "backup_retention" },
+            data: { status: "active_systems_deleted", completedAt: expect.any(Date) },
         })
+    })
+
+    it("hard-deletes the request row and user row immediately after cleanup", async () => {
+        mocks.deletionRequestFindUnique.mockResolvedValue({
+            id: "dr_123",
+            userId: "user_123",
+            status: "pending",
+            aliasesDeleted: false,
+            domainsDeleted: false,
+            storageDeleted: false,
+            dropsDeleted: false,
+            sessionsDeleted: true,
+        })
+
+        await expect(DeletionService.requestDeletion("user_123")).resolves.toBe("dr_123")
+
+        expect(mocks.sessionDeleteMany).toHaveBeenCalledWith({ where: { userId: "user_123" } })
+        expect(mocks.deletionRequestUpsert).toHaveBeenCalledWith({
+            where: { userId: "user_123" },
+            create: {
+                userId: "user_123",
+                status: "pending",
+                sessionsDeleted: true,
+            },
+            update: {
+                status: "pending",
+                sessionsDeleted: true,
+                completedAt: null,
+            },
+        })
+        expect(mocks.deletionRequestDelete).toHaveBeenCalledWith({ where: { id: "dr_123" } })
+        expect(mocks.userDelete).toHaveBeenCalledWith({ where: { id: "user_123" } })
     })
 })

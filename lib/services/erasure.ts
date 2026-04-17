@@ -2,7 +2,7 @@
  * Resource Erasure Pipeline
  *
  * Shared functions for deleting storage objects with retry tracking.
- * Used by the deletion lifecycle, admin takedown, and downgrade cleanup.
+ * Used by account deletion, admin takedown, and downgrade cleanup.
  */
 
 import { prisma } from "@/lib/prisma"
@@ -28,7 +28,8 @@ async function eraseDropFiles(dropId: string): Promise<string[]> {
 
     try {
         // Try batch delete first
-        await deleteObjects(keys)
+        const batchFailedKeys = await deleteObjects(keys)
+        failedKeys.push(...batchFailedKeys)
     } catch {
         // Fall back to per-file deletion
         for (const file of files) {
@@ -89,4 +90,3 @@ export async function eraseUserDrops(userId: string): Promise<{ totalFiles: numb
 
     return { totalFiles, failedKeys: failedKeysCount }
 }
-

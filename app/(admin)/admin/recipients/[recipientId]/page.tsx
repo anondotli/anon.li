@@ -144,6 +144,11 @@ export default async function RecipientDetailPage({
                                                 (metadata pending migration)
                                             </span>
                                         )}
+                                        <div className="text-xs text-muted-foreground">
+                                            {alias.routingSource === "routing"
+                                                ? `${alias.routingPrimary ? "Primary route" : "Route"} #${alias.routingOrdinal + 1}`
+                                                : "Legacy direct recipient"}
+                                        </div>
                                     </div>
                                     <Badge variant={alias.active ? "default" : "secondary"}>
                                         {alias.active ? "Active" : "Inactive"}

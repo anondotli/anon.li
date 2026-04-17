@@ -1,31 +1,32 @@
 import { Suspense } from "react"
 import { PageHeader } from "@/components/admin/page-header"
-import { ApiKeysTable } from "./api-keys-table"
-import { getAdminApiKeys } from "@/lib/data/admin"
+import { getAdminAuditLogs } from "@/lib/data/admin"
+import { AuditTable } from "./audit-table"
 
-export default async function ApiKeysPage({
+export default async function AuditPage({
     searchParams
 }: {
     searchParams: Promise<{ [key: string]: string | string[] | undefined }>
 }) {
     const params = await searchParams
-    const { apiKeys, total, page, totalPages, search, filter } = await getAdminApiKeys(params)
+    const { logs, actions, total, page, totalPages, search, action } = await getAdminAuditLogs(params)
 
     return (
         <div className="space-y-8">
             <PageHeader
-                title="API Keys"
-                description="Manage API keys for programmatic access."
+                title="Audit Logs"
+                description="Sensitive admin and security events."
             />
 
             <Suspense>
-                <ApiKeysTable
-                    apiKeys={apiKeys}
+                <AuditTable
+                    logs={logs}
+                    actions={actions}
                     total={total}
                     page={page}
                     totalPages={totalPages}
                     search={search}
-                    filter={filter}
+                    action={action}
                 />
             </Suspense>
         </div>

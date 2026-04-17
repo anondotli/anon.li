@@ -65,6 +65,29 @@ export default async function DomainDetailPage({
                             <span>{formatRelativeTime(domain.createdAt)}</span>
                         </div>
                         <div className="flex justify-between">
+                            <span className="text-muted-foreground">Catch-all</span>
+                            <Badge variant={domain.catchAll ? "default" : "secondary"}>
+                                {domain.catchAll ? "Enabled" : "Disabled"}
+                            </Badge>
+                        </div>
+                        {domain.catchAllRecipient && (
+                            <div className="flex justify-between items-start gap-4">
+                                <span className="text-muted-foreground">Catch-all Recipient</span>
+                                <Link
+                                    href={`/admin/recipients/${domain.catchAllRecipient.id}`}
+                                    className="font-mono text-sm text-primary hover:underline"
+                                >
+                                    {domain.catchAllRecipient.email}
+                                </Link>
+                            </div>
+                        )}
+                        {domain.scheduledForRemovalAt && (
+                            <div className="flex justify-between">
+                                <span className="text-muted-foreground">Scheduled Removal</span>
+                                <span>{formatRelativeTime(domain.scheduledForRemovalAt)}</span>
+                            </div>
+                        )}
+                        <div className="flex justify-between">
                             <span className="text-muted-foreground">Verification Token</span>
                             <code className="text-xs bg-muted px-2 py-1 rounded">
                                 {domain.verificationToken}

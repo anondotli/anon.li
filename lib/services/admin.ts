@@ -214,12 +214,10 @@ export class AdminService {
             throw new NotFoundError("User not found")
         }
 
-        // Cascade delete handles related records
-        await prisma.user.delete({
-            where: { id: userId }
-        })
+        const { DeletionService } = await import("@/lib/services/deletion")
+        const requestId = await DeletionService.requestDeletion(userId)
 
-        return { success: true }
+        return { success: true, requestId }
     }
 
     static async deleteAlias(aliasId: string) {
@@ -489,6 +487,32 @@ export class AdminService {
         })
 
         return { success: true }
+    }
+
+    static async processDeletionRequest(requestId: string) {
+        const request = await prisma.deletionRequest.findUnique({
+            where: { id: requestId },
+            select: { id: true, status: true }
+        })
+
+        if (!request) {
+            throw new NotFoundError("Deletion request not found")
+        }
+
+        if (request.status === "completed") {
+            throw new ValidationError("Deletion request is already completed")
+        }
+
+        const { DeletionService } = await import("@/lib/services/deletion")
+        await DeletionService.processDeletion(requestId)
+        await DeletionService.completeDeletion(requestId)
+
+        return { success: true }
+    }
+
+    static async cleanupOrphanedFiles() {
+        const { DropCleanupService } = await import("@/lib/services/drop-cleanup")
+        return DropCleanupService.cleanupOrphanedFiles(false)
     }
 
     static async toggleAliasActive(aliasId: string, active: boolean) {

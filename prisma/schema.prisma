@@ -492,6 +492,7 @@ model CryptoPayment {
 
   @@index([userId])
   @@index([status])
+  @@index([createdAt])
   @@map("crypto_payments")
 }
 
@@ -530,7 +531,7 @@ model DeletionRequest {
   userId String @unique
   user   User   @relation(fields: [userId], references: [id])
 
-  status String // "pending" | "active_systems_deleted" | "backup_retention" | "completed"
+  status String // "pending" | "active_systems_deleted"
 
   // Per-resource progress tracking
   sessionsDeleted Boolean @default(false)
@@ -544,6 +545,8 @@ model DeletionRequest {
   requestedAt DateTime  @default(now())
   completedAt DateTime?
 
+  @@index([status])
+  @@index([requestedAt])
   @@map("deletion_requests")
 }
 
@@ -560,6 +563,7 @@ model OrphanedFile {
   storageKey String
   createdAt  DateTime @default(now())
 
+  @@index([createdAt])
   @@map("orphaned_files")
 }
 

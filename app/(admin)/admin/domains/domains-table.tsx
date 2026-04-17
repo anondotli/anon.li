@@ -13,6 +13,8 @@ interface DomainWithUser {
     mxVerified: boolean
     spfVerified: boolean
     dkimVerified: boolean
+    catchAll: boolean
+    scheduledForRemovalAt: Date | null
     createdAt: Date
     user: { id: string; email: string; name: string | null } | null
     aliasCount: number
@@ -44,7 +46,13 @@ export function DomainsTable({
         },
         {
             header: "Status",
-            accessor: (row) => <VerificationBadge verified={row.verified} size="sm" />
+            accessor: (row) => (
+                <div className="flex flex-wrap gap-1">
+                    <VerificationBadge verified={row.verified} size="sm" />
+                    {row.catchAll && <span className="text-xs rounded border px-2 py-0.5">Catch-all</span>}
+                    {row.scheduledForRemovalAt && <span className="text-xs rounded border border-destructive text-destructive px-2 py-0.5">Scheduled</span>}
+                </div>
+            )
         },
         {
             header: "Verification",
@@ -67,7 +75,9 @@ export function DomainsTable({
     const filterOptions = [
         { value: "all", label: "All Domains" },
         { value: "verified", label: "Verified" },
-        { value: "unverified", label: "Unverified" }
+        { value: "unverified", label: "Unverified" },
+        { value: "catchall", label: "Catch-all" },
+        { value: "scheduled", label: "Scheduled removal" }
     ]
 
     return (

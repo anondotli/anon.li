@@ -1,8 +1,8 @@
 /**
- * Deletion Lifecycle Service
+ * Deletion Service
  *
- * Manages account deletion through a state machine:
- *   pending → backup_retention → completed
+ * Account deletion is immediate: the request row blocks access while active
+ * resources are erased, then the request row and user row are hard-deleted.
  *
  * Each transition is idempotent and can be retried safely.
  */
@@ -14,13 +14,10 @@ import { getVaultSchemaState } from "@/lib/vault/schema"
 
 const logger = createLogger("DeletionService")
 
-/** Days to retain data after active-system deletion */
-const BACKUP_RETENTION_DAYS = 30
-
 export class DeletionService {
     /**
-     * Request account deletion. Creates a DeletionRequest in "pending" state,
-     * immediately revokes all sessions, and blocks new sign-ins.
+     * Request account deletion. Creates a DeletionRequest in "pending" state to
+     * block new access, erases active resources, then hard-deletes the user.
      */
     static async requestDeletion(userId: string): Promise<string> {
         // Revoke all sessions immediately
@@ -32,6 +29,7 @@ export class DeletionService {
             create: {
                 userId,
                 status: "pending",
+                sessionsDeleted: true,
             },
             update: {
                 status: "pending",
@@ -40,15 +38,12 @@ export class DeletionService {
             },
         })
 
-        await prisma.deletionRequest.update({
-            where: { id: request.id },
-            data: { sessionsDeleted: true },
-        })
-
         logger.info("Deletion requested", { userId, requestId: request.id })
 
-        // Process immediately (can also be called by a cron job for retries)
+        // Process and complete immediately. If either step fails, the request
+        // row remains as an access-blocking retry marker for admins.
         await this.processDeletion(request.id)
+        await this.completeDeletion(request.id)
 
         return request.id
     }
@@ -145,14 +140,14 @@ export class DeletionService {
             await prisma.recipient.deleteMany({ where: { userId } })
             await prisma.subscription.deleteMany({ where: { userId } })
 
-            // Active systems are now wiped; retain the user row only until the
-            // backup retention window elapses so the final hard delete can run.
+            // Active systems are now wiped; the caller can immediately hard-delete
+            // the user row once this marker is written.
             await prisma.deletionRequest.update({
                 where: { id: requestId },
-                data: { status: "backup_retention" },
+                data: { status: "active_systems_deleted", completedAt: new Date() },
             })
 
-            logger.info("Deletion entered backup retention", { userId, requestId })
+            logger.info("Active-system deletion completed", { userId, requestId })
         } catch (error) {
             logger.error("Deletion processing failed", error, { userId, requestId })
             throw error
@@ -160,46 +155,24 @@ export class DeletionService {
     }
 
     /**
-     * Complete deletion after backup retention period.
-     * Called by a cron job. Hard-deletes the User row.
+     * Complete deletion immediately after active-system erasure. The request row
+     * must be removed first because it references the user row.
      */
     static async completeDeletion(requestId: string): Promise<void> {
         const request = await prisma.deletionRequest.findUnique({
             where: { id: requestId },
         })
 
-        if (!request || request.status === "completed") return
+        if (!request) return
 
         const userId = request.userId
 
-        // Delete request first (FK to User would block user deletion)
-        await prisma.deletionRequest.delete({ where: { id: requestId } })
-
-        // Hard-delete the user (cascades remaining records)
-        await prisma.user.delete({ where: { id: userId } })
+        await prisma.$transaction([
+            prisma.deletionRequest.delete({ where: { id: requestId } }),
+            prisma.user.delete({ where: { id: userId } }),
+        ])
 
         logger.info("Deletion completed", { userId, requestId })
-    }
-
-    /**
-     * Find all deletion requests ready for completion (past retention period).
-     * Used by the cron job.
-     */
-    static async findCompletable(): Promise<string[]> {
-        const cutoff = new Date()
-        cutoff.setDate(cutoff.getDate() - BACKUP_RETENTION_DAYS)
-
-        const requests = await prisma.deletionRequest.findMany({
-            where: {
-                status: {
-                    in: ["active_systems_deleted", "backup_retention"],
-                },
-                requestedAt: { lt: cutoff },
-            },
-            select: { id: true },
-        })
-
-        return requests.map((r) => r.id)
     }
 
     /**

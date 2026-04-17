@@ -11,9 +11,10 @@ interface RecipientWithUser {
     email: string
     verified: boolean
     pgpFingerprint: string | null
+    scheduledForRemovalAt: Date | null
     createdAt: Date
     user: { id: string; email: string; name: string | null }
-    _count: { aliases: number }
+    aliasCount: number
 }
 
 interface RecipientsTableProps {
@@ -42,7 +43,12 @@ export function RecipientsTable({
         },
         {
             header: "Status",
-            accessor: (row) => <VerificationBadge verified={row.verified} size="sm" />
+            accessor: (row) => (
+                <div className="flex flex-wrap gap-1">
+                    <VerificationBadge verified={row.verified} size="sm" />
+                    {row.scheduledForRemovalAt && <span className="text-xs rounded border border-destructive text-destructive px-2 py-0.5">Scheduled</span>}
+                </div>
+            )
         },
         {
             header: "PGP",
@@ -61,7 +67,7 @@ export function RecipientsTable({
         },
         {
             header: "Aliases",
-            accessor: (row) => row._count.aliases
+            accessor: (row) => row.aliasCount
         },
         {
             header: "Created",
@@ -73,7 +79,8 @@ export function RecipientsTable({
         { value: "all", label: "All Recipients" },
         { value: "verified", label: "Verified" },
         { value: "unverified", label: "Unverified" },
-        { value: "pgp", label: "Has PGP Key" }
+        { value: "pgp", label: "Has PGP Key" },
+        { value: "scheduled", label: "Scheduled removal" }
     ]
 
     return (

@@ -78,7 +78,7 @@ export interface PublicPricingPlan {
     entitlements: PublicEntitlements
 }
 
-export interface PublicPricingProduct {
+interface PublicPricingProduct {
     id: Product
     name: string
     description: string
@@ -86,7 +86,7 @@ export interface PublicPricingProduct {
     plans: PublicPricingPlan[]
 }
 
-export interface PublicPricingCatalog {
+interface PublicPricingCatalog {
     name: string
     description: string
     url: string

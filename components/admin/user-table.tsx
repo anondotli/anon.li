@@ -10,16 +10,42 @@ interface User {
     name: string | null
     isAdmin: boolean
     banned: boolean
+    banAliasCreation: boolean
+    banFileUpload: boolean
     banReason: string | null
     tosViolations: number
     stripePriceId: string | null
+    paymentMethod: string
+    twoFactorEnabled: boolean
     storageUsed: string
     storageLimit: string
     createdAt: Date
     updatedAt: Date
+    primarySubscription: {
+        provider: string
+        product: string
+        tier: string
+        status: string
+        currentPeriodEnd: Date | null
+        cancelAtPeriodEnd: boolean
+    } | null
+    deletionRequest: {
+        id: string
+        status: string
+        requestedAt: Date
+        completedAt: Date | null
+    } | null
+    security: {
+        migrationState: string
+        vaultGeneration: number
+        passwordSetAt: Date
+    } | null
     _count: {
         aliases: number
         drops: number
+        recipients: number
+        domains: number
+        apiKeys: number
     }
 }
 
@@ -36,8 +62,19 @@ const filterOptions = [
     { value: "all", label: "All Users" },
     { value: "active", label: "Active" },
     { value: "banned", label: "Banned" },
-    { value: "admin", label: "Admins" }
+    { value: "admin", label: "Admins" },
+    { value: "deleting", label: "Deleting" }
 ]
+
+function getSubscriptionLabel(user: User) {
+    if (user.primarySubscription) {
+        const product = user.primarySubscription.product.charAt(0).toUpperCase() + user.primarySubscription.product.slice(1)
+        const tier = user.primarySubscription.tier.charAt(0).toUpperCase() + user.primarySubscription.tier.slice(1)
+        return `${product} ${tier}`
+    }
+
+    return getPlanName(user.stripePriceId)
+}
 
 export function UserTable({ users, total, page, totalPages, search, filter }: UserTableProps) {
     const columns: Column<User>[] = [
@@ -62,6 +99,10 @@ export function UserTable({ users, total, page, totalPages, search, filter }: Us
                     ) : (
                         <Badge variant="secondary">Active</Badge>
                     )}
+                    {user.banAliasCreation && <Badge variant="outline">Alias ban</Badge>}
+                    {user.banFileUpload && <Badge variant="outline">Upload ban</Badge>}
+                    {user.deletionRequest && <Badge variant="destructive">Deleting</Badge>}
+                    {user.twoFactorEnabled && <Badge variant="outline">2FA</Badge>}
                     {user.tosViolations > 0 && (
                         <Badge variant="outline" className="text-orange-500 border-orange-500">
                             {user.tosViolations} strike{user.tosViolations !== 1 ? "s" : ""}
@@ -73,7 +114,13 @@ export function UserTable({ users, total, page, totalPages, search, filter }: Us
         {
             header: "Plan",
             accessor: (user) => (
-                <Badge variant="outline">{getPlanName(user.stripePriceId)}</Badge>
+                <div className="flex flex-col gap-1">
+                    <Badge variant="outline">{getSubscriptionLabel(user)}</Badge>
+                    <span className="text-xs text-muted-foreground capitalize">
+                        {user.primarySubscription?.provider ?? user.paymentMethod}
+                        {user.primarySubscription?.status ? ` · ${user.primarySubscription.status}` : ""}
+                    </span>
+                </div>
             )
         },
         {
@@ -89,6 +136,21 @@ export function UserTable({ users, total, page, totalPages, search, filter }: Us
             accessor: (user) => (
                 <div className="text-sm text-muted-foreground">
                     {user._count.aliases} aliases · {user._count.drops} drops
+                </div>
+            )
+        },
+        {
+            header: "Vault",
+            accessor: (user) => (
+                <div className="text-sm">
+                    {user.security ? (
+                        <>
+                            <span className="capitalize">{user.security.migrationState}</span>
+                            <span className="text-muted-foreground"> · gen {user.security.vaultGeneration}</span>
+                        </>
+                    ) : (
+                        <span className="text-muted-foreground">Not set</span>
+                    )}
                 </div>
             )
         },

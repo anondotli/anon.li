@@ -92,8 +92,8 @@ export function DeleteAccountSection() {
                                     This action cannot be undone. Your aliases, domains, files,
                                     drops, API keys, sign-in credentials, and encrypted vault
                                     access are revoked immediately. Any saved local browser trust
-                                    stops working once this account is deleted. Your account
-                                    record is permanently removed after 30 days.
+                                    stops working once this account is deleted. The account record
+                                    is removed from live systems immediately if deletion succeeds.
                                 </AlertDialogDescription>
                             </AlertDialogHeader>
                             <div className="space-y-2 py-4">

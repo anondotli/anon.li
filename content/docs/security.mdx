@@ -126,7 +126,7 @@ Vault passwords never leave the browser. The client derives auth secrets and key
 
 Alias labels and notes are being migrated into this vault-backed model. New metadata writes use `encrypted_label` and `encrypted_note` after a successful unlock, while legacy plaintext metadata can still exist for accounts that have not completed the client-side migration yet.
 
-Password resets revoke active sessions and invalidate saved local browser trust by clearing vault materials and wrapped Drop owner keys. During account deletion, sessions, API keys, credential accounts, 2FA data, and encrypted vault materials are revoked before the retained user row is hard-deleted after the backup window.
+Password resets revoke active sessions and invalidate saved local browser trust by clearing vault materials and wrapped Drop owner keys. During account deletion, sessions, API keys, credential accounts, 2FA data, and encrypted vault materials are revoked before the account record is hard-deleted from live systems.
 
 ### Two-Factor Authentication (TOTP)
 
@@ -217,7 +217,7 @@ Reporters receive email notifications when their report is reviewed. Affected us
 | Email content | Designed not to be stored at rest; depends on the separate mail server |
 | Mail server logs | 7 days maximum, auto-purged |
 | Encrypted files | User-configured expiry (1–30 days) or manual deletion |
-| Account data | Aliases, domains, files, drops, API keys, recipients, sign-in credentials, and vault materials deleted from active systems immediately on account deletion. The user record itself is hard-deleted after 30 days |
+| Account data | Aliases, domains, files, drops, API keys, recipients, sign-in credentials, vault materials, and the account record are deleted from live systems immediately on account deletion |
 | IP addresses | Never stored in sessions; hashed for abuse reports only; ephemeral in rate-limit cache |
 | Analytics | [Umami](https://umami.is/) on non-sensitive marketing/product pages only; disabled on Drop upload/download, auth, dashboard, and vault routes; event payloads exclude drop IDs and custom domains |
 

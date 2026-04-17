@@ -15,6 +15,10 @@ import {
     Key,
     ShieldX,
     Settings,
+    ScrollText,
+    CreditCard,
+    Trash2,
+    HardDrive,
     ChevronDown,
     ChevronRight,
     type LucideIcon
@@ -76,6 +80,10 @@ const navGroups: NavGroup[] = [
         defaultOpen: true,
         items: [
             { title: "API Keys", href: "/admin/api-keys", icon: Key },
+            { title: "Billing", href: "/admin/billing", icon: CreditCard },
+            { title: "Deletion Retries", href: "/admin/deletion", icon: Trash2 },
+            { title: "Storage Cleanup", href: "/admin/storage", icon: HardDrive },
+            { title: "Audit Logs", href: "/admin/audit", icon: ScrollText },
             { title: "Settings", href: "/admin/settings", icon: Settings },
         ]
     },

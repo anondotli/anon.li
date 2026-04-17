@@ -1,31 +1,31 @@
 import { Suspense } from "react"
 import { PageHeader } from "@/components/admin/page-header"
-import { ApiKeysTable } from "./api-keys-table"
-import { getAdminApiKeys } from "@/lib/data/admin"
+import { getAdminDeletionRequests } from "@/lib/data/admin"
+import { DeletionTable } from "./deletion-table"
 
-export default async function ApiKeysPage({
+export default async function DeletionPage({
     searchParams
 }: {
     searchParams: Promise<{ [key: string]: string | string[] | undefined }>
 }) {
     const params = await searchParams
-    const { apiKeys, total, page, totalPages, search, filter } = await getAdminApiKeys(params)
+    const { requests, total, page, totalPages, search, status } = await getAdminDeletionRequests(params)
 
     return (
         <div className="space-y-8">
             <PageHeader
-                title="API Keys"
-                description="Manage API keys for programmatic access."
+                title="Deletion Retry Queue"
+                description="Failed immediate account deletions that need retry."
             />
 
             <Suspense>
-                <ApiKeysTable
-                    apiKeys={apiKeys}
+                <DeletionTable
+                    requests={requests}
                     total={total}
                     page={page}
                     totalPages={totalPages}
                     search={search}
-                    filter={filter}
+                    status={status}
                 />
             </Suspense>
         </div>

@@ -153,17 +153,26 @@ export default async function AliasDetailPage({
 
                         <div className="p-3 rounded-lg bg-muted/50">
                             <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
-                                <Inbox className="h-4 w-4" /> Recipient
+                                <Inbox className="h-4 w-4" /> Recipients
                             </div>
-                            {alias.recipient ? (
-                                <div className="flex items-center justify-between">
-                                    <Link
-                                        href={`/admin/recipients/${alias.recipient.id}`}
-                                        className="font-mono text-sm text-primary hover:underline"
-                                    >
-                                        {alias.recipient.email}
-                                    </Link>
-                                    <VerificationBadge verified={alias.recipient.verified} size="sm" />
+                            {alias.recipients.length > 0 ? (
+                                <div className="space-y-2">
+                                    {alias.recipients.map((recipient) => (
+                                        <div key={recipient.id} className="flex items-center justify-between gap-3">
+                                            <div className="min-w-0">
+                                                <Link
+                                                    href={`/admin/recipients/${recipient.id}`}
+                                                    className="font-mono text-sm text-primary hover:underline"
+                                                >
+                                                    {recipient.email}
+                                                </Link>
+                                                <div className="text-xs text-muted-foreground">
+                                                    {recipient.isPrimary ? "Primary" : `Route ${recipient.ordinal + 1}`} · {recipient.source}
+                                                </div>
+                                            </div>
+                                            <VerificationBadge verified={recipient.verified} size="sm" />
+                                        </div>
+                                    ))}
                                 </div>
                             ) : (
                                 <span className="text-muted-foreground">No recipient</span>

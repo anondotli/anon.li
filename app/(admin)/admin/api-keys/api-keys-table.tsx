@@ -10,6 +10,8 @@ interface ApiKeyWithUser {
     keyPrefix: string
     label: string | null
     createdAt: Date
+    lastUsedAt: Date | null
+    expiresAt: Date | null
     user: { id: string; email: string; name: string | null }
 }
 
@@ -19,6 +21,7 @@ interface ApiKeysTableProps {
     page: number
     totalPages: number
     search: string
+    filter: string
 }
 
 export function ApiKeysTable({
@@ -26,7 +29,8 @@ export function ApiKeysTable({
     total,
     page,
     totalPages,
-    search
+    search,
+    filter
 }: ApiKeysTableProps) {
     const columns: Column<ApiKeyWithUser>[] = [
         {
@@ -50,6 +54,14 @@ export function ApiKeysTable({
             accessor: (row) => formatRelativeTime(row.createdAt)
         },
         {
+            header: "Last Used",
+            accessor: (row) => row.lastUsedAt ? formatRelativeTime(row.lastUsedAt) : <span className="text-muted-foreground">Never</span>
+        },
+        {
+            header: "Expires",
+            accessor: (row) => row.expiresAt ? formatRelativeTime(row.expiresAt) : <span className="text-muted-foreground">Never</span>
+        },
+        {
             header: "Actions",
             accessor: (row) => <ApiKeyActions apiKey={row} />,
             className: "w-24"
@@ -65,6 +77,12 @@ export function ApiKeysTable({
             totalPages={totalPages}
             basePath="/admin/api-keys"
             search={search}
+            filter={filter}
+            filterOptions={[
+                { value: "all", label: "All Keys" },
+                { value: "active", label: "Active" },
+                { value: "expired", label: "Expired" },
+            ]}
             searchPlaceholder="Search by prefix or label..."
             emptyMessage="No API keys found"
             rowKey={(row) => row.id}

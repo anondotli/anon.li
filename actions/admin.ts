@@ -9,30 +9,62 @@ import { audit } from "@/lib/services/audit"
 
 const logger = createLogger("AdminActions")
 
+const idSchema = z.string().min(1).max(200)
+const reasonSchema = z.string().trim().min(1, "Reason is required").max(1000)
+const optionalReasonSchema = z.string().trim().max(1000).optional()
+
+const takedownDropSchema = z.object({
+    dropId: idSchema,
+    reason: reasonSchema,
+})
+
+const idOnlySchema = z.object({
+    id: idSchema,
+})
+
+const banUserSchema = z.object({
+    userId: idSchema,
+    full: z.boolean().optional(),
+    aliasCreation: z.boolean().optional(),
+    fileUpload: z.boolean().optional(),
+    reason: optionalReasonSchema,
+}).refine(
+    (data) => data.full || data.aliasCreation || data.fileUpload,
+    "At least one ban option is required"
+)
+
+const toggleAliasSchema = z.object({
+    aliasId: idSchema,
+    active: z.boolean(),
+})
+
+const reservedAliasesSchema = z.object({
+    aliases: z.array(z.string().max(100)).max(1000),
+})
+
 // ============================================================================
 // Drop Actions
 // ============================================================================
 
 export async function takedownDrop(dropId: string, reason: string) {
-    return runAdminAction({}, async (_data, adminId) => {
-        if (!reason.trim()) {
-            throw new Error("Takedown reason is required")
-        }
+    return runAdminAction({ schema: takedownDropSchema, data: { dropId, reason } }, async (validated, adminId) => {
+        await AdminService.takedownDrop(validated.dropId, validated.reason)
 
-        await AdminService.takedownDrop(dropId, reason)
-
-        audit({ action: "drop.takedown", actorId: adminId, targetId: dropId, metadata: { reason } })
-        logger.info("Drop taken down", { adminId, dropId, reason })
-        revalidatePath(`/admin/drops/${dropId}`)
+        await audit({ action: "drop.takedown", actorId: adminId, targetId: validated.dropId, metadata: { reason: validated.reason } })
+        logger.info("Drop taken down", { adminId, dropId: validated.dropId, reason: validated.reason })
+        revalidatePath(`/admin/drops/${validated.dropId}`)
+        revalidatePath("/admin/takedowns")
         return { success: true }
     })
 }
 
 export async function deleteDrop(dropId: string) {
-    return runAdminAction({}, async (_data, adminId) => {
-        await AdminService.hardDeleteDrop(dropId)
-        logger.info("Drop deleted", { adminId, dropId })
+    return runAdminAction({ schema: idOnlySchema, data: { id: dropId } }, async (validated, adminId) => {
+        await AdminService.hardDeleteDrop(validated.id)
+        await audit({ action: "drop.delete", actorId: adminId, targetId: validated.id })
+        logger.info("Drop deleted", { adminId, dropId: validated.id })
         revalidatePath("/admin/drops")
+        revalidatePath("/admin/storage")
         return { success: true }
     })
 }
@@ -50,38 +82,45 @@ export async function banUser(
         reason?: string
     }
 ) {
-    return runAdminAction({}, async (_data, adminId) => {
-        if (userId === adminId) {
+    return runAdminAction(
+        { schema: banUserSchema, data: { userId, ...options } },
+        async (validated, adminId) => {
+        if (validated.userId === adminId) {
             throw new Error("Cannot ban your own account")
         }
 
-        await AdminService.banUser(userId, options)
+        await AdminService.banUser(validated.userId, validated)
 
-        audit({ action: "user.ban", actorId: adminId, targetId: userId, metadata: { full: options.full, aliasCreation: options.aliasCreation, fileUpload: options.fileUpload, reason: options.reason } })
-        logger.info("User banned", { adminId, userId, options: { full: options.full, aliasCreation: options.aliasCreation, fileUpload: options.fileUpload } })
-        revalidatePath(`/admin/users/${userId}`)
+        await audit({ action: "user.ban", actorId: adminId, targetId: validated.userId, metadata: { full: validated.full, aliasCreation: validated.aliasCreation, fileUpload: validated.fileUpload, reason: validated.reason } })
+        logger.info("User banned", { adminId, userId: validated.userId, options: { full: validated.full, aliasCreation: validated.aliasCreation, fileUpload: validated.fileUpload } })
+        revalidatePath(`/admin/users/${validated.userId}`)
+        revalidatePath("/admin/users")
         return { success: true }
     })
 }
 
 export async function unbanUser(userId: string) {
-    return runAdminAction({}, async (_data, adminId) => {
-        await AdminService.unbanUser(userId)
-        audit({ action: "user.unban", actorId: adminId, targetId: userId })
-        logger.info("User unbanned", { adminId, userId })
-        revalidatePath(`/admin/users/${userId}`)
+    return runAdminAction({ schema: idOnlySchema, data: { id: userId } }, async (validated, adminId) => {
+        await AdminService.unbanUser(validated.id)
+        await audit({ action: "user.unban", actorId: adminId, targetId: validated.id })
+        logger.info("User unbanned", { adminId, userId: validated.id })
+        revalidatePath(`/admin/users/${validated.id}`)
+        revalidatePath("/admin/users")
         return { success: true }
     })
 }
 
 export async function deleteUser(userId: string) {
-    return runAdminAction({}, async (_data, adminId) => {
-        if (userId === adminId) {
+    return runAdminAction({ schema: idOnlySchema, data: { id: userId } }, async (validated, adminId) => {
+        if (validated.id === adminId) {
             throw new Error("Cannot delete your own account")
         }
-        await AdminService.deleteUser(userId)
-        logger.info("User deleted", { adminId, userId })
+        const result = await AdminService.deleteUser(validated.id)
+        await audit({ action: "user.delete_request", actorId: adminId, targetId: validated.id, metadata: { requestId: result.requestId } })
+        logger.info("User deleted", { adminId, userId: validated.id, requestId: result.requestId })
         revalidatePath("/admin/users")
+        revalidatePath("/admin/deletion")
+        revalidatePath("/admin/storage")
         return { success: true }
     })
 }
@@ -91,18 +130,21 @@ export async function deleteUser(userId: string) {
 // ============================================================================
 
 export async function toggleAlias(aliasId: string, active: boolean) {
-    return runAdminAction({}, async (_data, adminId) => {
-        await AdminService.toggleAliasActive(aliasId, active)
-        logger.info("Alias toggled", { adminId, aliasId, active })
-        revalidatePath(`/admin/aliases/${aliasId}`)
+    return runAdminAction({ schema: toggleAliasSchema, data: { aliasId, active } }, async (validated, adminId) => {
+        await AdminService.toggleAliasActive(validated.aliasId, validated.active)
+        await audit({ action: "alias.update", actorId: adminId, targetId: validated.aliasId, metadata: { active: validated.active } })
+        logger.info("Alias toggled", { adminId, aliasId: validated.aliasId, active: validated.active })
+        revalidatePath(`/admin/aliases/${validated.aliasId}`)
+        revalidatePath("/admin/aliases")
         return { success: true }
     })
 }
 
 export async function deleteAlias(aliasId: string) {
-    return runAdminAction({}, async (_data, adminId) => {
-        await AdminService.deleteAlias(aliasId)
-        logger.info("Alias deleted", { adminId, aliasId })
+    return runAdminAction({ schema: idOnlySchema, data: { id: aliasId } }, async (validated, adminId) => {
+        await AdminService.deleteAlias(validated.id)
+        await audit({ action: "alias.delete", actorId: adminId, targetId: validated.id })
+        logger.info("Alias deleted", { adminId, aliasId: validated.id })
         revalidatePath("/admin/aliases")
         return { success: true }
     })
@@ -113,18 +155,21 @@ export async function deleteAlias(aliasId: string) {
 // ============================================================================
 
 export async function forceVerifyDomain(domainId: string) {
-    return runAdminAction({}, async (_data, adminId) => {
-        await AdminService.forceVerifyDomain(domainId)
-        logger.info("Domain force-verified", { adminId, domainId })
-        revalidatePath(`/admin/domains/${domainId}`)
+    return runAdminAction({ schema: idOnlySchema, data: { id: domainId } }, async (validated, adminId) => {
+        await AdminService.forceVerifyDomain(validated.id)
+        await audit({ action: "domain.verify", actorId: adminId, targetId: validated.id })
+        logger.info("Domain force-verified", { adminId, domainId: validated.id })
+        revalidatePath(`/admin/domains/${validated.id}`)
+        revalidatePath("/admin/domains")
         return { success: true }
     })
 }
 
 export async function deleteDomain(domainId: string) {
-    return runAdminAction({}, async (_data, adminId) => {
-        await AdminService.deleteDomain(domainId)
-        logger.info("Domain deleted", { adminId, domainId })
+    return runAdminAction({ schema: idOnlySchema, data: { id: domainId } }, async (validated, adminId) => {
+        await AdminService.deleteDomain(validated.id)
+        await audit({ action: "domain.delete", actorId: adminId, targetId: validated.id })
+        logger.info("Domain deleted", { adminId, domainId: validated.id })
         revalidatePath("/admin/domains")
         return { success: true }
     })
@@ -135,9 +180,10 @@ export async function deleteDomain(domainId: string) {
 // ============================================================================
 
 export async function deleteRecipient(recipientId: string) {
-    return runAdminAction({}, async (_data, adminId) => {
-        await AdminService.deleteRecipient(recipientId)
-        logger.info("Recipient deleted", { adminId, recipientId })
+    return runAdminAction({ schema: idOnlySchema, data: { id: recipientId } }, async (validated, adminId) => {
+        await AdminService.deleteRecipient(validated.id)
+        await audit({ action: "recipient.delete", actorId: adminId, targetId: validated.id })
+        logger.info("Recipient deleted", { adminId, recipientId: validated.id })
         revalidatePath("/admin/recipients")
         return { success: true }
     })
@@ -148,10 +194,10 @@ export async function deleteRecipient(recipientId: string) {
 // ============================================================================
 
 export async function revokeApiKey(keyId: string) {
-    return runAdminAction({}, async (_data, adminId) => {
-        await AdminService.revokeApiKey(keyId)
-        audit({ action: "api_key.delete", actorId: adminId, targetId: keyId })
-        logger.info("API key revoked", { adminId, keyId })
+    return runAdminAction({ schema: idOnlySchema, data: { id: keyId } }, async (validated, adminId) => {
+        await AdminService.revokeApiKey(validated.id)
+        await audit({ action: "api_key.delete", actorId: adminId, targetId: validated.id })
+        logger.info("API key revoked", { adminId, keyId: validated.id })
         revalidatePath("/admin/api-keys")
         return { success: true }
     })
@@ -162,20 +208,23 @@ export async function revokeApiKey(keyId: string) {
 // ============================================================================
 
 export async function restoreDrop(dropId: string) {
-    return runAdminAction({}, async (_data, adminId) => {
-        await AdminService.restoreDrop(dropId)
-        audit({ action: "drop.restore", actorId: adminId, targetId: dropId })
-        logger.info("Drop restored", { adminId, dropId })
+    return runAdminAction({ schema: idOnlySchema, data: { id: dropId } }, async (validated, adminId) => {
+        await AdminService.restoreDrop(validated.id)
+        await audit({ action: "drop.restore", actorId: adminId, targetId: validated.id })
+        logger.info("Drop restored", { adminId, dropId: validated.id })
         revalidatePath("/admin/takedowns")
+        revalidatePath(`/admin/drops/${validated.id}`)
         return { success: true }
     })
 }
 
 export async function hardDeleteDrop(dropId: string) {
-    return runAdminAction({}, async (_data, adminId) => {
-        await AdminService.hardDeleteDrop(dropId)
-        logger.info("Drop hard-deleted", { adminId, dropId })
+    return runAdminAction({ schema: idOnlySchema, data: { id: dropId } }, async (validated, adminId) => {
+        await AdminService.hardDeleteDrop(validated.id)
+        await audit({ action: "drop.delete", actorId: adminId, targetId: validated.id, metadata: { source: "takedowns" } })
+        logger.info("Drop hard-deleted", { adminId, dropId: validated.id })
         revalidatePath("/admin/takedowns")
+        revalidatePath("/admin/storage")
         return { success: true }
     })
 }
@@ -192,6 +241,29 @@ const updateReportSchema = z.object({
     takedownReason: z.string().optional()
 })
 
+export async function processDeletionRequest(requestId: string) {
+    return runAdminAction({ schema: idOnlySchema, data: { id: requestId } }, async (validated, adminId) => {
+        await AdminService.processDeletionRequest(validated.id)
+        await audit({ action: "deletion.process", actorId: adminId, targetId: validated.id })
+        logger.info("Deletion request retried", { adminId, requestId: validated.id })
+        revalidatePath("/admin/deletion")
+        revalidatePath("/admin/users")
+        revalidatePath("/admin/storage")
+        return { success: true }
+    })
+}
+
+export async function cleanupOrphanedFiles() {
+    return runAdminAction({}, async (_data, adminId) => {
+        const result = await AdminService.cleanupOrphanedFiles()
+        await audit({ action: "storage.orphaned_cleanup", actorId: adminId, metadata: result })
+        logger.info("Orphaned file cleanup triggered", { adminId, result })
+        revalidatePath("/admin/storage")
+        revalidatePath("/admin")
+        return result
+    })
+}
+
 export async function updateReport(
     reportId: string,
     data: { status: string; actionTaken?: string | null; notes?: string; takedownReason?: string }
@@ -199,7 +271,7 @@ export async function updateReport(
     return runAdminAction(
         { schema: updateReportSchema, data: { reportId, ...data } },
         async (validated, adminId) => {
-            const { report: reportData } = await AdminService.getReportWithContext(reportId)
+            const { report: reportData } = await AdminService.getReportWithContext(validated.reportId)
             const { serviceType, resourceId } = reportData
 
             // Handle takedown action
@@ -217,6 +289,7 @@ export async function updateReport(
                 const userId = await AdminService.getResourceOwnerUserId(serviceType, resourceId)
                 if (userId) {
                     await AdminService.sendWarningEmail(userId, validated.notes || "Your content has been flagged for review.")
+                    await audit({ action: "admin.warning_sent", actorId: adminId, targetId: userId, metadata: { reportId: validated.reportId } })
                 }
             }
 
@@ -232,7 +305,7 @@ export async function updateReport(
             }
 
             await AdminService.resolveReport(
-                reportId,
+                validated.reportId,
                 validated.status,
                 validated.notes || "",
                 validated.actionTaken || null,
@@ -243,10 +316,15 @@ export async function updateReport(
                 await AdminService.notifyReporter(reportId, validated.status)
             }
 
-            const auditAction = validated.status === "resolved" ? "report.resolve" as const : "report.dismiss" as const
-            audit({ action: auditAction, actorId: adminId, targetId: reportId, metadata: { status: validated.status, actionTaken: validated.actionTaken } })
-            logger.info("Report updated", { adminId, reportId, status: validated.status, actionTaken: validated.actionTaken })
+            const auditAction = validated.status === "resolved"
+                ? "report.resolve" as const
+                : validated.status === "dismissed"
+                    ? "report.dismiss" as const
+                    : "report.review" as const
+            await audit({ action: auditAction, actorId: adminId, targetId: validated.reportId, metadata: { status: validated.status, actionTaken: validated.actionTaken } })
+            logger.info("Report updated", { adminId, reportId: validated.reportId, status: validated.status, actionTaken: validated.actionTaken })
             revalidatePath("/admin/reports")
+            revalidatePath(`/admin/reports/${validated.reportId}`)
             return { success: true }
         }
     )
@@ -269,11 +347,9 @@ export async function getReservedAliases() {
 }
 
 export async function updateReservedAliases(aliases: string[]) {
-    return runAdminAction({}, async (_data, adminId) => {
-        if (!Array.isArray(aliases)) {
-            throw new Error("Invalid aliases format")
-        }
-        const result = await AdminService.updateReservedAliases(aliases)
+    return runAdminAction({ schema: reservedAliasesSchema, data: { aliases } }, async (validated, adminId) => {
+        const result = await AdminService.updateReservedAliases(validated.aliases)
+        await audit({ action: "settings.reserved_aliases.update", actorId: adminId, metadata: { count: result.length } })
         logger.info("Reserved aliases updated", { adminId, count: result.length })
         revalidatePath("/admin/settings")
         return result

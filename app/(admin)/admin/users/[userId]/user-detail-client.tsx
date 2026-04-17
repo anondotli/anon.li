@@ -45,17 +45,83 @@ interface UserDetailClientProps {
         banAliasCreation: boolean
         banFileUpload: boolean
         tosViolations: number
+        emailVerified: boolean
+        twoFactorEnabled: boolean
         stripePriceId: string | null
         stripeCustomerId: string | null
+        stripeSubscriptionId: string | null
+        stripeCurrentPeriodEnd: Date | null
+        stripeCancelAtPeriodEnd: boolean
+        paymentMethod: string
+        downgradedAt: Date | null
         storageUsed: string
         storageLimit: string
         createdAt: Date
         updatedAt: Date
+        primarySubscription: {
+            provider: string
+            product: string
+            tier: string
+            status: string
+            currentPeriodEnd: Date | null
+            cancelAtPeriodEnd: boolean
+            providerSubscriptionId: string | null
+        } | null
+        subscriptions: Array<{
+            id: string
+            provider: string
+            providerSubscriptionId: string | null
+            providerCustomerId: string | null
+            providerPriceId: string | null
+            product: string
+            tier: string
+            status: string
+            currentPeriodStart: Date | null
+            currentPeriodEnd: Date | null
+            cancelAtPeriodEnd: boolean
+            createdAt: Date
+        }>
+        cryptoPayments: Array<{
+            id: string
+            nowPaymentId: string
+            invoiceId: string | null
+            orderId: string
+            payAmount: number
+            payCurrency: string
+            priceAmount: number
+            priceCurrency: string
+            actuallyPaid: number | null
+            product: string
+            tier: string
+            status: string
+            periodStart: Date | null
+            periodEnd: Date | null
+            createdAt: Date
+        }>
+        deletionRequest: {
+            id: string
+            status: string
+            sessionsDeleted: boolean
+            aliasesDeleted: boolean
+            domainsDeleted: boolean
+            dropsDeleted: boolean
+            storageDeleted: boolean
+            requestedAt: Date
+            completedAt: Date | null
+        } | null
+        security: {
+            migrationState: string
+            vaultGeneration: number
+            passwordSetAt: Date
+            updatedAt: Date
+        } | null
+        twoFactor: { verified: boolean } | null
         aliases: Array<{
             id: string
             email: string
             active: boolean
             emailsReceived: number
+            scheduledForRemovalAt: Date | null
             createdAt: Date
         }>
         drops: Array<{
@@ -73,6 +139,7 @@ interface UserDetailClientProps {
             recipients: number
             domains: number
             apiKeys: number
+            sessions: number
         }
     }
 }
@@ -130,16 +197,20 @@ export function UserDetailClient({ user }: UserDetailClientProps) {
             if (result.error) {
                 toast.error(result.error)
             } else {
-                toast.success("User deleted successfully")
-                router.push("/admin/users")
+                toast.success("Account deleted")
+                router.refresh()
+                setShowDeleteDialog(false)
             }
         } catch {
-            toast.error("Failed to delete user")
+            toast.error("Failed to delete account")
         }
         setLoading(false)
     }
 
     const isBanned = user.banned || user.banAliasCreation || user.banFileUpload
+    const planLabel = user.primarySubscription
+        ? `${user.primarySubscription.product.charAt(0).toUpperCase() + user.primarySubscription.product.slice(1)} ${user.primarySubscription.tier.charAt(0).toUpperCase() + user.primarySubscription.tier.slice(1)}`
+        : getPlanName(user.stripePriceId)
 
     return (
         <div className="space-y-6">
@@ -160,9 +231,12 @@ export function UserDetailClient({ user }: UserDetailClientProps) {
                     </p>
                     <div className="flex gap-2 mt-2">
                         {user.isAdmin && <Badge>Admin</Badge>}
+                        {user.emailVerified && <Badge variant="outline">Email verified</Badge>}
+                        {user.twoFactorEnabled && <Badge variant="outline">2FA enabled</Badge>}
                         {user.banned && <Badge variant="destructive">Banned</Badge>}
                         {user.banAliasCreation && <Badge variant="outline" className="text-orange-500">Alias Ban</Badge>}
                         {user.banFileUpload && <Badge variant="outline" className="text-orange-500">Upload Ban</Badge>}
+                        {user.deletionRequest && <Badge variant="destructive">Deletion {user.deletionRequest.status}</Badge>}
                         {user.tosViolations > 0 && (
                             <Badge variant="outline" className="text-orange-500">
                                 {user.tosViolations} strike{user.tosViolations !== 1 ? "s" : ""}
@@ -194,10 +268,10 @@ export function UserDetailClient({ user }: UserDetailClientProps) {
                     <Button
                         variant="destructive"
                         onClick={() => setShowDeleteDialog(true)}
-                        disabled={loading}
+                        disabled={loading || !!user.deletionRequest}
                     >
                         <Trash2 className="h-4 w-4 mr-2" />
-                        Delete
+                        {user.deletionRequest ? "Deletion Pending" : "Delete"}
                     </Button>
                 </div>
             </div>
@@ -243,8 +317,12 @@ export function UserDetailClient({ user }: UserDetailClientProps) {
                     </CardHeader>
                     <CardContent>
                         <div className="text-2xl font-bold">
-                            {getPlanName(user.stripePriceId)}
+                            {planLabel}
                         </div>
+                        <p className="text-xs text-muted-foreground capitalize">
+                            {user.primarySubscription?.provider ?? user.paymentMethod}
+                            {user.primarySubscription?.status ? ` · ${user.primarySubscription.status}` : ""}
+                        </p>
                         {user.stripeCustomerId && (
                             <p className="text-xs text-muted-foreground truncate">
                                 {user.stripeCustomerId}
@@ -346,6 +424,20 @@ export function UserDetailClient({ user }: UserDetailClientProps) {
                         <Label className="text-muted-foreground">API Keys</Label>
                         <p>{user._count.apiKeys}</p>
                     </div>
+                    <div>
+                        <Label className="text-muted-foreground">Active Sessions</Label>
+                        <p>{user._count.sessions}</p>
+                    </div>
+                    <div>
+                        <Label className="text-muted-foreground">Payment Method</Label>
+                        <p className="capitalize">{user.paymentMethod}</p>
+                    </div>
+                    {user.downgradedAt && (
+                        <div>
+                            <Label className="text-muted-foreground">Downgraded</Label>
+                            <p>{formatDateTime(user.downgradedAt)}</p>
+                        </div>
+                    )}
                     {user.banReason && (
                         <div className="md:col-span-2">
                             <Label className="text-muted-foreground">Ban Reason</Label>
@@ -354,6 +446,116 @@ export function UserDetailClient({ user }: UserDetailClientProps) {
                     )}
                 </CardContent>
             </Card>
+
+            <div className="grid gap-6 md:grid-cols-2">
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Subscriptions</CardTitle>
+                        <CardDescription>Canonical Subscription records with legacy Stripe fallback visible above.</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        {user.subscriptions.length > 0 ? (
+                            <div className="space-y-3">
+                                {user.subscriptions.map((subscription) => (
+                                    <div key={subscription.id} className="rounded border p-3">
+                                        <div className="flex items-center justify-between gap-3">
+                                            <div className="font-medium capitalize">
+                                                {subscription.product} {subscription.tier}
+                                            </div>
+                                            <Badge variant={subscription.status === "active" || subscription.status === "trialing" ? "default" : "outline"}>
+                                                {subscription.status}
+                                            </Badge>
+                                        </div>
+                                        <div className="mt-1 text-xs text-muted-foreground">
+                                            {subscription.provider}
+                                            {subscription.currentPeriodEnd ? ` · ends ${formatDateTime(subscription.currentPeriodEnd)}` : " · no period end"}
+                                            {subscription.cancelAtPeriodEnd ? " · canceling" : ""}
+                                        </div>
+                                        {subscription.providerSubscriptionId && (
+                                            <code className="mt-2 block text-xs text-muted-foreground truncate">
+                                                {subscription.providerSubscriptionId}
+                                            </code>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <p className="text-sm text-muted-foreground">No canonical subscription records.</p>
+                        )}
+                    </CardContent>
+                </Card>
+
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Security & Deletion</CardTitle>
+                        <CardDescription>Operational state for vault, 2FA, and account deletion.</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        <div>
+                            <Label className="text-muted-foreground">Vault</Label>
+                            {user.security ? (
+                                <p>
+                                    <span className="capitalize">{user.security.migrationState}</span>
+                                    <span className="text-muted-foreground"> · generation {user.security.vaultGeneration}</span>
+                                </p>
+                            ) : (
+                                <p className="text-muted-foreground">Not configured</p>
+                            )}
+                        </div>
+                        <div>
+                            <Label className="text-muted-foreground">Two-factor</Label>
+                            <p>{user.twoFactorEnabled ? (user.twoFactor?.verified ? "Enabled and verified" : "Enabled") : "Disabled"}</p>
+                        </div>
+                        {user.deletionRequest ? (
+                            <div className="rounded border border-destructive/30 p-3">
+                                <div className="flex items-center justify-between">
+                                    <Label className="text-muted-foreground">Deletion Request</Label>
+                                    <Badge variant="destructive">{user.deletionRequest.status}</Badge>
+                                </div>
+                                <p className="mt-1 text-sm">
+                                    Requested {formatDateTime(user.deletionRequest.requestedAt)}
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                    Sessions {user.deletionRequest.sessionsDeleted ? "deleted" : "pending"} ·
+                                    Aliases {user.deletionRequest.aliasesDeleted ? "deleted" : "pending"} ·
+                                    Drops {user.deletionRequest.dropsDeleted ? "deleted" : "pending"} ·
+                                    Storage {user.deletionRequest.storageDeleted ? "deleted" : "pending"}
+                                </p>
+                            </div>
+                        ) : (
+                            <div>
+                                <Label className="text-muted-foreground">Deletion Request</Label>
+                                <p className="text-muted-foreground">None</p>
+                            </div>
+                        )}
+                    </CardContent>
+                </Card>
+            </div>
+
+            {user.cryptoPayments.length > 0 && (
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Recent Crypto Payments</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-2">
+                        {user.cryptoPayments.map((payment) => (
+                            <div key={payment.id} className="flex items-center justify-between gap-4 rounded border p-3">
+                                <div>
+                                    <div className="font-medium capitalize">
+                                        {payment.product} {payment.tier}
+                                    </div>
+                                    <div className="text-xs text-muted-foreground">
+                                        {payment.payAmount} {payment.payCurrency.toUpperCase()} · {formatDateTime(payment.createdAt)}
+                                    </div>
+                                </div>
+                                <Badge variant={payment.status === "finished" ? "default" : "outline"}>
+                                    {payment.status}
+                                </Badge>
+                            </div>
+                        ))}
+                    </CardContent>
+                </Card>
+            )}
 
             {/* Ban Dialog */}
             <AlertDialog open={showBanDialog} onOpenChange={setShowBanDialog}>
@@ -411,7 +613,7 @@ export function UserDetailClient({ user }: UserDetailClientProps) {
                     <AlertDialogHeader>
                         <AlertDialogTitle>Delete User</AlertDialogTitle>
                         <AlertDialogDescription>
-                            This will permanently delete {user.email} and all their data including aliases, drops, and settings. This action cannot be undone.
+                            This immediately deletes {user.email}. Sessions are revoked, active-system data is erased, and the user row is hard-deleted if the deletion succeeds. Failed deletions remain in the retry queue.
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>

@@ -67,12 +67,20 @@ interface DropDetailClientProps {
             name: string | null
             tosViolations: number
         } | null
+        ownerKey: {
+            id: string
+            vaultGeneration: number
+            createdAt: Date
+            updatedAt: Date
+        } | null
         files: Array<{
             id: string
             encryptedName: string
             size: string
             mimeType: string
             uploadComplete: boolean
+            chunkCount: number | null
+            chunkSize: number | null
             createdAt: Date
         }>
     }
@@ -151,6 +159,7 @@ export function DropDetailClient({ drop }: DropDetailClientProps) {
                         )}
                         {!drop.uploadComplete && <Badge variant="outline">Upload Incomplete</Badge>}
                         {drop.customKey && <Badge variant="outline">Password Protected</Badge>}
+                        {drop.ownerKey && <Badge variant="outline">Owner Vault Key</Badge>}
                         {drop.user === null && <Badge variant="outline">Anonymous</Badge>}
                     </div>
                 </div>
@@ -338,8 +347,8 @@ export function DropDetailClient({ drop }: DropDetailClientProps) {
                         </div>
                     )}
                     <div>
-                        <Label className="text-muted-foreground">IV (Encryption)</Label>
-                        <p className="font-mono text-sm truncate">{drop.iv}</p>
+                        <Label className="text-muted-foreground">Vault Owner Key</Label>
+                        <p>{drop.ownerKey ? `Generation ${drop.ownerKey.vaultGeneration}` : "Not stored"}</p>
                     </div>
                 </CardContent>
             </Card>

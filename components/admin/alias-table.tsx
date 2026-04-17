@@ -28,8 +28,16 @@ interface Alias {
     emailsReceived: number
     emailsBlocked: number
     lastEmailAt: Date | null
+    scheduledForRemovalAt: Date | null
     createdAt: Date
     user: { id: string; email: string }
+    recipients: Array<{
+        id: string
+        email: string
+        verified: boolean
+        isPrimary: boolean
+        source: "routing" | "legacy"
+    }>
 }
 
 interface AliasTableProps {
@@ -44,7 +52,8 @@ interface AliasTableProps {
 const filterOptions = [
     { value: "all", label: "All Aliases" },
     { value: "active", label: "Active" },
-    { value: "inactive", label: "Inactive" }
+    { value: "inactive", label: "Inactive" },
+    { value: "scheduled", label: "Scheduled removal" }
 ]
 
 export function AliasTable({ aliases, total, page, totalPages, search, filter }: AliasTableProps) {
@@ -88,11 +97,38 @@ export function AliasTable({ aliases, total, page, totalPages, search, filter }:
             )
         },
         {
+            header: "Recipients",
+            accessor: (alias) => (
+                <div className="text-sm">
+                    {alias.recipients.length > 0 ? (
+                        <>
+                            <span className="font-mono">{alias.recipients[0]?.email}</span>
+                            {alias.recipients.length > 1 && (
+                                <span className="text-muted-foreground ml-1">
+                                    +{alias.recipients.length - 1}
+                                </span>
+                            )}
+                            {alias.recipients.some((recipient) => recipient.source === "legacy") && (
+                                <Badge variant="outline" className="ml-2 text-xs">Legacy</Badge>
+                            )}
+                        </>
+                    ) : (
+                        <span className="text-muted-foreground">No recipient</span>
+                    )}
+                </div>
+            )
+        },
+        {
             header: "Status",
             accessor: (alias) => (
-                <Badge variant={alias.active ? "secondary" : "outline"}>
-                    {alias.active ? "Active" : "Inactive"}
-                </Badge>
+                <div className="flex flex-wrap gap-1">
+                    <Badge variant={alias.active ? "secondary" : "outline"}>
+                        {alias.active ? "Active" : "Inactive"}
+                    </Badge>
+                    {alias.scheduledForRemovalAt && (
+                        <Badge variant="destructive">Scheduled</Badge>
+                    )}
+                </div>
             )
         },
         {

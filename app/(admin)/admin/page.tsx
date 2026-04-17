@@ -1,5 +1,5 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Users, FileBox, Mail, AlertTriangle, HardDrive } from "lucide-react"
+import { Users, FileBox, Mail, AlertTriangle, HardDrive, CreditCard, Trash2, ShieldAlert } from "lucide-react"
 import Link from "next/link"
 import { StatCard } from "@/components/admin/stat-card"
 import { PageHeader } from "@/components/admin/page-header"
@@ -59,6 +59,33 @@ export default async function AdminDashboard() {
                     value={formatBytes(stats.totalStorage)}
                     description="Across all users"
                     icon={HardDrive}
+                    href="/admin/storage"
+                />
+
+                <StatCard
+                    title="Active Paid Subs"
+                    value={stats.activeSubscriptions}
+                    description={`${stats.waitingCryptoPayments} crypto payments waiting`}
+                    icon={CreditCard}
+                    href="/admin/billing"
+                />
+
+                <StatCard
+                    title="Deletion Queue"
+                    value={stats.activeDeletionRequests}
+                    description="Failed account deletions awaiting retry"
+                    icon={Trash2}
+                    href="/admin/deletion"
+                    variant={stats.activeDeletionRequests > 0 ? "destructive" : "default"}
+                />
+
+                <StatCard
+                    title="Cleanup Backlog"
+                    value={stats.orphanedFiles}
+                    description={`${stats.scheduledRemovals} resources scheduled for removal`}
+                    icon={ShieldAlert}
+                    href="/admin/storage"
+                    variant={stats.orphanedFiles > 0 ? "destructive" : "default"}
                 />
             </div>
 
@@ -96,6 +123,15 @@ export default async function AdminDashboard() {
                                 Handle abuse reports
                             </div>
                         </Link>
+                        <Link
+                            href="/admin/deletion"
+                            className="block p-3 rounded-lg hover:bg-muted transition-colors"
+                        >
+                            <div className="font-medium">Deletion Queue</div>
+                            <div className="text-sm text-muted-foreground">
+                                Retry failed immediate account deletions
+                            </div>
+                        </Link>
                     </CardContent>
                 </Card>
 
@@ -106,17 +142,25 @@ export default async function AdminDashboard() {
                     </CardHeader>
                     <CardContent className="space-y-4">
                         <div className="flex items-center justify-between">
-                            <span className="text-sm">Database</span>
-                            <span className="text-sm text-green-500 font-medium">Connected</span>
-                        </div>
-                        <div className="flex items-center justify-between">
                             <span className="text-sm">Active Users (30d)</span>
                             <span className="text-sm font-medium">{stats.activeUsers}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                            <span className="text-sm">Urgent Reports</span>
+                            <span className={`text-sm font-medium ${stats.urgentReports > 0 ? "text-destructive" : ""}`}>
+                                {stats.urgentReports}
+                            </span>
                         </div>
                         <div className="flex items-center justify-between">
                             <span className="text-sm">Pending Reports</span>
                             <span className={`text-sm font-medium ${stats.pendingReports > 0 ? "text-destructive" : ""}`}>
                                 {stats.pendingReports}
+                            </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                            <span className="text-sm">Orphaned Files</span>
+                            <span className={`text-sm font-medium ${stats.orphanedFiles > 0 ? "text-destructive" : ""}`}>
+                                {stats.orphanedFiles}
                             </span>
                         </div>
                     </CardContent>
