@@ -32,7 +32,7 @@ https://anon.li/api/v1
 
 <div className="p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg my-6">
   <span className="text-blue-800 dark:text-blue-200 text-sm block">
-    <strong>Client-Side Encryption:</strong> Unlike server-side encryption, the Drop API uses client-side E2EE. Your CLI tool or application must encrypt files locally before uploading. The encryption key is embedded in the share URL fragment and never sent to our servers.
+    <strong>Client-Side Encryption:</strong> Unlike server-side encryption, the Drop API uses client-side E2EE. Your CLI tool or application must encrypt files locally before uploading. The encryption key is embedded in the share URL fragment and never sent to our servers unless you explicitly store a vault-wrapped owner key for dashboard recovery.
   </span>
 </div>
 
@@ -48,7 +48,48 @@ This approach ensures:
 - True zero-knowledge encryption
 - Our servers cannot read your files
 - The key fragment (`#...`) is never sent to servers
+- Optional owner-key recovery stores only an AES-KW wrapped key tied to the caller's vault
 - Files auto-expire and are permanently deleted
+
+---
+
+## Vault Unlock for API Clients
+
+CLI clients that need dashboard key recovery can unlock the account vault without using browser session cookies.
+
+<div className="flex items-center gap-2 mt-6 mb-4">
+    <span className="bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-3 py-1 rounded-md font-mono text-sm font-bold">POST</span>
+    <code className="text-sm bg-secondary px-2 py-1 rounded">https://anon.li/api/v1/vault/unlock</code>
+</div>
+
+Call `/api/vault/bootstrap` with the account email to get `authSalt`, derive `auth_secret` locally with the vault password and the published Argon2id parameters, then call this endpoint with API-key authentication.
+
+**Request**
+
+```json
+{
+  "auth_secret": "base64url_argon2id_output"
+}
+```
+
+**Response**
+
+```json
+{
+  "data": {
+    "vault_id": "cuid...",
+    "vault_generation": 1,
+    "vault_salt": "base64url_salt",
+    "password_wrapped_vault_key": "base64url_aes_kw_wrapped_key",
+    "kdf_version": 1
+  },
+  "meta": {
+    "request_id": "req_1234567890abcdef"
+  }
+}
+```
+
+The vault password and unwrapped vault key must remain local to the client. Use the unwrapped vault key only to AES-KW wrap the Drop key sent as `ownerKey.wrappedKey`.
 
 ---
 
@@ -312,8 +353,9 @@ function deriveChunkIv(baseIv, chunkIndex) {
   return iv;
 }
 
-// 1. Generate encryption key and per-file IV
+// 1. Generate encryption key, drop metadata IV, and per-file IV
 const key = crypto.randomBytes(32); // 256-bit AES key
+const dropIv = crypto.randomBytes(12); // 96-bit IV for title/message metadata
 const fileIv = crypto.randomBytes(12); // 96-bit base IV for this file
 
 // 2. Encrypt file data (chunk index 0 for single-chunk files)
@@ -340,9 +382,14 @@ const createResponse = await fetch('https://anon.li/api/v1/drop', {
     'Content-Type': 'application/json'
   },
   body: JSON.stringify({
-    iv: fileIv.toString('base64url'),
+    iv: dropIv.toString('base64url'),
     fileCount: 1,
-    expiry: 7
+    expiry: 7,
+    // ownerKey: {
+    //   wrappedKey: vaultWrappedOwnerKey,
+    //   vaultId,
+    //   vaultGeneration
+    // }
   })
 }).then(r => r.json());
 const drop = createResponse.data;

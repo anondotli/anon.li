@@ -22,11 +22,13 @@ anonli alias new [options]
 | `-r, --random` | Generate a random alias (default if no custom options given) |
 | `-c, --custom <name>` | Create a custom alias with the given local part |
 | `-d, --domain <domain>` | Domain to use (default: `anon.li`) |
+| `-l, --label <text>` | Add a vault-encrypted label |
+| `--note <text>` | Add a vault-encrypted private note |
 | `--recipient <id>` | Forward to a specific recipient ID |
 
 Custom alias names must match `^[a-z0-9][a-z0-9._+\-]{0,61}[a-z0-9]$` (2–63 characters, alphanumeric with `.`, `_`, `+`, `-`).
 
-Alias labels and notes are encrypted with your web vault. The public API does not accept plaintext label values, so labels are managed in the dashboard unless your CLI client implements compatible vault encryption.
+Alias labels and notes are encrypted with your vault. When you pass `--label` or `--note`, the CLI prompts for your vault password, encrypts the metadata locally, and sends only encrypted metadata envelopes to the API.
 
 **Examples**
 
@@ -69,6 +71,8 @@ anonli alias list [options]
 anonli alias list --search shop --active
 ```
 
+The default table shows the alias email address as the handle to use with settings commands.
+
 ---
 
 ## Stats
@@ -76,14 +80,14 @@ anonli alias list --search shop --active
 Show email forwarding statistics.
 
 ```bash
-anonli alias stats [alias-id] [options]
+anonli alias stats [alias] [options]
 ```
 
 **Arguments**
 
 | Argument | Description |
 |----------|-------------|
-| `[alias-id]` | Specific alias ID (omit for a summary of all aliases) |
+| `[alias]` | Specific alias email address (omit for a summary of all aliases) |
 
 **Options**
 
@@ -99,7 +103,7 @@ anonli alias stats [alias-id] [options]
 anonli alias stats --all
 
 # Stats for a specific alias
-anonli alias stats abc123
+anonli alias stats shopping@anon.li
 ```
 
 ---
@@ -109,7 +113,7 @@ anonli alias stats abc123
 Update alias settings.
 
 ```bash
-anonli alias update <alias-id> [options]
+anonli alias update <alias> [options]
 ```
 
 Aliases: `anonli alias edit`
@@ -120,8 +124,14 @@ Aliases: `anonli alias edit`
 |------|-------------|
 | `--enable` | Enable the alias |
 | `--disable` | Disable the alias |
+| `-l, --label <text>` | Update the vault-encrypted label |
+| `--note <text>` | Update the vault-encrypted private note |
+| `--clear-label` | Clear the encrypted label |
+| `--clear-note` | Clear the encrypted private note |
 
-At least one option is required. `--enable` and `--disable` are mutually exclusive.
+At least one option is required. `--enable` and `--disable` are mutually exclusive. Metadata updates use your vault password interactively and never send plaintext labels or notes to the API.
+
+Use the alias email address shown by `anonli alias list`.
 
 ---
 
@@ -130,8 +140,10 @@ At least one option is required. `--enable` and `--disable` are mutually exclusi
 Toggle an alias between active and inactive.
 
 ```bash
-anonli alias toggle <alias-id>
+anonli alias toggle <alias>
 ```
+
+Use the alias email address shown by `anonli alias list`.
 
 ---
 
@@ -140,14 +152,14 @@ anonli alias toggle <alias-id>
 Permanently delete an alias.
 
 ```bash
-anonli alias delete <alias-id> [options]
+anonli alias delete <alias> [options]
 ```
 
 **Arguments**
 
 | Argument | Description |
 |----------|-------------|
-| `<alias-id>` | Alias ID or email address |
+| `<alias>` | Alias email address |
 
 **Options**
 

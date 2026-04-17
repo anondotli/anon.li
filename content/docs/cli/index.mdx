@@ -27,13 +27,13 @@ anonli --version
 
 <Step step={1} title="Authenticate">
 
-Log in with your anon.li account:
+Log in with an API key from your anon.li dashboard:
 
 ```bash
 anonli login
 ```
 
-This opens your browser to authorize the CLI. Alternatively, pass a key directly:
+Alternatively, pass a key directly:
 
 ```bash
 anonli login --token ak_your_api_key
@@ -55,7 +55,7 @@ anonli alias new --custom myalias
 anonli drop upload ./secret.pdf --expiry 7
 ```
 
-The CLI encrypts the file locally with AES-256-GCM, uploads it, and returns a share link with the decryption key in the URL fragment.
+The CLI encrypts the file locally with AES-256-GCM, prompts for your vault password to store a recoverable owner key, uploads it, and returns a share link with the decryption key in the URL fragment.
 
 </Step>
 

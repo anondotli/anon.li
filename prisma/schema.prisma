@@ -25,17 +25,18 @@ model User {
   stripeCancelAtPeriodEnd Boolean   @default(false) @map(name: "stripe_cancel_at_period_end")
 
   // Resource Ownership
-  aliases          Alias[]
-  domains          Domain[]
-  apiKeys          ApiKey[]
-  recipients       Recipient[]
-  drops            Drop[]
-  security         UserSecurity?
-  dropOwnerKeys    DropOwnerKey[]
-  subscriptions    Subscription[]
-  deletionRequest  DeletionRequest?
-  twoFactorEnabled Boolean          @default(false)
-  twoFactor        TwoFactor?
+  aliases            Alias[]
+  domains            Domain[]
+  apiKeys            ApiKey[]
+  recipients         Recipient[]
+  drops              Drop[]
+  security           UserSecurity?
+  dropOwnerKeys      DropOwnerKey[]
+  subscriptions      Subscription[]
+  deletionRequest    DeletionRequest?
+  oauthApplications  OAuthApplication[]
+  twoFactorEnabled   Boolean            @default(false)
+  twoFactor          TwoFactor?
   // Quotas & Limits
   storageUsed      BigInt           @default(0)
   storageLimit     BigInt           @default(5368709120) // 5GB default for free users
@@ -581,4 +582,55 @@ model AuditLog {
   @@index([targetId])
   @@index([createdAt])
   @@map("audit_logs")
+}
+
+// OAuth 2.0 / OIDC tables consumed by better-auth's MCP plugin.
+// Field names are dictated by the plugin schema; do not rename.
+model OAuthApplication {
+  id           String   @id @default(cuid())
+  clientId     String   @unique
+  clientSecret String?
+  type         String // "public" | "web" | "native" | "user-agent-based"
+  name         String
+  icon         String?
+  metadata     String?  @db.Text
+  redirectUrls String   @db.Text
+  disabled     Boolean  @default(false)
+  userId       String?
+  user         User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([userId])
+  @@map("oauth_applications")
+}
+
+model OAuthAccessToken {
+  id                    String   @id @default(cuid())
+  accessToken           String   @unique
+  refreshToken          String   @unique
+  accessTokenExpiresAt  DateTime
+  refreshTokenExpiresAt DateTime
+  clientId              String
+  userId                String
+  scopes                String
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([clientId])
+  @@index([userId])
+  @@map("oauth_access_tokens")
+}
+
+model OAuthConsent {
+  id           String   @id @default(cuid())
+  clientId     String
+  userId       String
+  scopes       String
+  consentGiven Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([clientId, userId])
+  @@map("oauth_consents")
 }

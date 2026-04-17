@@ -1,6 +1,6 @@
 import { betterAuth } from "better-auth"
 import { prismaAdapter } from "better-auth/adapters/prisma"
-import { twoFactor, magicLink } from "better-auth/plugins"
+import { twoFactor, magicLink, mcp } from "better-auth/plugins"
 import { APIError } from "@better-auth/core/error"
 import { prisma } from "@/lib/prisma"
 import {
@@ -82,6 +82,19 @@ export const auth = betterAuth({
         twoFactor({
             issuer: "anon.li",
             backupCodeOptions: { amount: 8, length: 16, storeBackupCodes: "encrypted" },
+        }),
+        mcp({
+            // Unauthenticated authorize requests land here so the user can sign in
+            // (and complete 2FA if enabled) before the consent screen.
+            loginPage: "/login",
+            oidcConfig: {
+                loginPage: "/login",
+                accessTokenExpiresIn: 60 * 60, // 1 hour
+                refreshTokenExpiresIn: 60 * 60 * 24 * 14, // 14 days
+                allowDynamicClientRegistration: true,
+                consentPage: "/oauth/consent",
+                scopes: ["openid", "profile", "email", "offline_access", "anon.li:aliases", "anon.li:drops"],
+            },
         }),
     ],
 

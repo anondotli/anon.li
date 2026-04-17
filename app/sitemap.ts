@@ -1,5 +1,6 @@
 import { MetadataRoute } from "next"
 import { getAllFilesFrontMatter, FrontMatter } from "@/lib/mdx"
+import { comparisons } from "@/config/comparisons"
 
 interface BlogPost extends FrontMatter {
     publishedAt?: string
@@ -23,6 +24,13 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
         priority: 0.8,
     }))
 
+    const comparisonEntries = comparisons.map((comparison) => ({
+        url: `https://anon.li/compare/${comparison.slug}`,
+        lastModified: new Date(comparison.lastVerified).toISOString(),
+        changeFrequency: "monthly" as const,
+        priority: 0.7,
+    }))
+
     const routes = [
         { path: "", priority: 1.0, changeFrequency: "daily" as const },
         { path: "/alias", priority: 0.9, changeFrequency: "weekly" as const },
@@ -34,8 +42,6 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
         { path: "/faq", priority: 0.7, changeFrequency: "monthly" as const },
         { path: "/warrant-canary", priority: 0.6, changeFrequency: "monthly" as const },
         { path: "/compare", priority: 0.7, changeFrequency: "monthly" as const },
-        { path: "/compare/simplelogin", priority: 0.7, changeFrequency: "monthly" as const },
-        { path: "/compare/proton", priority: 0.7, changeFrequency: "monthly" as const },
         { path: "/login", priority: 0.5, changeFrequency: "monthly" as const },
         { path: "/register", priority: 0.6, changeFrequency: "monthly" as const },
         { path: "/blog", priority: 0.7, changeFrequency: "weekly" as const },
@@ -47,5 +53,5 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
         priority: route.priority,
     }))
 
-    return [...routes, ...blogEntries, ...docEntries]
+    return [...routes, ...comparisonEntries, ...blogEntries, ...docEntries]
 }

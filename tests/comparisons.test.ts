@@ -3,6 +3,10 @@ import { describe, expect, it } from "vitest"
 import { comparisons } from "@/config/comparisons"
 
 describe("comparisons config", () => {
+    it("publishes exactly 20 competitor-intent pages", () => {
+        expect(comparisons).toHaveLength(20)
+    })
+
     it("uses unique ids and slugs", () => {
         const ids = comparisons.map((entry) => entry.id)
         const slugs = comparisons.map((entry) => entry.slug)
@@ -23,6 +27,8 @@ describe("comparisons config", () => {
             expect(entry.sourceUrl).toMatch(/^https?:\/\//)
             expect(entry.sourceName.length).toBeGreaterThan(0)
 
+            const sources = new Set<string>([entry.sourceUrl])
+
             for (const section of entry.comparisonData.features) {
                 expect(section.category.length).toBeGreaterThan(0)
                 expect(section.items.length).toBeGreaterThan(0)
@@ -31,8 +37,14 @@ describe("comparisons config", () => {
                     const hasSource = Boolean(item.source)
                     const hasLabel = Boolean(item.sourceLabel)
                     expect(hasSource).toBe(hasLabel)
+
+                    if (item.source) {
+                        sources.add(item.source)
+                    }
                 }
             }
+
+            expect(sources.size).toBeGreaterThanOrEqual(2)
         }
     })
 

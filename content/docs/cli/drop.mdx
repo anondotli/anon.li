@@ -33,6 +33,7 @@ anonli drop upload <path> [options]
 | `--name <name>` | File name when reading from stdin |
 | `--notify` | Send email notification on download |
 | `--hide-branding` | Remove anon.li branding from the download page |
+| `--no-vault` | Do not store the owner key in your account vault |
 | `--json` | Output the share URL as JSON |
 
 **Examples**
@@ -55,11 +56,14 @@ anonli drop upload ./secret.zip --password "s3cret" --expiry 3
 
 1. A random AES-256-GCM key and 12-byte base IV are generated locally
 2. The title and message (if provided) are encrypted with the key
-3. Each file is split into 50 MB chunks, each encrypted with an IV derived from the base IV + chunk index
+3. Each file gets its own 12-byte IV, then is split into 50 MB chunks encrypted with IVs derived from that file IV + chunk index
 4. Encrypted chunks are uploaded concurrently to storage
-5. The share URL is returned with the decryption key in the fragment: `https://anon.li/d/<id>#<key>`
+5. By default, the CLI prompts for your vault password and stores a vault-wrapped owner key for dashboard recovery
+6. The share URL is returned with the decryption key in the fragment: `https://anon.li/d/<id>#<key>`
 
 The `#<key>` fragment is never sent to the server.
+
+Use `--no-vault` only when you intentionally want a link-only drop. Without vault storage, the dashboard cannot recover the drop key if you lose the share URL.
 
 ---
 

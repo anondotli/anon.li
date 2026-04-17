@@ -80,6 +80,10 @@ export const docsConfig: DocsConfig = {
                     title: "Recipient API",
                     href: "/docs/api/recipient",
                 },
+                {
+                    title: "MCP Server",
+                    href: "/docs/api/mcp",
+                },
             ],
         },
         {

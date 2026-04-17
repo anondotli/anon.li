@@ -1,0 +1,142 @@
+---
+title: "MCP Server"
+summary: "Connect AI agents (Claude, Cursor, MCP Inspector) to anon.li with OAuth and manage aliases, recipients, and drops."
+---
+
+The anon.li **Model Context Protocol** server lets AI agents read and modify
+your aliases, recipients, and drops through a standard MCP transport. It uses
+OAuth 2.1 with PKCE, so you never paste an API key into a third-party tool —
+the agent connects, you approve it from a normal anon.li sign-in, and it gets a
+short-lived bearer token scoped to your account.
+
+## Endpoint
+
+```
+https://anon.li/api/mcp
+```
+
+The transport is **Streamable HTTP** (the modern MCP transport).
+
+## Adding the server to Claude
+
+In Claude Desktop or Claude on the web:
+
+1. Open **Settings → Connectors → Add custom connector**.
+2. Set the URL to `https://anon.li/api/mcp`.
+3. Claude opens a browser tab — sign in to anon.li (and complete 2FA if you
+   have it enabled) and approve the consent screen.
+4. Once connected, ask Claude things like *"list my anon.li aliases"* or
+   *"create a custom alias `newsletters@anon.li` and forward it to my default
+   recipient."*
+
+The same flow works for any MCP-compatible client. With the
+[MCP Inspector](https://github.com/modelcontextprotocol/inspector):
+
+```bash
+npx @modelcontextprotocol/inspector https://anon.li/api/mcp
+```
+
+## OAuth discovery
+
+Two RFC-compliant discovery documents are exposed at the root, so MCP clients
+auto-configure with no manual setup:
+
+| Document | Path |
+|---|---|
+| [RFC 8414 — Authorization Server Metadata](https://datatracker.ietf.org/doc/html/rfc8414) | `/.well-known/oauth-authorization-server` |
+| [RFC 9728 — OAuth Protected Resource Metadata](https://datatracker.ietf.org/doc/html/rfc9728) | `/.well-known/oauth-protected-resource` |
+
+Key facts a client will read:
+
+- **Grant types:** `authorization_code`, `refresh_token`
+- **PKCE:** required, S256 only
+- **Dynamic client registration:** [RFC 7591](https://datatracker.ietf.org/doc/html/rfc7591),
+  enabled at `/api/auth/mcp/register`
+- **Access tokens:** 1 hour
+- **Refresh tokens:** 14 days
+
+## Tools
+
+The server exposes nine tools. Each call counts against the same monthly API
+quota as the REST API for your tier (see [Pricing](/pricing) for tier limits).
+
+### Aliases
+
+| Tool | What it does |
+|------|--------------|
+| `list_aliases` | List every alias on the account. Returns `id`, `email`, `active`, forwarded/blocked counters, and timestamps. **Encrypted labels and notes are intentionally omitted** — they are vault-encrypted client-side and unreadable to a third-party client. |
+| `create_alias` | Create an alias. `format: "random"` auto-generates the local part; `format: "custom"` takes `local_part`. Optional `recipient_ids` or `recipient_email` chooses the forwarding destination — defaults to your primary recipient. Labels/notes cannot be set here; edit them from the web UI after creation. |
+| `toggle_alias` | Flip an alias between active and inactive. Accepts an alias ID **or** the full email address. |
+| `delete_alias` | Permanently delete an alias. Future mail to that address is rejected. |
+
+### Recipients
+
+| Tool | What it does |
+|------|--------------|
+| `list_recipients` | List your recipient inboxes (the addresses aliases can forward to). Includes `verified` and `is_default` flags. |
+| `add_recipient` | Add a new recipient email. The recipient must click the verification link before any alias can forward to them. |
+
+### Drops
+
+| Tool | What it does |
+|------|--------------|
+| `list_drops` | List file drops with metadata only — size, expiry, downloads, max downloads, disabled/taken-down state. **Filenames and file contents are end-to-end encrypted** and cannot be returned through this API. |
+| `toggle_drop` | Disable or re-enable a drop. Disabled drops reject all downloads until toggled back on. |
+| `delete_drop` | Permanently delete a drop and reclaim its storage quota. |
+
+## What the AI cannot see
+
+This is by design. anon.li is a zero-knowledge service for the parts that
+matter:
+
+- **Alias labels and notes** are encrypted with a key derived from your vault
+  password. Only your browser (or CLI with your vault wrapped key) can read or
+  write them.
+- **Drop file contents and filenames** are encrypted client-side before upload.
+  A drop's encryption key never leaves your device — it's part of the share
+  URL fragment.
+- **Drop uploads** are not exposed via MCP for the same reason: a remote AI
+  doesn't have your vault keys.
+
+The MCP server therefore lets an agent manage the *control plane* (which
+aliases exist, which recipients are verified, which drops are still alive)
+without ever touching the *content plane*.
+
+## Quota and rate limits
+
+MCP usage shares the per-tier monthly counter with REST and CLI usage. When you
+exceed it, tools return a structured error:
+
+```json
+{
+  "code": -32002,
+  "message": "Monthly API quota exceeded",
+  "data": {
+    "code": "QUOTA_EXCEEDED",
+    "quotaType": "alias",
+    "limit": 500,
+    "remaining": 0,
+    "resetAt": "2026-05-01T00:00:00.000Z"
+  }
+}
+```
+
+Per-tool rate limits also apply (`create_alias` is the most strict — it shares
+the same per-minute bucket as the REST endpoint). Errors arrive as
+`{ "code": -32003, "data": { "code": "RATE_LIMITED", "resetAt": "..." } }`.
+
+## Account safety
+
+- **2FA aware.** If your account requires 2FA, the OAuth authorization step
+  redirects through it before the consent screen.
+- **Ban aware.** If your account has alias-creation or upload bans applied
+  (e.g. due to abuse strikes), the relevant tools return a `FORBIDDEN` error
+  with a structured `code` instead of silently failing.
+- **Revocation.** Disconnecting the connector in Claude (or any MCP client)
+  revokes the access and refresh tokens immediately.
+
+## Need help?
+
+- [Alias REST API](/docs/api/alias)
+- [Drop REST API](/docs/api/drop)
+- Email [hi@anon.li](mailto:hi@anon.li)

@@ -5,7 +5,10 @@ import { comparisons } from "@/config/comparisons"
 
 export const metadata: Metadata = {
     title: "Compare anon.li to Alternatives | Privacy Tools Comparison",
-    description: "See how anon.li compares to SimpleLogin, Proton, and other privacy tools. Feature-by-feature comparison of email aliases and encrypted file sharing.",
+    description: "Compare anon.li with email alias, encrypted file transfer, and cloud storage alternatives. Fact-checked competitor comparison pages for privacy-focused buyers.",
+    alternates: {
+        canonical: "https://anon.li/compare",
+    },
 }
 
 export default function ComparePage() {
@@ -18,8 +21,8 @@ export default function ComparePage() {
                             How anon.li Compares
                         </h1>
                         <p className="text-lg text-muted-foreground max-w-2xl mx-auto font-light leading-relaxed">
-                            We believe in transparency. See how anon.li stacks up against other privacy tools
-                            so you can make an informed decision.
+                            Fact-checked comparisons across {comparisons.length} privacy tools, email alias
+                            services, file transfer products, and cloud storage alternatives.
                         </p>
                     </div>
 

@@ -3,7 +3,7 @@ import Link from "next/link"
 import { notFound } from "next/navigation"
 import { Check, X, ArrowRight, ArrowLeft, ExternalLink } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { comparisons, getComparison } from "@/config/comparisons"
+import { comparisons, getComparison, type ComparisonEntry } from "@/config/comparisons"
 
 interface PageProps {
     params: Promise<{
@@ -24,6 +24,15 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     return {
         title: `${comparison.title} | Privacy Suite Comparison`,
         description: comparison.description,
+        alternates: {
+            canonical: `https://anon.li/compare/${comparison.slug}`,
+        },
+        openGraph: {
+            title: comparison.title,
+            description: comparison.description,
+            url: `https://anon.li/compare/${comparison.slug}`,
+            type: "article",
+        },
     }
 }
 
@@ -59,6 +68,10 @@ export default async function ComparisonPage({ params }: PageProps) {
                     </h1>
                     <p className="text-lg text-muted-foreground max-w-2xl mx-auto font-light leading-relaxed">
                         {comparison.description}
+                    </p>
+                    <p className="text-xs text-muted-foreground/70 mt-4">
+                        Fact-checked against public sources on{" "}
+                        {new Date(comparison.lastVerified).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}.
                     </p>
                 </div>
 
@@ -246,7 +259,7 @@ export default async function ComparisonPage({ params }: PageProps) {
     )
 }
 
-function SourcesSection({ comparison }: { comparison: ReturnType<typeof getComparison> & {} }) {
+function SourcesSection({ comparison }: { comparison: ComparisonEntry }) {
     const allSources = new Map<string, string>()
 
     // Collect unique sources from all feature items

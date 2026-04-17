@@ -245,7 +245,7 @@ Update an existing alias. You can toggle the active status, update vault-encrypt
 | `recipient_ids` | string[] | No | Replace the full recipient list for multi-recipient routing. The first ID is primary. |
 | `recipient_email` | string | No | Change the forwarding destination by verified recipient email address. |
 
-The encrypted metadata envelope is versioned JSON: `{"v":1,"alg":"AES-256-GCM","iv":"...","ct":"..."}`. Plaintext `description`, `label`, and `note` updates return `400`.
+The encrypted metadata envelope is versioned JSON: `{"v":1,"alg":"AES-256-GCM","iv":"...","ct":"..."}`. Encrypt labels and notes with the caller's unwrapped vault key and AES-GCM additional data `anon.li:alias-metadata:v1:<aliasId>:label` or `anon.li:alias-metadata:v1:<aliasId>:note`. Plaintext `description`, `label`, and `note` updates return `400`.
 
 **Example Request (disable alias)**
 
