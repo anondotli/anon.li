@@ -77,11 +77,17 @@ export function useDropDownload({
     const [currentFile, setCurrentFile] = useState<string | null>(null);
 
     useEffect(() => {
-        const hash = window.location.hash.slice(1);
-        if (hash) {
-            setKeyString(hash);
-            setHasKeyFromUrl(true);
-        }
+        const timer = window.setTimeout(() => {
+            const hash = window.location.hash.slice(1);
+            if (hash) {
+                setKeyString(hash);
+                setHasKeyFromUrl(true);
+            }
+        }, 0);
+
+        return () => {
+            window.clearTimeout(timer);
+        };
     }, []);
 
     useEffect(() => {

@@ -34,7 +34,7 @@ model User {
   dropOwnerKeys      DropOwnerKey[]
   subscriptions      Subscription[]
   deletionRequest    DeletionRequest?
-  oauthApplications  OAuthApplication[]
+  oauthApplications  OauthApplication[]
   twoFactorEnabled   Boolean            @default(false)
   twoFactor          TwoFactor?
   // Quotas & Limits
@@ -586,7 +586,7 @@ model AuditLog {
 
 // OAuth 2.0 / OIDC tables consumed by better-auth's MCP plugin.
 // Field names are dictated by the plugin schema; do not rename.
-model OAuthApplication {
+model OauthApplication {
   id           String   @id @default(cuid())
   clientId     String   @unique
   clientSecret String?
@@ -605,7 +605,7 @@ model OAuthApplication {
   @@map("oauth_applications")
 }
 
-model OAuthAccessToken {
+model OauthAccessToken {
   id                    String   @id @default(cuid())
   accessToken           String   @unique
   refreshToken          String   @unique
@@ -622,7 +622,7 @@ model OAuthAccessToken {
   @@map("oauth_access_tokens")
 }
 
-model OAuthConsent {
+model OauthConsent {
   id           String   @id @default(cuid())
   clientId     String
   userId       String

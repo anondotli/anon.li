@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, createElement } from "react";
 import { Eye, EyeOff, Loader2, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cryptoService } from "@/lib/crypto.client";
@@ -129,8 +129,6 @@ export function FilePreview({
         return null;
     }
 
-    const Icon = getPreviewIcon(mimeType);
-
     if (loading) {
         return (
             <div className="mt-4 p-4 bg-muted/50 rounded-lg flex items-center justify-center gap-2">
@@ -182,7 +180,7 @@ export function FilePreview({
         <div className="mt-4 space-y-3">
             <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Icon className="w-4 h-4" />
+                    {createElement(getPreviewIcon(mimeType), { className: "w-4 h-4" })}
                     <span>{filename}</span>
                 </div>
                 <Button variant="ghost" size="sm" onClick={closePreview}>

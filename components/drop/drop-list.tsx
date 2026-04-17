@@ -104,6 +104,7 @@ export function DropList({ initialDrops, storage, onDropsChange }: DropListProps
   }, [unwrapDropKey]);
 
   const decryptDrops = useCallback(async (dropsToDecrypt: DropData[]) => {
+    setLoading(true);
     try {
       const resolvedKeys = await resolveDropKeys(dropsToDecrypt);
 
@@ -163,8 +164,13 @@ export function DropList({ initialDrops, storage, onDropsChange }: DropListProps
   }, [resolveDropKeys]);
 
   useEffect(() => {
-    setLoading(true);
-    decryptDrops(initialDrops);
+    const timer = window.setTimeout(() => {
+      void decryptDrops(initialDrops);
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
   }, [initialDrops, decryptDrops]);
 
   const handleDelete = async (drop: DropItem) => {

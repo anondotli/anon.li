@@ -12,19 +12,26 @@ import { getVaultStorageSupport, type VaultStorageSupport } from "@/lib/vault/st
 import { cn } from "@/lib/utils"
 import { Icons } from "@/components/shared/icons"
 
+const subscribeStorageSupport = () => () => {}
+let cachedStorageSupport: VaultStorageSupport | null = null
+const getClientStorageSupport = (): VaultStorageSupport => {
+    if (!cachedStorageSupport) cachedStorageSupport = getVaultStorageSupport()
+    return cachedStorageSupport
+}
+const getServerStorageSupport = (): VaultStorageSupport | null => null
+
 export function UnlockPrompt() {
     const { status, error, unlockWithPassword } = useVault()
     const [password, setPassword] = React.useState("")
-    const [trustBrowser, setTrustBrowser] = React.useState(true)
-    const [support, setSupport] = React.useState<VaultStorageSupport | null>(null)
+    const [trustBrowserOverride, setTrustBrowserOverride] = React.useState<boolean | null>(null)
+    const support = React.useSyncExternalStore(
+        subscribeStorageSupport,
+        getClientStorageSupport,
+        getServerStorageSupport,
+    )
 
-    React.useEffect(() => {
-        const nextSupport = getVaultStorageSupport()
-        setSupport(nextSupport)
-        if (!nextSupport.trustedBrowser) {
-            setTrustBrowser(false)
-        }
-    }, [])
+    const trustBrowser = trustBrowserOverride ?? (support?.trustedBrowser ?? true)
+    const setTrustBrowser = (next: boolean) => setTrustBrowserOverride(next)
 
     const isUnlocking = status === "unlocking"
     const isUnlocked = status === "unlocked"

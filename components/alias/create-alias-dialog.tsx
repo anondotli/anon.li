@@ -15,7 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { toast } from "sonner"
 import { useRouter } from "next/navigation"
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { Plus, Loader2, Sparkles, Mail, ShieldCheck, Users, ChevronDown } from "lucide-react"
 import {
     DropdownMenu,
@@ -113,8 +113,8 @@ export function CreateAliasDialog({ domains, recipients }: CreateAliasDialogProp
     const [mode, setMode] = useState<"quick" | "custom">("quick")
     const [loading, setLoading] = useState(false)
     const [localPart, setLocalPart] = useState("")
-    const [domain, setDomain] = useState("")
-    const [recipientId, setRecipientId] = useState("")
+    const [domainOverride, setDomainOverride] = useState<string | null>(null)
+    const [recipientIdOverride, setRecipientIdOverride] = useState<string | null>(null)
     const [label, setLabel] = useState("")
     const router = useRouter()
 
@@ -122,19 +122,13 @@ export function CreateAliasDialog({ domains, recipients }: CreateAliasDialogProp
     const hasMultipleDomains = verifiedDomains.length > 1
     const hasMultipleRecipients = recipients.length > 1
 
-    useEffect(() => {
-        const firstVerified = domains.find(d => d.verified)
-        if (domains.length > 0 && !domain && firstVerified) {
-            setDomain(firstVerified.domain)
-        }
-    }, [domains, domain])
+    const defaultDomain = verifiedDomains[0]?.domain ?? ""
+    const domain = domainOverride ?? defaultDomain
+    const setDomain = (d: string) => setDomainOverride(d)
 
-    useEffect(() => {
-        const defaultRecipient = recipients.find(r => r.isDefault) || recipients[0]
-        if (recipients.length > 0 && !recipientId && defaultRecipient) {
-            setRecipientId(defaultRecipient.id)
-        }
-    }, [recipients, recipientId])
+    const defaultRecipientId = (recipients.find(r => r.isDefault) ?? recipients[0])?.id ?? ""
+    const recipientId = recipientIdOverride ?? defaultRecipientId
+    const setRecipientId = (id: string) => setRecipientIdOverride(id)
 
     const selectedRecipient = recipients.find(r => r.id === recipientId)
 

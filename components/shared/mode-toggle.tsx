@@ -12,13 +12,11 @@ import {
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 
+const subscribe = () => () => {}
+
 export function ModeToggle() {
     const { theme, setTheme } = useTheme()
-    const [mounted, setMounted] = React.useState(false)
-
-    React.useEffect(() => {
-        setMounted(true)
-    }, [])
+    const mounted = React.useSyncExternalStore(subscribe, () => true, () => false)
 
     return (
         <DropdownMenu>

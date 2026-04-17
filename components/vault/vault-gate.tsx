@@ -8,21 +8,21 @@ const SUCCESS_STATE_DURATION_MS = 800
 
 export function VaultGate({ children }: { children: React.ReactNode }) {
     const { status } = useVault()
-    const [showUnlockedContent, setShowUnlockedContent] = React.useState(status === "unlocked")
+    const [delayedReady, setDelayedReady] = React.useState(status === "unlocked")
+    const [prevStatus, setPrevStatus] = React.useState(status)
+
+    if (status !== prevStatus) {
+        setPrevStatus(status)
+        if (status !== "unlocked") setDelayedReady(false)
+    }
 
     React.useEffect(() => {
-        if (status === "unlocked") {
-            const timer = window.setTimeout(() => {
-                setShowUnlockedContent(true)
-            }, SUCCESS_STATE_DURATION_MS)
-
-            return () => window.clearTimeout(timer)
-        }
-
-        setShowUnlockedContent(false)
+        if (status !== "unlocked") return
+        const timer = window.setTimeout(() => setDelayedReady(true), SUCCESS_STATE_DURATION_MS)
+        return () => window.clearTimeout(timer)
     }, [status])
 
-    if (!showUnlockedContent) {
+    if (status !== "unlocked" || !delayedReady) {
         return <UnlockPrompt />
     }
 

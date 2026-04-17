@@ -110,9 +110,12 @@ function EnabledVaultProvider({ children }: { children: React.ReactNode }) {
     const [vaultId, setVaultId] = React.useState<string | null>(() => getVaultRuntime().vaultId)
     const [tabId] = React.useState(createVaultTabId)
     const statusRef = React.useRef(status)
-    statusRef.current = status
-    const lastActivityRef = React.useRef(Date.now())
+    const lastActivityRef = React.useRef(0)
     const lockRef = React.useRef(() => {})
+
+    React.useEffect(() => {
+        statusRef.current = status
+    }, [status])
 
     const finishUnlock = React.useCallback(async (vaultKey: CryptoKey, nextVaultGeneration: number, nextVaultId: string, options?: UnlockOptions) => {
         setVaultRuntime(vaultKey, nextVaultGeneration, nextVaultId)
@@ -153,6 +156,7 @@ function EnabledVaultProvider({ children }: { children: React.ReactNode }) {
     const attemptTrustedBrowserUnlock = React.useCallback(async () => {
         const runtime = getVaultRuntime()
         if (runtime.key && runtime.vaultGeneration && runtime.vaultId) {
+            await Promise.resolve()
             setVaultGeneration(runtime.vaultGeneration)
             setVaultId(runtime.vaultId)
             setStatus("unlocked")
@@ -162,12 +166,14 @@ function EnabledVaultProvider({ children }: { children: React.ReactNode }) {
 
         const support = getVaultStorageSupport()
         if (!support.vault) {
+            await Promise.resolve()
             setStatus("error")
             setError("This browser does not support the secure vault requirements.")
             return false
         }
 
         if (!support.trustedBrowser) {
+            await Promise.resolve()
             setStatus("locked")
             setError(null)
             return false
@@ -175,20 +181,31 @@ function EnabledVaultProvider({ children }: { children: React.ReactNode }) {
 
         const capsule = readCapsule()
         if (!capsule) {
+            await Promise.resolve()
             setLockedState()
             return false
         }
 
+        let deviceKeyPromise: Promise<CryptoKey | null>
+        try {
+            deviceKeyPromise = withTimeout(
+                getDeviceKey(),
+                TRUSTED_BROWSER_BOOTSTRAP_TIMEOUT_MS,
+                "Trusted browser unlock timed out",
+            )
+        } catch {
+            await Promise.resolve()
+            setLockedState()
+            return false
+        }
+
+        await Promise.resolve()
         setStatus("unlocking")
         setError(null)
 
         let deviceKey: CryptoKey | null
         try {
-            deviceKey = await withTimeout(
-                getDeviceKey(),
-                TRUSTED_BROWSER_BOOTSTRAP_TIMEOUT_MS,
-                "Trusted browser unlock timed out",
-            )
+            deviceKey = await deviceKeyPromise
         } catch {
             setLockedState()
             return false
@@ -232,7 +249,9 @@ function EnabledVaultProvider({ children }: { children: React.ReactNode }) {
     }, [finishUnlock, setLockedState])
 
     React.useEffect(() => {
-        void attemptTrustedBrowserUnlock()
+        if (statusRef.current !== "unlocked") {
+            void attemptTrustedBrowserUnlock()
+        }
     }, [attemptTrustedBrowserUnlock])
 
     React.useEffect(() => {

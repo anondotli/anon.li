@@ -18,24 +18,26 @@ export function ReservedAliasesEditor() {
     const [originalAliases, setOriginalAliases] = useState<string[]>([])
 
     useEffect(() => {
-        fetchAliases()
-    }, [])
-
-    const fetchAliases = async () => {
-        try {
-            const result = await getReservedAliases()
-            if (result.error) {
-                toast.error(result.error)
-            } else if (result.data) {
-                setAliases(result.data)
-                setOriginalAliases(result.data)
+        let cancelled = false
+        const fetchAliases = async () => {
+            try {
+                const result = await getReservedAliases()
+                if (cancelled) return
+                if (result.error) {
+                    toast.error(result.error)
+                } else if (result.data) {
+                    setAliases(result.data)
+                    setOriginalAliases(result.data)
+                }
+            } catch {
+                if (!cancelled) toast.error("Failed to load reserved aliases")
+            } finally {
+                if (!cancelled) setLoading(false)
             }
-        } catch {
-            toast.error("Failed to load reserved aliases")
-        } finally {
-            setLoading(false)
         }
-    }
+        void fetchAliases()
+        return () => { cancelled = true }
+    }, [])
 
     const addAlias = () => {
         const normalized = newAlias.toLowerCase().trim()

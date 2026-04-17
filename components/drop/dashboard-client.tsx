@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useTransition, useEffect } from "react";
+import { useCallback, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { FileUploader } from "@/components/drop/file-uploader";
 import { DropList } from "@/components/drop/drop-list";
@@ -14,15 +14,10 @@ interface DropDashboardClientProps {
 }
 
 export function DropDashboardClient({ userTier, initialDrops, initialStorage }: DropDashboardClientProps) {
-    const [drops, setDrops] = useState<DropData[]>(initialDrops);
-    const [storage, setStorage] = useState<StorageData>(initialStorage);
+    const drops = initialDrops;
+    const storage = initialStorage;
     const [isRefreshing, startTransition] = useTransition();
     const router = useRouter();
-
-    useEffect(() => {
-        setDrops(initialDrops);
-        setStorage(initialStorage);
-    }, [initialDrops, initialStorage]);
 
     const refreshData = useCallback(() => {
         startTransition(() => {
