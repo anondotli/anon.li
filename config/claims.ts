@@ -273,19 +273,6 @@ export const CLAIMS: Claim[] = [
         appliesTo: ["both"],
     },
     {
-        id: "account_required_drop_uploads",
-        statement: "A free account is required to upload Drop files",
-        shortLabel: "Account Required to Upload",
-        class: "verified_in_repo",
-        category: "access_control",
-        verificationPath: "app/api/v1/drop/route.ts",
-        lastVerified: "2026-04-16",
-        caveats: [
-            "Recipients can still download shared drops without an account",
-        ],
-        appliesTo: ["drop"],
-    },
-    {
         id: "drop_max_file_size",
         statement: "Up to 250GB file transfers",
         shortLabel: "Up to 250GB Files",

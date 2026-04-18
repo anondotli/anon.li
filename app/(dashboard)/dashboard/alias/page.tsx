@@ -9,6 +9,8 @@ import { Progress } from "@/components/ui/progress"
 import { RecipientService } from "@/lib/services/recipient"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
+import { FeaturePromptGrid } from "@/components/dashboard"
+import { DASHBOARD_FEATURE_PROMPTS } from "@/config/features"
 
 export default async function DashboardPage() {
     const session = await auth()
@@ -118,6 +120,13 @@ export default async function DashboardPage() {
                     <Progress value={customPercent} className="h-2" />
                 </div>
             </div>
+
+            <FeaturePromptGrid
+                title="Alias controls worth knowing"
+                description="The basics are one-click aliases, but these controls make aliases easier to route, audit, and organize as your account grows."
+                featureIds={DASHBOARD_FEATURE_PROMPTS.alias}
+                dismissStorageKey="anon-li-alias-controls-dismissed"
+            />
 
             {/* Downgrade Warning */}
             {user.downgradedAt && (

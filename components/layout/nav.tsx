@@ -13,7 +13,7 @@ import {
     NavigationMenuList,
     NavigationMenuTrigger,
 } from "@/components/ui/navigation-menu";
-import { Shield, HelpCircle, Users, Check, Mail, FileUp, ChevronDown } from "lucide-react";
+import { BookOpen, Code2, FileText, Shield, HelpCircle, Users, Check, Mail, FileUp, ChevronDown, Terminal, Puzzle } from "lucide-react";
 import { siteConfig, getProductContext } from "@/config/site";
 import { productOptions, landingPages } from "@/config/navigation";
 import { cn } from "@/lib/utils";
@@ -178,18 +178,80 @@ export function SiteNav({ isLoggedIn }: { isLoggedIn?: boolean }) {
                             </div>
                         </Link>
                     </NavDropdown>
-                    <Link className="text-sm font-medium hover:text-primary transition-colors" href="/blog">
-                        Blog
-                    </Link>
-                    <Link className="text-sm font-medium hover:text-primary transition-colors" href="/docs">
-                        Docs
-                    </Link>
-                    <Link className="text-sm font-medium hover:text-primary transition-colors" href="/cli">
-                        CLI
-                    </Link>
-                    <Link className="text-sm font-medium hover:text-primary transition-colors" href="/extension">
-                        Extension
-                    </Link>
+                    <NavDropdown trigger="Tools">
+                        <Link
+                            href="/docs/api"
+                            className="flex items-center gap-3 select-none rounded-md p-3 leading-none no-underline outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground"
+                        >
+                            <Code2 className="h-4 w-4" />
+                            <div>
+                                <div className="text-sm font-medium">API</div>
+                                <p className="text-xs text-muted-foreground">Programmatic access</p>
+                            </div>
+                        </Link>
+                        <Link
+                            href="/cli"
+                            className="flex items-center gap-3 select-none rounded-md p-3 leading-none no-underline outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground"
+                        >
+                            <Terminal className="h-4 w-4" />
+                            <div>
+                                <div className="text-sm font-medium">CLI</div>
+                                <p className="text-xs text-muted-foreground">Terminal workflows</p>
+                            </div>
+                        </Link>
+                        <Link
+                            href="/extension"
+                            className="flex items-center gap-3 select-none rounded-md p-3 leading-none no-underline outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground"
+                        >
+                            <Puzzle className="h-4 w-4" />
+                            <div>
+                                <div className="text-sm font-medium">Extension</div>
+                                <p className="text-xs text-muted-foreground">Browser workflows</p>
+                            </div>
+                        </Link>
+                        <Link
+                            href="/mcp"
+                            className="flex items-center gap-3 select-none rounded-md p-3 leading-none no-underline outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground"
+                        >
+                            <Shield className="h-4 w-4" />
+                            <div>
+                                <div className="text-sm font-medium">MCP</div>
+                                <p className="text-xs text-muted-foreground">AI tool access</p>
+                            </div>
+                        </Link>
+                    </NavDropdown>
+                    <NavDropdown trigger="Resources">
+                        <Link
+                            href="/docs"
+                            className="flex items-center gap-3 select-none rounded-md p-3 leading-none no-underline outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground"
+                        >
+                            <BookOpen className="h-4 w-4" />
+                            <div>
+                                <div className="text-sm font-medium">Docs</div>
+                                <p className="text-xs text-muted-foreground">Guides and API reference</p>
+                            </div>
+                        </Link>
+                        <Link
+                            href="/blog"
+                            className="flex items-center gap-3 select-none rounded-md p-3 leading-none no-underline outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground"
+                        >
+                            <FileText className="h-4 w-4" />
+                            <div>
+                                <div className="text-sm font-medium">Blog</div>
+                                <p className="text-xs text-muted-foreground">Product updates</p>
+                            </div>
+                        </Link>
+                        <Link
+                            href="/compare"
+                            className="flex items-center gap-3 select-none rounded-md p-3 leading-none no-underline outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground"
+                        >
+                            <Check className="h-4 w-4" />
+                            <div>
+                                <div className="text-sm font-medium">Compare</div>
+                                <p className="text-xs text-muted-foreground">Alternative guides</p>
+                            </div>
+                        </Link>
+                    </NavDropdown>
                     {product === "drop" && (
                         <Link className="text-sm font-medium hover:text-primary transition-colors" href="/drop/upload">
                             Upload

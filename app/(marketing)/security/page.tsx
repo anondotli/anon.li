@@ -48,7 +48,7 @@ export default function SecurityPage() {
                 </div>
 
                 <div className="grid gap-6 md:grid-cols-2">
-                    <Card className="border-border/40">
+                    <Card id="two-factor-authentication-totp" className="border-border/40">
                         <CardHeader>
                             <div className="p-3 w-fit rounded-xl bg-primary/10 text-primary mb-2">
                                 <Lock className="h-6 w-6" />
@@ -311,7 +311,7 @@ function ClaimTransparencySection() {
     const infraClaims = getClaimsByClass("depends_on_external_infra")
 
     return (
-        <section className="space-y-8">
+        <section id="claim-transparency" className="space-y-8 scroll-mt-24">
             <div className="text-center space-y-4">
                 <h2 className="text-3xl font-serif font-medium">Claim Transparency</h2>
                 <p className="text-muted-foreground max-w-2xl mx-auto">

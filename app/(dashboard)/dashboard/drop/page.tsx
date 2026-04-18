@@ -7,6 +7,8 @@ import { getEffectiveTier, getDropLimits } from "@/lib/limits";
 import { prisma } from "@/lib/prisma";
 import type { DropData, StorageData } from "@/actions/drop";
 import { AlertTriangle } from "lucide-react";
+import { FeaturePromptGrid } from "@/components/dashboard";
+import { DASHBOARD_FEATURE_PROMPTS } from "@/config/features";
 
 export default async function DropDashboardPage() {
   const session = await auth();
@@ -156,6 +158,13 @@ export default async function DropDashboardPage() {
       {/* Feature highlights for free users - now dismissible */}
       {tier === "free" && <DismissibleUpgradeCard />}
 
+      <FeaturePromptGrid
+        title="Drop controls worth knowing"
+        description="After choosing files, use these controls to decide who can decrypt, how long links stay live, and how recipients receive them."
+        featureIds={DASHBOARD_FEATURE_PROMPTS.drop}
+        dismissStorageKey="anon-li-drop-controls-dismissed"
+      />
+
       {/* Upload and file list - client component for refresh coordination */}
       <DropDashboardClient
         userTier={tier}
@@ -165,4 +174,3 @@ export default async function DropDashboardPage() {
     </div>
   );
 }
-

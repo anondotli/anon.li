@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { X, Sparkles, HardDrive, Gauge, Clock, Bell } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { DROP_PRO_LIMIT_LABELS } from "@/config/features";
 
 const STORAGE_KEY = "anon-li-upgrade-card-dismissed";
 
@@ -11,19 +12,19 @@ const features = [
     {
         icon: HardDrive,
         title: "File Size",
-        description: "Up to 250GB",
+        description: DROP_PRO_LIMIT_LABELS.maxFileSize,
         badge: null,
     },
     {
         icon: Gauge,
         title: "Bandwidth",
-        description: "Up to 250GB/mo",
+        description: DROP_PRO_LIMIT_LABELS.bandwidth,
         badge: null,
     },
     {
         icon: Clock,
-        title: "No Expiry",
-        description: "Keep files forever",
+        title: "Expiry",
+        description: DROP_PRO_LIMIT_LABELS.expiry,
         badge: "Pro",
     },
     {

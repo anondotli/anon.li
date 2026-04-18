@@ -1,5 +1,6 @@
 export { ApiUsageCard } from "./api-usage-card"
 export { DashboardBranding } from "./branding"
+export { FeaturePromptGrid } from "./feature-prompt-grid"
 export { DashboardMobileNav } from "./mobile-nav"
 export { DashboardNav } from "./nav"
 export { UserNav } from "./user-nav"

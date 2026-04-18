@@ -1,7 +1,7 @@
 import Link from "next/link"
 import { Metadata } from "next"
 import { Button } from "@/components/ui/button"
-import { ArrowRight, Mail, Key, Globe, Zap, Lock, EyeOff, HelpCircle, MessageSquareReply, Ban, Tag } from "lucide-react"
+import { ArrowRight, Mail, Key, Globe, Zap, Lock, EyeOff, HelpCircle, MessageSquareReply, Ban, Users, Fingerprint, BarChart3 } from "lucide-react"
 import { HomeCTA } from "@/components/marketing/home-cta"
 import { auth } from "@/auth"
 import { FeatureCard } from "@/components/marketing/feature-card"
@@ -84,7 +84,7 @@ export default async function AliasLandingPage() {
                             Everything you need to keep your real email hidden from the world.
                         </p>
                     </div>
-                    <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-3 max-w-6xl mx-auto">
+                    <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-4 max-w-6xl mx-auto">
                         <FeatureCard
                             icon={<Mail className="h-6 w-6" />}
                             title="Private Aliases"
@@ -96,9 +96,19 @@ export default async function AliasLandingPage() {
                             description="Reply to any forwarded email privately using your alias, so your real email is never exposed."
                         />
                         <FeatureCard
+                            icon={<Users className="h-6 w-6" />}
+                            title="Verified Recipients"
+                            description="Forward aliases to verified inboxes, set a default destination, and route paid-plan aliases to multiple recipients."
+                        />
+                        <FeatureCard
+                            icon={<Ban className="h-6 w-6" />}
+                            title="Pause Spam Instantly"
+                            description="Disable any alias with one click to stop receiving unwanted mail without touching your real inbox."
+                        />
+                        <FeatureCard
                             icon={<Key className="h-6 w-6" />}
-                            title="PGP Encryption"
-                            description="Add a PGP key to a verified recipient and we&apos;ll encrypt forwarded copies before delivery. Standard forwarding still requires transient server-side processing."
+                            title="PGP Forwarding"
+                            description="Add a PGP key to a verified recipient to encrypt delivered copies before they reach your destination inbox."
                         />
                         <FeatureCard
                             icon={<Globe className="h-6 w-6" />}
@@ -106,14 +116,14 @@ export default async function AliasLandingPage() {
                             description="Bring your own domain with DKIM signing for professional aliases like contact@brand.com."
                         />
                         <FeatureCard
-                            icon={<Ban className="h-6 w-6" />}
-                            title="Instant Spam Control"
-                            description="Disable any alias with one click to stop receiving emails. No more dealing with unsubscribe links."
+                            icon={<Fingerprint className="h-6 w-6" />}
+                            title="Encrypted Labels & Notes"
+                            description="Organize aliases with vault-encrypted metadata that stays readable only after your account is unlocked."
                         />
                         <FeatureCard
-                            icon={<Tag className="h-6 w-6" />}
-                            title="Labels, Notes & Stats"
-                            description="Organize aliases by purpose with custom labels. Track emails received, blocked, and last activity."
+                            icon={<BarChart3 className="h-6 w-6" />}
+                            title="Activity Stats"
+                            description="Track emails received, blocked messages, last activity, and plan usage from your dashboard."
                         />
                     </div>
                 </div>
@@ -160,17 +170,17 @@ export default async function AliasLandingPage() {
                     <div className="grid md:grid-cols-2 gap-12 items-center max-w-6xl mx-auto">
                         <div className="space-y-6">
                             <h2 className="text-3xl md:text-4xl font-serif font-medium tracking-tight">
-                                Automate with our API
+                                Automate aliases when you need to
                             </h2>
                             <p className="text-base md:text-lg text-muted-foreground font-light leading-relaxed">
-                                Create aliases programmatically for your apps. Our REST API makes it easy to integrate privacy features into your workflow.
+                                The core product stays simple, but API keys, CLI commands, browser extension workflows, and MCP tools are available for teams and power users.
                             </p>
                             <div className="flex gap-4">
                                 <Button asChild className="rounded-full">
                                     <Link href="/docs/api">API Documentation</Link>
                                 </Button>
                                 <Button variant="outline" asChild className="rounded-full">
-                                    <Link href="/dashboard/api-keys">Get API Key</Link>
+                                    <Link href="/cli">View CLI</Link>
                                 </Button>
                             </div>
                         </div>

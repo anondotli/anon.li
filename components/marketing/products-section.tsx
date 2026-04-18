@@ -1,14 +1,32 @@
 import Link from "next/link"
-import { Mail, FileUp, Globe, Key, MessageSquareReply, Shield, Lock, Upload, Clock, Download, Terminal, Puzzle } from "lucide-react"
+import {
+    BarChart3,
+    Code2,
+    FileKey,
+    FileUp,
+    Fingerprint,
+    Globe,
+    Key,
+    KeyRound,
+    Lock,
+    Mail,
+    MessageSquareReply,
+    Puzzle,
+    QrCode,
+    Shield,
+    Terminal,
+    Users,
+} from "lucide-react"
+import { DROP_PRO_LIMIT_LABELS } from "@/config/features"
 
 export function ProductsSection() {
     return (
         <section id="products" className="w-full py-12 md:py-20 bg-secondary/30 relative">
             <div className="container mx-auto px-6 relative z-10">
                 <div className="text-center mb-8 md:mb-14 space-y-4">
-                    <h2 className="text-3xl md:text-4xl font-serif font-medium tracking-tight">Two Products. One Mission.</h2>
+                    <h2 className="text-3xl md:text-4xl font-serif font-medium tracking-tight">Two core products, one privacy layer</h2>
                     <p className="text-base md:text-lg text-muted-foreground max-w-2xl mx-auto font-light">
-                        Everything you need to protect your online identity and share securely.
+                        Alias protects your inbox identity. Drop protects the files you share. Automation and power tools sit underneath both.
                     </p>
                 </div>
 
@@ -25,24 +43,32 @@ export function ProductsSection() {
                             </div>
                         </div>
                         <p className="text-muted-foreground leading-relaxed font-light text-base mb-5">
-                            Generate email aliases that forward to your real inbox. Sign up anywhere without exposing your real address. Reply via alias. Block spam instantly.
+                            Generate a different email identity for every site, forward to verified inboxes, reply privately, and shut down spam without changing your real address.
                         </p>
                         <div className="grid grid-cols-2 gap-4">
                             <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                <Globe className="h-4 w-4 text-primary" />
-                                <span>Custom Domains</span>
-                            </div>
-                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                <Key className="h-4 w-4 text-primary" />
-                                <span>PGP Encryption</span>
+                                <Mail className="h-4 w-4 text-primary" />
+                                <span>Random & Custom Aliases</span>
                             </div>
                             <div className="flex items-center gap-2 text-sm text-muted-foreground">
                                 <MessageSquareReply className="h-4 w-4 text-primary" />
                                 <span>Reply by Alias</span>
                             </div>
                             <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                <Shield className="h-4 w-4 text-primary" />
-                                <span>Spam Blocking</span>
+                                <Globe className="h-4 w-4 text-primary" />
+                                <span>Custom Domains + DKIM</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                <Key className="h-4 w-4 text-primary" />
+                                <span>Optional PGP Forwarding</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                <Users className="h-4 w-4 text-primary" />
+                                <span>Verified Recipients</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                <Fingerprint className="h-4 w-4 text-primary" />
+                                <span>Encrypted Labels</span>
                             </div>
                         </div>
                     </Link>
@@ -59,31 +85,48 @@ export function ProductsSection() {
                             </div>
                         </div>
                         <p className="text-muted-foreground leading-relaxed font-light text-base mb-5">
-                            Drops are encrypted in your browser before upload. We can&apos;t see what you share. Nobody can - except the people you choose to share with.
+                            Encrypt files in your browser, share a link, and let recipients decrypt without an account. The dashboard keeps controls close to each drop.
                         </p>
                         <div className="grid grid-cols-2 gap-4">
                             <div className="flex items-center gap-2 text-sm text-muted-foreground">
                                 <Lock className="h-4 w-4 text-primary" />
-                                <span>Zero Knowledge</span>
+                                <span>Browser-Side E2EE</span>
                             </div>
                             <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                <Upload className="h-4 w-4 text-primary" />
-                                <span>Up to 250GB Drops</span>
+                                <FileUp className="h-4 w-4 text-primary" />
+                                <span>{DROP_PRO_LIMIT_LABELS.maxFileSize}</span>
                             </div>
                             <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                <Clock className="h-4 w-4 text-primary" />
-                                <span>Auto Expiry</span>
+                                <KeyRound className="h-4 w-4 text-primary" />
+                                <span>Password Protection</span>
                             </div>
                             <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                <Download className="h-4 w-4 text-primary" />
-                                <span>Download Limits</span>
+                                <FileKey className="h-4 w-4 text-primary" />
+                                <span>Expiry + Download Limits</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                <QrCode className="h-4 w-4 text-primary" />
+                                <span>QR Sharing</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                <Shield className="h-4 w-4 text-primary" />
+                                <span>Vault Key Recovery</span>
                             </div>
                         </div>
                     </Link>
                 </div>
 
                 {/* Tools strip */}
-                <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                    <Link href="/docs/api" className="group flex items-center gap-4 p-4 rounded-xl bg-background border border-border/80 hover:border-primary/20 transition-all duration-200 hover:shadow-md hover:shadow-primary/5">
+                        <div className="p-2.5 rounded-xl bg-secondary text-primary group-hover:bg-primary group-hover:text-primary-foreground transition-colors duration-300 shrink-0">
+                            <Code2 className="h-5 w-5" />
+                        </div>
+                        <div>
+                            <p className="font-semibold text-sm">REST API</p>
+                            <p className="text-xs text-muted-foreground">Automate aliases, drops, domains, and recipients</p>
+                        </div>
+                    </Link>
                     <Link href="/cli" className="group flex items-center gap-4 p-4 rounded-xl bg-background border border-border/80 hover:border-primary/20 transition-all duration-200 hover:shadow-md hover:shadow-primary/5">
                         <div className="p-2.5 rounded-xl bg-secondary text-primary group-hover:bg-primary group-hover:text-primary-foreground transition-colors duration-300 shrink-0">
                             <Terminal className="h-5 w-5" />
@@ -100,6 +143,15 @@ export function ProductsSection() {
                         <div>
                             <p className="font-semibold text-sm">Browser Extension</p>
                             <p className="text-xs text-muted-foreground">One-click aliases and drops for Firefox & Chrome</p>
+                        </div>
+                    </Link>
+                    <Link href="/mcp" className="group flex items-center gap-4 p-4 rounded-xl bg-background border border-border/80 hover:border-primary/20 transition-all duration-200 hover:shadow-md hover:shadow-primary/5">
+                        <div className="p-2.5 rounded-xl bg-secondary text-primary group-hover:bg-primary group-hover:text-primary-foreground transition-colors duration-300 shrink-0">
+                            <BarChart3 className="h-5 w-5" />
+                        </div>
+                        <div>
+                            <p className="font-semibold text-sm">MCP Server</p>
+                            <p className="text-xs text-muted-foreground">OAuth access for AI tools and agents</p>
                         </div>
                     </Link>
                 </div>

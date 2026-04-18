@@ -1,12 +1,13 @@
 import Link from "next/link"
 import { Metadata } from "next"
 import { Button } from "@/components/ui/button"
-import { Upload, Lock, Download, Clock, CheckCircle2, FileKey, Sparkles, KeyRound, Link2Off } from "lucide-react"
+import { Upload, Lock, Download, Clock, CheckCircle2, FileKey, Sparkles, KeyRound, Link2Off, FileText, ShieldCheck } from "lucide-react"
 import { Icons } from "@/components/shared/icons"
 import { FeatureCard } from "@/components/marketing/feature-card"
 import { StepCard } from "@/components/marketing/step-card"
 import { InteractiveDotGrid } from "@/components/marketing/dot-grid"
 import { TrustIndicatorBar } from "@/components/marketing/trust-indicator-bar"
+import { DROP_PRO_LIMIT_LABELS } from "@/config/features"
 
 import { siteConfig } from "@/config/site"
 import { getCspNonce } from "@/lib/csp"
@@ -84,21 +85,26 @@ export default async function DropProductPage() {
                             Every feature designed around one principle: your files are yours alone.
                         </p>
                     </div>
-                    <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-3 max-w-6xl mx-auto">
+                    <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-4 max-w-6xl mx-auto">
                         <FeatureCard
                             icon={<Lock className="h-6 w-6" />}
                             title="True E2E Encryption"
                             description="AES-256-GCM encryption happens in your browser. We never see your decryption keys or file contents."
                         />
                         <FeatureCard
-                            icon={<Upload className="h-6 w-6" />}
-                            title="Multi-File & Large Uploads"
-                            description="Upload multiple files up to 250GB each with smart chunking that handles large files reliably."
+                            icon={<FileText className="h-6 w-6" />}
+                            title="Encrypted Filenames"
+                            description="File names and optional drop titles are encrypted alongside file contents before upload."
                         />
                         <FeatureCard
-                            icon={<Clock className="h-6 w-6" />}
-                            title="Ephemeral by Design"
-                            description="Auto-expire after a set time or burn after a set number of downloads. Your files don't linger."
+                            icon={<Upload className="h-6 w-6" />}
+                            title="Multi-File & Large Uploads"
+                            description={`Upload multiple files with smart chunking and ${DROP_PRO_LIMIT_LABELS.maxFileSize.replace("Up to ", "up to ")} on Pro.`}
+                        />
+                        <FeatureCard
+                            icon={<Download className="h-6 w-6" />}
+                            title="No Account to Download"
+                            description="Recipients open the link and decrypt in their browser without creating an anon.li account."
                         />
                         <FeatureCard
                             icon={<KeyRound className="h-6 w-6" />}
@@ -106,9 +112,19 @@ export default async function DropProductPage() {
                             description="Set your own password for an extra layer of protection. Recipients need both the link and password to decrypt."
                         />
                         <FeatureCard
+                            icon={<Clock className="h-6 w-6" />}
+                            title="Expiry & Download Limits"
+                            description="Auto-delete after a chosen expiry or after the download cap is reached."
+                        />
+                        <FeatureCard
                             icon={<Link2Off className="h-6 w-6" />}
-                            title="Full Link Control"
-                            description="Revoke or re-enable download links at any time from your dashboard."
+                            title="Link Controls & QR Sharing"
+                            description="Disable or re-enable links, copy secure share URLs, and generate QR codes from the dashboard."
+                        />
+                        <FeatureCard
+                            icon={<ShieldCheck className="h-6 w-6" />}
+                            title="Vault Key Recovery"
+                            description="Wrapped owner keys let your dashboard recover share links after upload without giving us plaintext keys."
                         />
                     </div>
                 </div>

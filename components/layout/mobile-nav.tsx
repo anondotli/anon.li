@@ -4,7 +4,7 @@ import Link from "next/link";
 import { type ProductContext } from "@/config/site";
 import { productOptions } from "@/config/navigation";
 import { cn } from "@/lib/utils";
-import { Users, Shield, HelpCircle, Menu, Terminal, Puzzle } from "lucide-react";
+import { Users, Shield, HelpCircle, Menu, Terminal, Puzzle, Code2 } from "lucide-react";
 import { Icons } from "@/components/shared/icons";
 import { Button } from "@/components/ui/button";
 import {
@@ -101,7 +101,7 @@ export function SiteMobileNav({ product, config, isLoggedIn }: SiteMobileNavProp
                         </div>
                     </div>
 
-                    {/* Product-specific or General Links */}
+                    {/* Resources */}
                     <div className="space-y-3">
                         <span className="text-sm font-medium text-muted-foreground uppercase tracking-wider block">Resources</span>
                         <div className="flex flex-col gap-1">
@@ -120,20 +120,11 @@ export function SiteMobileNav({ product, config, isLoggedIn }: SiteMobileNavProp
                                 Docs
                             </Link>
                             <Link
-                                href="/cli"
-                                className="flex items-center gap-2 py-2 text-sm font-medium hover:text-primary transition-colors"
+                                href="/compare"
+                                className="block py-2 text-sm font-medium hover:text-primary transition-colors"
                                 onClick={() => setIsOpen(false)}
                             >
-                                <Terminal className="h-4 w-4 text-muted-foreground" />
-                                CLI
-                            </Link>
-                            <Link
-                                href="/extension"
-                                className="flex items-center gap-2 py-2 text-sm font-medium hover:text-primary transition-colors"
-                                onClick={() => setIsOpen(false)}
-                            >
-                                <Puzzle className="h-4 w-4 text-muted-foreground" />
-                                Extension
+                                Compare
                             </Link>
                             {product === "drop" && (
                                 <Link
@@ -150,6 +141,45 @@ export function SiteMobileNav({ product, config, isLoggedIn }: SiteMobileNavProp
                                 onClick={() => setIsOpen(false)}
                             >
                                 Pricing
+                            </Link>
+                        </div>
+                    </div>
+
+                    {/* Tools */}
+                    <div className="space-y-3">
+                        <span className="text-sm font-medium text-muted-foreground uppercase tracking-wider block">Tools</span>
+                        <div className="flex flex-col gap-1">
+                            <Link
+                                href="/docs/api"
+                                className="flex items-center gap-2 py-2 text-sm font-medium hover:text-primary transition-colors"
+                                onClick={() => setIsOpen(false)}
+                            >
+                                <Code2 className="h-4 w-4 text-muted-foreground" />
+                                API
+                            </Link>
+                            <Link
+                                href="/cli"
+                                className="flex items-center gap-2 py-2 text-sm font-medium hover:text-primary transition-colors"
+                                onClick={() => setIsOpen(false)}
+                            >
+                                <Terminal className="h-4 w-4 text-muted-foreground" />
+                                CLI
+                            </Link>
+                            <Link
+                                href="/extension"
+                                className="flex items-center gap-2 py-2 text-sm font-medium hover:text-primary transition-colors"
+                                onClick={() => setIsOpen(false)}
+                            >
+                                <Puzzle className="h-4 w-4 text-muted-foreground" />
+                                Extension
+                            </Link>
+                            <Link
+                                href="/mcp"
+                                className="flex items-center gap-2 py-2 text-sm font-medium hover:text-primary transition-colors"
+                                onClick={() => setIsOpen(false)}
+                            >
+                                <Shield className="h-4 w-4 text-muted-foreground" />
+                                MCP
                             </Link>
                         </div>
                     </div>

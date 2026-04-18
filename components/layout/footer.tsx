@@ -34,6 +34,9 @@ export function SiteFooter() {
                                 <Link href="/extension" className="hover:text-foreground transition-colors">Browser Extension</Link>
                             </li>
                             <li>
+                                <Link href="/mcp" className="hover:text-foreground transition-colors">MCP Server</Link>
+                            </li>
+                            <li>
                                 <Link href="/drop/upload" className="hover:text-foreground transition-colors">Upload a File</Link>
                             </li>
                             <li>

@@ -189,7 +189,7 @@ export function DropSettings({
                       onCheckedChange={c => onUpdate({ expiryDays: c ? 0 : 7 })}
                       className="scale-90"
                     />
-                    <span className="text-xs text-muted-foreground">Keep forever</span>
+                    <span className="text-xs text-muted-foreground">No auto-delete</span>
                   </label>
                 )}
               </div>
