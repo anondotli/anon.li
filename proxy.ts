@@ -3,6 +3,7 @@ import crypto from "crypto";
 import { getSessionCookie } from "better-auth/cookies";
 import { nanoid } from "nanoid";
 import { shouldEnableAnalytics } from "@/lib/analytics-policy";
+import { appendVaryHeader, createMarkdownRewriteUrl, shouldRewriteToMarkdown } from "@/lib/markdown-negotiation"
 
 const DEFAULT_UMAMI_SCRIPT_URL = "https://cloud.umami.is/script.js"
 const DEFAULT_UMAMI_API_URL = "https://api-gateway.umami.dev/api/send"
@@ -128,6 +129,19 @@ export default async function proxy(req: NextRequest) {
     requestHeaders.set("x-analytics-enabled", analyticsEnabled ? "1" : "0")
     requestHeaders.set("Content-Security-Policy", csp)
 
+    if (shouldRewriteToMarkdown(req)) {
+        const response = NextResponse.rewrite(createMarkdownRewriteUrl(req), {
+            request: {
+                headers: requestHeaders,
+            },
+        })
+
+        response.headers.set("X-Request-Id", requestId)
+        appendVaryHeader(response.headers, "Accept")
+
+        return response
+    }
+
     const response = NextResponse.next({
         request: {
             headers: requestHeaders,
@@ -137,6 +151,7 @@ export default async function proxy(req: NextRequest) {
     // Attach request ID for downstream logging and client debugging
     response.headers.set("X-Request-Id", requestId)
     response.headers.set("Content-Security-Policy", csp)
+    appendVaryHeader(response.headers, "Accept")
 
     // CORS for API routes
     if (pathname.startsWith("/api/")) {

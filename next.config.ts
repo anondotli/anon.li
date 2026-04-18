@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { HOMEPAGE_LINK_HEADER } from "./config/agent-discovery"
 
 // Keep the production build on webpack for now. During local verification on
 // 2026-04-16, `next build` (Turbopack) failed to complete within the same
@@ -49,6 +50,15 @@ const nextConfig: NextConfig = {
   },
   async headers() {
     return [
+      {
+        source: "/",
+        headers: [
+          {
+            key: "Link",
+            value: HOMEPAGE_LINK_HEADER,
+          },
+        ],
+      },
       {
         source: "/:path*",
         headers: securityHeaders,
