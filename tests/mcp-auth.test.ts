@@ -5,6 +5,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const getMcpOAuthConfig = vi.fn()
 const getMCPProtectedResource = vi.fn()
+const nextAuthHandlers = vi.hoisted(() => {
+    const GET = vi.fn()
+    const POST = vi.fn()
+    const toNextJsHandler = vi.fn(() => ({ GET, POST }))
+
+    return { GET, POST, toNextJsHandler }
+})
+
+vi.mock("better-auth/next-js", () => ({
+    toNextJsHandler: nextAuthHandlers.toNextJsHandler,
+}))
 
 vi.mock("@/lib/auth", () => ({
     auth: {
@@ -14,6 +25,56 @@ vi.mock("@/lib/auth", () => ({
         },
     },
 }))
+
+describe("/api/auth MCP OAuth endpoints", () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+        nextAuthHandlers.GET.mockImplementation(async (request: Request) => Response.json({ delegatedUrl: request.url }))
+        nextAuthHandlers.POST.mockResolvedValue(Response.json({ ok: true }))
+    })
+
+    it("strips OIDC-only scopes before delegating MCP authorize requests", async () => {
+        const { GET } = await import("@/app/api/auth/[...all]/route")
+        const response = await GET(new Request(
+            "https://anon.li/api/auth/mcp/authorize?client_id=client-1&scope=openid%20profile%20anon.li%3Aaliases%20offline_access",
+        ))
+        const body = await response.json() as { delegatedUrl: string }
+        const delegatedUrl = new URL(body.delegatedUrl)
+
+        expect(delegatedUrl.pathname).toBe("/api/auth/mcp/authorize")
+        expect(delegatedUrl.searchParams.get("scope")).toBe("anon.li:aliases offline_access")
+    })
+
+    it("removes unverifiable id_token values from MCP token responses", async () => {
+        nextAuthHandlers.POST.mockResolvedValueOnce(Response.json({
+            access_token: "access-token",
+            token_type: "Bearer",
+            expires_in: 3600,
+            refresh_token: "refresh-token",
+            scope: "openid profile email anon.li:aliases offline_access",
+            id_token: "header.payload.signature",
+        }, {
+            headers: {
+                "Cache-Control": "no-store",
+                Pragma: "no-cache",
+            },
+        }))
+
+        const { POST } = await import("@/app/api/auth/[...all]/route")
+        const response = await POST(new Request("https://anon.li/api/auth/mcp/token", { method: "POST" }))
+        const body = await response.json()
+
+        expect(body).toEqual({
+            access_token: "access-token",
+            token_type: "Bearer",
+            expires_in: 3600,
+            refresh_token: "refresh-token",
+            scope: "anon.li:aliases offline_access",
+        })
+        expect(response.headers.get("cache-control")).toBe("no-store")
+        expect(response.headers.get("pragma")).toBe("no-cache")
+    })
+})
 
 describe("/.well-known/oauth-authorization-server", () => {
     beforeEach(() => {

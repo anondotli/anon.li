@@ -6,8 +6,17 @@ export const MCP_OAUTH_SCOPES = [
 
 export const MCP_DEFAULT_SCOPE = MCP_OAUTH_SCOPES.join(" ")
 
+const MCP_OIDC_COMPATIBILITY_SCOPES = new Set(["openid", "profile", "email"])
+
 type OAuthMetadata = object
 type OAuthMetadataRecord = Record<string, unknown>
+
+export function normalizeMcpRequestedScope(scope: string | null | undefined): string {
+    const requestedScopes = (scope?.trim() ? scope : MCP_DEFAULT_SCOPE).split(/\s+/).filter(Boolean)
+    const oauthScopes = requestedScopes.filter((requestedScope) => !MCP_OIDC_COMPATIBILITY_SCOPES.has(requestedScope))
+
+    return Array.from(new Set(oauthScopes)).join(" ")
+}
 
 export function normalizeMcpAuthorizationMetadata(metadata: OAuthMetadata | null): OAuthMetadataRecord | null {
     if (!metadata) return null
