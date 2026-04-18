@@ -1,5 +1,9 @@
 import { auth } from "@/lib/auth"
-import { oAuthDiscoveryMetadata } from "better-auth/plugins"
+import { normalizeMcpAuthorizationMetadata } from "@/lib/mcp/oauth-metadata"
 
 export const dynamic = "force-dynamic"
-export const GET = oAuthDiscoveryMetadata(auth)
+
+export async function GET(request: Request) {
+    const metadata = await auth.api.getMcpOAuthConfig({ request, asResponse: false })
+    return Response.json(normalizeMcpAuthorizationMetadata(metadata))
+}

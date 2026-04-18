@@ -29,6 +29,7 @@ describe("/.well-known/oauth-authorization-server", () => {
             response_types_supported: ["code"],
             grant_types_supported: ["authorization_code", "refresh_token"],
             code_challenge_methods_supported: ["S256"],
+            id_token_signing_alg_values_supported: ["RS256", "none"],
             token_endpoint_auth_methods_supported: ["client_secret_basic", "client_secret_post", "none"],
         })
     })
@@ -43,6 +44,10 @@ describe("/.well-known/oauth-authorization-server", () => {
         expect(body.authorization_endpoint).toMatch(/\/mcp\/authorize$/)
         expect(body.token_endpoint).toMatch(/\/mcp\/token$/)
         expect(body.registration_endpoint).toMatch(/\/mcp\/register$/)
+        expect(body.scopes_supported).toEqual(["anon.li:aliases", "anon.li:drops", "offline_access"])
+        expect(body.id_token_signing_alg_values_supported).toBeUndefined()
+        expect(body.userinfo_endpoint).toBeUndefined()
+        expect(body.jwks_uri).toBeUndefined()
         expect(body.code_challenge_methods_supported).toEqual(["S256"])
         expect(body.grant_types_supported).toEqual(
             expect.arrayContaining(["authorization_code", "refresh_token"]),
@@ -66,6 +71,8 @@ describe("/.well-known/oauth-protected-resource", () => {
             authorization_servers: ["https://anon.li"],
             scopes_supported: ["openid", "profile", "email", "offline_access"],
             bearer_methods_supported: ["header"],
+            jwks_uri: "https://anon.li/api/auth/mcp/jwks",
+            resource_signing_alg_values_supported: ["RS256", "none"],
         })
     })
 
@@ -76,6 +83,9 @@ describe("/.well-known/oauth-protected-resource", () => {
         const body = await response.json()
         expect(body.resource).toBe("https://anon.li")
         expect(body.authorization_servers).toEqual(["https://anon.li"])
+        expect(body.scopes_supported).toEqual(["anon.li:aliases", "anon.li:drops", "offline_access"])
+        expect(body.jwks_uri).toBeUndefined()
+        expect(body.resource_signing_alg_values_supported).toBeUndefined()
         expect(body.bearer_methods_supported).toContain("header")
     })
 })

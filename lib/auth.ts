@@ -11,6 +11,7 @@ import {
 } from "@/lib/resend"
 import { rateLimit } from "@/lib/rate-limit"
 import { getVaultSchemaState } from "@/lib/vault/schema"
+import { MCP_DEFAULT_SCOPE, MCP_OAUTH_SCOPES } from "@/lib/mcp/oauth-metadata"
 
 const ACCOUNT_DELETION_PENDING_MESSAGE = "Account deletion is already in progress for this user."
 
@@ -91,9 +92,10 @@ export const auth = betterAuth({
                 loginPage: "/login",
                 accessTokenExpiresIn: 60 * 60, // 1 hour
                 refreshTokenExpiresIn: 60 * 60 * 24 * 14, // 14 days
+                defaultScope: MCP_DEFAULT_SCOPE,
                 allowDynamicClientRegistration: true,
                 consentPage: "/oauth/consent",
-                scopes: ["openid", "profile", "email", "offline_access", "anon.li:aliases", "anon.li:drops"],
+                scopes: [...MCP_OAUTH_SCOPES],
             },
         }),
     ],
