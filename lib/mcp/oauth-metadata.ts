@@ -6,9 +6,10 @@ export const MCP_OAUTH_SCOPES = [
 
 export const MCP_DEFAULT_SCOPE = MCP_OAUTH_SCOPES.join(" ")
 
-type OAuthMetadata = Record<string, unknown>
+type OAuthMetadata = object
+type OAuthMetadataRecord = Record<string, unknown>
 
-export function normalizeMcpAuthorizationMetadata(metadata: OAuthMetadata | null): OAuthMetadata | null {
+export function normalizeMcpAuthorizationMetadata(metadata: OAuthMetadata | null): OAuthMetadataRecord | null {
     if (!metadata) return null
 
     const {
@@ -19,7 +20,7 @@ export function normalizeMcpAuthorizationMetadata(metadata: OAuthMetadata | null
         id_token_signing_alg_values_supported: _idTokenSigningAlgValuesSupported,
         claims_supported: _claimsSupported,
         ...oauthMetadata
-    } = metadata
+    } = metadata as OAuthMetadataRecord
 
     return {
         ...oauthMetadata,
@@ -27,14 +28,14 @@ export function normalizeMcpAuthorizationMetadata(metadata: OAuthMetadata | null
     }
 }
 
-export function normalizeMcpProtectedResourceMetadata(metadata: OAuthMetadata | null): OAuthMetadata | null {
+export function normalizeMcpProtectedResourceMetadata(metadata: OAuthMetadata | null): OAuthMetadataRecord | null {
     if (!metadata) return null
 
     const {
         jwks_uri: _jwksUri,
         resource_signing_alg_values_supported: _resourceSigningAlgValuesSupported,
         ...resourceMetadata
-    } = metadata
+    } = metadata as OAuthMetadataRecord
 
     return {
         ...resourceMetadata,
