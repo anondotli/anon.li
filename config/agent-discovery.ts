@@ -1,4 +1,5 @@
 import { siteConfig } from "./site"
+import { MCP_SERVER_CARD_PATH } from "../lib/mcp/server-card"
 
 const API_CATALOG_PATH = "/.well-known/api-catalog"
 export const API_CATALOG_PROFILE = "https://www.rfc-editor.org/info/rfc9727"
@@ -70,6 +71,7 @@ const apiCatalogResources: readonly ApiCatalogResource[] = [
         path: "/api/mcp",
         documentationPath: "/docs/api/mcp",
         metadataPaths: [
+            MCP_SERVER_CARD_PATH,
             "/.well-known/oauth-authorization-server",
             "/.well-known/oauth-protected-resource",
         ],

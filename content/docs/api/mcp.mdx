@@ -36,13 +36,14 @@ The same flow works for any MCP-compatible client. With the
 npx @modelcontextprotocol/inspector https://anon.li/api/mcp
 ```
 
-## OAuth discovery
+## Discovery
 
-Two RFC-compliant discovery documents are exposed at the root, so MCP clients
-auto-configure with no manual setup:
+anon.li publishes well-known discovery metadata at the root, so MCP clients can
+find the transport and OAuth configuration with no manual setup:
 
 | Document | Path |
 |---|---|
+| MCP Server Card (SEP-1649 draft) | `/.well-known/mcp/server-card.json` |
 | [RFC 8414 — Authorization Server Metadata](https://datatracker.ietf.org/doc/html/rfc8414) | `/.well-known/oauth-authorization-server` |
 | [RFC 9728 — OAuth Protected Resource Metadata](https://datatracker.ietf.org/doc/html/rfc9728) | `/.well-known/oauth-protected-resource` |
 
