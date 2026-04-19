@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server"
 
-export const MARKDOWN_BYPASS_HEADER = "x-markdown-bypass"
-export const MARKDOWN_INTERNAL_PATH = "/__markdown"
+const MARKDOWN_BYPASS_HEADER = "x-markdown-bypass"
+const MARKDOWN_INTERNAL_PATH = "/__markdown"
 
 type ParsedAcceptValue = {
     index: number
@@ -38,7 +38,7 @@ function parseAcceptHeader(acceptHeader: string | null): ParsedAcceptValue[] {
     return acceptHeader
         .split(",")
         .map((part, index) => {
-            const [mediaRange, ...rawParams] = part.split(";").map((value) => value.trim())
+            const [mediaRange = "*/*", ...rawParams] = part.split(";").map((value) => value.trim())
             const [type = "*", subtype = "*"] = mediaRange.toLowerCase().split("/")
             const qParam = rawParams.find((param) => param.startsWith("q="))
             const parsedQ = qParam ? Number.parseFloat(qParam.slice(2)) : 1

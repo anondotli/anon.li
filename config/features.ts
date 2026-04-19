@@ -22,7 +22,7 @@ export const DROP_PRO_LIMIT_LABELS = {
     expiry: `Up to ${PLAN_ENTITLEMENTS.drop.pro.maxExpiryDays}-day expiry`,
 } as const
 
-export const FEATURE_CATALOG = [
+export const FEATURE_CATALOG: readonly FeaturePresentation[] = [
     {
         id: "alias_private_aliases",
         product: "alias",
@@ -276,7 +276,7 @@ export const FEATURE_CATALOG = [
         description: "Connect AI tools through OAuth so they can manage aliases, recipients, and drop metadata safely.",
         href: "/mcp",
     },
-] as const satisfies readonly FeaturePresentation[]
+] as const
 
 export const IMPORTANT_FEATURE_IDS = [
     "alias_private_aliases",
@@ -318,12 +318,4 @@ export function getFeaturesByIds(ids: readonly string[]): FeaturePresentation[] 
     return ids
         .map((id) => getFeatureById(id))
         .filter((feature): feature is FeaturePresentation => Boolean(feature))
-}
-
-export function getFeaturesByProduct(product: FeatureProduct): FeaturePresentation[] {
-    return FEATURE_CATALOG.filter((feature) => feature.product === product)
-}
-
-export function getFeaturesByPriority(priority: FeaturePriority): FeaturePresentation[] {
-    return FEATURE_CATALOG.filter((feature) => feature.priority === priority)
 }

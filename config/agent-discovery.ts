@@ -1,6 +1,6 @@
 import { siteConfig } from "./site"
 
-export const API_CATALOG_PATH = "/.well-known/api-catalog"
+const API_CATALOG_PATH = "/.well-known/api-catalog"
 export const API_CATALOG_PROFILE = "https://www.rfc-editor.org/info/rfc9727"
 
 type HeaderLink = {
@@ -21,8 +21,14 @@ type ApiCatalogEntry = {
     "service-meta"?: LinkTarget[]
 }
 
-export type ApiCatalogDocument = {
+type ApiCatalogDocument = {
     linkset: ApiCatalogEntry[]
+}
+
+type ApiCatalogResource = {
+    documentationPath: string
+    metadataPaths?: readonly string[]
+    path: string
 }
 
 const homepageDiscoveryLinks: HeaderLink[] = [
@@ -43,7 +49,7 @@ const homepageDiscoveryLinks: HeaderLink[] = [
     },
 ]
 
-const apiCatalogResources = [
+const apiCatalogResources: readonly ApiCatalogResource[] = [
     {
         path: "/api/v1/alias",
         documentationPath: "/docs/api/alias",
