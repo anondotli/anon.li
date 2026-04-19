@@ -32,7 +32,11 @@ export const GET = withPolicy(
             _count: { aliases: number; drops: number; domains: number; recipients: number }
         } | null
 
-        const [user, aliasByFormat]: [UserResult, { format: string; _count: { _all: number } }[]] = await Promise.all([
+        const [user, aliasByFormat, security]: [
+            UserResult,
+            { format: string; _count: { _all: number } }[],
+            { id: string } | null,
+        ] = await Promise.all([
             prisma.user.findUnique({
                 where: { id: ctx.userId },
                 select: {
@@ -58,6 +62,10 @@ export const GET = withPolicy(
                 where: { userId: ctx.userId },
                 _count: { _all: true },
             }) as unknown as Promise<{ format: string; _count: { _all: number } }[]>,
+            prisma.userSecurity.findUnique({
+                where: { userId: ctx.userId },
+                select: { id: true },
+            }),
         ])
 
         if (!user) {
@@ -108,6 +116,7 @@ export const GET = withPolicy(
                 api_requests: aliasLimits.apiRequests,
             },
             features: dropLimits.features,
+            vault_configured: Boolean(security),
         }, ctx.requestId)
     },
 )
