@@ -30,7 +30,7 @@ import {
     getObjectMetadata,
 } from "@/lib/storage";
 import type { Drop, DropFile, UploadChunk } from "@prisma/client";
-import { ValidationError, NotFoundError, ForbiddenError, RateLimitError } from "@/lib/api-error-utils";
+import { ValidationError, NotFoundError, ForbiddenError, RateLimitError, UpgradeRequiredError } from "@/lib/api-error-utils";
 import { decrementStorageUsed } from "@/lib/services/drop-storage";
 
 // ID generator: lowercase alphanumeric, 16 chars = ~83 bits of entropy
@@ -215,7 +215,7 @@ export class DropService {
         }
 
         // Get user limits
-        const { userId: finalUserId, limits } = await getUserAndLimits(userId);
+        const { userId: finalUserId, limits, tier } = await getUserAndLimits(userId);
 
         // Enforce feature flags based on plan
         const features = enforceFeatureFlags(
@@ -227,7 +227,7 @@ export class DropService {
             limits.features
         );
 
-        const expiresAt = calculateExpiry(input.expiry, limits.maxExpiry);
+        const expiresAt = calculateExpiry(input.expiry, limits.maxExpiry, tier);
         const dropId = generateDropId();
         
         // Create the drop
@@ -316,9 +316,9 @@ export class DropService {
         DropService.verifyDropOwnership(drop, userId);
 
         // Get user limits and validate
-        const { limits, storageUsed } = await getUserAndLimits(userId);
+        const { limits, storageUsed, tier } = await getUserAndLimits(userId);
 
-        validateFileSize(input.size, storageUsed, BigInt(limits.maxStorage), limits.maxFileSize);
+        validateFileSize(input.size, storageUsed, BigInt(limits.maxStorage), limits.maxFileSize, tier);
 
         // Atomic quota reservation to prevent race conditions
         // Two concurrent uploads can both pass the check above, so we use an atomic
@@ -331,7 +331,16 @@ export class DropService {
               AND "storageUsed" + ${BigInt(input.size)} <= ${storageLimit}
         `;
         if (reserved === 0) {
-            throw new ValidationError("Storage limit exceeded. Please upgrade your plan.");
+            throw new UpgradeRequiredError(
+                "Bandwidth limit reached. Upgrade for more headroom.",
+                {
+                    scope: "drop_bandwidth",
+                    currentTier: tier,
+                    suggestedTier: tier === "pro" ? "pro" : tier === "plus" ? "pro" : "plus",
+                    currentValue: Number(storageUsed + BigInt(input.size)),
+                    limitValue: Number(storageLimit),
+                }
+            );
         }
 
         // Create file record and initiate upload.

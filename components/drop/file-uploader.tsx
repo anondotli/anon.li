@@ -6,8 +6,10 @@ import { toast } from "sonner";
 import { useFileDrop } from "@/hooks/use-file-drop";
 import { useDropUpload } from "@/hooks/use-drop-upload";
 import { formatBytes } from "@/lib/utils";
+import type { UpgradeRequiredDetails } from "@/lib/api-error-utils";
 
 import { Button } from "@/components/ui/button";
+import { UpgradeRequiredDialog } from "@/components/upgrade/upgrade-required-dialog";
 
 import { DropZone } from "./upload/drop-zone";
 import { FileList } from "./upload/file-list";
@@ -39,6 +41,8 @@ export function FileUploader({ onUploadComplete, userTier, maxStorage, usedStora
     setConfig(prev => ({ ...prev, ...updates }));
   }, []);
 
+  const [upgradeDetails, setUpgradeDetails] = useState<UpgradeRequiredDetails | null>(null);
+
   const remainingBandwidth = (maxStorage !== undefined && usedStorage !== undefined)
     ? Number(maxStorage - usedStorage)
     : undefined;
@@ -49,7 +53,12 @@ export function FileUploader({ onUploadComplete, userTier, maxStorage, usedStora
     features, maxFileSize, maxExpiry,
     upload, cancel,
     reset: resetUploadState,
-  } = useDropUpload({ userTier, remainingStorage: remainingBandwidth, onComplete: onUploadComplete });
+  } = useDropUpload({
+    userTier,
+    remainingStorage: remainingBandwidth,
+    onComplete: onUploadComplete,
+    onUpgradeRequired: setUpgradeDetails,
+  });
 
   // Compute effective expiry days
   const effectiveExpiryDays = config.expiryDays !== null
@@ -135,29 +144,43 @@ export function FileUploader({ onUploadComplete, userTier, maxStorage, usedStora
 
   // View States
 
+  const upgradeDialog = (
+    <UpgradeRequiredDialog
+      open={upgradeDetails !== null}
+      onOpenChange={(open) => { if (!open) setUpgradeDetails(null); }}
+      details={upgradeDetails}
+    />
+  );
+
   if (shareUrl) {
     return (
-      <SuccessView
-        shareUrl={shareUrl}
-        password={config.password}
-        fileCount={files.length || 1}
-        totalSize={totalSize}
-        expiresAt={dropMeta?.expiresAt ? new Date(dropMeta.expiresAt) : undefined}
-        maxDownloads={dropMeta?.maxDownloads}
-        onReset={reset}
-      />
+      <>
+        <SuccessView
+          shareUrl={shareUrl}
+          password={config.password}
+          fileCount={files.length || 1}
+          totalSize={totalSize}
+          expiresAt={dropMeta?.expiresAt ? new Date(dropMeta.expiresAt) : undefined}
+          maxDownloads={dropMeta?.maxDownloads}
+          onReset={reset}
+        />
+        {upgradeDialog}
+      </>
     );
   }
 
   if (progress && progress.phase !== "complete") {
     return (
-      <UploadProgress
-        progress={progress}
-        pct={pct}
-        onCancel={cancel}
-        onRetry={startUpload}
-        onReset={reset}
-      />
+      <>
+        <UploadProgress
+          progress={progress}
+          pct={pct}
+          onCancel={cancel}
+          onRetry={startUpload}
+          onReset={reset}
+        />
+        {upgradeDialog}
+      </>
     );
   }
 
@@ -191,9 +214,15 @@ export function FileUploader({ onUploadComplete, userTier, maxStorage, usedStora
             features={features}
           />
         </div>
+        {upgradeDialog}
       </div>
     );
   }
 
-  return <DropZone onFilesAdded={addFiles} maxFileSize={maxFileSize} />;
+  return (
+    <>
+      <DropZone onFilesAdded={addFiles} maxFileSize={maxFileSize} />
+      {upgradeDialog}
+    </>
+  );
 }

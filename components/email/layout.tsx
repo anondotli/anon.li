@@ -6,12 +6,15 @@ interface EmailLayoutProps {
     children: React.ReactNode;
     title: string;
     preheader?: string;
+    // Growth emails (drip, upsell) pass this so the footer shows an
+    // unsubscribe link. Transactional emails omit it.
+    unsubscribeUrl?: string;
 }
 
 // Invisible whitespace filler to stop email clients showing body text after preheader
 const PREHEADER_SPACER = "\u200C\u00A0\u200C\u00A0".repeat(75);
 
-export function EmailLayout({ children, title, preheader }: EmailLayoutProps) {
+export function EmailLayout({ children, title, preheader, unsubscribeUrl }: EmailLayoutProps) {
     return (
         <html lang="en">
             <head>
@@ -102,6 +105,14 @@ export function EmailLayout({ children, title, preheader }: EmailLayoutProps) {
                                                 <p style={{ margin: "8px 0 0", fontSize: "12px", color: "#555352" }}>
                                                     You&apos;re receiving this because you have an anon.li account or interacted with our service.
                                                 </p>
+                                                {unsubscribeUrl && (
+                                                    <p style={{ margin: "12px 0 0", fontSize: "12px", color: "#555352" }}>
+                                                        <a href={unsubscribeUrl} style={{ color: "#7f7c7a", textDecoration: "underline" }}>
+                                                            Unsubscribe from growth emails
+                                                        </a>
+                                                        &nbsp;&middot;&nbsp;Billing &amp; security notifications will still be sent.
+                                                    </p>
+                                                )}
                                             </td>
                                         </tr>
                                     </tbody>

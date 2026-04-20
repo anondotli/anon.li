@@ -1,7 +1,7 @@
 
 import { z } from "zod"
 import { randomBytes } from "crypto"
-import { getPlanLimits } from "@/lib/limits"
+import { getPlanLimits, getEffectiveTier } from "@/lib/limits"
 import { createLogger } from "@/lib/logger"
 import {
     getAliasById,
@@ -13,7 +13,7 @@ import { getDomainsByUserId } from "@/lib/data/domain"
 import { getRecipientById, getDefaultRecipientByUserId, getRecipientByUserIdAndEmail } from "@/lib/data/recipient"
 import { prisma } from "@/lib/prisma"
 import type { User, Alias, Recipient } from "@prisma/client"
-import { ValidationError, NotFoundError, ForbiddenError, ConflictError } from "@/lib/api-error-utils"
+import { ValidationError, NotFoundError, ForbiddenError, ConflictError, UpgradeRequiredError } from "@/lib/api-error-utils"
 
 const logger = createLogger("AliasService");
 
@@ -131,9 +131,19 @@ export class AliasService {
             const { random: randomLimit, custom: customLimit } = getPlanLimits(user)
             const limit = format === "CUSTOM" ? customLimit : randomLimit
             if (limit !== -1 && currentCount >= limit) {
-                throw new ValidationError(format === "CUSTOM"
-                    ? `Custom alias limit reached (${limit}). Upgrade to increase.`
-                    : "Random alias limit reached. Upgrade to increase.")
+                const currentTier = getEffectiveTier(user)
+                throw new UpgradeRequiredError(
+                    format === "CUSTOM"
+                        ? `Custom alias limit reached (${limit}). Upgrade to add more.`
+                        : `Random alias limit reached (${limit}). Upgrade to add more.`,
+                    {
+                        scope: format === "CUSTOM" ? "alias_custom" : "alias_random",
+                        currentTier,
+                        suggestedTier: currentTier === "pro" ? "pro" : currentTier === "plus" ? "pro" : "plus",
+                        currentValue: currentCount,
+                        limitValue: limit,
+                    }
+                )
             }
 
             const alias = await tx.alias.create({
@@ -263,14 +273,34 @@ export class AliasService {
             // Limit Check
             const currentCustomCount = aliases.filter((a) => a.format === "CUSTOM").length
             if (customLimit !== -1 && currentCustomCount >= customLimit) {
-                throw new ValidationError(`Custom alias limit reached (${customLimit}). Upgrade to increase.`)
+                const currentTier = getEffectiveTier(user)
+                throw new UpgradeRequiredError(
+                    `Custom alias limit reached (${customLimit}). Upgrade to add more.`,
+                    {
+                        scope: "alias_custom",
+                        currentTier,
+                        suggestedTier: currentTier === "pro" ? "pro" : currentTier === "plus" ? "pro" : "plus",
+                        currentValue: currentCustomCount,
+                        limitValue: customLimit,
+                    }
+                )
             }
             return localPart
         } else {
             // RANDOM
             const currentRandomCount = aliases.filter((a) => a.format === "RANDOM").length
             if (randomLimit !== -1 && currentRandomCount >= randomLimit) {
-                throw new ValidationError("Random alias limit reached. Upgrade to increase.")
+                const currentTier = getEffectiveTier(user)
+                throw new UpgradeRequiredError(
+                    `Random alias limit reached (${randomLimit}). Upgrade to add more.`,
+                    {
+                        scope: "alias_random",
+                        currentTier,
+                        suggestedTier: currentTier === "pro" ? "pro" : currentTier === "plus" ? "pro" : "plus",
+                        currentValue: currentRandomCount,
+                        limitValue: randomLimit,
+                    }
+                )
             }
 
             // Generate Random Local Part
@@ -490,7 +520,17 @@ export class AliasService {
         if (!user) throw new NotFoundError("User not found")
         const { recipientsPerAlias } = getPlanLimits(user)
         if (recipientsPerAlias !== undefined && recipientIds.length > recipientsPerAlias) {
-            throw new ValidationError(`Maximum ${recipientsPerAlias} recipients per alias on your plan. Upgrade to add more.`)
+            const currentTier = getEffectiveTier(user)
+            throw new UpgradeRequiredError(
+                `Maximum ${recipientsPerAlias} recipients per alias on your plan.`,
+                {
+                    scope: "alias_recipients_per_alias",
+                    currentTier,
+                    suggestedTier: currentTier === "pro" ? "pro" : currentTier === "plus" ? "pro" : "plus",
+                    currentValue: recipientIds.length,
+                    limitValue: recipientsPerAlias,
+                }
+            )
         }
 
         const recipients = await prisma.recipient.findMany({

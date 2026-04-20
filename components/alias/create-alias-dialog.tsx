@@ -29,6 +29,8 @@ import { createAliasAction, updateAliasEncryptedMetadataAction } from "@/actions
 import { analytics } from "@/lib/analytics"
 import { useVault } from "@/components/vault/vault-provider"
 import { encryptVaultText } from "@/lib/vault/crypto"
+import { UpgradeRequiredDialog } from "@/components/upgrade/upgrade-required-dialog"
+import type { UpgradeRequiredDetails } from "@/lib/api-error-utils"
 
 interface Domain {
     id: string
@@ -116,6 +118,7 @@ export function CreateAliasDialog({ domains, recipients }: CreateAliasDialogProp
     const [domainOverride, setDomainOverride] = useState<string | null>(null)
     const [recipientIdOverride, setRecipientIdOverride] = useState<string | null>(null)
     const [label, setLabel] = useState("")
+    const [upgradeDetails, setUpgradeDetails] = useState<UpgradeRequiredDetails | null>(null)
     const router = useRouter()
 
     const verifiedDomains = domains.filter(d => d.verified)
@@ -145,7 +148,12 @@ export function CreateAliasDialog({ domains, recipients }: CreateAliasDialogProp
             })
 
             if (!result.success) {
-                toast.error(result.error || "Failed to create alias")
+                if (result.code === "UPGRADE_REQUIRED" && result.upgrade) {
+                    setOpen(false)
+                    setUpgradeDetails(result.upgrade)
+                } else {
+                    toast.error(result.error || "Failed to create alias")
+                }
             } else {
                 const createdAlias = result.data?.alias
                 const trimmedLabel = label.trim()
@@ -184,6 +192,12 @@ export function CreateAliasDialog({ domains, recipients }: CreateAliasDialogProp
     const isDisabled = loading || !domain || !recipientId || (mode === "custom" && !localPart.trim())
 
     return (
+        <>
+        <UpgradeRequiredDialog
+            open={upgradeDetails !== null}
+            onOpenChange={(isOpen) => { if (!isOpen) setUpgradeDetails(null) }}
+            details={upgradeDetails}
+        />
         <Dialog open={open} onOpenChange={(isOpen) => {
             setOpen(isOpen)
             if (!isOpen) {
@@ -332,5 +346,6 @@ export function CreateAliasDialog({ domains, recipients }: CreateAliasDialogProp
                 </form>
             </DialogContent>
         </Dialog>
+        </>
     )
 }

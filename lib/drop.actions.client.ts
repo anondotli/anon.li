@@ -10,6 +10,7 @@ import {
     type GetDropActionResult,
     type RecordDownloadActionResult,
 } from "@/actions/drop";
+import type { UpgradeRequiredDetails } from "@/lib/api-error-utils";
 
 // Re-export uploadChunk from drop.client.ts - this still needs direct S3 upload
 export { uploadChunk } from "@/lib/drop.client";
@@ -21,6 +22,15 @@ import type { DropMetadata } from "@/lib/drop.client";
 export type {
     DropMetadata,
 } from "@/lib/drop.client";
+
+export class UpgradeRequiredClientError extends Error {
+    readonly details: UpgradeRequiredDetails;
+    constructor(message: string, details: UpgradeRequiredDetails) {
+        super(message);
+        this.name = "UpgradeRequiredClientError";
+        this.details = details;
+    }
+}
 
 /**
  * Create a new drop using server action
@@ -53,6 +63,9 @@ export async function createDrop(
     const result: CreateDropActionResult = await createDropAction(data);
 
     if (result.error) {
+        if (result.code === "UPGRADE_REQUIRED" && result.upgrade) {
+            throw new UpgradeRequiredClientError(result.error, result.upgrade);
+        }
         throw new Error(result.error);
     }
 
@@ -88,6 +101,9 @@ export async function addFileToDrop(
     });
 
     if (result.error) {
+        if (result.code === "UPGRADE_REQUIRED" && result.upgrade) {
+            throw new UpgradeRequiredClientError(result.error, result.upgrade);
+        }
         throw new Error(result.error);
     }
 

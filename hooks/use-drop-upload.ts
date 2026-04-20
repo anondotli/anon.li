@@ -7,7 +7,9 @@ import {
     addFileToDrop,
     uploadChunk,
     finishDrop,
+    UpgradeRequiredClientError,
 } from "@/lib/drop.actions.client";
+import type { UpgradeRequiredDetails } from "@/lib/api-error-utils";
 import { DROP_FEATURES, PLAN_ENTITLEMENTS } from "@/config/plans";
 import { extractStoredKeyMaterial } from "@/lib/vault/crypto";
 import { upsertCachedWrappedDropKey } from "@/lib/vault/drop-keys-client";
@@ -43,6 +45,7 @@ interface UseDropUploadProps {
     userTier?: string | null;
     remainingStorage?: number;
     onComplete?: (dropId: string, shareUrl: string) => void;
+    onUpgradeRequired?: (details: UpgradeRequiredDetails) => void;
 }
 
 interface ActiveUpload {
@@ -56,6 +59,7 @@ export function useDropUpload({
     userTier,
     remainingStorage,
     onComplete,
+    onUpgradeRequired,
 }: UseDropUploadProps = {}) {
     const vault = useOptionalVault()
     const [files, setFiles] = useState<File[]>([]);
@@ -335,14 +339,19 @@ export function useDropUpload({
                     );
                 }
 
-                const message = error instanceof Error ? error.message : "Upload failed";
-                setProgress(p => p ? { ...p, phase: "error", error: message } : null);
-                toast.error(message);
+                if (error instanceof UpgradeRequiredClientError) {
+                    setProgress(null);
+                    onUpgradeRequired?.(error.details);
+                } else {
+                    const message = error instanceof Error ? error.message : "Upload failed";
+                    setProgress(p => p ? { ...p, phase: "error", error: message } : null);
+                    toast.error(message);
+                }
             }
         } finally {
             setAbortController(null);
         }
-    }, [files, features, onComplete, vault]);
+    }, [files, features, onComplete, onUpgradeRequired, vault]);
 
     return {
         files,

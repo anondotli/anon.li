@@ -140,7 +140,7 @@ async function sendTakedownEmails(
         )
 
         await getResendClient().emails.send({
-            from: "anon.li <noreply@anon.li>",
+            from: "anon.li <hi@anon.li>",
             to: email,
             subject: userBanned
                 ? `Account Suspended - Policy Violation (Strike ${newStrikeCount}/${MAX_STRIKES})`
@@ -151,7 +151,7 @@ async function sendTakedownEmails(
         if (userBanned) {
             const banEmailHtml = await render(AccountBannedEmail({ reason }))
             await getResendClient().emails.send({
-                from: "anon.li <noreply@anon.li>",
+                from: "anon.li <hi@anon.li>",
                 to: email,
                 subject: "Your anon.li Account Has Been Permanently Suspended",
                 html: banEmailHtml,

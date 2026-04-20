@@ -2,6 +2,17 @@ import React from "react"
 import { Resend } from "resend"
 import { sanitizeEmailSubject, sanitizeDomain, sanitizeFilename } from "@/lib/utils"
 import { createLogger } from "@/lib/logger"
+import { unsubscribeUrl as buildUnsubscribeUrl } from "@/lib/email-unsubscribe"
+
+// RFC 8058 one-click unsubscribe headers for growth emails.
+// Gmail/Yahoo render a native "Unsubscribe" button when these are present.
+function unsubscribeHeaders(userId: string) {
+    const url = buildUnsubscribeUrl(userId)
+    return {
+        "List-Unsubscribe": `<${url}>`,
+        "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+    }
+}
 
 const logger = createLogger("Resend")
 
@@ -458,6 +469,195 @@ export async function sendCryptoPaymentConfirmationEmail(
         return { success: true, data }
     } catch (error) {
         logger.error("Failed to send crypto payment confirmation email", error)
+        return { success: false, error }
+    }
+}
+
+export async function sendDripDay1Email(email: string, userId: string) {
+    try {
+        const resend = getResendClient()
+        const { DripDay1Email } = await import("@/components/email/drip-day1")
+        const unsub = buildUnsubscribeUrl(userId)
+
+        const { data, error } = await resend.emails.send({
+            from: "anon.li <hi@anon.li>",
+            to: email,
+            subject: "Create your first anon.li alias in 30 seconds",
+            react: React.createElement(DripDay1Email, { unsubscribeUrl: unsub }),
+            headers: unsubscribeHeaders(userId),
+        })
+
+        if (error) {
+            logger.error("Failed to send drip day-1 email", error)
+            return { success: false, error }
+        }
+
+        return { success: true, data }
+    } catch (error) {
+        logger.error("Failed to send drip day-1 email", error)
+        return { success: false, error }
+    }
+}
+
+export async function sendDripDay3Email(email: string, userId: string) {
+    try {
+        const resend = getResendClient()
+        const { DripDay3Email } = await import("@/components/email/drip-day3")
+        const unsub = buildUnsubscribeUrl(userId)
+
+        const { data, error } = await resend.emails.send({
+            from: "anon.li <hi@anon.li>",
+            to: email,
+            subject: "Send a file with end-to-end encryption",
+            react: React.createElement(DripDay3Email, { unsubscribeUrl: unsub }),
+            headers: unsubscribeHeaders(userId),
+        })
+
+        if (error) {
+            logger.error("Failed to send drip day-3 email", error)
+            return { success: false, error }
+        }
+
+        return { success: true, data }
+    } catch (error) {
+        logger.error("Failed to send drip day-3 email", error)
+        return { success: false, error }
+    }
+}
+
+export async function sendDripDay7Email(email: string, userId: string) {
+    try {
+        const resend = getResendClient()
+        const { DripDay7Email } = await import("@/components/email/drip-day7")
+        const unsub = buildUnsubscribeUrl(userId)
+
+        const { data, error } = await resend.emails.send({
+            from: "anon.li <hi@anon.li>",
+            to: email,
+            subject: "anon.li in your browser, terminal, and AI agent",
+            react: React.createElement(DripDay7Email, { unsubscribeUrl: unsub }),
+            headers: unsubscribeHeaders(userId),
+        })
+
+        if (error) {
+            logger.error("Failed to send drip day-7 email", error)
+            return { success: false, error }
+        }
+
+        return { success: true, data }
+    } catch (error) {
+        logger.error("Failed to send drip day-7 email", error)
+        return { success: false, error }
+    }
+}
+
+export async function sendDripDay14Email(email: string, userId: string) {
+    try {
+        const resend = getResendClient()
+        const { DripDay14Email } = await import("@/components/email/drip-day14")
+        const unsub = buildUnsubscribeUrl(userId)
+
+        const { data, error } = await resend.emails.send({
+            from: "anon.li <hi@anon.li>",
+            to: email,
+            subject: "Free is great. Here's when Plus earns its keep.",
+            react: React.createElement(DripDay14Email, { unsubscribeUrl: unsub }),
+            headers: unsubscribeHeaders(userId),
+        })
+
+        if (error) {
+            logger.error("Failed to send drip day-14 email", error)
+            return { success: false, error }
+        }
+
+        return { success: true, data }
+    } catch (error) {
+        logger.error("Failed to send drip day-14 email", error)
+        return { success: false, error }
+    }
+}
+
+export async function sendCryptoInvoiceReminderEmail(
+    email: string,
+    details: { product: string; tier: string; priceUsd: number; payCurrency: string; hoursPending: number }
+) {
+    try {
+        const resend = getResendClient()
+        const { CryptoInvoiceReminderEmail } = await import("@/components/email/crypto-invoice-reminder")
+
+        const { data, error } = await resend.emails.send({
+            from: "anon.li <billing@anon.li>",
+            to: email,
+            subject: "Your anon.li crypto payment is still pending",
+            react: React.createElement(CryptoInvoiceReminderEmail, details),
+        })
+
+        if (error) {
+            logger.error("Failed to send crypto invoice reminder email", error)
+            return { success: false, error }
+        }
+
+        return { success: true, data }
+    } catch (error) {
+        logger.error("Failed to send crypto invoice reminder email", error)
+        return { success: false, error }
+    }
+}
+
+export async function sendCryptoInvoiceExpiredEmail(
+    email: string,
+    details: { product: string; tier: string; priceUsd: number }
+) {
+    try {
+        const resend = getResendClient()
+        const { CryptoInvoiceExpiredEmail } = await import("@/components/email/crypto-invoice-expired")
+
+        const { data, error } = await resend.emails.send({
+            from: "anon.li <billing@anon.li>",
+            to: email,
+            subject: "Your crypto invoice expired — finish with a card in 30 seconds",
+            react: React.createElement(CryptoInvoiceExpiredEmail, details),
+        })
+
+        if (error) {
+            logger.error("Failed to send crypto invoice expired email", error)
+            return { success: false, error }
+        }
+
+        return { success: true, data }
+    } catch (error) {
+        logger.error("Failed to send crypto invoice expired email", error)
+        return { success: false, error }
+    }
+}
+
+export async function sendPowerUserUpsellEmail(
+    email: string,
+    userId: string,
+    details: { aliasCount: number; emailsForwarded: number; suggestedTier: "plus" | "pro"; aliasLimit: number; price: string }
+) {
+    try {
+        const resend = getResendClient()
+        const { PowerUserUpsellEmail } = await import("@/components/email/power-user-upsell")
+
+        const planLabel = details.suggestedTier === "pro" ? "Pro" : "Plus"
+        const unsub = buildUnsubscribeUrl(userId)
+        const { data, error } = await resend.emails.send({
+            from: "anon.li <hi@anon.li>",
+            to: email,
+            subject: `You've forwarded ${details.emailsForwarded.toLocaleString()} emails — ${planLabel} lifts your limits`,
+            react: React.createElement(PowerUserUpsellEmail, { ...details, unsubscribeUrl: unsub }),
+            headers: unsubscribeHeaders(userId),
+        })
+
+        if (error) {
+            logger.error("Failed to send power-user upsell email", error)
+            return { success: false, error }
+        }
+
+        return { success: true, data }
+    } catch (error) {
+        logger.error("Failed to send power-user upsell email", error)
         return { success: false, error }
     }
 }

@@ -56,6 +56,43 @@ export class RateLimitError extends ApiError {
     }
 }
 
+export type UpgradeScope =
+    | "alias_random"
+    | "alias_custom"
+    | "alias_domains"
+    | "alias_recipients"
+    | "alias_recipients_per_alias"
+    | "drop_file_size"
+    | "drop_bandwidth"
+    | "drop_expiry"
+    | "drop_custom_key";
+
+export interface UpgradeRequiredDetails {
+    scope: UpgradeScope;
+    currentTier: "guest" | "free" | "plus" | "pro";
+    suggestedTier: "plus" | "pro";
+    currentValue?: number | string;
+    limitValue?: number | string;
+}
+
+export class UpgradeRequiredError extends ApiError {
+    public readonly details: UpgradeRequiredDetails;
+
+    constructor(message: string, details: UpgradeRequiredDetails) {
+        super(message, 402, "UPGRADE_REQUIRED");
+        this.name = "UpgradeRequiredError";
+        this.details = details;
+    }
+
+    toJSON() {
+        return {
+            error: this.message,
+            code: this.code,
+            details: this.details,
+        };
+    }
+}
+
 export class ServiceUnavailableError extends ApiError {
     constructor(message: string = "Service unavailable", code?: string) {
         super(message, 503, code || "SERVICE_UNAVAILABLE");

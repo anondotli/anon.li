@@ -3,10 +3,16 @@
  * Handles expiry calculation and validation
  */
 
-import { getDropLimits } from "@/lib/limits";
+import { getDropLimits, getEffectiveTier } from "@/lib/limits";
 import { getUserById } from "@/lib/data/user";
 import { formatBytes } from "@/lib/utils";
-import { ValidationError } from "@/lib/api-error-utils";
+import { ValidationError, UpgradeRequiredError } from "@/lib/api-error-utils";
+
+type DropTier = "guest" | "free" | "plus" | "pro";
+
+function nextDropTier(tier: DropTier): "plus" | "pro" {
+    return tier === "pro" ? "pro" : tier === "plus" ? "pro" : "plus";
+}
 
 // Input length limits for security
 const INPUT_LIMITS = {
@@ -23,6 +29,7 @@ interface UserLimits {
     limits: ReturnType<typeof getDropLimits>;
     storageUsed: bigint;
     user: { stripePriceId: string | null; stripeCurrentPeriodEnd: Date | null } | null;
+    tier: DropTier;
 }
 
 /**
@@ -30,7 +37,8 @@ interface UserLimits {
  */
 export function calculateExpiry(
     requestedExpiry: number | undefined,
-    maxExpiry: number
+    maxExpiry: number,
+    currentTier: DropTier = "free"
 ): Date | null {
     const hasUnlimitedExpiry = maxExpiry === -1;
     let finalExpiryDays = requestedExpiry;
@@ -47,7 +55,16 @@ export function calculateExpiry(
 
     // Check against limits
     if (!hasUnlimitedExpiry && finalExpiryDays > maxExpiry) {
-        throw new ValidationError(`Expiry exceeds limit. Max: ${maxExpiry} days`);
+        throw new UpgradeRequiredError(
+            `Expiry exceeds limit. Max: ${maxExpiry} days on your plan.`,
+            {
+                scope: "drop_expiry",
+                currentTier,
+                suggestedTier: nextDropTier(currentTier),
+                currentValue: finalExpiryDays,
+                limitValue: maxExpiry,
+            }
+        );
     }
 
     if (finalExpiryDays < 0) {
@@ -77,11 +94,13 @@ export async function getUserAndLimits(userId: string): Promise<UserLimits> {
                     : "File uploads restricted"
             );
         }
+        const userRef = { stripePriceId: user.stripePriceId, stripeCurrentPeriodEnd: user.stripeCurrentPeriodEnd };
         return {
             userId: user.id,
             limits: getDropLimits(user),
             storageUsed: user.storageUsed,
-            user: { stripePriceId: user.stripePriceId, stripeCurrentPeriodEnd: user.stripeCurrentPeriodEnd },
+            user: userRef,
+            tier: getEffectiveTier(userRef) as DropTier,
         };
     }
 
@@ -90,6 +109,7 @@ export async function getUserAndLimits(userId: string): Promise<UserLimits> {
         limits: getDropLimits(null),
         storageUsed: BigInt(0),
         user: null,
+        tier: "free",
     };
 }
 
@@ -100,17 +120,36 @@ export function validateFileSize(
     size: number,
     storageUsed: bigint,
     storageLimit: bigint,
-    maxFileSizeLimit?: number
+    maxFileSizeLimit?: number,
+    currentTier: DropTier = "free"
 ): void {
     // Per-file size cap
     const perFileCap = maxFileSizeLimit ?? Math.max(0, Number(storageLimit - storageUsed));
 
     if (size > perFileCap) {
-        throw new Error(`File size exceeds limit. Max: ${formatBytes(perFileCap)}`);
+        throw new UpgradeRequiredError(
+            `File size exceeds limit. Max: ${formatBytes(perFileCap)} on your plan.`,
+            {
+                scope: "drop_file_size",
+                currentTier,
+                suggestedTier: nextDropTier(currentTier),
+                currentValue: size,
+                limitValue: perFileCap,
+            }
+        );
     }
 
     if (storageUsed + BigInt(size) > storageLimit) {
-        throw new Error("Storage limit exceeded. Please upgrade your plan.");
+        throw new UpgradeRequiredError(
+            "Bandwidth limit reached. Upgrade for more headroom.",
+            {
+                scope: "drop_bandwidth",
+                currentTier,
+                suggestedTier: nextDropTier(currentTier),
+                currentValue: Number(storageUsed + BigInt(size)),
+                limitValue: Number(storageLimit),
+            }
+        );
     }
 }
 

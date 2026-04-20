@@ -224,7 +224,7 @@ export async function POST(req: Request) {
         if (data.contactEmail) {
             try {
                 await getResend().emails.send({
-                    from: "anon.li <noreply@anon.li>",
+                    from: "anon.li <hi@anon.li>",
                     to: data.contactEmail,
                     subject: "Abuse Report Received - anon.li",
                     react: ReportConfirmationEmail({ trackingToken }),

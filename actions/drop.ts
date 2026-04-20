@@ -11,6 +11,7 @@ import { z } from "zod"
 import { createLogger } from "@/lib/logger"
 import { type ActionState, runSecureAction } from "@/lib/safe-action"
 import { addFileActionSchema } from "@/lib/validations/drop"
+import type { UpgradeRequiredDetails } from "@/lib/api-error-utils"
 import {
     DropOwnerKeyConflictError,
     persistOwnedDropKey,
@@ -109,12 +110,16 @@ const finishDropSchema = z.object({
 
 export type CreateDropActionResult = {
     error?: string
+    code?: string
+    upgrade?: UpgradeRequiredDetails
     dropId?: string
     expiresAt?: string | null
 }
 
 export type AddFileActionResult = {
     error?: string
+    code?: string
+    upgrade?: UpgradeRequiredDetails
     fileId?: string
     s3UploadId?: string
     uploadUrls?: Record<number, string>
@@ -201,7 +206,7 @@ export async function createDropAction(
         }
     )
 
-    if (result.error) return { error: result.error }
+    if (result.error) return { error: result.error, code: result.code, upgrade: result.upgrade }
     return result.data ?? { error: "Failed to create drop" }
 }
 
@@ -236,7 +241,7 @@ export async function addFileToDropAction(
         }
     )
 
-    if (result.error) return { error: result.error }
+    if (result.error) return { error: result.error, code: result.code, upgrade: result.upgrade }
     return result.data ?? { error: "Failed to add file" }
 }
 

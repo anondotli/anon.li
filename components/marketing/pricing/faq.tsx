@@ -1,16 +1,16 @@
 "use client"
 
 import { useState } from "react"
-import { 
-    Package, 
-    Mail, 
-    Shield, 
-    FileUp, 
-    Code, 
-    CreditCard,
+import {
+    Package,
+    Mail,
+    Shield,
+    FileUp,
+    Code,
     ChevronDown,
     Search,
-    HelpCircle
+    HelpCircle,
+    Scale,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -30,9 +30,9 @@ interface FAQCategory {
 const FAQ_CATEGORIES: FAQCategory[] = [
     {
         id: "plans",
-        name: "Plans & Pricing",
+        name: "Plans & Billing",
         icon: Package,
-        description: "Understanding our plans",
+        description: "Plans, payments, and your account",
         items: [
             {
                 question: "What's the difference between Bundle, Alias, and Drop?",
@@ -57,6 +57,22 @@ const FAQ_CATEGORIES: FAQCategory[] = [
             {
                 question: "Do you offer discounts?",
                 answer: "We keep prices low for everyone. Annual billing saves up to 25%. Our free plan is generous and always available."
+            },
+            {
+                question: "What payment methods do you accept?",
+                answer: "All major cards via Stripe, plus Apple Pay, Google Pay, and Link. We also support cryptocurrency checkout through NOWPayments. Available coins and networks depend on NOWPayments at checkout, and crypto purchases give you 1 year of access per payment with no recurring billing."
+            },
+            {
+                question: "Do you offer refunds?",
+                answer: "Generally no, due to abuse risk. But contact support within 14 days if you have technical issues preventing use."
+            },
+            {
+                question: "Can I use anon.li for my team?",
+                answer: "Currently individual accounts only. Team features with shared domains and admin controls are in development."
+            },
+            {
+                question: "How do I delete my account?",
+                answer: "Settings → Delete Account. This permanently removes all your data including aliases, drops, and domains. Cannot be undone."
             }
         ]
     },
@@ -165,26 +181,34 @@ const FAQ_CATEGORIES: FAQCategory[] = [
         ]
     },
     {
-        id: "billing",
-        name: "Billing & Account",
-        icon: CreditCard,
-        description: "Payments and your account",
+        id: "compare",
+        name: "How We Compare",
+        icon: Scale,
+        description: "anon.li vs other privacy tools",
         items: [
             {
-                question: "What payment methods do you accept?",
-                answer: "All major cards via Stripe, plus Apple Pay, Google Pay, and Link. We also support cryptocurrency checkout through NOWPayments. Available coins and networks depend on NOWPayments at checkout, and crypto purchases give you 1 year of access per payment with no recurring billing."
+                question: "anon.li vs SimpleLogin",
+                answer: "SimpleLogin is a mature, Proton-owned email-alias service. anon.li does aliases too — at a lower price point — but bundles them with end-to-end encrypted file drops. If you want aliases plus a way to send sensitive files without storing them in Google Drive, that's the main difference."
             },
             {
-                question: "Do you offer refunds?",
-                answer: "Generally no, due to abuse risk. But contact support within 14 days if you have technical issues preventing use."
+                question: "anon.li vs Addy.io",
+                answer: "Addy.io is a great open-source alias service at a similar price. We're also open source. The main differences: anon.li's Bundle plan includes E2EE file drops in one product, and we ship a browser extension, CLI, and MCP server for AI agents out of the box."
             },
             {
-                question: "Can I use anon.li for my team?",
-                answer: "Currently individual accounts only. Team features with shared domains and admin controls are in development."
+                question: "anon.li vs Firefox Relay",
+                answer: "Firefox Relay is solid for basic masking but doesn't support custom domains on the free tier and doesn't do encrypted file sharing. anon.li includes PGP-encrypted forwarding on every plan and covers both aliases and file drops."
             },
             {
-                question: "How do I delete my account?",
-                answer: "Settings → Delete Account. This permanently removes all your data including aliases, drops, and domains. Cannot be undone."
+                question: "anon.li vs DuckDuckGo Email Protection",
+                answer: "DuckDuckGo's tool is free and does the basics well. It doesn't support custom domains, sending from aliases, or file sharing. anon.li adds those — plus PGP encryption, a CLI, and a browser extension."
+            },
+            {
+                question: "anon.li vs Proton Pass aliases",
+                answer: "Proton Pass is primarily a password manager with aliases attached. anon.li is purpose-built for privacy plumbing — aliases, E2EE file drops, API, CLI, and an MCP server — without needing a Proton account. If you already live in the Proton ecosystem, Pass may be simpler; if not, anon.li is lower-friction."
+            },
+            {
+                question: "Why are your prices lower than SimpleLogin or Proton?",
+                answer: "We run lean: no sales team, no ad spend, small infra costs. The trade-off is fewer enterprise features and a smaller support team. If you want a Fortune-500 vendor, use Proton. If you want a focused indie tool that keeps prices honest, that's us."
             }
         ]
     }

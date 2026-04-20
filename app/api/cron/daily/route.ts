@@ -31,6 +31,24 @@ async function handleCron(req: NextRequest) {
         results.billing = { error: "failed" };
     }
 
+    // --- Welcome drip ---
+    try {
+        const { handleDripCron } = await import("../drip/route");
+        results.drip = await handleDripCron();
+    } catch (error) {
+        logger.error("Daily cron: drip task failed", error);
+        results.drip = { error: "failed" };
+    }
+
+    // --- Crypto invoice recovery ---
+    try {
+        const { handleCryptoRecoveryCron } = await import("../crypto-recovery/route");
+        results.cryptoRecovery = await handleCryptoRecoveryCron();
+    } catch (error) {
+        logger.error("Daily cron: crypto recovery task failed", error);
+        results.cryptoRecovery = { error: "failed" };
+    }
+
     return NextResponse.json({ success: true, results });
 }
 

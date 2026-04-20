@@ -18,6 +18,7 @@ interface PricingPlanCardProps {
     currentPlanId?: string | null
     isPopular?: boolean
     isDark?: boolean
+    isHighlighted?: boolean
     onSubscribe?: (planId: string) => void
     dashboardLink?: string
 }
@@ -31,6 +32,7 @@ export function PricingPlanCard({
     currentPlanId,
     isPopular,
     isDark,
+    isHighlighted,
     onSubscribe,
     dashboardLink = "/dashboard"
 }: PricingPlanCardProps) {
@@ -39,6 +41,8 @@ export function PricingPlanCard({
     const fullPlanId = `${product}_${planId}`
 
     const cardClassName = `rounded-[2rem] p-8 flex flex-col gap-6 transition-all duration-300 hover:shadow-xl hover:shadow-primary/5 relative overflow-hidden ${
+        isHighlighted ? "ring-2 ring-primary ring-offset-4 ring-offset-background" : ""
+    } ${
         isDark
             ? "bg-secondary"
             : isPopular

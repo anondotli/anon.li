@@ -63,6 +63,11 @@ model User {
   paymentMethod  String          @default("stripe") @map("payment_method")
   cryptoPayments CryptoPayment[]
 
+  // Email preferences
+  // One-click unsubscribe flag for growth emails (drip + power-user upsell).
+  // Transactional emails (billing, auth, abuse) ignore this flag.
+  dripUnsubscribed Boolean @default(false) @map("drip_unsubscribed")
+
   @@map("users")
 }
 

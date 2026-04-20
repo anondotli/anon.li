@@ -2,12 +2,15 @@ import { auth } from "@/auth"
 import { getAuthUserState } from "@/lib/data/auth"
 import { rateLimit, rateLimiters } from "@/lib/rate-limit"
 import { logError } from "@/lib/logger"
+import { UpgradeRequiredError, type UpgradeRequiredDetails } from "@/lib/api-error-utils"
 import { z } from "zod"
 
 export type ActionState<D = unknown> = {
   error?: string
   success?: boolean
   data?: D
+  code?: string
+  upgrade?: UpgradeRequiredDetails
 }
 
 type SecureActionOptions<T> = {
@@ -100,6 +103,13 @@ export async function runSecureAction<T = void, R = unknown>(
     const result = await handler(validatedData, userId)
     return { success: true, data: result ?? undefined }
   } catch (error) {
+    if (error instanceof UpgradeRequiredError) {
+      return {
+        error: error.message,
+        code: error.code,
+        upgrade: error.details,
+      }
+    }
     logError("SecureAction", "Operation failed", error)
     return { error: "Operation failed" }
   }
