@@ -10,8 +10,11 @@ import { z } from "zod"
 import { apiError, apiList, apiSuccess, ErrorCodes, zodErrorToDetails } from "@/lib/api-response"
 import { getDropLimits } from "@/lib/limits"
 import { prisma } from "@/lib/prisma"
+import { getClientIp } from "@/lib/rate-limit"
 import { withPolicy } from "@/lib/route-policy"
 import { DropService, type DropListItem } from "@/lib/services/drop"
+import { issueUploadToken } from "@/lib/services/drop-upload-token"
+import { getTurnstileError } from "@/lib/turnstile"
 import {
     DropOwnerKeyConflictError,
     persistOwnedDropKey,
@@ -41,6 +44,7 @@ const createDropSchema = z.object({
     hideBranding: z.boolean().optional(),
     notifyOnDownload: z.boolean().optional(),
     fileCount: z.number().int().positive().optional(),
+    turnstileToken: z.string().optional(),
     ownerKey: ownerKeySchema.optional(),
 }).refine((data) => {
     if (data.customKey) {
@@ -100,17 +104,14 @@ export const GET = withPolicy(
 
 export const POST = withPolicy(
     {
-        auth: "api_key_or_session",
+        auth: "optional_api_key_or_session",
         apiQuota: "drop",
         requireCsrf: true,
         checkBan: "upload",
         rateLimit: "dropCreate",
+        rateLimitIdentifier: async (ctx) => ctx.userId ?? await getClientIp(),
     },
     async (ctx) => {
-        if (!ctx.userId) {
-            return apiError("Authentication required to create drops", ErrorCodes.UNAUTHORIZED, ctx.requestId, 401)
-        }
-
         const body = await ctx.request.json()
         const validation = createDropSchema.safeParse(body)
 
@@ -124,9 +125,26 @@ export const POST = withPolicy(
             )
         }
 
-        const { ownerKey, ...dropInput } = validation.data
+        const { ownerKey, turnstileToken, ...dropInput } = validation.data
 
-        if (ownerKey) {
+        if (!ctx.userId) {
+            const turnstileError = await getTurnstileError(turnstileToken)
+            if (turnstileError) {
+                return apiError(turnstileError, ErrorCodes.VALIDATION_ERROR, ctx.requestId, 400)
+            }
+        }
+
+        // Guests cannot persist vault-wrapped owner keys.
+        if (!ctx.userId && ownerKey) {
+            return apiError(
+                "Owner keys are only available for authenticated drops",
+                ErrorCodes.VALIDATION_ERROR,
+                ctx.requestId,
+                400,
+            )
+        }
+
+        if (ownerKey && ctx.userId) {
             const security = await prisma.userSecurity.findUnique({
                 where: { userId: ctx.userId },
                 select: { id: true, vaultGeneration: true },
@@ -147,7 +165,7 @@ export const POST = withPolicy(
 
         const result = await DropService.createDrop(ctx.userId, dropInput)
 
-        if (ownerKey) {
+        if (ownerKey && ctx.userId) {
             try {
                 await persistOwnedDropKey(
                     prisma,
@@ -173,10 +191,15 @@ export const POST = withPolicy(
             }
         }
 
+        // Guests receive a single-use upload token bound to this drop.
+        // The raw token is shown once; only its SHA-256 is stored server-side.
+        const uploadToken = ctx.userId ? null : await issueUploadToken(result.dropId)
+
         return apiSuccess({
             drop_id: result.dropId,
             expires_at: result.expiresAt?.toISOString() || null,
-            owner_key_stored: Boolean(ownerKey),
+            owner_key_stored: Boolean(ownerKey && ctx.userId),
+            upload_token: uploadToken,
         }, ctx.requestId)
     }
 )

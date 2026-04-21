@@ -7,12 +7,16 @@ import { createLogger } from "@/lib/logger"
 import { cookies, headers } from "next/headers"
 import { auth } from "@/lib/auth"
 import { getClientIp, rateLimit } from "@/lib/rate-limit"
+import { getTurnstileError } from "@/lib/turnstile"
 import { normalizeEmail } from "@/lib/vault/server"
 
 const logger = createLogger("SessionActions")
 const PASSWORD_RESET_SUCCESS_MESSAGE = "If this email exists in our system, check your email for the reset link."
 
-export async function requestPasswordResetAction(email: string): Promise<ActionState<{ message: string }>> {
+export async function requestPasswordResetAction(
+    email: string,
+    turnstileToken?: string,
+): Promise<ActionState<{ message: string }>> {
     const normalizedEmail = normalizeEmail(email)
 
     if (!normalizedEmail || !normalizedEmail.includes("@")) {
@@ -32,6 +36,11 @@ export async function requestPasswordResetAction(email: string): Promise<ActionS
                 success: true,
                 data: { message: PASSWORD_RESET_SUCCESS_MESSAGE },
             }
+        }
+
+        const turnstileError = await getTurnstileError(turnstileToken)
+        if (turnstileError) {
+            return { error: turnstileError }
         }
 
         await auth.api.requestPasswordReset({

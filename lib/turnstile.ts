@@ -2,6 +2,10 @@ import { createLogger } from "@/lib/logger";
 
 const logger = createLogger("Turnstile");
 
+function isTurnstileEnabled(): boolean {
+    return Boolean(process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY);
+}
+
 export async function validateTurnstileToken(token: string): Promise<boolean> {
     const secretKey = process.env.TURNSTILE_SECRET_KEY;
 
@@ -29,4 +33,17 @@ export async function validateTurnstileToken(token: string): Promise<boolean> {
         logger.error("Turnstile validation network error", error);
         return false;
     }
+}
+
+export async function getTurnstileError(token: string | null | undefined): Promise<string | null> {
+    if (!isTurnstileEnabled()) {
+        return null;
+    }
+
+    if (!token) {
+        return "Verification required. Please complete the challenge.";
+    }
+
+    const isValidToken = await validateTurnstileToken(token);
+    return isValidToken ? null : "Bot verification failed. Please try again.";
 }

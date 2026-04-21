@@ -113,10 +113,10 @@ export function validateServerEnv(): ServerEnv {
             );
         }
 
-        if (!result.data.TURNSTILE_SECRET_KEY) {
+        if (!process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || !result.data.TURNSTILE_SECRET_KEY) {
             throw new Error(
-                "❌ TURNSTILE_SECRET_KEY is required in production.\n" +
-                "Bot protection cannot be disabled in production."
+                "❌ Turnstile keys are required in production.\n" +
+                "Set NEXT_PUBLIC_TURNSTILE_SITE_KEY and TURNSTILE_SECRET_KEY."
             );
         }
 

@@ -18,7 +18,7 @@ const agentSkillsRoot = path.join(process.cwd(), "content", "agent-skills")
 
 type PublishedAgentSkillName = (typeof PUBLISHED_AGENT_SKILL_NAMES)[number]
 
-export type AgentSkillEntry = {
+type AgentSkillEntry = {
     description: string
     digest: string
     name: string
@@ -26,7 +26,7 @@ export type AgentSkillEntry = {
     url: string
 }
 
-export type AgentSkillsIndexDocument = {
+type AgentSkillsIndexDocument = {
     $schema: string
     skills: AgentSkillEntry[]
 }

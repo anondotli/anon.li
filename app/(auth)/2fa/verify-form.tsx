@@ -61,7 +61,7 @@ export function TwoFactorVerifyForm() {
 
         setStatus("success")
         toast.success("Verification successful")
-        window.location.href = "/dashboard/alias"
+        window.location.href = result.redirectTo ?? "/dashboard/alias"
     }
 
     const handleSubmit = (e: React.FormEvent) => {

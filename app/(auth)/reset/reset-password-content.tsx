@@ -9,8 +9,11 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Turnstile } from "@/components/ui/turnstile"
 import { Icons } from "@/components/shared/icons"
 import { AlertTriangle, CheckCircle2, ArrowLeft } from "lucide-react"
+
+const turnstileSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY
 
 export function ResetPasswordContent() {
     const searchParams = useSearchParams()
@@ -22,6 +25,13 @@ export function ResetPasswordContent() {
     const [success, setSuccess] = React.useState(false)
     const [requestSent, setRequestSent] = React.useState(false)
     const [error, setError] = React.useState<string | null>(null)
+    const [turnstileToken, setTurnstileToken] = React.useState<string | null>(null)
+    const [turnstileRenderKey, setTurnstileRenderKey] = React.useState(0)
+
+    const resetTurnstile = React.useCallback(() => {
+        setTurnstileToken(null)
+        setTurnstileRenderKey((key) => key + 1)
+    }, [])
 
     const onRequestReset = async (event: React.FormEvent<HTMLFormElement>) => {
         event.preventDefault()
@@ -32,11 +42,18 @@ export function ResetPasswordContent() {
             return
         }
 
+        if (turnstileSiteKey && !turnstileToken) {
+            setError("Please complete the verification challenge.")
+            return
+        }
+
         setIsSubmitting(true)
         setError(null)
 
         try {
-            const result = await requestPasswordResetAction(normalizedEmail)
+            const result = turnstileSiteKey
+                ? await requestPasswordResetAction(normalizedEmail, turnstileToken!)
+                : await requestPasswordResetAction(normalizedEmail)
             if (result.error) {
                 throw new Error(result.error)
             }
@@ -44,6 +61,7 @@ export function ResetPasswordContent() {
             setRequestSent(true)
         } catch (submitError) {
             setError(submitError instanceof Error ? submitError.message : "Password reset request failed")
+            resetTurnstile()
         } finally {
             setIsSubmitting(false)
         }
@@ -136,7 +154,21 @@ export function ResetPasswordContent() {
                                         </div>
                                     )}
 
-                                    <Button type="submit" className="w-full" disabled={isSubmitting}>
+                                    {turnstileSiteKey && (
+                                        <Turnstile
+                                            key={turnstileRenderKey}
+                                            siteKey={turnstileSiteKey}
+                                            onVerify={setTurnstileToken}
+                                            onError={resetTurnstile}
+                                            onExpire={() => setTurnstileToken(null)}
+                                        />
+                                    )}
+
+                                    <Button
+                                        type="submit"
+                                        className="w-full"
+                                        disabled={isSubmitting || (!!turnstileSiteKey && !turnstileToken)}
+                                    >
                                         {isSubmitting ? (
                                             <>
                                                 <Icons.spinner className="mr-2 h-4 w-4 animate-spin" />

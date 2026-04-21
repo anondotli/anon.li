@@ -3,6 +3,7 @@ import { headers } from "next/headers"
 import { hashPassword, verifyPassword } from "better-auth/crypto"
 import { auth as betterAuth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
+import { TwoFactorService } from "@/lib/services/two-factor"
 
 export const VAULT_KDF_VERSION = 1
 const DEFAULT_FRESH_SESSION_AGE_MS = 4 * 60 * 60 * 1000
@@ -47,7 +48,9 @@ export async function getVaultSession(options?: {
         return null
     }
 
-    if ((options?.require2FA ?? true) && result.user.twoFactorEnabled && !result.session.twoFactorVerified) {
+    const twoFactorEnabled = await TwoFactorService.isEnabled(result.user.id)
+
+    if ((options?.require2FA ?? true) && twoFactorEnabled && !result.session.twoFactorVerified) {
         return null
     }
 
@@ -58,7 +61,19 @@ export async function getVaultSession(options?: {
         }
     }
 
-    return result as VaultSessionResult
+    return {
+        session: {
+            id: result.session.id,
+            createdAt: result.session.createdAt,
+            twoFactorVerified: result.session.twoFactorVerified ?? false,
+        },
+        user: {
+            id: result.user.id,
+            email: result.user.email,
+            name: result.user.name,
+            twoFactorEnabled,
+        },
+    }
 }
 
 export async function getCredentialAccount(userId: string) {

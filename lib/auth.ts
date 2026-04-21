@@ -1,6 +1,6 @@
 import { betterAuth } from "better-auth"
 import { prismaAdapter } from "better-auth/adapters/prisma"
-import { twoFactor, magicLink, mcp } from "better-auth/plugins"
+import { twoFactor, magicLink, mcp, captcha } from "better-auth/plugins"
 import { APIError } from "@better-auth/core/error"
 import { prisma } from "@/lib/prisma"
 import {
@@ -14,6 +14,7 @@ import { getVaultSchemaState } from "@/lib/vault/schema"
 import { MCP_DEFAULT_SCOPE, MCP_OAUTH_SCOPES } from "@/lib/mcp/oauth-metadata"
 
 const ACCOUNT_DELETION_PENDING_MESSAGE = "Account deletion is already in progress for this user."
+const turnstileEnabled = Boolean(process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY)
 
 async function hasDeletionRequest(userId: string): Promise<boolean> {
     const request = await prisma.deletionRequest.findUnique({
@@ -23,6 +24,14 @@ async function hasDeletionRequest(userId: string): Promise<boolean> {
 
     return Boolean(request)
 }
+
+const turnstileCaptchaPlugin = turnstileEnabled
+    ? captcha({
+        provider: "cloudflare-turnstile",
+        secretKey: process.env.TURNSTILE_SECRET_KEY ?? "",
+        endpoints: ["/sign-in/magic-link"],
+    })
+    : null
 
 export const auth = betterAuth({
     database: prismaAdapter(prisma, { provider: "postgresql" }),
@@ -80,6 +89,7 @@ export const auth = betterAuth({
                 await sendMagicLinkEmail(email, url, host)
             },
         }),
+        ...(turnstileCaptchaPlugin ? [turnstileCaptchaPlugin] : []),
         twoFactor({
             issuer: "anon.li",
             backupCodeOptions: { amount: 8, length: 16, storeBackupCodes: "encrypted" },

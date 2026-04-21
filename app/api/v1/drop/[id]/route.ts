@@ -15,6 +15,7 @@ import { z } from "zod"
 import { getClientIp, rateLimit } from "@/lib/rate-limit"
 import { withPolicy } from "@/lib/route-policy"
 import { DropService } from "@/lib/services/drop"
+import { verifyUploadToken } from "@/lib/services/drop-upload-token"
 import { getPublicDropMetadata } from "@/lib/drop-metadata"
 
 interface RouteParams {
@@ -99,14 +100,23 @@ const completeHandler = withPolicy<RouteParams>(
 
 const finishHandler = withPolicy<RouteParams>(
     {
-        auth: "api_key_or_session",
+        auth: "optional_api_key_or_session",
         apiQuota: "drop",
         requireCsrf: true,
         checkBan: "upload",
         rateLimit: "dropOps",
+        rateLimitIdentifier: async (ctx) => ctx.userId ?? await getClientIp(),
     },
     async (ctx, routeContext) => {
         const { id: dropId } = await routeContext!.params
+
+        if (!ctx.userId) {
+            const ok = await verifyUploadToken(ctx.request, dropId)
+            if (!ok) {
+                return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+            }
+        }
+
         const body = await ctx.request.json().catch(() => ({}))
         const validation = finishDropSchema.safeParse(body)
 
@@ -114,7 +124,7 @@ const finishHandler = withPolicy<RouteParams>(
             return NextResponse.json({ error: "Invalid request body" }, { status: 400 })
         }
 
-        await DropService.finishDrop(dropId, validation.data.files, ctx.userId!)
+        await DropService.finishDrop(dropId, validation.data.files, ctx.userId)
         return NextResponse.json({ success: true })
     },
 )

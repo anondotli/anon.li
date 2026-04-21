@@ -9,10 +9,12 @@ import { TwoFactorService } from "@/lib/services/two-factor"
 import { rateLimit } from "@/lib/rate-limit"
 import { prisma } from "@/lib/prisma"
 import { APIError } from "@better-auth/core/error"
+import { getVaultSchemaState } from "@/lib/vault/schema"
 
 type TwoFactorActionResult = {
     error?: string
     success?: boolean
+    redirectTo?: string
 }
 
 type TwoFactorSetupResult = TwoFactorActionResult & {
@@ -237,7 +239,8 @@ export async function verifyTwoFactorLogin(
 
     let rateLimitId: string | null
     if (existingSession?.session && existingSession.user) {
-        if (!existingSession.user.twoFactorEnabled) return { error: "2FA is not enabled" }
+        const twoFactorEnabled = await TwoFactorService.isEnabled(existingSession.user.id)
+        if (!twoFactorEnabled) return { error: "2FA is not enabled" }
         rateLimitId = existingSession.user.id
     } else {
         rateLimitId = await getPendingTwoFactorRateLimitId()
@@ -284,11 +287,22 @@ export async function verifyTwoFactorLogin(
 
     if (!sessionWhere) return { error: "Verification failed" }
 
-    await prisma.session.update({
+    const updatedSession = await prisma.session.update({
         where: sessionWhere,
         data: { twoFactorVerified: true },
+        select: { userId: true },
     })
     await clearSessionCacheCookie()
 
-    return { success: true }
+    const vaultSchema = await getVaultSchemaState()
+    let redirectTo = "/dashboard/alias"
+    if (vaultSchema.userSecurity) {
+        const security = await prisma.userSecurity.findUnique({
+            where: { userId: updatedSession.userId },
+            select: { id: true },
+        })
+        if (!security) redirectTo = "/setup"
+    }
+
+    return { success: true, redirectTo }
 }

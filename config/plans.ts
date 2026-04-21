@@ -76,9 +76,9 @@ export const PLAN_ENTITLEMENTS = {
     },
     drop: {
         guest: {
-            maxFileSize: 3 * GB,
+            maxFileSize: 100 * 1024 * 1024,
             bandwidth: 0,
-            maxExpiryDays: 1,
+            maxExpiryDays: 3,
             customKey: false,
             downloadLimits: true,
             noBranding: false,
@@ -186,6 +186,14 @@ export const DROP_LIMITS = {
     plus: { apiRequests: PLAN_ENTITLEMENTS.drop.plus.apiRequests },
     pro: { apiRequests: PLAN_ENTITLEMENTS.drop.pro.apiRequests },
 } as const;
+
+// Guest (unauthenticated) drop limits.
+// Why: no persisted user row means no storageUsed counter — caps must be
+// self-contained per drop. File count cap prevents fan-out abuse; total byte
+// cap mirrors the single-file cap so a "split into many small files" attack
+// can't exceed it either.
+export const GUEST_MAX_FILES_PER_DROP = 5;
+export const GUEST_MAX_DROP_BYTES = 100 * 1024 * 1024;
 
 // ─── Helpers for generating feature strings from entitlements ──────────────
 

@@ -4,6 +4,7 @@ interface AuthUserState {
     id: string
     isAdmin: boolean
     banned: boolean
+    twoFactorEnabled: boolean
     stripeSubscriptionId: string | null
     stripePriceId: string | null
     stripeCurrentPeriodEnd: Date | null
@@ -24,6 +25,7 @@ export async function getAuthUserState(userId: string): Promise<AuthUserState | 
             id: true,
             isAdmin: true,
             banned: true,
+            twoFactorEnabled: true,
             stripeSubscriptionId: true,
             stripePriceId: true,
             stripeCurrentPeriodEnd: true,

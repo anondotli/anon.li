@@ -14,6 +14,7 @@ import { prisma } from "@/lib/prisma"
 import { withPolicy } from "@/lib/route-policy"
 import { DropService } from "@/lib/services/drop"
 import { decrementStorageUsed } from "@/lib/services/drop-storage"
+import { verifyUploadToken } from "@/lib/services/drop-upload-token"
 import { getPresignedDownloadUrl, abortMultipartUpload } from "@/lib/storage"
 import { getClientIp } from "@/lib/rate-limit"
 
@@ -97,15 +98,24 @@ export const GET = withPolicy<RouteParams>(
 
 export const DELETE = withPolicy<RouteParams>(
     {
-        auth: "api_key_or_session",
+        auth: "optional_api_key_or_session",
         apiQuota: "drop",
         requireCsrf: true,
         rateLimit: "dropAbortUpload",
+        rateLimitIdentifier: async (ctx) => ctx.userId ?? await getClientIp(),
     },
     async (ctx, routeContext) => {
         try {
             const { id: dropId, fileId } = await routeContext!.params
-            const userId = ctx.userId!
+
+            // Guest aborts are bound to the upload token — without a valid
+            // token, we reject before touching the database.
+            if (!ctx.userId) {
+                const ok = await verifyUploadToken(ctx.request, dropId)
+                if (!ok) {
+                    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+                }
+            }
 
             const body = await ctx.request.json().catch(() => ({}))
             const validation = abortSchema.safeParse(body)
@@ -133,7 +143,13 @@ export const DELETE = withPolicy<RouteParams>(
                 return NextResponse.json({ error: "Unauthorized upload ID" }, { status: 401 })
             }
 
-            if (file.drop.userId !== userId) {
+            // Ownership mode must match: authenticated caller must own the
+            // drop; guest caller must be acting on a guest drop (userId null).
+            if (ctx.userId) {
+                if (file.drop.userId !== ctx.userId) {
+                    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+                }
+            } else if (file.drop.userId !== null) {
                 return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
             }
 
@@ -151,9 +167,9 @@ export const DELETE = withPolicy<RouteParams>(
                 // Ignore if already deleted.
             })
 
-            if (fileSize > BigInt(0)) {
+            if (ctx.userId && fileSize > BigInt(0)) {
                 try {
-                    await decrementStorageUsed(userId, fileSize)
+                    await decrementStorageUsed(ctx.userId, fileSize)
                 } catch {
                     // Best effort cleanup only.
                 }

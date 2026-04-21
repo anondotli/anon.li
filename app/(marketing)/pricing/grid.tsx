@@ -55,7 +55,7 @@ export function PricingGrid({ user, currentPlanId }: PricingGridProps) {
     const searchParams = useSearchParams()
     const [isYearly, setIsYearly] = useState(true)
 
-    const getInitial = (): { product: ProductType; highlightedTier: PlanTier | null } => {
+    const [selection, setSelection] = useState<{ product: ProductType; highlightedTier: PlanTier | null }>(() => {
         // `?highlight=<product>_<tier>` takes precedence (sent by upgrade-required
         // dialogs and growth emails) — falls back to the legacy `?alias` / `?drop`
         // presence flags for deep links from marketing pages.
@@ -64,11 +64,9 @@ export function PricingGrid({ user, currentPlanId }: PricingGridProps) {
         if (searchParams.has("alias")) return { product: "alias", highlightedTier: null }
         if (searchParams.has("drop")) return { product: "drop", highlightedTier: null }
         return { product: "bundle", highlightedTier: null }
-    }
+    })
 
-    const initial = useRef(getInitial()).current
-    const [product, setProduct] = useState<ProductType>(initial.product)
-    const [highlightedTier, setHighlightedTier] = useState<PlanTier | null>(initial.highlightedTier)
+    const { product, highlightedTier } = selection
     const highlightRef = useRef<HTMLDivElement | null>(null)
 
     // Scroll the highlighted plan into view on initial mount so emailed links
@@ -82,7 +80,9 @@ export function PricingGrid({ user, currentPlanId }: PricingGridProps) {
             node.scrollIntoView({ behavior: "smooth", block: "center" })
         })
         // Drop the ring after 6 seconds so the page doesn't stay permanently "noisy".
-        const timeout = window.setTimeout(() => setHighlightedTier(null), 6000)
+        const timeout = window.setTimeout(() => {
+            setSelection((current) => ({ ...current, highlightedTier: null }))
+        }, 6000)
         return () => {
             cancelAnimationFrame(id)
             window.clearTimeout(timeout)
@@ -91,8 +91,7 @@ export function PricingGrid({ user, currentPlanId }: PricingGridProps) {
 
     // If the user changes the product tab, drop the highlight — it no longer applies.
     const handleProductChange = (next: ProductType) => {
-        setProduct(next)
-        setHighlightedTier(null)
+        setSelection({ product: next, highlightedTier: null })
     }
 
     const currentConfig = PRODUCT_CONFIG[product]
@@ -193,4 +192,3 @@ export function PricingGrid({ user, currentPlanId }: PricingGridProps) {
         </div>
     )
 }
-

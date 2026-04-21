@@ -32,6 +32,13 @@ import {
 import type { Drop, DropFile, UploadChunk } from "@prisma/client";
 import { ValidationError, NotFoundError, ForbiddenError, RateLimitError, UpgradeRequiredError } from "@/lib/api-error-utils";
 import { decrementStorageUsed } from "@/lib/services/drop-storage";
+import { revokeUploadTokens } from "@/lib/services/drop-upload-token";
+import {
+    DROP_FEATURES,
+    GUEST_MAX_DROP_BYTES,
+    GUEST_MAX_FILES_PER_DROP,
+    PLAN_ENTITLEMENTS,
+} from "@/config/plans";
 
 // ID generator: lowercase alphanumeric, 16 chars = ~83 bits of entropy
 const generateDropId = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", 16);
@@ -40,7 +47,7 @@ const generateFileId = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", 10
 const logger = createLogger("DropService");
 
 // Type for file with drop relation
-type DropFileWithDropAndChunks = DropFile & { drop: { userId: string; id: string }; chunks: UploadChunk[] };
+type DropFileWithDropAndChunks = DropFile & { drop: { userId: string | null; id: string }; chunks: UploadChunk[] };
 
 // Type for drop with files relation
 type DropWithFilesRelation = Drop & { files: { id: string; encryptedName: string; size: bigint; mimeType: string; iv: string }[] };
@@ -146,6 +153,22 @@ export class DropService {
     }
 
     /**
+     * Verify access for either an authenticated user or a guest (token-bound).
+     * Route layer has already verified the upload token before calling this;
+     * here we only assert that the drop and caller mode agree.
+     */
+    private static verifyDropAccess(
+        drop: { userId: string | null; id: string },
+        userId: string | null
+    ): void {
+        if (userId) {
+            if (drop.userId !== userId) throw new ForbiddenError("Unauthorized");
+            return;
+        }
+        if (drop.userId !== null) throw new ForbiddenError("Unauthorized");
+    }
+
+    /**
      * Delete files from storage and reclaim quota for the owning user.
      * Only decrements quota for files that were actually deleted from storage.
      * Records failed deletions as orphaned files for later retry.
@@ -195,42 +218,61 @@ export class DropService {
     }
 
     /**
-     * Create a new drop (collection for grouping files)
+     * Create a new drop (collection for grouping files).
+     * When userId is null the caller is a guest: a hardcoded guest limits
+     * profile is applied (100MB per file, 1-day expiry, fileCount cap), and
+     * no vault-backed owner key is persisted.
      */
     static async createDrop(
-        userId: string,
+        userId: string | null,
         input: CreateDropInput
     ): Promise<CreateDropResult> {
-        // Validate IV format (AES-GCM uses 96-bit = 12 bytes = 16 chars base64url)
         if (!/^[A-Za-z0-9_-]{16}$/.test(input.iv)) {
             throw new ValidationError("Invalid IV format");
         }
 
-        // Validate input lengths
         validateInputLengths(input);
 
-        // Custom key requires salt
         if (input.customKey && !input.salt) {
             throw new ValidationError("Custom key drops must provide a salt");
         }
 
-        // Get user limits
-        const { userId: finalUserId, limits, tier } = await getUserAndLimits(userId);
+        let effectiveTier: "guest" | "free" | "plus" | "pro";
+        let maxExpiry: number;
+        let featureLimits: (typeof DROP_FEATURES)[keyof typeof DROP_FEATURES];
+        let maxFileCount: number | null;
 
-        // Enforce feature flags based on plan
+        if (userId) {
+            const { limits, tier } = await getUserAndLimits(userId);
+            effectiveTier = tier;
+            maxExpiry = limits.maxExpiry;
+            featureLimits = limits.features;
+            maxFileCount = input.fileCount ?? null;
+        } else {
+            effectiveTier = "guest";
+            maxExpiry = PLAN_ENTITLEMENTS.drop.guest.maxExpiryDays;
+            featureLimits = DROP_FEATURES.guest;
+            const requested = input.fileCount ?? GUEST_MAX_FILES_PER_DROP;
+            if (requested > GUEST_MAX_FILES_PER_DROP) {
+                throw new ValidationError(
+                    `Guest drops support at most ${GUEST_MAX_FILES_PER_DROP} files.`,
+                );
+            }
+            maxFileCount = Math.min(requested, GUEST_MAX_FILES_PER_DROP);
+        }
+
         const features = enforceFeatureFlags(
             {
                 hideBranding: input.hideBranding,
                 notifyOnDownload: input.notifyOnDownload,
                 customKey: input.customKey,
             },
-            limits.features
+            featureLimits
         );
 
-        const expiresAt = calculateExpiry(input.expiry, limits.maxExpiry, tier);
+        const expiresAt = calculateExpiry(input.expiry, maxExpiry, effectiveTier);
         const dropId = generateDropId();
-        
-        // Create the drop
+
         await prisma.drop.create({
             data: {
                 id: dropId,
@@ -239,7 +281,7 @@ export class DropService {
                 encryptedMessage: input.encryptedMessage || null,
                 expiresAt,
                 maxDownloads: input.maxDownloads || null,
-                maxFileCount: input.fileCount || null,
+                maxFileCount,
                 customKey: features.customKey,
                 salt: features.customKey ? input.salt : null,
                 customKeyData: features.customKey ? input.customKeyData : null,
@@ -247,7 +289,7 @@ export class DropService {
                 hideBranding: features.hideBranding,
                 notifyOnDownload: features.notifyOnDownload,
                 uploadComplete: false,
-                userId: finalUserId,
+                userId: userId,
             },
         });
 
@@ -258,10 +300,12 @@ export class DropService {
     }
 
     /**
-     * Add a file to an existing drop
+     * Add a file to an existing drop.
+     * Accepts null userId for guest drops; in that case guest-tier size caps
+     * apply and there is no persistent user.storageUsed reservation.
      */
     static async addFile(
-        userId: string,
+        userId: string | null,
         input: AddFileInput
     ): Promise<AddFileResult> {
         // Validate IV format (must be exactly 16 base64url characters)
@@ -304,43 +348,79 @@ export class DropService {
             throw new RateLimitError("Too many pending uploads for this drop");
         }
 
-        // Limit incomplete drops
-        const incompleteDrops = await prisma.drop.count({
-            where: { userId, uploadComplete: false, deletedAt: null }
-        });
-        if (incompleteDrops >= MAX_INCOMPLETE_DROPS_PER_USER) {
-            throw new RateLimitError("Too many incomplete drops. Please complete or delete existing drops.");
+        // Per-user incomplete-drop guard only applies to authenticated drops;
+        // guests are guarded by IP rate limits at the route layer.
+        if (userId) {
+            const incompleteDrops = await prisma.drop.count({
+                where: { userId, uploadComplete: false, deletedAt: null }
+            });
+            if (incompleteDrops >= MAX_INCOMPLETE_DROPS_PER_USER) {
+                throw new RateLimitError("Too many incomplete drops. Please complete or delete existing drops.");
+            }
         }
 
-        // Verify ownership
-        DropService.verifyDropOwnership(drop, userId);
+        // Verify caller mode matches drop ownership
+        DropService.verifyDropAccess(drop, userId);
 
-        // Get user limits and validate
-        const { limits, storageUsed, tier } = await getUserAndLimits(userId);
+        if (userId) {
+            // Authenticated path: validate against per-user plan limits and
+            // reserve storage atomically to prevent TOCTOU.
+            const { limits, storageUsed, tier } = await getUserAndLimits(userId);
 
-        validateFileSize(input.size, storageUsed, BigInt(limits.maxStorage), limits.maxFileSize, tier);
+            validateFileSize(input.size, storageUsed, BigInt(limits.maxStorage), limits.maxFileSize, tier);
 
-        // Atomic quota reservation to prevent race conditions
-        // Two concurrent uploads can both pass the check above, so we use an atomic
-        // UPDATE ... WHERE to reserve quota at the database level
-        const storageLimit = BigInt(limits.maxStorage);
-        const reserved = await prisma.$executeRaw`
-            UPDATE "users"
-            SET "storageUsed" = "storageUsed" + ${BigInt(input.size)}
-            WHERE "id" = ${userId}
-              AND "storageUsed" + ${BigInt(input.size)} <= ${storageLimit}
-        `;
-        if (reserved === 0) {
-            throw new UpgradeRequiredError(
-                "Bandwidth limit reached. Upgrade for more headroom.",
-                {
-                    scope: "drop_bandwidth",
-                    currentTier: tier,
-                    suggestedTier: tier === "pro" ? "pro" : tier === "plus" ? "pro" : "plus",
-                    currentValue: Number(storageUsed + BigInt(input.size)),
-                    limitValue: Number(storageLimit),
-                }
-            );
+            const storageLimit = BigInt(limits.maxStorage);
+            const reserved = await prisma.$executeRaw`
+                UPDATE "users"
+                SET "storageUsed" = "storageUsed" + ${BigInt(input.size)}
+                WHERE "id" = ${userId}
+                  AND "storageUsed" + ${BigInt(input.size)} <= ${storageLimit}
+            `;
+            if (reserved === 0) {
+                throw new UpgradeRequiredError(
+                    "Bandwidth limit reached. Upgrade for more headroom.",
+                    {
+                        scope: "drop_bandwidth",
+                        currentTier: tier,
+                        suggestedTier: tier === "pro" ? "pro" : tier === "plus" ? "pro" : "plus",
+                        currentValue: Number(storageUsed + BigInt(input.size)),
+                        limitValue: Number(storageLimit),
+                    }
+                );
+            }
+        } else {
+            // Guest path: enforce per-file and per-drop caps inline. No user
+            // storageUsed reservation because there is no user row.
+            if (input.size > GUEST_MAX_DROP_BYTES) {
+                throw new UpgradeRequiredError(
+                    `File size exceeds guest limit of ${GUEST_MAX_DROP_BYTES / (1024 * 1024)}MB. Sign up for a larger quota.`,
+                    {
+                        scope: "drop_file_size",
+                        currentTier: "guest",
+                        suggestedTier: "plus",
+                        currentValue: input.size,
+                        limitValue: GUEST_MAX_DROP_BYTES,
+                    }
+                );
+            }
+
+            const existing = await prisma.dropFile.aggregate({
+                where: { dropId: input.dropId },
+                _sum: { size: true },
+            });
+            const existingBytes = existing._sum.size ?? BigInt(0);
+            if (existingBytes + BigInt(input.size) > BigInt(GUEST_MAX_DROP_BYTES)) {
+                throw new UpgradeRequiredError(
+                    "Guest drops are limited to 100MB total.",
+                    {
+                        scope: "drop_bandwidth",
+                        currentTier: "guest",
+                        suggestedTier: "plus",
+                        currentValue: Number(existingBytes + BigInt(input.size)),
+                        limitValue: GUEST_MAX_DROP_BYTES,
+                    }
+                );
+            }
         }
 
         // Create file record and initiate upload.
@@ -417,7 +497,7 @@ export class DropService {
      */
     static async completeFileUpload(
         fileId: string,
-        userId: string,
+        userId: string | null,
         skipAuth = false
     ): Promise<void> {
         const file = await prisma.dropFile.findUnique({
@@ -433,7 +513,7 @@ export class DropService {
         }
 
         if (!skipAuth) {
-            DropService.verifyDropOwnership(file.drop, userId);
+            DropService.verifyDropAccess(file.drop, userId);
         }
 
         // Verify all chunks uploaded
@@ -543,7 +623,7 @@ export class DropService {
      */
     static async completeDrop(
         dropId: string,
-        userId: string,
+        userId: string | null,
         skipAuth = false
     ): Promise<void> {
         const drop = await prisma.drop.findUnique({
@@ -562,7 +642,7 @@ export class DropService {
         }
 
         if (!skipAuth) {
-            DropService.verifyDropOwnership(drop, userId);
+            DropService.verifyDropAccess(drop, userId);
         }
 
         // Check all files are uploaded
@@ -589,7 +669,7 @@ export class DropService {
     static async finishDrop(
         dropId: string,
         files: { fileId: string; chunks: { chunkIndex: number; etag: string }[] }[],
-        userId: string
+        userId: string | null
     ): Promise<void> {
         // Verify ownership once for the whole operation and verify every file
         // belongs to this drop before writing any chunk state.
@@ -598,7 +678,7 @@ export class DropService {
             include: { files: { select: { id: true } } },
         });
         if (!drop) throw new NotFoundError("Drop not found");
-        DropService.verifyDropOwnership(drop, userId);
+        DropService.verifyDropAccess(drop, userId);
 
         const dropFileIds = new Set(drop.files.map((file) => file.id));
         const requestedFileIds = new Set<string>();
@@ -643,6 +723,14 @@ export class DropService {
             await this.completeFileUpload(file.fileId, userId, true);
         }));
         await this.completeDrop(dropId, userId, true);
+
+        // Guest drops: once the drop is marked complete, retire any upload
+        // tokens so the raw token cannot be replayed to modify the drop.
+        if (userId === null) {
+            await revokeUploadTokens(dropId).catch((err) =>
+                logger.error("Failed to revoke guest upload tokens after finish", err, { dropId }),
+            );
+        }
     }
 
     /**

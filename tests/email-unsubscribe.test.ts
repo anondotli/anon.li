@@ -48,7 +48,7 @@ describe("signUnsubscribeToken / verifyUnsubscribeToken", () => {
     });
 
     it("changes token when secret changes", async () => {
-        const { signUnsubscribeToken, verifyUnsubscribeToken } = await import("@/lib/email-unsubscribe");
+        const { signUnsubscribeToken } = await import("@/lib/email-unsubscribe");
         const token = signUnsubscribeToken("user_abc");
         process.env.AUTH_SECRET = "rotated-secret";
         vi.resetModules();

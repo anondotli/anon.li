@@ -52,7 +52,7 @@ export function UnlockPrompt() {
 
     const title = isUnlocked ? "Vault unlocked" : "Unlock your vault"
     const description = isUnlocked
-        ? "Password verified. Opening your encrypted workspace now."
+        ? "Password verified. Opening your encrypted vault now."
         : "Most of your data stays encrypted until you unlock it with your password."
 
     return (

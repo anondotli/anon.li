@@ -8,10 +8,12 @@ import { Icons } from "@/components/shared/icons"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Turnstile } from "@/components/ui/turnstile"
 import { cn } from "@/lib/utils"
-import { buildSetupPasswordUrl, sanitizeAuthCallbackUrl } from "@/lib/safe-callback-url"
+import { buildSetupPasswordUrl } from "@/lib/safe-callback-url"
 
 const RESEND_COOLDOWN = 60
+const turnstileSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY
 
 interface LoginFormProps extends React.HTMLAttributes<HTMLDivElement> {
     mode?: "login" | "register"
@@ -47,6 +49,8 @@ export function LoginForm({
     const [email, setEmail] = React.useState("")
     const [formError, setFormError] = React.useState<string | null>(null)
     const [resendCooldown, setResendCooldown] = React.useState(0)
+    const [turnstileToken, setTurnstileToken] = React.useState<string | null>(null)
+    const [turnstileRenderKey, setTurnstileRenderKey] = React.useState(0)
 
     React.useEffect(() => {
         onEmailSentChange?.(Boolean(notice))
@@ -58,8 +62,12 @@ export function LoginForm({
         return () => window.clearTimeout(timer)
     }, [resendCooldown])
 
-    const destination = sanitizeAuthCallbackUrl(callbackUrl)
-    const setupCallbackUrl = buildSetupPasswordUrl(destination)
+    const destination = buildSetupPasswordUrl(callbackUrl)
+
+    const resetTurnstile = React.useCallback(() => {
+        setTurnstileToken(null)
+        setTurnstileRenderKey((key) => key + 1)
+    }, [])
 
     const handleSocialSignIn = async (provider: "google" | "github") => {
         setProviderLoading(provider)
@@ -74,7 +82,7 @@ export function LoginForm({
 
             await authClient.signIn.social({
                 provider,
-                callbackURL: setupCallbackUrl,
+                callbackURL: destination,
             })
         } finally {
             setProviderLoading(null)
@@ -87,15 +95,32 @@ export function LoginForm({
             throw new Error("Enter your email address")
         }
 
-        const result = await authClient.signIn.magicLink({
-            email: normalizedEmail,
-            ...(mode === "register" ? { name: getDefaultUserName() } : {}),
-            callbackURL: setupCallbackUrl,
-            newUserCallbackURL: setupCallbackUrl,
-        })
+        if (turnstileSiteKey && !turnstileToken) {
+            throw new Error("Please complete the verification challenge.")
+        }
 
-        if (result.error) {
-            throw new Error(mapAuthError(result.error))
+        try {
+            const result = await authClient.signIn.magicLink({
+                email: normalizedEmail,
+                ...(mode === "register" ? { name: getDefaultUserName() } : {}),
+                callbackURL: destination,
+                newUserCallbackURL: destination,
+                ...(turnstileSiteKey
+                    ? {
+                        fetchOptions: {
+                            headers: { "x-captcha-response": turnstileToken! },
+                        },
+                    }
+                    : {}),
+            })
+
+            if (result.error) {
+                throw new Error(mapAuthError(result.error))
+            }
+        } finally {
+            if (turnstileSiteKey) {
+                resetTurnstile()
+            }
         }
 
         if (mode === "register") {
@@ -121,6 +146,8 @@ export function LoginForm({
             setIsLoading(false)
         }
     }
+
+    const magicLinkDisabled = isLoading || !!providerLoading || (!!turnstileSiteKey && !turnstileToken)
 
     const handleNoticeResend = async () => {
         setIsLoading(true)
@@ -166,11 +193,21 @@ export function LoginForm({
                     Open the link to continue. If your vault needs setup, you will create its password after signing in.
                 </div>
 
+                {turnstileSiteKey && (
+                    <Turnstile
+                        key={`notice-${turnstileRenderKey}`}
+                        siteKey={turnstileSiteKey}
+                        onVerify={setTurnstileToken}
+                        onError={resetTurnstile}
+                        onExpire={() => setTurnstileToken(null)}
+                    />
+                )}
+
                 <Button
                     variant="outline"
                     size="sm"
                     onClick={() => void handleNoticeResend()}
-                    disabled={isLoading || resendCooldown > 0}
+                    disabled={isLoading || resendCooldown > 0 || (!!turnstileSiteKey && !turnstileToken)}
                     className="mx-auto gap-2"
                 >
                     <RotateCw className="h-3.5 w-3.5" />
@@ -183,6 +220,7 @@ export function LoginForm({
                     onClick={() => {
                         setNotice(null)
                         setFormError(null)
+                        resetTurnstile()
                     }}
                     className="mx-auto gap-2 text-muted-foreground hover:text-foreground"
                 >
@@ -221,7 +259,17 @@ export function LoginForm({
                     </div>
                 )}
 
-                <Button disabled={isLoading || !!providerLoading} className="h-11">
+                {turnstileSiteKey && (
+                    <Turnstile
+                        key={`form-${turnstileRenderKey}`}
+                        siteKey={turnstileSiteKey}
+                        onVerify={setTurnstileToken}
+                        onError={resetTurnstile}
+                        onExpire={() => setTurnstileToken(null)}
+                    />
+                )}
+
+                <Button disabled={magicLinkDisabled} className="h-11">
                     {isLoading ? (
                         <Icons.spinner className="mr-2 h-4 w-4 animate-spin" />
                     ) : (

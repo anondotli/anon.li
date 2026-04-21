@@ -30,6 +30,14 @@ vi.mock("@/lib/analytics", () => ({
     },
 }))
 
+vi.mock("@/components/ui/turnstile", () => ({
+    Turnstile: ({ onVerify }: { onVerify: (token: string) => void }) => (
+        <button type="button" onClick={() => onVerify("captcha-token")}>
+            Complete captcha
+        </button>
+    ),
+}))
+
 beforeEach(() => {
     authMocks.signInSocial.mockResolvedValue({ data: {}, error: null })
     authMocks.signInMagicLink.mockResolvedValue({ data: {}, error: null })
@@ -118,5 +126,44 @@ describe("LoginForm", () => {
             })
         })
         expect(analyticsMocks.loginStarted).toHaveBeenCalledWith("google")
+    })
+
+    it("sends turnstile response header with magic link requests when configured", async () => {
+        const originalTurnstileSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY
+        process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY = "site-key"
+        vi.resetModules()
+
+        try {
+            const { LoginForm } = await import("@/components/auth/login-form")
+
+            render(<LoginForm mode="login" />)
+
+            fireEvent.change(screen.getByLabelText("Email address"), {
+                target: { value: "user@example.com" },
+            })
+            fireEvent.click(screen.getByRole("button", { name: "Complete captcha" }))
+            await waitFor(() => {
+                expect((screen.getByRole("button", { name: "Send magic link" }) as HTMLButtonElement).disabled).toBe(false)
+            })
+            fireEvent.click(screen.getByRole("button", { name: "Send magic link" }))
+
+            await waitFor(() => {
+                expect(authMocks.signInMagicLink).toHaveBeenCalledWith({
+                    email: "user@example.com",
+                    callbackURL: "/setup",
+                    newUserCallbackURL: "/setup",
+                    fetchOptions: {
+                        headers: { "x-captcha-response": "captcha-token" },
+                    },
+                })
+            })
+        } finally {
+            if (originalTurnstileSiteKey === undefined) {
+                delete process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY
+            } else {
+                process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY = originalTurnstileSiteKey
+            }
+            vi.resetModules()
+        }
     })
 })

@@ -51,6 +51,7 @@ function buildCsp(nonce: string, analyticsEnabled: boolean) {
         "'self'",
         analyticsEnabled ? umamiOrigin : null,
         analyticsEnabled ? umamiApiOrigin : null,
+        turnstileEnabled ? TURNSTILE_ORIGIN : null,
         r2PublicOrigin,
         r2DirectOrigin,
     ].filter((value): value is string => Boolean(value)).join(" ")

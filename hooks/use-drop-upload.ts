@@ -9,6 +9,12 @@ import {
     finishDrop,
     UpgradeRequiredClientError,
 } from "@/lib/drop.actions.client";
+import {
+    createGuestDrop,
+    addFileToGuestDrop,
+    finishGuestDrop,
+    abortGuestFileUpload,
+} from "@/lib/drop.actions.guest";
 import type { UpgradeRequiredDetails } from "@/lib/api-error-utils";
 import { DROP_FEATURES, PLAN_ENTITLEMENTS } from "@/config/plans";
 import { extractStoredKeyMaterial } from "@/lib/vault/crypto";
@@ -39,11 +45,13 @@ interface UploadOptions {
     password?: string;
     hideBranding?: boolean;
     notifyOnDownload?: boolean;
+    turnstileToken?: string;
 }
 
 interface UseDropUploadProps {
     userTier?: string | null;
     remainingStorage?: number;
+    guest?: boolean;
     onComplete?: (dropId: string, shareUrl: string) => void;
     onUpgradeRequired?: (details: UpgradeRequiredDetails) => void;
 }
@@ -58,6 +66,7 @@ interface ActiveUpload {
 export function useDropUpload({
     userTier,
     remainingStorage,
+    guest = false,
     onComplete,
     onUpgradeRequired,
 }: UseDropUploadProps = {}) {
@@ -70,8 +79,12 @@ export function useDropUpload({
 
     // Track active uploads for cleanup - use ref to avoid stale closures
     const activeUploadsRef = useRef<ActiveUpload[]>([]);
+    // Guest upload token — kept only in memory for the duration of the session.
+    const uploadTokenRef = useRef<string | null>(null);
 
-    const tier = (userTier as "free" | "plus" | "pro") || "free";
+    const tier = guest
+        ? "guest" as const
+        : ((userTier as "free" | "plus" | "pro") || "free");
     const features = DROP_FEATURES[tier];
 
     const reset = useCallback(() => {
@@ -79,6 +92,7 @@ export function useDropUpload({
         setProgress(null);
         setShareUrl(null);
         setDropMeta(null);
+        uploadTokenRef.current = null;
         abortController?.abort();
         setAbortController(null);
     }, [abortController]);
@@ -91,11 +105,15 @@ export function useDropUpload({
         // This prevents orphaned uploads in S3
         const uploads = activeUploadsRef.current;
         activeUploadsRef.current = [];
+        const token = uploadTokenRef.current;
 
         // Parallel cleanup — don't block on sequential fetches
         await Promise.allSettled(
-            uploads.map((upload) =>
-                fetch(`/api/v1/drop/${upload.dropId}/file/${upload.fileId}`, {
+            uploads.map((upload) => {
+                if (guest) {
+                    return abortGuestFileUpload(upload.dropId, upload.fileId, upload.s3UploadId, token ?? "");
+                }
+                return fetch(`/api/v1/drop/${upload.dropId}/file/${upload.fileId}`, {
                     method: 'DELETE',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -104,13 +122,13 @@ export function useDropUpload({
                     credentials: 'include',
                 }).catch(() => {
                     // Ignore errors - best effort cleanup
-                })
-            )
+                });
+            })
         );
 
         // Clear progress after cleanup completes so UI doesn't flash prematurely
         setProgress(null);
-    }, [abortController]);
+    }, [abortController, guest]);
 
     const upload = useCallback(async (
         options: UploadOptions = {},
@@ -120,10 +138,14 @@ export function useDropUpload({
             return;
         }
 
-        // Vault must be unlocked to create drops — the encryption key is stored in the vault
-        if (!vault || vault.status !== "unlocked" || !vault.vaultGeneration || !vault.vaultId) {
-            toast.error("Your vault must be unlocked to create drops. Unlock your vault and try again.");
-            return;
+        // Vault must be unlocked to create authenticated drops — the encryption
+        // key is wrapped and stored for later retrieval. Guest drops skip the
+        // vault entirely: the key lives only in the URL fragment.
+        if (!guest) {
+            if (!vault || vault.status !== "unlocked" || !vault.vaultGeneration || !vault.vaultId) {
+                toast.error("Your vault must be unlocked to create drops. Unlock your vault and try again.");
+                return;
+            }
         }
 
         const controller = new AbortController();
@@ -149,7 +171,9 @@ export function useDropUpload({
         try {
             const encryptionContext = await cryptoService.createEncryptionContext();
             const { keyString, dropIvString, key, dropIv } = encryptionContext;
-            const wrappedOwnerKey = await vault.wrapDropKey(extractStoredKeyMaterial(keyString))
+            const wrappedOwnerKey = guest
+                ? null
+                : await vault!.wrapDropKey(extractStoredKeyMaterial(keyString));
 
             // Handle custom key protection
             let customKey = false;
@@ -175,7 +199,7 @@ export function useDropUpload({
                 encryptedMessage = await cryptoService.encryptFilename(options.message, key, dropIv);
             }
 
-            const { dropId, expiresAt } = await createDrop({
+            const commonDropFields = {
                 iv: dropIvString,
                 ...(customKey && { customKey: true }),
                 ...(encryptedTitle && { encryptedTitle }),
@@ -190,10 +214,28 @@ export function useDropUpload({
                 ...(options.hideBranding && features.noBranding && { hideBranding: true }),
                 ...(options.notifyOnDownload && features.downloadNotifications && { notifyOnDownload: true }),
                 fileCount: files.length,
-                wrappedKey: wrappedOwnerKey,
-                vaultId: vault.vaultId,
-                vaultGeneration: vault.vaultGeneration!,
-            }, signal);
+            };
+
+            let dropId: string;
+            let expiresAt: string | null;
+            if (guest) {
+                const guestResult = await createGuestDrop({
+                    ...commonDropFields,
+                    ...(options.turnstileToken ? { turnstileToken: options.turnstileToken } : {}),
+                }, signal);
+                dropId = guestResult.dropId;
+                expiresAt = guestResult.expiresAt;
+                uploadTokenRef.current = guestResult.uploadToken;
+            } else {
+                const authResult = await createDrop({
+                    ...commonDropFields,
+                    wrappedKey: wrappedOwnerKey!,
+                    vaultId: vault!.vaultId!,
+                    vaultGeneration: vault!.vaultGeneration!,
+                }, signal);
+                dropId = authResult.dropId;
+                expiresAt = authResult.expiresAt;
+            }
 
             setDropMeta({
                 expiresAt: expiresAt ?? undefined,
@@ -231,15 +273,18 @@ export function useDropUpload({
                 // Encrypt filename with per-file IV
                 const encryptedName = await cryptoService.encryptFilename(file.name, key, fileIv);
 
-                // Add file to drop
-                const { fileId, s3UploadId, uploadUrls } = await addFileToDrop(dropId, {
+                const addFilePayload = {
                     size: encryptedSize,  // Send encrypted size (includes GCM auth tags)
                     encryptedName,
                     iv: fileIvString,
                     mimeType: file.type || "application/octet-stream",
                     chunkCount,
                     chunkSize,
-                }, signal);
+                };
+
+                const { fileId, s3UploadId, uploadUrls } = guest
+                    ? await addFileToGuestDrop(dropId, addFilePayload, uploadTokenRef.current!, signal)
+                    : await addFileToDrop(dropId, addFilePayload, signal);
 
                 // Track for cleanup on cancel
                 activeUploadsRef.current.push({
@@ -291,13 +336,20 @@ export function useDropUpload({
 
             // Batch finalize: record chunks + complete files + complete drop
             setProgress(p => p ? { ...p, phase: "finalizing" } : null);
-            await finishDrop(dropId, fileChunkRecords, signal);
+            if (guest) {
+                await finishGuestDrop(dropId, fileChunkRecords, uploadTokenRef.current!, signal);
+            } else {
+                await finishDrop(dropId, fileChunkRecords, signal);
+            }
             activeUploadsRef.current = [];
-            upsertCachedWrappedDropKey({
-                dropId,
-                wrappedKey: wrappedOwnerKey,
-                vaultGeneration: vault.vaultGeneration!,
-            })
+            uploadTokenRef.current = null;
+            if (!guest) {
+                upsertCachedWrappedDropKey({
+                    dropId,
+                    wrappedKey: wrappedOwnerKey!,
+                    vaultGeneration: vault!.vaultGeneration!,
+                });
+            }
 
             const baseUrl = window.location.origin;
             const url = customKey
@@ -324,18 +376,22 @@ export function useDropUpload({
                 // Clean up any active multipart uploads to prevent orphaned S3 parts
                 const uploads = activeUploadsRef.current;
                 activeUploadsRef.current = [];
+                const token = uploadTokenRef.current;
                 if (uploads.length > 0) {
                     Promise.allSettled(
-                        uploads.map((upload) =>
-                            fetch(`/api/v1/drop/${upload.dropId}/file/${upload.fileId}`, {
+                        uploads.map((upload) => {
+                            if (guest) {
+                                return abortGuestFileUpload(upload.dropId, upload.fileId, upload.s3UploadId, token ?? "");
+                            }
+                            return fetch(`/api/v1/drop/${upload.dropId}/file/${upload.fileId}`, {
                                 method: 'DELETE',
                                 headers: { 'Content-Type': 'application/json' },
                                 body: JSON.stringify({
                                     s3UploadId: upload.s3UploadId,
                                 }),
                                 credentials: 'include',
-                            }).catch(() => {})
-                        )
+                            }).catch(() => {});
+                        })
                     );
                 }
 
@@ -351,7 +407,7 @@ export function useDropUpload({
         } finally {
             setAbortController(null);
         }
-    }, [files, features, onComplete, onUpgradeRequired, vault]);
+    }, [files, features, guest, onComplete, onUpgradeRequired, vault]);
 
     return {
         files,

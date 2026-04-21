@@ -19,7 +19,7 @@ export async function createCryptoPayment(data: {
     })
 }
 
-export type WaitingCryptoInvoice = {
+type WaitingCryptoInvoice = {
     id: string
     userId: string
     product: string

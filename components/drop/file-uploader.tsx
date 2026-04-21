@@ -9,6 +9,7 @@ import { formatBytes } from "@/lib/utils";
 import type { UpgradeRequiredDetails } from "@/lib/api-error-utils";
 
 import { Button } from "@/components/ui/button";
+import { Turnstile } from "@/components/ui/turnstile";
 import { UpgradeRequiredDialog } from "@/components/upgrade/upgrade-required-dialog";
 
 import { DropZone } from "./upload/drop-zone";
@@ -22,9 +23,12 @@ interface FileUploaderProps {
   userTier?: string | null;
   maxStorage?: bigint;
   usedStorage?: bigint;
+  guest?: boolean;
 }
 
-export function FileUploader({ onUploadComplete, userTier, maxStorage, usedStorage }: FileUploaderProps) {
+const turnstileSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
+
+export function FileUploader({ onUploadComplete, userTier, maxStorage, usedStorage, guest = false }: FileUploaderProps) {
   const { droppedFiles, setDroppedFiles } = useFileDrop();
 
   const [config, setConfig] = useState<DropConfig>({
@@ -42,6 +46,8 @@ export function FileUploader({ onUploadComplete, userTier, maxStorage, usedStora
   }, []);
 
   const [upgradeDetails, setUpgradeDetails] = useState<UpgradeRequiredDetails | null>(null);
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const [turnstileRenderKey, setTurnstileRenderKey] = useState(0);
 
   const remainingBandwidth = (maxStorage !== undefined && usedStorage !== undefined)
     ? Number(maxStorage - usedStorage)
@@ -56,9 +62,15 @@ export function FileUploader({ onUploadComplete, userTier, maxStorage, usedStora
   } = useDropUpload({
     userTier,
     remainingStorage: remainingBandwidth,
+    guest,
     onComplete: onUploadComplete,
     onUpgradeRequired: setUpgradeDetails,
   });
+
+  const resetTurnstile = useCallback(() => {
+    setTurnstileToken(null);
+    setTurnstileRenderKey(key => key + 1);
+  }, []);
 
   // Compute effective expiry days
   const effectiveExpiryDays = config.expiryDays !== null
@@ -114,6 +126,11 @@ export function FileUploader({ onUploadComplete, userTier, maxStorage, usedStora
   const startUpload = useCallback(() => {
     if (files.length === 0) return;
 
+    if (guest && turnstileSiteKey && !turnstileToken) {
+      toast.error("Please complete the verification challenge.");
+      return;
+    }
+
     const expiryValue = typeof effectiveExpiryDays === 'string'
       ? parseInt(effectiveExpiryDays, 10) || undefined
       : effectiveExpiryDays || undefined;
@@ -127,8 +144,13 @@ export function FileUploader({ onUploadComplete, userTier, maxStorage, usedStora
       password: config.protectionMode === "password" ? config.password : undefined,
       hideBranding: config.hideBranding,
       notifyOnDownload: config.notifyOnDownload,
+      ...(guest && turnstileToken ? { turnstileToken } : {}),
     });
-  }, [files.length, upload, config, effectiveExpiryDays]);
+
+    if (guest && turnstileSiteKey) {
+      resetTurnstile();
+    }
+  }, [files.length, guest, turnstileToken, upload, config, effectiveExpiryDays, resetTurnstile]);
 
   // Calculate progress percentage
   const pct = progress
@@ -194,10 +216,20 @@ export function FileUploader({ onUploadComplete, userTier, maxStorage, usedStora
         />
 
         <div className="grid gap-6">
+          {guest && turnstileSiteKey && (
+            <Turnstile
+              key={turnstileRenderKey}
+              siteKey={turnstileSiteKey}
+              onVerify={setTurnstileToken}
+              onError={resetTurnstile}
+              onExpire={() => setTurnstileToken(null)}
+            />
+          )}
+
           <Button
             className="w-full h-12 rounded-full text-base font-medium shadow-lg shadow-primary/10 hover:shadow-xl hover:shadow-primary/15 transition-all hover:scale-[1.02]"
             onClick={startUpload}
-            disabled={config.protectionMode === "password" && config.password.length < 8}
+            disabled={(config.protectionMode === "password" && config.password.length < 8) || (guest && !!turnstileSiteKey && !turnstileToken)}
           >
             <Upload className="w-4 h-4 mr-2" />
             Create Drop

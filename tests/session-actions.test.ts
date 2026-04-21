@@ -8,6 +8,7 @@ const getClientIp = vi.fn()
 const rateLimit = vi.fn()
 const headers = vi.fn()
 const cookies = vi.fn()
+const getTurnstileError = vi.fn()
 
 vi.mock("@/lib/auth", () => ({
     auth: {
@@ -23,6 +24,10 @@ vi.mock("@/lib/rate-limit", () => ({
     rateLimiters: {},
 }))
 
+vi.mock("@/lib/turnstile", () => ({
+    getTurnstileError,
+}))
+
 vi.mock("next/headers", () => ({
     headers,
     cookies,
@@ -35,6 +40,7 @@ describe("requestPasswordResetAction", () => {
         rateLimit.mockResolvedValue(null)
         headers.mockResolvedValue(new Headers({ origin: "http://localhost:3000" }))
         cookies.mockResolvedValue({ get: vi.fn(), toString: vi.fn(() => "") })
+        getTurnstileError.mockResolvedValue(null)
     })
 
     it("normalizes the email and forwards the reset request server-side", async () => {
@@ -52,6 +58,17 @@ describe("requestPasswordResetAction", () => {
             },
         })
         expect(result.success).toBe(true)
+    })
+
+    it("rejects reset requests when turnstile validation fails", async () => {
+        getTurnstileError.mockResolvedValueOnce("Bot verification failed. Please try again.")
+
+        const { requestPasswordResetAction } = await import("@/actions/session")
+        const result = await requestPasswordResetAction("user@example.com", "bad-token")
+
+        expect(getTurnstileError).toHaveBeenCalledWith("bad-token")
+        expect(requestPasswordReset).not.toHaveBeenCalled()
+        expect(result).toEqual({ error: "Bot verification failed. Please try again." })
     })
 
     it("returns the same success payload when rate limited", async () => {

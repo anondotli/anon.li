@@ -73,7 +73,7 @@ export default async function AdminDashboard() {
                 <StatCard
                     title="Deletion Queue"
                     value={stats.activeDeletionRequests}
-                    description="Failed account deletions awaiting retry"
+                    description="Failed account deletions"
                     icon={Trash2}
                     href="/admin/deletion"
                     variant={stats.activeDeletionRequests > 0 ? "destructive" : "default"}

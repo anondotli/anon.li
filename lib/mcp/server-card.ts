@@ -10,7 +10,7 @@ export const MCP_SERVER_CAPABILITIES = {
     tools: {},
 } satisfies ServerCapabilities
 
-export const MCP_TRANSPORT_ENDPOINT = "/api/mcp"
+const MCP_TRANSPORT_ENDPOINT = "/api/mcp"
 export const MCP_SERVER_CARD_PATH = "/.well-known/mcp/server-card.json"
 
 const MCP_SERVER_CARD_SCHEMA = "https://static.modelcontextprotocol.io/schemas/mcp-server-card/v1.json"

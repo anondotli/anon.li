@@ -34,7 +34,7 @@ async function getSessionInternal(): Promise<AppSession | null> {
             email: result.user.email,
             image: result.user.image,
             isAdmin: authUser.isAdmin,
-            twoFactorEnabled: result.user.twoFactorEnabled ?? false,
+            twoFactorEnabled: authUser.twoFactorEnabled,
         },
         twoFactorVerified: result.session.twoFactorVerified ?? false,
     }
