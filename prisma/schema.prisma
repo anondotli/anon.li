@@ -25,21 +25,24 @@ model User {
   stripeCancelAtPeriodEnd Boolean   @default(false) @map(name: "stripe_cancel_at_period_end")
 
   // Resource Ownership
-  aliases            Alias[]
-  domains            Domain[]
-  apiKeys            ApiKey[]
-  recipients         Recipient[]
-  drops              Drop[]
-  security           UserSecurity?
-  dropOwnerKeys      DropOwnerKey[]
-  subscriptions      Subscription[]
-  deletionRequest    DeletionRequest?
-  oauthApplications  OauthApplication[]
-  twoFactorEnabled   Boolean            @default(false)
-  twoFactor          TwoFactor?
+  aliases           Alias[]
+  domains           Domain[]
+  apiKeys           ApiKey[]
+  recipients        Recipient[]
+  drops             Drop[]
+  security          UserSecurity?
+  dropOwnerKeys     DropOwnerKey[]
+  forms             Form[]             @relation("UserForms")
+  formOwnerKeys     FormOwnerKey[]
+  formSubmissions   FormSubmission[]   @relation("SubmitterFormSubmissions")
+  subscriptions     Subscription[]
+  deletionRequest   DeletionRequest?
+  oauthApplications OauthApplication[]
+  twoFactorEnabled  Boolean            @default(false)
+  twoFactor         TwoFactor?
   // Quotas & Limits
-  storageUsed      BigInt           @default(0)
-  storageLimit     BigInt           @default(5368709120) // 5GB default for free users
+  storageUsed       BigInt             @default(0)
+  storageLimit      BigInt             @default(5368709120) // 5GB default for free users
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -133,6 +136,9 @@ model Alias {
   // Multi-recipient routing via join table
   aliasRecipients AliasRecipient[]
 
+  // Forms using this alias as their notification channel
+  formsNotified Form[] @relation("FormNotifyAlias")
+
   scheduledForRemovalAt DateTime? @map("scheduled_for_removal_at")
 
   createdAt DateTime @default(now())
@@ -184,7 +190,7 @@ model Recipient {
 }
 
 model AliasRecipient {
-  id          String @id @default(cuid())
+  id          String    @id @default(cuid())
   aliasId     String
   alias       Alias     @relation(fields: [aliasId], references: [id], onDelete: Cascade)
   recipientId String
@@ -374,11 +380,12 @@ model Drop {
   takenDownAt    DateTime?
 
   // Relations
-  files        DropFile[]
-  uploadTokens UploadToken[]
-  ownerKey     DropOwnerKey?
-  userId       String?
-  user         User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  files          DropFile[]
+  uploadTokens   UploadToken[]
+  ownerKey       DropOwnerKey?
+  formSubmission FormSubmission? @relation("FormSubmissionDrop")
+  userId         String?
+  user           User?           @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -398,6 +405,12 @@ model UploadToken {
   dropId String
   drop   Drop   @relation(fields: [dropId], references: [id], onDelete: Cascade)
 
+  // Optional form binding: when set, this token was issued by a form submission
+  // flow (CREATOR quota mode) so guests can upload larger files than the 100MB
+  // guest cap while the storage is billed to the form creator.
+  formId String?
+  form   Form?   @relation(fields: [formId], references: [id], onDelete: Cascade)
+
   tokenHash String
   expiresAt DateTime
 
@@ -405,6 +418,7 @@ model UploadToken {
 
   @@unique([tokenHash])
   @@index([dropId])
+  @@index([formId])
   @@index([expiresAt])
   @@map("upload_tokens")
 }
@@ -427,13 +441,127 @@ model UploadChunk {
   @@map("upload_chunks")
 }
 
+// ─── Forms ──────────────────────────────────────────────────────────────────
+// Form submissions are end-to-end encrypted using a per-form X25519 keypair.
+// The public key is served with the form so each submitter encrypts with
+// ECDH+AES-GCM; only the creator can decrypt. Title/description/schemaJson are
+// intentionally plaintext — they are the questions the public needs to see.
+enum FormFileQuotaMode {
+  CREATOR // files count against creator's Drop bandwidth; guests can upload > 100MB
+  SUBMITTER // files count against submitter's plan (requires signed-in submitter)
+
+  @@map("form_file_quota_mode")
+}
+
+model Form {
+  id String @id // 12-char alphanumeric public id
+
+  userId String
+  user   User   @relation("UserForms", fields: [userId], references: [id], onDelete: Cascade)
+
+  // Authoring (plaintext — these are public to anyone with the form link)
+  title       String
+  description String? @db.Text
+  schemaJson  String  @db.Text
+
+  // Per-form X25519 public key (base64url). Private key is vault-wrapped in FormOwnerKey.
+  publicKey String
+
+  // Behavior
+  active         Boolean   @default(true)
+  disabledByUser Boolean   @default(false)
+  customKey      Boolean   @default(false) // password-protect viewing/submitting
+  salt           String?
+  customKeyData  String?
+  customKeyIv    String?
+  maxSubmissions Int?
+  closesAt       DateTime?
+  hideBranding   Boolean   @default(false) // Pro only
+
+  // File uploads
+  allowFileUploads    Boolean           @default(false)
+  fileQuotaMode       FormFileQuotaMode @default(CREATOR)
+  maxFileSizeOverride BigInt?
+
+  // Notification routing
+  notifyAliasId       String?
+  notifyAlias         Alias?  @relation("FormNotifyAlias", fields: [notifyAliasId], references: [id], onDelete: SetNull)
+  notifyEmailFallback Boolean @default(true)
+
+  // Counters
+  submissionsCount Int @default(0)
+
+  // Moderation
+  takenDown      Boolean   @default(false)
+  takedownReason String?
+  takenDownAt    DateTime?
+  deletedAt      DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  submissions  FormSubmission[]
+  ownerKey     FormOwnerKey?
+  uploadTokens UploadToken[]
+
+  @@index([userId])
+  @@index([userId, deletedAt, createdAt])
+  @@index([closesAt])
+  @@index([notifyAliasId])
+  @@map("forms")
+}
+
+// Mirror of DropOwnerKey: vault-wrapped X25519 private key.
+model FormOwnerKey {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  formId          String   @unique
+  form            Form     @relation(fields: [formId], references: [id], onDelete: Cascade)
+  wrappedKey      String   @map("wrapped_key") @db.Text
+  vaultGeneration Int      @map("vault_generation")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([userId])
+  @@map("form_owner_keys")
+}
+
+model FormSubmission {
+  id     String @id // 14-char alphanumeric
+  formId String
+  form   Form   @relation(fields: [formId], references: [id], onDelete: Cascade)
+
+  // Ciphertext — decryptable only by creator (vault-unwrap → ECDH → AES-GCM)
+  ephemeralPubKey  String
+  iv               String
+  encryptedPayload String @db.Text
+
+  // Optional attached drop (files). Owner of the drop is creator (CREATOR mode)
+  // or submitter (SUBMITTER mode). The E2EE symmetric key for the drop is carried
+  // inside encryptedPayload so only the creator can open it.
+  attachedDropId String? @unique
+  attachedDrop   Drop?   @relation("FormSubmissionDrop", fields: [attachedDropId], references: [id], onDelete: SetNull)
+
+  submitterUserId String?
+  submitter       User?     @relation("SubmitterFormSubmissions", fields: [submitterUserId], references: [id], onDelete: SetNull)
+  submitterIpHash String?
+  readAt          DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([formId, createdAt])
+  @@index([submitterUserId])
+  @@map("form_submissions")
+}
+
 model TwoFactor {
-  id          String @id @default(cuid())
-  userId      String @unique
+  id          String  @id @default(cuid())
+  userId      String  @unique
   secret      String
   backupCodes String
   verified    Boolean @default(false)
-  user        User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user        User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("two_factors")
 }
