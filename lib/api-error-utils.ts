@@ -65,7 +65,12 @@ export type UpgradeScope =
     | "drop_file_size"
     | "drop_bandwidth"
     | "drop_expiry"
-    | "drop_custom_key";
+    | "drop_custom_key"
+    | "form_forms"
+    | "form_branding"
+    | "form_custom_key"
+    | "form_file_uploads"
+    | "form_submissions";
 
 export interface UpgradeRequiredDetails {
     scope: UpgradeScope;

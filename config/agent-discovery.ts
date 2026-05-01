@@ -60,6 +60,10 @@ const apiCatalogResources: readonly ApiCatalogResource[] = [
         documentationPath: "/docs/api/drop",
     },
     {
+        path: "/api/v1/form",
+        documentationPath: "/docs/api/form",
+    },
+    {
         path: "/api/v1/domain",
         documentationPath: "/docs/api/domain",
     },

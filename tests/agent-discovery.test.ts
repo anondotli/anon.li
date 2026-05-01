@@ -36,6 +36,7 @@ describe("agent discovery", () => {
             item: [
                 { href: "https://anon.li/api/v1/alias" },
                 { href: "https://anon.li/api/v1/drop" },
+                { href: "https://anon.li/api/v1/form" },
                 { href: "https://anon.li/api/v1/domain" },
                 { href: "https://anon.li/api/v1/recipient" },
                 { href: "https://anon.li/api/mcp" },

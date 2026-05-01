@@ -119,6 +119,12 @@ describe("upload-token service", () => {
         expect(ok).toBe(true);
         expect(uploadTokenFindUnique).toHaveBeenCalledWith({
             where: { tokenHash: sha256(raw) },
+            select: {
+                id: true,
+                dropId: true,
+                formId: true,
+                expiresAt: true,
+            },
         });
     });
 

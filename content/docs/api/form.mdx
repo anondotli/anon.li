@@ -1,0 +1,306 @@
+---
+title: "Form API"
+description: "Complete reference for the anon.li Form API. Create, manage, and collect end-to-end encrypted form submissions programmatically."
+summary: "Create and manage end-to-end encrypted forms for confidential intake through a REST API."
+---
+
+The Form API lets you programmatically create and manage end-to-end encrypted forms for confidential intake workflows — whistleblowing tip lines, patient intake, legal contact, HR applications, and other workloads where responses must stay private. Submissions are encrypted in the submitter's browser using hybrid public-key crypto and can only be decrypted in your anon.li vault.
+
+## Authentication
+
+The Form API supports two authentication modes depending on the endpoint and use case:
+
+1. **API Key** (recommended for programmatic use) — pass `Authorization: Bearer ak_your_api_key_here`. Generate keys in your [Dashboard](/dashboard/api-keys).
+2. **Browser session** — automatic via logged-in session cookie. 2FA must be verified if enabled on the account.
+
+Public form pages at `/f/:id` and the submit endpoint require no authentication (anyone with the link can submit). All creator-side endpoints require a session or API key and count against your monthly Form API quota.
+
+```bash
+Authorization: Bearer ak_your_api_key_here
+```
+
+## Base URL
+
+```
+https://anon.li/api/v1
+```
+
+## End-to-End Encryption
+
+<div className="p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg my-6">
+  <span className="text-blue-800 dark:text-blue-200 text-sm block">
+    <strong>Per-form keypair:</strong> Each form has a dedicated P-256 keypair. The public key is served alongside the form schema; the private key is stored AES-GCM encrypted against your vault and never touches our servers in plaintext. Submissions are encrypted in the submitter's browser with ECDH + HKDF + AES-256-GCM; only a vault-unlocked client can decrypt them.
+  </span>
+</div>
+
+### How It Works
+
+1. **Create keypair** — Generate a P-256 keypair locally. Wrap the private key with your vault key.
+2. **Publish** — Send the public key and a vault-wrapped private key when creating the form.
+3. **Submit** — Submitters derive a shared secret with the form's public key and encrypt their answers client-side.
+4. **Decrypt** — Unlock your vault, unwrap the private key, and decrypt submissions in your dashboard or CLI.
+
+Form metadata (title, description, field schema) is stored in plaintext so submitters can render the form without a decryption key. Only submission payloads are encrypted.
+
+## Form Schema
+
+Forms are defined by a versioned JSON schema. Field IDs must be unique within a form.
+
+```json
+{
+  "version": 1,
+  "fields": [
+    { "id": "name", "type": "short_text", "label": "Name", "required": true },
+    { "id": "email", "type": "email", "label": "Email" },
+    { "id": "report", "type": "long_text", "label": "What happened?", "required": true, "maxLength": 50000 },
+    { "id": "urgency", "type": "single_select", "label": "Urgency", "options": ["Low", "Medium", "High"] }
+  ],
+  "submitButtonText": "Submit report",
+  "thankYouMessage": "Thanks. Your report has been encrypted for the intake team."
+}
+```
+
+### Supported Field Types
+
+| Type | Options |
+| :--- | :--- |
+| `short_text` | `maxLength` (≤ 500) |
+| `long_text` | `maxLength` (≤ 50000) |
+| `email` | — |
+| `number` | `min`, `max`, `step` |
+| `phone` | — |
+| `single_select` | `options[]` (1–50) |
+| `multi_select` | `options[]` (1–50) |
+| `dropdown` | `options[]` (1–100) |
+| `rating` | `max` (3–10) |
+| `date` | `min`, `max` (ISO-8601) |
+| `file` | `maxFiles` (1–20), `acceptedMimeTypes[]` |
+
+Every field accepts `label`, `required`, and `helpText`.
+
+---
+
+## Endpoints
+
+### List Forms
+
+<div className="flex items-center gap-2 mt-6 mb-4">
+    <span className="bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 px-3 py-1 rounded-md font-mono text-sm font-bold">GET</span>
+    <code className="text-sm bg-secondary px-2 py-1 rounded">https://anon.li/api/v1/form</code>
+</div>
+
+**Query parameters**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| `limit` | number | No | Max items (1–100, default 25) |
+| `offset` | number | No | Pagination offset |
+| `includeDeleted` | boolean | No | Include soft-deleted forms |
+
+Returns an array of forms with submission counts, public flags, and plan caps in `meta.plan`.
+
+---
+
+### Create Form
+
+<div className="flex items-center gap-2 mt-6 mb-4">
+    <span className="bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-3 py-1 rounded-md font-mono text-sm font-bold">POST</span>
+    <code className="text-sm bg-secondary px-2 py-1 rounded">https://anon.li/api/v1/form</code>
+</div>
+
+Creating a form requires a vault-unlocked caller. Clients using API-key authentication must first call `POST /api/v1/vault/unlock` to obtain vault material, then wrap the form's private key locally before sending it here.
+
+**Body parameters**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| `title` | string | Yes | Human-readable title (1–300 chars) |
+| `description` | string | No | Shown above the form (≤ 2000 chars) |
+| `schema` | object | Yes | `FormSchemaDoc` JSON (see above) |
+| `publicKey` | string | Yes | Base64url-encoded raw P-256 public key (87 chars) |
+| `wrappedPrivateKey` | string | Yes | Vault-wrapped P-256 private key (PKCS#8 inside AES-GCM) |
+| `vaultId` | string | Yes | Caller's current vault identity |
+| `vaultGeneration` | number | Yes | Caller's current vault generation |
+| `allowFileUploads` | boolean | No | Enable file-attachment fields (default `false`) |
+| `maxFileSizeOverride` | number \| null | No | Per-upload byte cap override |
+| `maxSubmissions` | number \| null | No | Stop accepting submissions after this many |
+| `closesAt` | ISO-8601 \| null | No | Close the form at this date |
+| `hideBranding` | boolean | No | Remove anon.li branding (Pro only) |
+| `notifyOnSubmission` | boolean | No | Email the account owner when a new encrypted submission arrives (default `true`) |
+| `customKey` | boolean | No | Password-protect the public form (Plus and Pro) |
+| `salt`, `customKeyData`, `customKeyIv`, `customKeyVerifier` | string | No | Required when `customKey: true`; the verifier is a hash of the decrypted password witness |
+
+**Example response**
+
+```json
+{
+  "data": {
+    "id": "aB3x0Yz9Qw8t",
+    "title": "Whistleblower intake",
+    "public_key": "<base64url>",
+    "created_at": "2026-04-22T12:00:00.000Z"
+  },
+  "meta": { "request_id": "req_..." }
+}
+```
+
+Returns `402 PAYMENT_REQUIRED` if the caller is over their active-form cap for the current plan.
+
+---
+
+### Get Form (Public)
+
+<div className="flex items-center gap-2 mt-6 mb-4">
+    <span className="bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 px-3 py-1 rounded-md font-mono text-sm font-bold">GET</span>
+    <code className="text-sm bg-secondary px-2 py-1 rounded">https://anon.li/api/v1/form/:id</code>
+</div>
+
+Returns public metadata needed to render the form and encrypt a submission. No authentication required. Returns `410 Gone` if the form has been taken down, disabled, or closed.
+
+**Response**
+
+```json
+{
+  "data": {
+    "id": "aB3x0Yz9Qw8t",
+    "title": "Whistleblower intake",
+    "description": null,
+    "schema": { "version": 1, "fields": [ /* ... */ ] },
+    "public_key": "<base64url>",
+    "allowFileUploads": false,
+    "hideBranding": false,
+    "customKey": false
+  },
+  "meta": { "request_id": "req_..." }
+}
+```
+
+---
+
+### Update / Toggle Form
+
+<div className="flex items-center gap-2 mt-6 mb-4">
+    <span className="bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400 px-3 py-1 rounded-md font-mono text-sm font-bold">PATCH</span>
+    <code className="text-sm bg-secondary px-2 py-1 rounded">https://anon.li/api/v1/form/:id</code>
+</div>
+
+Partial update. Pass any subset of the fields accepted by `POST /api/v1/form`. Toggle the form on/off with `{ "disabledByUser": true }`.
+
+---
+
+### Delete Form
+
+<div className="flex items-center gap-2 mt-6 mb-4">
+    <span className="bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 px-3 py-1 rounded-md font-mono text-sm font-bold">DELETE</span>
+    <code className="text-sm bg-secondary px-2 py-1 rounded">https://anon.li/api/v1/form/:id</code>
+</div>
+
+Deletes the form, its submissions, its vault-wrapped private key, and any paired drops.
+
+---
+
+### Submit (Public)
+
+<div className="flex items-center gap-2 mt-6 mb-4">
+    <span className="bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-3 py-1 rounded-md font-mono text-sm font-bold">POST</span>
+    <code className="text-sm bg-secondary px-2 py-1 rounded">https://anon.li/api/v1/form/:id/submit</code>
+</div>
+
+Posts an encrypted submission. No authentication is required by default. Attachment storage is always billed to the form owner and constrained by the owner's Form attachment entitlement.
+
+**Body parameters**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| `ephemeralPubKey` | string | Yes | Submitter's ephemeral P-256 public key (base64url) |
+| `iv` | string | Yes | 12-byte AES-GCM IV (16 base64url chars) |
+| `encryptedPayload` | string | Yes | Ciphertext of the JSON answers object (≤ 5 MB) |
+| `attachedDropId` | string | No | Paired Drop when the form has file fields |
+| `attachmentUploadToken` | string | No | Required with `attachedDropId`; consumed when the submission is recorded |
+| `attachmentManifest` | array | No | Required with `attachedDropId`; binds uploaded files to file fields |
+| `turnstileToken` | string | No | Required for anonymous submissions when Turnstile is enabled and no attachment upload token was already verified |
+| `customKeyProof` | string | No | Required when the form is password-protected; this is the decrypted witness, not the password |
+
+Returns `403` if the form is disabled, `410 Gone` if it has been closed or taken down, and `429` when the form is past its per-month submission cap.
+
+---
+
+### List / Read / Delete Submissions
+
+| Path | Verbs |
+| :--- | :--- |
+| `/api/v1/form/:id/submission` | `GET` (creator list) |
+| `/api/v1/form/submission/:sid` | `GET`, `DELETE` (creator only) |
+
+Submission payloads are returned as ciphertext. Decryption requires ECDH between the caller's vault-unwrapped form private key and the per-submission ephemeral public key, followed by AES-GCM decryption with the stored IV.
+
+## Upload Tokens
+
+<div className="flex items-center gap-2 mt-6 mb-4">
+    <span className="bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-3 py-1 rounded-md font-mono text-sm font-bold">POST</span>
+    <code className="text-sm bg-secondary px-2 py-1 rounded">https://anon.li/api/v1/form/:id/upload-token</code>
+</div>
+
+When a form allows file uploads, this endpoint validates the planned files and mints a form-scoped Drop upload token. Anonymous callers must pass a valid Turnstile token when Turnstile is enabled. Storage is metered against the form owner using the owner's Form attachment limit.
+
+## Decrypting Submissions
+
+```javascript
+// 1. Fetch the wrapped private key from /api/v1/vault/form-keys (vault session required)
+const { wrapped } = await fetch('/api/v1/vault/form-keys?formId=' + formId).then(r => r.json())
+
+// 2. Unwrap the P-256 private key using the vault key (AES-GCM payload unwrap)
+const privateKey = await unwrapVaultPayload(wrapped, vaultKey)
+
+// 3. For each submission, derive the shared secret and decrypt
+const sharedSecret = await crypto.subtle.deriveBits(
+  { name: 'ECDH', public: importedSubmitterPubKey },
+  privateKey, 256,
+)
+const aesKey = await hkdfAesGcmKey(sharedSecret)
+const plaintext = await crypto.subtle.decrypt(
+  { name: 'AES-GCM', iv: ivBytes }, aesKey, ciphertext,
+)
+// plaintext is the JSON answers object keyed by field id
+```
+
+## Rate Limits
+
+| Operation | Limit |
+| :--- | :--- |
+| Form creation | 30 requests/hour |
+| Form list | 60 requests/minute |
+| Form operations | 100 requests/hour |
+| Public submission | 20 requests/hour/IP (strict) |
+
+Monthly Form API quotas for API-key requests are 500 on Free, 25,000 on Plus, and 100,000 on Pro.
+
+## Plan Limits
+
+| Feature | Free | Plus | Pro |
+| :--- | :--- | :--- | :--- |
+| Active forms | 3 | 10 | 30 |
+| Submissions / month | 50 | 1,000 | 10,000 |
+| Retention | 30 days | 90 days | 365 days |
+| Password protection | — | Yes | Yes |
+| Remove branding | — | — | Yes |
+| File attachments cap | 100 MB | 5 GB | 50 GB |
+
+## Error Responses
+
+| Status | Description |
+| :--- | :--- |
+| `400` | Validation error |
+| `401` | Unauthorized — missing or invalid API key / session |
+| `402` | Upgrade required — caller is over their plan cap |
+| `403` | Form is disabled or submitter is not permitted |
+| `404` | Form not found |
+| `410` | Form closed, deleted, or taken down |
+| `429` | Rate-limited or per-month submission cap reached |
+
+## Security Notes
+
+- **Per-form P-256 keypair** — rotating a key rotates the form and invalidates cached ciphertext.
+- **Zero server plaintext** — submission payloads are never available to the server in readable form.
+- **Vault-wrapped private keys** — the form's decryption material is stored AES-GCM-encrypted against your vault.
+- **Metadata is public** — titles, descriptions, and the field schema are served as plaintext so submitters can render the form. Don't include secrets in those fields.

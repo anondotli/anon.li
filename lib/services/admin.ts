@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma"
 import { Resend } from "resend"
 import { DropTakedownEmail } from "@/components/email/drop-takedown"
+import { FormTakedownEmail } from "@/components/email/form-takedown"
 import { AbuseWarningEmail } from "@/components/email/abuse-warning"
 import { ReportResolvedEmail } from "@/components/email/report-resolved"
 import type { Prisma } from "@prisma/client"
@@ -105,6 +106,91 @@ export class AdminService {
         }
 
         return { violations: 0, banned: false }
+    }
+
+    static async takedownForm(formId: string, reason: string) {
+        const form = await prisma.form.findUnique({
+            where: { id: formId },
+            select: {
+                id: true,
+                title: true,
+                user: { select: { id: true, email: true, tosViolations: true } }
+            }
+        })
+
+        if (!form) {
+            throw new NotFoundError("Form not found")
+        }
+
+        await prisma.form.update({
+            where: { id: formId },
+            data: {
+                takenDown: true,
+                takedownReason: reason,
+                takenDownAt: new Date(),
+                disabledByUser: true,
+                active: false
+            }
+        })
+
+        const { violations: newViolations, banned: shouldBan } = await AdminService._applyViolationStrike(form.user.id)
+
+        if (form.user.email) {
+            try {
+                await getResend().emails.send({
+                    from: SYSTEM_EMAIL_FROM,
+                    to: form.user.email,
+                    subject: "Content Takedown Notice",
+                    react: FormTakedownEmail({
+                        formId,
+                        formTitle: form.title,
+                        reason,
+                        strikeCount: newViolations,
+                        isBanned: shouldBan
+                    })
+                })
+            } catch (error) {
+                logger.error("Failed to send form takedown email", error)
+            }
+        }
+
+        return { violations: newViolations, banned: shouldBan }
+    }
+
+    static async restoreForm(formId: string) {
+        const form = await prisma.form.findUnique({
+            where: { id: formId },
+            select: { id: true, takenDown: true, userId: true }
+        })
+
+        if (!form) {
+            throw new NotFoundError("Form not found")
+        }
+
+        if (!form.takenDown) {
+            throw new ValidationError("Form is not taken down")
+        }
+
+        await prisma.$transaction(async (tx) => {
+            await tx.form.update({
+                where: { id: formId },
+                data: {
+                    takenDown: false,
+                    takedownReason: null,
+                    takenDownAt: null,
+                    disabledByUser: false,
+                    active: true
+                }
+            })
+
+            await tx.$executeRaw`
+                UPDATE "users"
+                SET "tosViolations" = GREATEST("tosViolations" - 1, 0)
+                WHERE "id" = ${form.userId}
+            `
+        })
+
+        return { success: true }
     }
 
     static async takedownAlias(aliasEmail: string) {
@@ -573,6 +659,30 @@ export class AdminService {
         } | null = null
 
         let alias = null
+        let form: {
+            id: string
+            title: string
+            active: boolean
+            disabledByUser: boolean
+            takenDown: boolean
+            takedownReason: string | null
+            customKey: boolean
+            allowFileUploads: boolean
+            submissionsCount: number
+            maxSubmissions: number | null
+            closesAt: Date | null
+            createdAt: Date
+            user: {
+                id: string
+                email: string
+                tosViolations: number
+                banned: boolean
+                banAliasCreation: boolean
+                banFileUpload: boolean
+                stripePriceId: string | null
+                isAdmin: boolean
+            } | null
+        } | null = null
 
         if (report.serviceType === "drop") {
             const dropData = await prisma.drop.findUnique({
@@ -646,6 +756,36 @@ export class AdminService {
                     }
                 }
             })
+        } else if (report.serviceType === "form") {
+            form = await prisma.form.findUnique({
+                where: { id: report.resourceId },
+                select: {
+                    id: true,
+                    title: true,
+                    active: true,
+                    disabledByUser: true,
+                    takenDown: true,
+                    takedownReason: true,
+                    customKey: true,
+                    allowFileUploads: true,
+                    submissionsCount: true,
+                    maxSubmissions: true,
+                    closesAt: true,
+                    createdAt: true,
+                    user: {
+                        select: {
+                            id: true,
+                            email: true,
+                            tosViolations: true,
+                            banned: true,
+                            banAliasCreation: true,
+                            banFileUpload: true,
+                            stripePriceId: true,
+                            isAdmin: true
+                        }
+                    }
+                }
+            })
         }
 
         const [previousReports, totalPreviousReports] = await Promise.all([
@@ -664,6 +804,7 @@ export class AdminService {
             report,
             drop,
             alias,
+            form,
             previousReports: { count: totalPreviousReports, recent: previousReports }
         }
     }
@@ -685,6 +826,12 @@ export class AdminService {
                 select: { userId: true }
             })
             return alias?.userId ?? null
+        } else if (serviceType === "form") {
+            const form = await prisma.form.findUnique({
+                where: { id: resourceId },
+                select: { userId: true }
+            })
+            return form?.userId ?? null
         }
         return null
     }

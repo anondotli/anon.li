@@ -20,7 +20,7 @@ function getResend(): Resend {
 const logger = createLogger("ReportAbuseAPI");
 
 const reportSchema = z.object({
-    serviceType: z.enum(["alias", "drop"]),
+    serviceType: z.enum(["alias", "drop", "form"]),
     resourceId: z.string().min(2).max(500),
     reason: z.enum(["spam", "illegal", "harassment", "copyright", "malware", "other"]),
     description: z.string().min(20).max(5000),
@@ -92,6 +92,12 @@ export async function POST(req: Request) {
                 normalizedResourceId = urlMatch[1];
             }
         }
+        if (data.serviceType === "form" && normalizedResourceId.includes("/")) {
+            const urlMatch = normalizedResourceId.match(/\/f\/([a-zA-Z0-9_-]+)/);
+            if (urlMatch?.[1]) {
+                normalizedResourceId = urlMatch[1];
+            }
+        }
 
         // Validate resource existence
         if (data.serviceType === "drop") {
@@ -113,6 +119,17 @@ export async function POST(req: Request) {
             if (!alias) {
                 return NextResponse.json(
                     { error: "The specified alias could not be found." },
+                    { status: 404 }
+                );
+            }
+        } else if (data.serviceType === "form") {
+            const form = await prisma.form.findUnique({
+                where: { id: normalizedResourceId },
+                select: { id: true, takenDown: true, disabledByUser: true, deletedAt: true },
+            });
+            if (!form) {
+                return NextResponse.json(
+                    { error: "The specified form could not be found." },
                     { status: 404 }
                 );
             }
@@ -196,6 +213,14 @@ export async function POST(req: Request) {
                 select: { active: true },
             });
             if (alias && !alias.active) {
+                autoResolved = true;
+            }
+        } else if (data.serviceType === "form") {
+            const form = await prisma.form.findUnique({
+                where: { id: normalizedResourceId },
+                select: { takenDown: true, disabledByUser: true, deletedAt: true },
+            });
+            if (form?.takenDown || form?.disabledByUser || form?.deletedAt) {
                 autoResolved = true;
             }
         }

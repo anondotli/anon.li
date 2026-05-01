@@ -1,8 +1,8 @@
 import "server-only"
 
-import { BUNDLE_PLANS, ALIAS_PLANS, DROP_PLANS } from "@/config/plans"
+import { BUNDLE_PLANS, ALIAS_PLANS, DROP_PLANS, FORM_PLANS } from "@/config/plans"
 
-const VALID_PRODUCTS = ["bundle", "alias", "drop"] as const
+const VALID_PRODUCTS = ["bundle", "alias", "drop", "form"] as const
 const VALID_TIERS = ["plus", "pro"] as const
 
 export type CryptoProduct = (typeof VALID_PRODUCTS)[number]
@@ -30,6 +30,7 @@ export function getCryptoPrice(product: CryptoProduct, tier: CryptoTier): Crypto
     const plans =
         product === "bundle" ? BUNDLE_PLANS :
         product === "alias" ? ALIAS_PLANS :
+        product === "form" ? FORM_PLANS :
         DROP_PLANS
 
     const plan = plans[tier]

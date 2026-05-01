@@ -3,7 +3,7 @@ import crypto from "crypto";
 import { getSessionCookie } from "better-auth/cookies";
 import { nanoid } from "nanoid";
 import { shouldEnableAnalytics } from "@/lib/analytics-policy";
-import { appendVaryHeader, createMarkdownRewriteUrl, shouldRewriteToMarkdown } from "@/lib/markdown-negotiation"
+import { appendVaryHeader, createMarkdownRewriteUrl, shouldRewriteToMarkdown } from "@/lib/markdown-negotiation";
 
 const DEFAULT_UMAMI_SCRIPT_URL = "https://cloud.umami.is/script.js"
 const DEFAULT_UMAMI_API_URL = "https://api-gateway.umami.dev/api/send"
@@ -28,7 +28,7 @@ function extractOrigin(url: string | undefined): string | null {
     }
 }
 
-function buildCsp(nonce: string, analyticsEnabled: boolean) {
+function buildCsp(nonce: string, analyticsEnabled: boolean, allowEmbed: boolean) {
     const isDev = process.env.NODE_ENV === "development"
     const umamiOrigin = getOrigin(process.env.NEXT_PUBLIC_UMAMI_URL, DEFAULT_UMAMI_SCRIPT_URL)
     const umamiApiOrigin = getOrigin(process.env.NEXT_PUBLIC_UMAMI_API_URL, DEFAULT_UMAMI_API_URL)
@@ -57,6 +57,7 @@ function buildCsp(nonce: string, analyticsEnabled: boolean) {
     ].filter((value): value is string => Boolean(value)).join(" ")
 
     const frameSrc = turnstileEnabled ? TURNSTILE_ORIGIN : "'none'"
+    const frameAncestors = allowEmbed ? "*" : "'none'"
 
     return [
         "default-src 'self'",
@@ -70,9 +71,14 @@ function buildCsp(nonce: string, analyticsEnabled: boolean) {
         "object-src 'none'",
         "base-uri 'self'",
         "form-action 'self'",
-        "frame-ancestors 'none'",
+        `frame-ancestors ${frameAncestors}`,
         "upgrade-insecure-requests",
     ].join("; ")
+}
+
+// Public form pages are intentionally embeddable from any origin.
+function isEmbeddablePath(pathname: string): boolean {
+    return pathname === "/f" || pathname.startsWith("/f/") || pathname.startsWith("/embed/f/")
 }
 
 function hasPendingTwoFactorCookie(req: NextRequest) {
@@ -85,31 +91,6 @@ export default async function proxy(req: NextRequest) {
 
     // Generate unique request ID for tracing
     const requestId = nanoid(21)
-
-    if (pathname.startsWith("/api/internal")) {
-        const expectedSecret = process.env.MAIL_API_SECRET
-
-        if (!expectedSecret) {
-            return NextResponse.json(
-                { error: "Internal server error" },
-                { status: 500 }
-            )
-        }
-        const xApiSecret = req.headers.get("x-api-secret")
-        const authHeader = req.headers.get("authorization")
-        const providedToken = xApiSecret
-            || (authHeader?.startsWith("Bearer ") ? authHeader.split(" ")[1] : "")
-
-        const secretHash = crypto.createHash("sha256").update(expectedSecret).digest()
-        const providedHash = crypto.createHash("sha256").update(providedToken || "").digest()
-
-        if (!providedToken || !crypto.timingSafeEqual(secretHash, providedHash)) {
-            return NextResponse.json(
-                { error: "Unauthorized" },
-                { status: 401 }
-            )
-        }
-    }
 
     const needsAuth = pathname.startsWith('/dashboard')
         || pathname.startsWith('/admin')
@@ -124,7 +105,8 @@ export default async function proxy(req: NextRequest) {
 
     const nonce = crypto.randomBytes(16).toString("base64")
     const analyticsEnabled = shouldEnableAnalytics(pathname)
-    const csp = buildCsp(nonce, analyticsEnabled)
+    const allowEmbed = isEmbeddablePath(pathname)
+    const csp = buildCsp(nonce, analyticsEnabled, allowEmbed)
     const requestHeaders = new Headers(req.headers)
     requestHeaders.set("x-nonce", nonce)
     requestHeaders.set("x-analytics-enabled", analyticsEnabled ? "1" : "0")

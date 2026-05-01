@@ -88,6 +88,14 @@ interface AddFileResult {
     storageKey: string;
 }
 
+interface AddFileOptions {
+    quotaOverride?: {
+        maxFileSize: number;
+        storageLimit: bigint;
+        currentTier: "free" | "plus" | "pro";
+    };
+}
+
 interface DropWithFiles {
     id: string;
     encryptedTitle: string | null;
@@ -306,7 +314,8 @@ export class DropService {
      */
     static async addFile(
         userId: string | null,
-        input: AddFileInput
+        input: AddFileInput,
+        options: AddFileOptions = {}
     ): Promise<AddFileResult> {
         // Validate IV format (must be exactly 16 base64url characters)
         if (!/^[A-Za-z0-9_-]{16}$/.test(input.iv)) {
@@ -366,10 +375,45 @@ export class DropService {
             // Authenticated path: validate against per-user plan limits and
             // reserve storage atomically to prevent TOCTOU.
             const { limits, storageUsed, tier } = await getUserAndLimits(userId);
+            const storageLimit = options.quotaOverride?.storageLimit ?? BigInt(limits.maxStorage);
 
-            validateFileSize(input.size, storageUsed, BigInt(limits.maxStorage), limits.maxFileSize, tier);
+            if (options.quotaOverride) {
+                if (input.size > options.quotaOverride.maxFileSize) {
+                    throw new UpgradeRequiredError(
+                        "Attachment size exceeds this form's file upload limit.",
+                        {
+                            scope: "form_file_uploads",
+                            currentTier: options.quotaOverride.currentTier,
+                            suggestedTier: options.quotaOverride.currentTier === "pro"
+                                ? "pro"
+                                : options.quotaOverride.currentTier === "plus"
+                                  ? "pro"
+                                  : "plus",
+                            currentValue: input.size,
+                            limitValue: options.quotaOverride.maxFileSize,
+                        }
+                    );
+                }
+                if (storageUsed + BigInt(input.size) > storageLimit) {
+                    throw new UpgradeRequiredError(
+                        "Attachment storage limit reached for this form plan.",
+                        {
+                            scope: "form_file_uploads",
+                            currentTier: options.quotaOverride.currentTier,
+                            suggestedTier: options.quotaOverride.currentTier === "pro"
+                                ? "pro"
+                                : options.quotaOverride.currentTier === "plus"
+                                  ? "pro"
+                                  : "plus",
+                            currentValue: Number(storageUsed + BigInt(input.size)),
+                            limitValue: Number(storageLimit),
+                        }
+                    );
+                }
+            } else {
+                validateFileSize(input.size, storageUsed, storageLimit, limits.maxFileSize, tier);
+            }
 
-            const storageLimit = BigInt(limits.maxStorage);
             const reserved = await prisma.$executeRaw`
                 UPDATE "users"
                 SET "storageUsed" = "storageUsed" + ${BigInt(input.size)}
@@ -377,6 +421,22 @@ export class DropService {
                   AND "storageUsed" + ${BigInt(input.size)} <= ${storageLimit}
             `;
             if (reserved === 0) {
+                if (options.quotaOverride) {
+                    throw new UpgradeRequiredError(
+                        "Attachment storage limit reached for this form plan.",
+                        {
+                            scope: "form_file_uploads",
+                            currentTier: options.quotaOverride.currentTier,
+                            suggestedTier: options.quotaOverride.currentTier === "pro"
+                                ? "pro"
+                                : options.quotaOverride.currentTier === "plus"
+                                  ? "pro"
+                                  : "plus",
+                            currentValue: Number(storageUsed + BigInt(input.size)),
+                            limitValue: Number(storageLimit),
+                        }
+                    );
+                }
                 throw new UpgradeRequiredError(
                     "Bandwidth limit reached. Upgrade for more headroom.",
                     {

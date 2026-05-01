@@ -180,6 +180,41 @@ export async function exportKeyBase64Url(key: CryptoKey): Promise<string> {
     return arrayBufferToBase64Url(await exportKeyBytes(key))
 }
 
+// Wrap an arbitrary-size payload (e.g. a PKCS#8 private key) under the vault
+// key using AES-GCM. Unlike `wrapVaultManagedKey`, this is not restricted to
+// AES key sizes and can carry any payload up to a few KB.
+const FORM_KEY_IV_BYTES = 12
+const FORM_KEY_AAD = new TextEncoder().encode("anon.li:form-owner-key:v1")
+
+export async function wrapVaultPayload(data: BinaryLike, vaultKey: CryptoKey): Promise<string> {
+    const iv = crypto.getRandomValues(new Uint8Array(FORM_KEY_IV_BYTES))
+    const cipher = await crypto.subtle.encrypt(
+        { name: "AES-GCM", iv: toCryptoBufferSource(iv), additionalData: toCryptoBufferSource(FORM_KEY_AAD) },
+        vaultKey,
+        toCryptoBufferSource(data),
+    )
+    // Packed layout: [iv | ciphertext] — both fields recoverable since iv is fixed length.
+    const cipherBytes = new Uint8Array(cipher)
+    const packed = new Uint8Array(iv.byteLength + cipherBytes.byteLength)
+    packed.set(iv, 0)
+    packed.set(cipherBytes, iv.byteLength)
+    return arrayBufferToBase64Url(packed)
+}
+
+export async function unwrapVaultPayload(wrapped: string, vaultKey: CryptoKey): Promise<ArrayBuffer> {
+    const packed = new Uint8Array(base64UrlToArrayBuffer(wrapped))
+    if (packed.byteLength <= FORM_KEY_IV_BYTES) {
+        throw new Error("Wrapped payload is too short")
+    }
+    const iv = packed.slice(0, FORM_KEY_IV_BYTES)
+    const cipher = packed.slice(FORM_KEY_IV_BYTES)
+    return crypto.subtle.decrypt(
+        { name: "AES-GCM", iv: toCryptoBufferSource(iv), additionalData: toCryptoBufferSource(FORM_KEY_AAD) },
+        vaultKey,
+        toCryptoBufferSource(cipher),
+    )
+}
+
 export function extractStoredKeyMaterial(keyString: string): ArrayBuffer {
     const encoded = keyString.startsWith("derived:")
         ? keyString.split(":")[2] ?? ""

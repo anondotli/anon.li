@@ -38,7 +38,7 @@ export function PaymentMethodDialog({
         startCardTransition(async () => {
             try {
                 const result = await createCheckoutSession({
-                    product: product as "bundle" | "alias" | "drop",
+                    product: product as "bundle" | "alias" | "drop" | "form",
                     tier: tier as "plus" | "pro",
                     frequency: "yearly",
                     promoCode,
@@ -57,7 +57,7 @@ export function PaymentMethodDialog({
         startCryptoTransition(async () => {
             try {
                 const result = await createCryptoCheckout({
-                    product: product as "bundle" | "alias" | "drop",
+                    product: product as "bundle" | "alias" | "drop" | "form",
                     tier: tier as "plus" | "pro",
                 })
                 if (result?.error) {

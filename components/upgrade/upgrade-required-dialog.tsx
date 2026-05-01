@@ -65,6 +65,31 @@ const SCOPE_COPY: Record<UpgradeRequiredDetails["scope"], { title: string; reaso
         reason: "Add a password layer on top of end-to-end encryption.",
         highlight: "drop",
     },
+    form_forms: {
+        title: "Form limit reached",
+        reason: "Create more encrypted forms for separate intake flows.",
+        highlight: "form",
+    },
+    form_branding: {
+        title: "Branding removal requires Pro",
+        reason: "Remove anon.li branding from public form pages.",
+        highlight: "form",
+    },
+    form_custom_key: {
+        title: "Password protection is a paid feature",
+        reason: "Require a password before visitors can view or submit a form.",
+        highlight: "form",
+    },
+    form_file_uploads: {
+        title: "File uploads require an upgrade",
+        reason: "Accept encrypted file attachments with form submissions.",
+        highlight: "form",
+    },
+    form_submissions: {
+        title: "Submission limit reached",
+        reason: "Accept more encrypted form submissions each month.",
+        highlight: "form",
+    },
 };
 
 export function UpgradeRequiredDialog({ open, onOpenChange, details }: UpgradeRequiredDialogProps) {
@@ -93,7 +118,7 @@ export function UpgradeRequiredDialog({ open, onOpenChange, details }: UpgradeRe
                         {copy.reason}
                     </DialogDescription>
                 </DialogHeader>
-                <DialogFooter className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 pt-2">
+                <DialogFooter className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
                     <Button variant="ghost" onClick={() => onOpenChange(false)}>
                         Maybe later
                     </Button>

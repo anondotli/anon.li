@@ -87,7 +87,19 @@ export class DeletionService {
                 })
             }
 
-            // Step 3: Delete storage files (S3)
+            // Step 3: Delete forms (cascades to FormSubmission + FormOwnerKey;
+            // FormSubmission.attachedDropId is SetNull, so attached drops
+            // remain owned by the user and get cleaned up by the storage and
+            // drop steps below.)
+            if (!request.formsDeleted) {
+                await prisma.form.deleteMany({ where: { userId } })
+                await prisma.deletionRequest.update({
+                    where: { id: requestId },
+                    data: { formsDeleted: true },
+                })
+            }
+
+            // Step 4: Delete storage files (S3)
             if (!request.storageDeleted) {
                 const result = await eraseUserDrops(userId)
 
@@ -102,7 +114,7 @@ export class DeletionService {
                 })
             }
 
-            // Step 4: Delete drops (DB records)
+            // Step 5: Delete drops (DB records)
             if (!request.dropsDeleted) {
                 await prisma.drop.deleteMany({ where: { userId } })
                 await prisma.deletionRequest.update({
@@ -111,7 +123,7 @@ export class DeletionService {
                 })
             }
 
-            // Step 5: Delete sessions (if not already done)
+            // Step 6: Delete sessions (if not already done)
             if (!request.sessionsDeleted) {
                 await prisma.session.deleteMany({ where: { userId } })
                 await prisma.deletionRequest.update({

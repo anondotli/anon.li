@@ -32,9 +32,8 @@ const serverEnvSchema = z.object({
     UPSTASH_REDIS_REST_URL: z.string().optional(),
     UPSTASH_REDIS_REST_TOKEN: z.string().optional(),
 
-    // Cron & Internal API Protection
+    // Cron Protection
     CRON_SECRET: z.string().min(1, "CRON_SECRET is required"),
-    MAIL_API_SECRET: z.string().min(1, "MAIL_API_SECRET is required"),
 
     // Abuse Reporting
     IP_HASH_PEPPER: z.string().min(1, "IP_HASH_PEPPER is required"),
@@ -69,6 +68,10 @@ const serverEnvSchema = z.object({
     STRIPE_DROP_PLUS_YEARLY_PRICE_ID: z.string().optional(),
     STRIPE_DROP_PRO_MONTHLY_PRICE_ID: z.string().optional(),
     STRIPE_DROP_PRO_YEARLY_PRICE_ID: z.string().optional(),
+    STRIPE_FORM_PLUS_MONTHLY_PRICE_ID: z.string().optional(),
+    STRIPE_FORM_PLUS_YEARLY_PRICE_ID: z.string().optional(),
+    STRIPE_FORM_PRO_MONTHLY_PRICE_ID: z.string().optional(),
+    STRIPE_FORM_PRO_YEARLY_PRICE_ID: z.string().optional(),
 
     // DKIM key file path (alternative to database-stored keys)
     DKIM_KEY_PATH: z.string().optional(),

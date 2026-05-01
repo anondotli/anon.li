@@ -34,6 +34,7 @@ async function runCleanup(): Promise<NextResponse> {
         const now = new Date();
 
         const { DropCleanupService } = await import("@/lib/services/drop-cleanup");
+        const { FormCleanupService } = await import("@/lib/services/form-cleanup");
 
         const emptyResult = { found: 0, deleted: 0, errors: [] as string[] };
         const taskErrors: string[] = [];
@@ -45,8 +46,10 @@ async function runCleanup(): Promise<NextResponse> {
         //   3. cleanupDownloadLimitExceededDrops - soft-delete fallback only
         //   4. cleanupExpiredDrops          - expired drops that weren't soft-deleted yet
         //   5. cleanupSoftDeletedDrops      - single hard-delete+quota-reclaim pipeline
-        //   6. cleanupOrphanedFiles         - storage-only GC of previously failed deletes
-        //   7. cleanupExpiredSessions       - unrelated
+        //   6. cleanupExpiredFormSubmissions - form retention, deleting attached drops
+        //   7. cleanupDeletedForms          - hard-delete soft-deleted forms after grace
+        //   8. cleanupOrphanedFiles         - storage-only GC of previously failed deletes
+        //   9. cleanupExpiredSessions       - unrelated
         type DropResult = { found: number; deleted: number; errors: string[] };
         async function runTask<T>(name: string, fallback: T, fn: () => Promise<T>): Promise<T> {
             try {
@@ -82,6 +85,24 @@ async function runCleanup(): Promise<NextResponse> {
             "softDeleted",
             emptyResult,
             () => DropCleanupService.cleanupSoftDeletedDrops()
+        );
+        const {
+            deleted: expiredFormSubmissionsDeleted,
+            found: expiredFormSubmissionsFound,
+            errors: expiredFormSubmissionErrors,
+        } = await runTask<DropResult>(
+            "expiredFormSubmissions",
+            emptyResult,
+            () => FormCleanupService.cleanupExpiredSubmissions()
+        );
+        const {
+            deleted: deletedFormsCleaned,
+            found: deletedFormsFound,
+            errors: deletedFormErrors,
+        } = await runTask<DropResult>(
+            "deletedForms",
+            emptyResult,
+            () => FormCleanupService.cleanupDeletedForms()
         );
         const { deleted: orphanedFilesDeleted, errors: orphanedErrors } = await runTask<DropResult>(
             "orphanedFiles",
@@ -144,6 +165,8 @@ async function runCleanup(): Promise<NextResponse> {
             ...softDeleteErrors,
             ...orphanedErrors,
             ...incompleteFileErrors,
+            ...expiredFormSubmissionErrors,
+            ...deletedFormErrors,
         ];
 
         return NextResponse.json({
@@ -153,6 +176,10 @@ async function runCleanup(): Promise<NextResponse> {
             incompleteUploadsDeleted: incompleteUploadsDeleted,
             downloadLimitExceededDeleted: downloadLimitExceededDeleted,
             softDeletedDropsCleaned: softDeletedCleaned,
+            expiredFormSubmissionsDeleted: expiredFormSubmissionsDeleted,
+            expiredFormSubmissionsFound: expiredFormSubmissionsFound,
+            deletedFormsCleaned: deletedFormsCleaned,
+            deletedFormsFound: deletedFormsFound,
             orphanedFilesDeleted: orphanedFilesDeleted,
             incompleteFilesDeleted: incompleteFilesDeleted,
             expiredSessionsDeleted: expiredSessionsDeleted,

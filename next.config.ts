@@ -20,10 +20,6 @@ const securityHeaders = [
     value: "nosniff",
   },
   {
-    key: "X-Frame-Options",
-    value: "DENY",
-  },
-  {
     key: "Referrer-Policy",
     value: "strict-origin-when-cross-origin",
   },
@@ -36,6 +32,15 @@ const securityHeaders = [
     value: "none",
   },
 ];
+
+// X-Frame-Options DENY blocks iframe embedding. Public form pages (/f/*) need
+// to be embeddable from any origin, so this header is applied only to non-form
+// paths. For /f/*, clickjacking protection is instead enforced by the CSP
+// `frame-ancestors` directive set in proxy.ts.
+const xFrameOptionsHeader = {
+  key: "X-Frame-Options",
+  value: "DENY",
+};
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
@@ -62,6 +67,12 @@ const nextConfig: NextConfig = {
       {
         source: "/:path*",
         headers: securityHeaders,
+      },
+      {
+        // Apply X-Frame-Options DENY to every path except the public form
+        // routes, which are intentionally embeddable from any origin.
+        source: "/:path((?!f(?:$|/)|embed/f).*)",
+        headers: [xFrameOptionsHeader],
       },
     ];
   },

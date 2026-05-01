@@ -1,14 +1,15 @@
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { redirect } from "next/navigation"
-import { getDisplayPlanLimits, getDropLimits, getEffectiveTier } from "@/lib/limits"
+import { getDisplayPlanLimits, getDropLimits, getEffectiveTier, getFormLimitsAsync } from "@/lib/limits"
 import { formatBytes } from "@/lib/utils"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
-import { Mail, Globe, HardDrive } from "lucide-react"
+import { Mail, Globe, HardDrive, FileText, Inbox } from "lucide-react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { ApiUsageCard } from "@/components/dashboard"
+import { FormService } from "@/lib/services/form"
 
 export default async function UsagePage() {
     const session = await auth()
@@ -20,9 +21,12 @@ export default async function UsagePage() {
 
     if (!user) redirect("/login")
 
-    const [aliases, domains] = await Promise.all([
+    const [aliases, domains, formCount, recentSubmissions, formLimits] = await Promise.all([
         prisma.alias.findMany({ where: { userId: user.id }, select: { id: true, format: true } }) as unknown as Promise<Array<{ id: string; format: string }>>,
         prisma.domain.findMany({ where: { userId: user.id, verified: true }, select: { id: true } }) as unknown as Promise<Array<{ id: string }>>,
+        FormService.countActiveForms(user.id),
+        FormService.countRecentSubmissionsForOwner(user.id),
+        getFormLimitsAsync(user.id),
     ])
 
     // Get limits
@@ -44,6 +48,10 @@ export default async function UsagePage() {
     const customPercent = aliasLimits.custom === -1 ? 0 : Math.min((customAliases / aliasLimits.custom) * 100, 100)
     const domainPercent = aliasLimits.domains === -1 ? 0 : Math.min((domainCount / aliasLimits.domains) * 100, 100)
     const storagePercent = storageLimit === 0 ? 0 : Math.min((storageUsed / storageLimit) * 100, 100)
+    const formsPercent = formLimits.forms === -1 ? 0 : Math.min((formCount / formLimits.forms) * 100, 100)
+    const submissionsPercent = formLimits.submissionsPerMonth === -1
+        ? 0
+        : Math.min((recentSubmissions / formLimits.submissionsPerMonth) * 100, 100)
 
     return (
         <div className="space-y-8">
@@ -187,6 +195,72 @@ export default async function UsagePage() {
                                 {storagePercent >= 100
                                     ? "You've reached your storage limit. Upgrade for more."
                                     : `You're using ${Math.round(storagePercent)}% of your storage.`}
+                            </p>
+                        )}
+                    </CardContent>
+                </Card>
+
+                {/* Forms */}
+                <Card className="rounded-3xl border-border/40 shadow-sm">
+                    <CardHeader className="p-6 pb-3">
+                        <div className="flex items-center gap-3">
+                            <div className="p-2 rounded-xl bg-primary/10">
+                                <FileText className="h-5 w-5 text-primary" />
+                            </div>
+                            <div>
+                                <CardTitle className="text-lg font-medium">Forms</CardTitle>
+                                <CardDescription className="text-sm">
+                                    Active end-to-end encrypted forms
+                                </CardDescription>
+                            </div>
+                        </div>
+                    </CardHeader>
+                    <CardContent className="p-6 pt-0 space-y-3">
+                        <div className="flex items-center justify-between text-sm">
+                            <span className="text-muted-foreground">Used</span>
+                            <span className="font-medium">
+                                {formCount} / {formLimits.forms === -1 ? "∞" : formLimits.forms}
+                            </span>
+                        </div>
+                        <Progress value={formsPercent} className="h-2" />
+                        {formLimits.forms !== -1 && formsPercent >= 80 && (
+                            <p className={`text-sm ${formsPercent >= 100 ? "text-destructive" : "text-amber-600 dark:text-amber-400"}`}>
+                                {formsPercent >= 100
+                                    ? "You've reached your form limit. Upgrade for more."
+                                    : `You're using ${Math.round(formsPercent)}% of your forms.`}
+                            </p>
+                        )}
+                    </CardContent>
+                </Card>
+
+                {/* Form Submissions */}
+                <Card className="rounded-3xl border-border/40 shadow-sm">
+                    <CardHeader className="p-6 pb-3">
+                        <div className="flex items-center gap-3">
+                            <div className="p-2 rounded-xl bg-primary/10">
+                                <Inbox className="h-5 w-5 text-primary" />
+                            </div>
+                            <div>
+                                <CardTitle className="text-lg font-medium">Form Submissions</CardTitle>
+                                <CardDescription className="text-sm">
+                                    Rolling 30-day window
+                                </CardDescription>
+                            </div>
+                        </div>
+                    </CardHeader>
+                    <CardContent className="p-6 pt-0 space-y-3">
+                        <div className="flex items-center justify-between text-sm">
+                            <span className="text-muted-foreground">Used</span>
+                            <span className="font-medium">
+                                {recentSubmissions.toLocaleString()} / {formLimits.submissionsPerMonth === -1 ? "∞" : formLimits.submissionsPerMonth.toLocaleString()}
+                            </span>
+                        </div>
+                        <Progress value={submissionsPercent} className="h-2" />
+                        {formLimits.submissionsPerMonth !== -1 && submissionsPercent >= 80 && (
+                            <p className={`text-sm ${submissionsPercent >= 100 ? "text-destructive" : "text-amber-600 dark:text-amber-400"}`}>
+                                {submissionsPercent >= 100
+                                    ? "You've reached your submissions limit. Upgrade for more."
+                                    : `You're using ${Math.round(submissionsPercent)}% of your monthly submissions.`}
                             </p>
                         )}
                     </CardContent>

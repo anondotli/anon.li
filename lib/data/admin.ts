@@ -98,6 +98,63 @@ type AdminDropListRow = {
     files: Array<{ size: bigint }>
 }
 
+type AdminFormListRow = {
+    id: string
+    title: string
+    active: boolean
+    disabledByUser: boolean
+    takenDown: boolean
+    takedownReason: string | null
+    customKey: boolean
+    allowFileUploads: boolean
+    submissionsCount: number
+    maxSubmissions: number | null
+    closesAt: Date | null
+    deletedAt: Date | null
+    createdAt: Date
+    user: SimpleUserRef
+    _count: { submissions: number }
+}
+
+type AdminFormDetailRow = {
+    id: string
+    title: string
+    description: string | null
+    schemaJson: string
+    publicKey: string
+    active: boolean
+    disabledByUser: boolean
+    customKey: boolean
+    salt: string | null
+    allowFileUploads: boolean
+    maxFileSizeOverride: bigint | null
+    maxSubmissions: number | null
+    closesAt: Date | null
+    hideBranding: boolean
+    notifyAliasId: string | null
+    notifyEmailFallback: boolean
+    submissionsCount: number
+    takenDown: boolean
+    takedownReason: string | null
+    takenDownAt: Date | null
+    deletedAt: Date | null
+    createdAt: Date
+    updatedAt: Date
+    user: { id: string; email: string; name: string | null; tosViolations: number }
+    ownerKey: { id: string; vaultGeneration: number; createdAt: Date; updatedAt: Date } | null
+    _count: { submissions: number }
+}
+
+type AdminFormTakedownRow = {
+    id: string
+    title: string
+    takedownReason: string | null
+    takenDownAt: Date | null
+    createdAt: Date
+    user: UserRef | null
+    _count: { submissions: number }
+}
+
 type AdminDomainRow = {
     id: string
     domain: string
@@ -376,7 +433,7 @@ type AdminDeletionRequestRow = {
 
 const ACTIVE_SUBSCRIPTION_STATUSES = new Set(["active", "trialing"])
 const PAID_TIERS = new Set<string>(["plus", "pro"])
-const PRODUCTS = new Set<string>(["bundle", "alias", "drop"])
+const PRODUCTS = new Set<string>(["bundle", "alias", "drop", "form"])
 
 function parsePage(page?: string) {
     return Math.max(1, parseInt(page || "1", 10) || 1)
@@ -707,6 +764,158 @@ export async function getAdminDrops(params: { search?: string; filter?: string; 
         total,
         search,
         filter,
+        ...getPageMetadata(total, page),
+    }
+}
+
+export async function getAdminForms(params: { search?: string; filter?: string; page?: string }) {
+    const search = sanitizeSearch(params.search)
+    const filter = params.filter || "all"
+    const page = parsePage(params.page)
+
+    const where: Prisma.FormWhereInput = {
+        deletedAt: null,
+        ...(search && {
+            OR: [
+                { id: { contains: search } },
+                { title: { contains: search, mode: "insensitive" } },
+                { user: { email: { contains: search, mode: "insensitive" } } },
+            ],
+        }),
+        ...(filter === "takendown" && { takenDown: true }),
+        ...(filter === "disabled" && { disabledByUser: true, takenDown: false }),
+        ...(filter === "active" && { disabledByUser: false, takenDown: false }),
+        ...(filter === "closed" && { closesAt: { lt: new Date() } }),
+    }
+
+    const [forms, total] = await Promise.all([
+        prismaPayload<Promise<AdminFormListRow[]>>(prisma.form.findMany({
+            where,
+            select: {
+                id: true,
+                title: true,
+                active: true,
+                disabledByUser: true,
+                takenDown: true,
+                takedownReason: true,
+                customKey: true,
+                allowFileUploads: true,
+                submissionsCount: true,
+                maxSubmissions: true,
+                closesAt: true,
+                deletedAt: true,
+                createdAt: true,
+                user: {
+                    select: { id: true, email: true },
+                },
+                _count: {
+                    select: { submissions: true },
+                },
+            },
+            orderBy: { createdAt: "desc" },
+            skip: (page - 1) * ADMIN_PAGE_SIZE,
+            take: ADMIN_PAGE_SIZE,
+        })),
+        prisma.form.count({ where }),
+    ])
+
+    return {
+        forms,
+        total,
+        search,
+        filter,
+        ...getPageMetadata(total, page),
+    }
+}
+
+export async function getAdminFormDetail(formId: string) {
+    const form = prismaPayload<AdminFormDetailRow | null>(await prisma.form.findUnique({
+        where: { id: formId },
+        select: {
+            id: true,
+            title: true,
+            description: true,
+            schemaJson: true,
+            publicKey: true,
+            active: true,
+            disabledByUser: true,
+            customKey: true,
+            salt: true,
+            allowFileUploads: true,
+            maxFileSizeOverride: true,
+            maxSubmissions: true,
+            closesAt: true,
+            hideBranding: true,
+            notifyAliasId: true,
+            notifyEmailFallback: true,
+            submissionsCount: true,
+            takenDown: true,
+            takedownReason: true,
+            takenDownAt: true,
+            deletedAt: true,
+            createdAt: true,
+            updatedAt: true,
+            user: {
+                select: { id: true, email: true, name: true, tosViolations: true },
+            },
+            ownerKey: {
+                select: { id: true, vaultGeneration: true, createdAt: true, updatedAt: true },
+            },
+            _count: {
+                select: { submissions: true },
+            },
+        },
+    }))
+
+    if (!form) {
+        return null
+    }
+
+    return {
+        ...form,
+        maxFileSizeOverride: form.maxFileSizeOverride?.toString() ?? null,
+    }
+}
+
+export async function getAdminFormTakedowns(searchParams: SearchParams) {
+    const search = sanitizeSearch(getStringParam(searchParams, "search"))
+    const page = parsePage(getStringParam(searchParams, "page"))
+
+    const where: Prisma.FormWhereInput = {
+        takenDown: true,
+        ...(search && {
+            OR: [
+                { id: { contains: search, mode: "insensitive" } },
+                { title: { contains: search, mode: "insensitive" } },
+                { takedownReason: { contains: search, mode: "insensitive" } },
+                { user: { email: { contains: search, mode: "insensitive" } } },
+            ],
+        }),
+    }
+
+    const [forms, total] = await Promise.all([
+        prismaPayload<Promise<AdminFormTakedownRow[]>>(prisma.form.findMany({
+            where,
+            select: {
+                id: true,
+                title: true,
+                takedownReason: true,
+                takenDownAt: true,
+                createdAt: true,
+                user: { select: { id: true, email: true, name: true } },
+                _count: { select: { submissions: true } },
+            },
+            orderBy: { takenDownAt: "desc" },
+            skip: (page - 1) * ADMIN_PAGE_SIZE,
+            take: ADMIN_PAGE_SIZE,
+        })),
+        prisma.form.count({ where }),
+    ])
+
+    return {
+        forms,
+        total,
+        search,
         ...getPageMetadata(total, page),
     }
 }
@@ -1209,6 +1418,8 @@ export async function getAdminDashboardStats() {
         totalDrops,
         takenDownDrops,
         totalAliases,
+        totalForms,
+        takenDownForms,
         pendingReports,
         urgentReports,
         activeDeletionRequests,
@@ -1230,6 +1441,8 @@ export async function getAdminDashboardStats() {
         prisma.drop.count({ where: { deletedAt: null } }),
         prisma.drop.count({ where: { takenDown: true } }),
         prisma.alias.count(),
+        prisma.form.count({ where: { deletedAt: null } }),
+        prisma.form.count({ where: { takenDown: true } }),
         prisma.abuseReport.count({ where: { status: "pending" } }),
         prisma.abuseReport.count({ where: { status: "pending", priority: { in: ["urgent", "high"] } } }),
         prisma.deletionRequest.count(),
@@ -1251,6 +1464,8 @@ export async function getAdminDashboardStats() {
         totalDrops,
         takenDownDrops,
         totalAliases,
+        totalForms,
+        takenDownForms,
         pendingReports,
         urgentReports,
         activeDeletionRequests,

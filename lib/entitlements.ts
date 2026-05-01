@@ -19,6 +19,7 @@ import { DAY_MS } from "@/lib/constants"
 type EffectiveTiers = {
     alias: "free" | PaidTier;
     drop: "free" | PaidTier;
+    form: "free" | PaidTier;
 }
 
 const TIER_RANK: Record<string, number> = { free: 0, plus: 1, pro: 2 }
@@ -54,6 +55,7 @@ export async function getEffectiveTiers(userId: string): Promise<EffectiveTiers>
     if (active.length > 0) {
         let aliasTier: "free" | PaidTier = "free"
         let dropTier: "free" | PaidTier = "free"
+        let formTier: "free" | PaidTier = "free"
 
         for (const sub of active) {
             const tier = sub.tier as PaidTier
@@ -66,9 +68,12 @@ export async function getEffectiveTiers(userId: string): Promise<EffectiveTiers>
             if (product === "bundle" || product === "drop") {
                 dropTier = higherTier(dropTier, tier)
             }
+            if (product === "bundle" || product === "form") {
+                formTier = higherTier(formTier, tier)
+            }
         }
 
-        return { alias: aliasTier, drop: dropTier }
+        return { alias: aliasTier, drop: dropTier, form: formTier }
     }
 
     // Fallback: legacy User-level Stripe fields for un-migrated users
@@ -81,22 +86,23 @@ export async function getEffectiveTiers(userId: string): Promise<EffectiveTiers>
     })
 
     if (!user?.stripePriceId || !user.stripeCurrentPeriodEnd) {
-        return { alias: "free", drop: "free" }
+        return { alias: "free", drop: "free", form: "free" }
     }
 
     if (new Date(user.stripeCurrentPeriodEnd).getTime() + DAY_MS < now) {
-        return { alias: "free", drop: "free" }
+        return { alias: "free", drop: "free", form: "free" }
     }
 
     const resolved = getPlanFromPriceId(user.stripePriceId)
     if (!resolved || (resolved.tier !== "plus" && resolved.tier !== "pro")) {
-        return { alias: "free", drop: "free" }
+        return { alias: "free", drop: "free", form: "free" }
     }
 
     const { product, tier } = resolved
     return {
         alias: (product === "alias" || product === "bundle") ? tier : "free",
         drop: (product === "drop" || product === "bundle") ? tier : "free",
+        form: (product === "form" || product === "bundle") ? tier : "free",
     }
 }
 

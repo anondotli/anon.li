@@ -3,7 +3,7 @@
  * Uses tier-based limits from ALIAS_LIMITS and DROP_LIMITS configuration
  */
 import { getEffectiveTier } from "@/lib/limits"
-import { ALIAS_LIMITS, DROP_LIMITS } from "@/config/plans"
+import { ALIAS_LIMITS, DROP_LIMITS, FORM_LIMITS } from "@/config/plans"
 import { monthlyApiLimiters } from "@/lib/rate-limit"
 import type { Ratelimit } from "@upstash/ratelimit"
 
@@ -14,7 +14,7 @@ export interface RateLimitResult {
     reset: Date
 }
 
-export type ApiQuotaType = "alias" | "drop"
+export type ApiQuotaType = "alias" | "drop" | "form"
 
 type UserSubscription = { stripePriceId?: string | null, stripeCurrentPeriodEnd?: Date | null }
 
@@ -104,6 +104,17 @@ async function checkDropApiRateLimit(
     })
 }
 
+async function checkFormApiRateLimit(
+    userId: string,
+    user: UserSubscription,
+): Promise<RateLimitResult> {
+    return checkTieredQuota(userId, user, FORM_LIMITS, {
+        free: monthlyApiLimiters.formFree,
+        plus: monthlyApiLimiters.formPlus,
+        pro: monthlyApiLimiters.formPro,
+    })
+}
+
 export async function readApiRateLimit(
     userId: string,
     user: UserSubscription,
@@ -126,14 +137,25 @@ export async function readDropApiRateLimit(
     })
 }
 
+export async function readFormApiRateLimit(
+    userId: string,
+    user: UserSubscription,
+): Promise<RateLimitResult> {
+    return readTieredQuota(userId, user, FORM_LIMITS, {
+        free: monthlyApiLimiters.formFree,
+        plus: monthlyApiLimiters.formPlus,
+        pro: monthlyApiLimiters.formPro,
+    })
+}
+
 export async function checkApiQuota(
     userId: string,
     user: UserSubscription,
     type: ApiQuotaType,
 ): Promise<RateLimitResult> {
-    return type === "alias"
-        ? checkApiRateLimit(userId, user)
-        : checkDropApiRateLimit(userId, user)
+    if (type === "alias") return checkApiRateLimit(userId, user)
+    if (type === "drop") return checkDropApiRateLimit(userId, user)
+    return checkFormApiRateLimit(userId, user)
 }
 
 /**

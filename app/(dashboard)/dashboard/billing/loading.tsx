@@ -9,33 +9,37 @@ export default function BillingLoading() {
                     <Skeleton className="h-5 w-64" />
                 </div>
 
-                <div className="rounded-3xl border border-border/40 shadow-sm overflow-hidden h-64 bg-secondary/10">
-                    <div className="p-8 pb-6 border-b border-border/40">
-                        <div className="flex items-center justify-between">
+                <div className="rounded-3xl border border-border/40 shadow-sm overflow-hidden bg-secondary/10">
+                    <div className="bg-secondary/30 p-8 pb-6 border-b border-border/40">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                             <div className="space-y-2">
                                 <Skeleton className="h-8 w-48" />
-                                <Skeleton className="h-4 w-32" />
+                                <Skeleton className="h-4 w-44" />
                             </div>
-                            <Skeleton className="h-10 w-40" />
+                            <Skeleton className="h-10 w-full sm:w-44 rounded-full" />
                         </div>
                     </div>
                     <div className="p-8">
-                        <Skeleton className="h-12 w-full" />
+                        <div className="grid gap-6 md:grid-cols-3">
+                            {[1, 2].map((i) => (
+                                <div key={i} className="space-y-2">
+                                    <Skeleton className="h-4 w-24" />
+                                    <Skeleton className="h-7 w-32" />
+                                </div>
+                            ))}
+                        </div>
                     </div>
                 </div>
             </div>
 
             <div className="space-y-6">
-                <Skeleton className="h-7 w-48" />
-                <div className="grid gap-6 md:grid-cols-3">
-                    {[1, 2, 3].map((i) => (
-                        <div key={i} className="h-96 rounded-xl border p-6 space-y-4">
-                            <Skeleton className="h-8 w-24" />
-                            <Skeleton className="h-12 w-32" />
-                            <Skeleton className="h-20 w-full" />
-                            <Skeleton className="h-40 w-full" />
-                        </div>
-                    ))}
+                <Skeleton className="h-7 w-40" />
+                <div className="flex items-center justify-between p-6 rounded-lg border bg-card">
+                    <div className="space-y-2">
+                        <Skeleton className="h-5 w-32" />
+                        <Skeleton className="h-4 w-64" />
+                    </div>
+                    <Skeleton className="h-5 w-5 rounded" />
                 </div>
             </div>
         </div>

@@ -7,7 +7,7 @@ import Link from "next/link"
 import { type PlanDefinition } from "@/config/plans"
 import { User } from "@/types/auth"
 
-type ProductType = "bundle" | "alias" | "drop"
+type ProductType = "bundle" | "alias" | "drop" | "form"
 
 interface PricingPlanCardProps {
     plan: PlanDefinition

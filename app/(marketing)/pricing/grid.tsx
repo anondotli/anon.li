@@ -2,9 +2,9 @@
 
 import { useEffect, useRef, useState } from "react"
 import { useSearchParams } from "next/navigation"
-import { Package, Mail, FileUp } from "lucide-react"
+import { Package, Mail, FileUp, ClipboardList } from "lucide-react"
 import { PricingToggle } from "@/components/marketing/pricing/toggle"
-import { BUNDLE_PLANS, ALIAS_PLANS, DROP_PLANS } from "@/config/plans"
+import { BUNDLE_PLANS, ALIAS_PLANS, DROP_PLANS, FORM_PLANS } from "@/config/plans"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { PricingFAQ } from "@/components/marketing/pricing/faq"
 import { PricingPlanCard } from "@/components/marketing/pricing/plan-card"
@@ -17,12 +17,12 @@ interface PricingGridProps {
     currentPlanId: string | null
 }
 
-type ProductType = "bundle" | "alias" | "drop"
+type ProductType = "bundle" | "alias" | "drop" | "form"
 
 const PRODUCT_CONFIG = {
     bundle: {
         name: "Bundle",
-        description: "Complete privacy suite with email aliases and encrypted file sharing",
+        description: "Complete privacy suite with email aliases, encrypted file sharing, and forms",
         icon: Package,
         plans: BUNDLE_PLANS,
     },
@@ -38,6 +38,12 @@ const PRODUCT_CONFIG = {
         icon: FileUp,
         plans: DROP_PLANS,
     },
+    form: {
+        name: "Form",
+        description: "End-to-end encrypted forms for confidential intake",
+        icon: ClipboardList,
+        plans: FORM_PLANS,
+    },
 }
 
 type PlanTier = "free" | "plus" | "pro"
@@ -45,7 +51,7 @@ type PlanTier = "free" | "plus" | "pro"
 function parseHighlight(raw: string | null): { product: ProductType; tier: PlanTier } | null {
     if (!raw) return null
     const [p, t] = raw.split("_")
-    const productOk = p === "bundle" || p === "alias" || p === "drop"
+    const productOk = p === "bundle" || p === "alias" || p === "drop" || p === "form"
     const tierOk = t === "plus" || t === "pro" || t === "free"
     if (!productOk || !tierOk) return null
     return { product: p as ProductType, tier: t as PlanTier }
@@ -63,6 +69,7 @@ export function PricingGrid({ user, currentPlanId }: PricingGridProps) {
         if (parsed) return { product: parsed.product, highlightedTier: parsed.tier }
         if (searchParams.has("alias")) return { product: "alias", highlightedTier: null }
         if (searchParams.has("drop")) return { product: "drop", highlightedTier: null }
+        if (searchParams.has("form")) return { product: "form", highlightedTier: null }
         return { product: "bundle", highlightedTier: null }
     })
 
@@ -106,16 +113,13 @@ export function PricingGrid({ user, currentPlanId }: PricingGridProps) {
                         <span className="italic">Upgrade when you outgrow it.</span>
                     </h1>
                     <p className="text-lg text-muted-foreground max-w-2xl mx-auto font-light leading-relaxed">
-                        Email aliases plus end-to-end encrypted file drops. No trials, no upsell popups &mdash; Free is designed to be usable forever.
+                        Email aliases plus end-to-end encrypted file drops. No trials, upsell popups... Free is designed to be usable forever.
                     </p>
                 </div>
 
-                {/* Privacy trust row */}
-                <PricingTrustRow />
-
                 {/* Product Selector */}
                 <Tabs value={product} onValueChange={(v) => handleProductChange(v as ProductType)} className="mb-12">
-                    <TabsList className="grid w-full max-w-xl mx-auto grid-cols-3 h-auto p-1.5 bg-secondary/50 rounded-2xl">
+                    <TabsList className="grid w-full max-w-2xl mx-auto grid-cols-4 h-auto p-1.5 bg-secondary/50 rounded-2xl">
                         {(Object.keys(PRODUCT_CONFIG) as ProductType[]).map((key) => {
                             const config = PRODUCT_CONFIG[key]
                             const Icon = config.icon
@@ -185,6 +189,9 @@ export function PricingGrid({ user, currentPlanId }: PricingGridProps) {
                         />
                     </div>
                 </div>
+
+                {/* Privacy trust row */}
+                <PricingTrustRow />
 
                 {/* FAQ Section */}
                 <PricingFAQ />

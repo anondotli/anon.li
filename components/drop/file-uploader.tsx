@@ -47,6 +47,7 @@ export function FileUploader({ onUploadComplete, userTier, maxStorage, usedStora
 
   const [upgradeDetails, setUpgradeDetails] = useState<UpgradeRequiredDetails | null>(null);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const [turnstileRequested, setTurnstileRequested] = useState(false);
   const [turnstileRenderKey, setTurnstileRenderKey] = useState(0);
 
   const remainingBandwidth = (maxStorage !== undefined && usedStorage !== undefined)
@@ -121,13 +122,16 @@ export function FileUploader({ onUploadComplete, userTier, maxStorage, usedStora
       hideBranding: false,
       notifyOnDownload: false,
     });
-  }, [resetUploadState]);
+    setTurnstileRequested(false);
+    resetTurnstile();
+  }, [resetUploadState, resetTurnstile]);
 
-  const startUpload = useCallback(() => {
+  const startUpload = useCallback((verifiedTurnstileToken?: string) => {
     if (files.length === 0) return;
 
-    if (guest && turnstileSiteKey && !turnstileToken) {
-      toast.error("Please complete the verification challenge.");
+    const tokenForSubmit = verifiedTurnstileToken ?? turnstileToken;
+    if (guest && turnstileSiteKey && !tokenForSubmit) {
+      setTurnstileRequested(true);
       return;
     }
 
@@ -144,10 +148,11 @@ export function FileUploader({ onUploadComplete, userTier, maxStorage, usedStora
       password: config.protectionMode === "password" ? config.password : undefined,
       hideBranding: config.hideBranding,
       notifyOnDownload: config.notifyOnDownload,
-      ...(guest && turnstileToken ? { turnstileToken } : {}),
+      ...(guest && tokenForSubmit ? { turnstileToken: tokenForSubmit } : {}),
     });
 
     if (guest && turnstileSiteKey) {
+      setTurnstileRequested(false);
       resetTurnstile();
     }
   }, [files.length, guest, turnstileToken, upload, config, effectiveExpiryDays, resetTurnstile]);
@@ -198,7 +203,7 @@ export function FileUploader({ onUploadComplete, userTier, maxStorage, usedStora
           progress={progress}
           pct={pct}
           onCancel={cancel}
-          onRetry={startUpload}
+          onRetry={() => startUpload()}
           onReset={reset}
         />
         {upgradeDialog}
@@ -216,11 +221,15 @@ export function FileUploader({ onUploadComplete, userTier, maxStorage, usedStora
         />
 
         <div className="grid gap-6">
-          {guest && turnstileSiteKey && (
+          {guest && turnstileSiteKey && turnstileRequested && (
             <Turnstile
               key={turnstileRenderKey}
               siteKey={turnstileSiteKey}
-              onVerify={setTurnstileToken}
+              onVerify={(token) => {
+                setTurnstileToken(token);
+                setTurnstileRequested(false);
+                startUpload(token);
+              }}
               onError={resetTurnstile}
               onExpire={() => setTurnstileToken(null)}
             />
@@ -228,8 +237,8 @@ export function FileUploader({ onUploadComplete, userTier, maxStorage, usedStora
 
           <Button
             className="w-full h-12 rounded-full text-base font-medium shadow-lg shadow-primary/10 hover:shadow-xl hover:shadow-primary/15 transition-all hover:scale-[1.02]"
-            onClick={startUpload}
-            disabled={(config.protectionMode === "password" && config.password.length < 8) || (guest && !!turnstileSiteKey && !turnstileToken)}
+            onClick={() => startUpload()}
+            disabled={(config.protectionMode === "password" && config.password.length < 8) || (guest && !!turnstileSiteKey && turnstileRequested && !turnstileToken)}
           >
             <Upload className="w-4 h-4 mr-2" />
             Create Drop

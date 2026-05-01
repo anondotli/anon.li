@@ -1,6 +1,6 @@
 import type { User } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
-import { BUNDLE_PLANS, getPlanFromPriceId, ALIAS_PLANS, DROP_PLANS } from "@/config/plans"
+import { BUNDLE_PLANS, getPlanFromPriceId, ALIAS_PLANS, DROP_PLANS, FORM_PLANS } from "@/config/plans"
 import { DAY_MS } from "@/lib/constants"
 
 export async function getUserSubscriptionPlan(user: Pick<User, "id" | "stripePriceId" | "stripeCurrentPeriodEnd" | "stripeCancelAtPeriodEnd">) {
@@ -18,13 +18,14 @@ export async function getUserSubscriptionPlan(user: Pick<User, "id" | "stripePri
         const { product, tier } = subscription
         const plans = product === "bundle" ? BUNDLE_PLANS
             : product === "alias" ? ALIAS_PLANS
+            : product === "form" ? FORM_PLANS
             : DROP_PLANS
         const plan = plans[tier as "plus" | "pro"]
 
         if (plan) {
             return {
                 ...plan,
-                product: product as "bundle" | "alias" | "drop",
+                product: product as "bundle" | "alias" | "drop" | "form",
                 tier: tier as "plus" | "pro",
                 isPaid: true,
                 isCanceled: subscription.cancelAtPeriodEnd,
@@ -48,6 +49,7 @@ export async function getUserSubscriptionPlan(user: Pick<User, "id" | "stripePri
             if (product === 'bundle') plan = BUNDLE_PLANS[tier as 'plus' | 'pro']
             else if (product === 'alias') plan = ALIAS_PLANS[tier as 'plus' | 'pro']
             else if (product === 'drop') plan = DROP_PLANS[tier as 'plus' | 'pro']
+            else if (product === 'form') plan = FORM_PLANS[tier as 'plus' | 'pro']
 
             if (plan) {
                 return {

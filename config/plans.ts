@@ -11,7 +11,7 @@
  * - Bundle: Best value for users who need both
  */
 
-export type Product = "bundle" | "alias" | "drop";
+export type Product = "bundle" | "alias" | "drop" | "form";
 export type PaidTier = "plus" | "pro";
 export type Tier = "guest" | "free" | PaidTier;
 
@@ -40,6 +40,22 @@ interface DropEntitlements {
     noBranding: boolean;
     downloadNotifications: boolean;
     filePreview: boolean;
+    apiRequests: number;
+}
+
+export interface FormEntitlements {
+    /** Max active (non-deleted) forms the user may own. -1 = unlimited */
+    forms: number;
+    /** Max submissions accepted per calendar month. -1 = unlimited */
+    submissionsPerMonth: number;
+    /** Submissions are purged after this many days */
+    retentionDays: number;
+    /** Strip anon.li branding from the public form page */
+    removeBranding: boolean;
+    /** Allow password-protecting a form */
+    customKey: boolean;
+    /** Per-upload byte cap for submission attachments (0 = no uploads) */
+    maxSubmissionFileSize: number;
     apiRequests: number;
 }
 
@@ -120,9 +136,39 @@ export const PLAN_ENTITLEMENTS = {
             apiRequests: 100_000,
         },
     },
+    form: {
+        free: {
+            forms: 3,
+            submissionsPerMonth: 50,
+            retentionDays: 30,
+            removeBranding: false,
+            customKey: false,
+            maxSubmissionFileSize: 100 * 1024 * 1024,
+            apiRequests: 500,
+        },
+        plus: {
+            forms: 10,
+            submissionsPerMonth: 1000,
+            retentionDays: 90,
+            removeBranding: false,
+            customKey: true,
+            maxSubmissionFileSize: 5 * GB,
+            apiRequests: 25_000,
+        },
+        pro: {
+            forms: 30,
+            submissionsPerMonth: 10000,
+            retentionDays: 365,
+            removeBranding: true,
+            customKey: true,
+            maxSubmissionFileSize: 50 * GB,
+            apiRequests: 100_000,
+        },
+    },
 } as const satisfies {
     alias: Record<"free" | PaidTier, AliasEntitlements>;
     drop: Record<Tier, DropEntitlements>;
+    form: Record<"free" | PaidTier, FormEntitlements>;
 };
 
 // ─── Backward-compatible limit exports (derived from PLAN_ENTITLEMENTS) ────
@@ -187,6 +233,12 @@ export const DROP_LIMITS = {
     pro: { apiRequests: PLAN_ENTITLEMENTS.drop.pro.apiRequests },
 } as const;
 
+export const FORM_LIMITS = {
+    free: { apiRequests: PLAN_ENTITLEMENTS.form.free.apiRequests },
+    plus: { apiRequests: PLAN_ENTITLEMENTS.form.plus.apiRequests },
+    pro: { apiRequests: PLAN_ENTITLEMENTS.form.pro.apiRequests },
+} as const;
+
 // Guest (unauthenticated) drop limits.
 // Why: no persisted user row means no storageUsed counter — caps must be
 // self-contained per drop. File count cap prevents fan-out abuse; total byte
@@ -249,6 +301,30 @@ function dropFeatureStrings(tier: "free" | PaidTier): { features: string[]; miss
     return { features, missingFeatures };
 }
 
+function formatCount(n: number, noun: string): string {
+    return n === -1 ? `Unlimited ${noun}` : `${n.toLocaleString()} ${noun}`;
+}
+
+function formFeatureStrings(tier: "free" | PaidTier): { features: string[]; missingFeatures: string[] } {
+    const e = PLAN_ENTITLEMENTS.form[tier];
+    const features: string[] = [
+        formatCount(e.forms, "forms"),
+        `${formatCount(e.submissionsPerMonth, "submissions")}/month`,
+        `${e.retentionDays}-day submission retention`,
+        "End-to-end encryption",
+        ...(e.customKey ? ["Password-protected forms"] : []),
+        ...(e.maxSubmissionFileSize > 0 ? [`${formatBytes(e.maxSubmissionFileSize)} file attachments`] : []),
+        ...(e.removeBranding ? ["Remove branding"] : []),
+    ];
+    const missingFeatures: string[] = [];
+    if (tier === "free") {
+        missingFeatures.push("Password-protected forms", "Remove branding", `${PLAN_ENTITLEMENTS.form.plus.submissionsPerMonth.toLocaleString()} submissions/month`);
+    } else if (tier === "plus") {
+        missingFeatures.push("Remove branding", `${PLAN_ENTITLEMENTS.form.pro.submissionsPerMonth.toLocaleString()} submissions/month`);
+    }
+    return { features, missingFeatures };
+}
+
 // ─── Plan definitions (pricing + feature display) ──────────────────────────
 
 export interface PlanDefinition {
@@ -279,17 +355,25 @@ function bundlePlan(tier: "free" | PaidTier, opts: {
 }): PlanDefinition {
     const alias = aliasFeatureStrings(tier);
     const drop = dropFeatureStrings(tier);
+    const form = formFeatureStrings(tier);
     return {
         id: `bundle_${tier}`,
         name: opts.name,
         description: opts.description,
         price: opts.price,
         priceIds: opts.priceIds,
-        features: [...alias.features.slice(0, 3), ...drop.features.slice(0, 3),
-            ...alias.features.slice(3), ...drop.features.slice(3)],
+        features: [
+            ...alias.features.slice(0, 3),
+            ...drop.features.slice(0, 3),
+            ...form.features.slice(0, 3),
+            ...alias.features.slice(3),
+            ...drop.features.slice(3),
+            ...form.features.slice(3),
+        ],
         featureSections: [
             { name: "Alias Features", features: alias.features, missingFeatures: alias.missingFeatures },
             { name: "File Features", features: drop.features, missingFeatures: drop.missingFeatures },
+            { name: "Form Features", features: form.features, missingFeatures: form.missingFeatures },
         ],
         missingFeatures: [],
     };
@@ -304,7 +388,7 @@ export const BUNDLE_PLANS: Record<"free" | "plus" | "pro", PlanDefinition> = {
     plus: bundlePlan("plus", {
         name: "Plus",
         description: "Privacy essentials",
-        price: { monthly: 3.99, yearly: 39.49 },
+        price: { monthly: 6.99, yearly: 69.49 },
         priceIds: {
             monthly: process.env.STRIPE_BUNDLE_PLUS_MONTHLY_PRICE_ID!,
             yearly: process.env.STRIPE_BUNDLE_PLUS_YEARLY_PRICE_ID!,
@@ -313,7 +397,7 @@ export const BUNDLE_PLANS: Record<"free" | "plus" | "pro", PlanDefinition> = {
     pro: bundlePlan("pro", {
         name: "Pro",
         description: "Maximum privacy & features",
-        price: { monthly: 5.99, yearly: 53.89 },
+        price: { monthly: 9.99, yearly: 89.89 },
         priceIds: {
             monthly: process.env.STRIPE_BUNDLE_PRO_MONTHLY_PRICE_ID!,
             yearly: process.env.STRIPE_BUNDLE_PRO_YEARLY_PRICE_ID!,
@@ -321,12 +405,16 @@ export const BUNDLE_PLANS: Record<"free" | "plus" | "pro", PlanDefinition> = {
     }),
 };
 
-function productPlan(product: "alias" | "drop", tier: "free" | PaidTier, opts: {
+function productPlan(product: "alias" | "drop" | "form", tier: "free" | PaidTier, opts: {
     name: string; description: string;
     price: { monthly: number; yearly: number };
     priceIds?: { monthly: string; yearly: string };
 }): PlanDefinition {
-    const gen = product === "alias" ? aliasFeatureStrings(tier) : dropFeatureStrings(tier);
+    const gen = product === "alias"
+        ? aliasFeatureStrings(tier)
+        : product === "drop"
+            ? dropFeatureStrings(tier)
+            : formFeatureStrings(tier);
     return {
         id: `${product}_${tier}`,
         name: opts.name,
@@ -384,12 +472,36 @@ export const DROP_PLANS: Record<"free" | "plus" | "pro", PlanDefinition> = {
     }),
 };
 
+export const FORM_PLANS: Record<"free" | "plus" | "pro", PlanDefinition> = {
+    free: productPlan("form", "free", {
+        name: "Free", description: "Private forms for small teams",
+        price: { monthly: 0, yearly: 0 },
+    }),
+    plus: productPlan("form", "plus", {
+        name: "Plus", description: "More submissions & retention",
+        price: { monthly: 3.99, yearly: 39.49 },
+        priceIds: {
+            monthly: process.env.STRIPE_FORM_PLUS_MONTHLY_PRICE_ID!,
+            yearly: process.env.STRIPE_FORM_PLUS_YEARLY_PRICE_ID!,
+        },
+    }),
+    pro: productPlan("form", "pro", {
+        name: "Pro", description: "Serious intake workflows",
+        price: { monthly: 5.99, yearly: 53.89 },
+        priceIds: {
+            monthly: process.env.STRIPE_FORM_PRO_MONTHLY_PRICE_ID!,
+            yearly: process.env.STRIPE_FORM_PRO_YEARLY_PRICE_ID!,
+        },
+    }),
+};
+
 // ─── Price ID → plan resolution ────────────────────────────────────────────
 
 const ALL_PLAN_DEFS: { plans: Record<string, PlanDefinition>; product: Product }[] = [
     { plans: BUNDLE_PLANS, product: "bundle" },
     { plans: ALIAS_PLANS, product: "alias" },
     { plans: DROP_PLANS, product: "drop" },
+    { plans: FORM_PLANS, product: "form" },
 ];
 
 export function getPlanFromPriceId(priceId: string): { product: Product; tier: Tier } | null {

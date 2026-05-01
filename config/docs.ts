@@ -73,6 +73,10 @@ export const docsConfig: DocsConfig = {
                     href: "/docs/api/drop",
                 },
                 {
+                    title: "Form API",
+                    href: "/docs/api/form",
+                },
+                {
                     title: "Domain API",
                     href: "/docs/api/domain",
                 },

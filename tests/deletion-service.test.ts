@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
     userDelete: vi.fn(),
     aliasDeleteMany: vi.fn(),
     domainDeleteMany: vi.fn(),
+    formDeleteMany: vi.fn(),
     dropDeleteMany: vi.fn(),
     sessionDeleteMany: vi.fn(),
     accountDeleteMany: vi.fn(),
@@ -35,6 +36,7 @@ vi.mock("@/lib/prisma", () => ({
         user: { delete: mocks.userDelete },
         alias: { deleteMany: mocks.aliasDeleteMany },
         domain: { deleteMany: mocks.domainDeleteMany },
+        form: { deleteMany: mocks.formDeleteMany },
         drop: { deleteMany: mocks.dropDeleteMany },
         session: { deleteMany: mocks.sessionDeleteMany },
         account: { deleteMany: mocks.accountDeleteMany },
@@ -74,6 +76,7 @@ describe("DeletionService", () => {
         mocks.userDelete.mockResolvedValue(undefined)
         mocks.aliasDeleteMany.mockResolvedValue({ count: 0 })
         mocks.domainDeleteMany.mockResolvedValue({ count: 0 })
+        mocks.formDeleteMany.mockResolvedValue({ count: 0 })
         mocks.dropDeleteMany.mockResolvedValue({ count: 0 })
         mocks.sessionDeleteMany.mockResolvedValue({ count: 0 })
         mocks.accountDeleteMany.mockResolvedValue({ count: 0 })
@@ -93,6 +96,7 @@ describe("DeletionService", () => {
             status: "pending",
             aliasesDeleted: false,
             domainsDeleted: false,
+            formsDeleted: false,
             storageDeleted: false,
             dropsDeleted: false,
             sessionsDeleted: false,
@@ -117,6 +121,7 @@ describe("DeletionService", () => {
             status: "pending",
             aliasesDeleted: false,
             domainsDeleted: false,
+            formsDeleted: false,
             storageDeleted: false,
             dropsDeleted: false,
             sessionsDeleted: true,

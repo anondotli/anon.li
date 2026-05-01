@@ -26,6 +26,7 @@ export function ResetPasswordContent() {
     const [requestSent, setRequestSent] = React.useState(false)
     const [error, setError] = React.useState<string | null>(null)
     const [turnstileToken, setTurnstileToken] = React.useState<string | null>(null)
+    const [turnstileRequested, setTurnstileRequested] = React.useState(false)
     const [turnstileRenderKey, setTurnstileRenderKey] = React.useState(0)
 
     const resetTurnstile = React.useCallback(() => {
@@ -33,17 +34,17 @@ export function ResetPasswordContent() {
         setTurnstileRenderKey((key) => key + 1)
     }, [])
 
-    const onRequestReset = async (event: React.FormEvent<HTMLFormElement>) => {
-        event.preventDefault()
-
+    const submitResetRequest = async (verifiedTurnstileToken?: string) => {
         const normalizedEmail = email.trim()
         if (!normalizedEmail) {
             setError("Enter your email address")
             return
         }
 
-        if (turnstileSiteKey && !turnstileToken) {
-            setError("Please complete the verification challenge.")
+        const tokenForSubmit = verifiedTurnstileToken ?? turnstileToken
+        if (turnstileSiteKey && !tokenForSubmit) {
+            setTurnstileRequested(true)
+            setError(null)
             return
         }
 
@@ -52,7 +53,7 @@ export function ResetPasswordContent() {
 
         try {
             const result = turnstileSiteKey
-                ? await requestPasswordResetAction(normalizedEmail, turnstileToken!)
+                ? await requestPasswordResetAction(normalizedEmail, tokenForSubmit!)
                 : await requestPasswordResetAction(normalizedEmail)
             if (result.error) {
                 throw new Error(result.error)
@@ -65,6 +66,17 @@ export function ResetPasswordContent() {
         } finally {
             setIsSubmitting(false)
         }
+    }
+
+    const handleTurnstileVerify = (token: string) => {
+        setTurnstileToken(token)
+        setTurnstileRequested(false)
+        void submitResetRequest(token)
+    }
+
+    const onRequestReset = (event: React.FormEvent<HTMLFormElement>) => {
+        event.preventDefault()
+        void submitResetRequest()
     }
 
     const onSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -154,11 +166,11 @@ export function ResetPasswordContent() {
                                         </div>
                                     )}
 
-                                    {turnstileSiteKey && (
+                                    {turnstileSiteKey && turnstileRequested && (
                                         <Turnstile
                                             key={turnstileRenderKey}
                                             siteKey={turnstileSiteKey}
-                                            onVerify={setTurnstileToken}
+                                            onVerify={handleTurnstileVerify}
                                             onError={resetTurnstile}
                                             onExpire={() => setTurnstileToken(null)}
                                         />
@@ -167,7 +179,7 @@ export function ResetPasswordContent() {
                                     <Button
                                         type="submit"
                                         className="w-full"
-                                        disabled={isSubmitting || (!!turnstileSiteKey && !turnstileToken)}
+                                        disabled={isSubmitting || (!!turnstileSiteKey && turnstileRequested && !turnstileToken)}
                                     >
                                         {isSubmitting ? (
                                             <>

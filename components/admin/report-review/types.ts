@@ -69,10 +69,36 @@ export interface AliasDetails {
     }
 }
 
+export interface FormDetails {
+    id: string
+    title: string
+    active: boolean
+    disabledByUser: boolean
+    takenDown: boolean
+    takedownReason: string | null
+    customKey: boolean
+    allowFileUploads: boolean
+    submissionsCount: number
+    maxSubmissions: number | null
+    closesAt: Date | null
+    createdAt: Date
+    user: {
+        id: string
+        email: string
+        tosViolations: number
+        banned: boolean
+        banAliasCreation: boolean
+        banFileUpload: boolean
+        stripePriceId: string | null
+        isAdmin: boolean
+    } | null
+}
+
 export interface ReportDetailsResponse {
     report: Report
     drop?: DropDetails | null
     alias?: AliasDetails | null
+    form?: FormDetails | null
     previousReports: {
         count: number
         recent: PreviousReport[]

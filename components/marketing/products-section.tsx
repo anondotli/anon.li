@@ -1,19 +1,24 @@
 import Link from "next/link"
 import {
     BarChart3,
+    CheckSquare,
+    ClipboardList,
     Code2,
     FileKey,
     FileUp,
     Fingerprint,
+    Frame,
     Globe,
     Key,
     KeyRound,
     Lock,
     Mail,
     MessageSquareReply,
+    Paperclip,
     Puzzle,
     QrCode,
     Shield,
+    Sliders,
     Terminal,
     Users,
 } from "lucide-react"
@@ -24,13 +29,13 @@ export function ProductsSection() {
         <section id="products" className="w-full py-12 md:py-20 bg-secondary/30 relative">
             <div className="container mx-auto px-6 relative z-10">
                 <div className="text-center mb-8 md:mb-14 space-y-4">
-                    <h2 className="text-3xl md:text-4xl font-serif font-medium tracking-tight">Two core products, one privacy layer</h2>
+                    <h2 className="text-3xl md:text-4xl font-serif font-medium tracking-tight">Three core products, one privacy layer</h2>
                     <p className="text-base md:text-lg text-muted-foreground max-w-2xl mx-auto font-light">
-                        Alias protects your inbox identity. Drop protects the files you share. Automation and power tools sit underneath both.
+                        Alias protects your inbox identity. Drop protects the files you share. Form protects the answers you collect. Automation and power tools sit underneath all three.
                     </p>
                 </div>
 
-                <div className="grid gap-8 lg:grid-cols-2">
+                <div className="grid gap-8 lg:grid-cols-3">
                     {/* Alias Product Card */}
                     <Link href="/alias" className="group relative p-5 md:p-8 rounded-2xl bg-background border border-border/80 hover:border-primary/20 transition-all duration-300 hover:shadow-lg hover:shadow-primary/5 flex flex-col lg:mt-8">
                         <div className="flex items-center gap-4 mb-5">
@@ -111,6 +116,48 @@ export function ProductsSection() {
                             <div className="flex items-center gap-2 text-sm text-muted-foreground">
                                 <Shield className="h-4 w-4 text-primary" />
                                 <span>Vault Key Recovery</span>
+                            </div>
+                        </div>
+                    </Link>
+
+                    {/* Form Product Card */}
+                    <Link href="/form" className="group relative p-5 md:p-8 rounded-2xl bg-background border border-border/80 hover:border-primary/20 transition-all duration-300 hover:shadow-lg hover:shadow-primary/5 flex flex-col lg:mt-8">
+                        <div className="flex items-center gap-4 mb-5">
+                            <div className="p-3 rounded-xl bg-secondary text-primary group-hover:bg-primary group-hover:text-primary-foreground transition-colors duration-300">
+                                <ClipboardList className="h-6 w-6" />
+                            </div>
+                            <div>
+                                <h3 className="text-xl md:text-2xl font-bold">anon.li Form</h3>
+                                <p className="text-sm text-muted-foreground">E2E Encrypted Forms</p>
+                            </div>
+                        </div>
+                        <p className="text-muted-foreground leading-relaxed font-light text-base mb-5">
+                            Build a form, publish a link, and let respondents submit answers that only you can decrypt. Embed anywhere, attach files, throttle abuse with Turnstile.
+                        </p>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                <Lock className="h-4 w-4 text-primary" />
+                                <span>End-to-End Encrypted</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                <Sliders className="h-4 w-4 text-primary" />
+                                <span>Drag &amp; Drop Builder</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                <KeyRound className="h-4 w-4 text-primary" />
+                                <span>Password Protection</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                <CheckSquare className="h-4 w-4 text-primary" />
+                                <span>Submission Caps &amp; Closing</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                <Paperclip className="h-4 w-4 text-primary" />
+                                <span>Encrypted Attachments</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                <Frame className="h-4 w-4 text-primary" />
+                                <span>Iframe Embed</span>
                             </div>
                         </div>
                     </Link>

@@ -136,7 +136,7 @@ model Alias {
   // Multi-recipient routing via join table
   aliasRecipients AliasRecipient[]
 
-  // Forms using this alias as their notification channel
+  // Legacy form notification relation retained for existing rows.
   formsNotified Form[] @relation("FormNotifyAlias")
 
   scheduledForRemovalAt DateTime? @map("scheduled_for_removal_at")
@@ -406,8 +406,8 @@ model UploadToken {
   drop   Drop   @relation(fields: [dropId], references: [id], onDelete: Cascade)
 
   // Optional form binding: when set, this token was issued by a form submission
-  // flow (CREATOR quota mode) so guests can upload larger files than the 100MB
-  // guest cap while the storage is billed to the form creator.
+  // flow so guests can upload larger files than the 100MB guest cap while the
+  // storage is billed to the form creator.
   formId String?
   form   Form?   @relation(fields: [formId], references: [id], onDelete: Cascade)
 
@@ -446,13 +446,6 @@ model UploadChunk {
 // The public key is served with the form so each submitter encrypts with
 // ECDH+AES-GCM; only the creator can decrypt. Title/description/schemaJson are
 // intentionally plaintext — they are the questions the public needs to see.
-enum FormFileQuotaMode {
-  CREATOR // files count against creator's Drop bandwidth; guests can upload > 100MB
-  SUBMITTER // files count against submitter's plan (requires signed-in submitter)
-
-  @@map("form_file_quota_mode")
-}
-
 model Form {
   id String @id // 12-char alphanumeric public id
 
@@ -470,20 +463,20 @@ model Form {
   // Behavior
   active         Boolean   @default(true)
   disabledByUser Boolean   @default(false)
-  customKey      Boolean   @default(false) // password-protect viewing/submitting
-  salt           String?
-  customKeyData  String?
-  customKeyIv    String?
+  customKey         Boolean @default(false) // password-protect viewing/submitting
+  salt              String?
+  customKeyData     String?
+  customKeyIv       String?
+  customKeyVerifier String? @map("custom_key_verifier")
   maxSubmissions Int?
   closesAt       DateTime?
   hideBranding   Boolean   @default(false) // Pro only
 
   // File uploads
-  allowFileUploads    Boolean           @default(false)
-  fileQuotaMode       FormFileQuotaMode @default(CREATOR)
+  allowFileUploads    Boolean @default(false)
   maxFileSizeOverride BigInt?
 
-  // Notification routing
+  // Submission notifications. Alias routing is legacy; notifications now go to the account email.
   notifyAliasId       String?
   notifyAlias         Alias?  @relation("FormNotifyAlias", fields: [notifyAliasId], references: [id], onDelete: SetNull)
   notifyEmailFallback Boolean @default(true)
@@ -537,9 +530,9 @@ model FormSubmission {
   iv               String
   encryptedPayload String @db.Text
 
-  // Optional attached drop (files). Owner of the drop is creator (CREATOR mode)
-  // or submitter (SUBMITTER mode). The E2EE symmetric key for the drop is carried
-  // inside encryptedPayload so only the creator can open it.
+  // Optional attached drop (files). The drop is owned by the form creator and
+  // the E2EE symmetric key is carried inside encryptedPayload so only the
+  // creator can open it.
   attachedDropId String? @unique
   attachedDrop   Drop?   @relation("FormSubmissionDrop", fields: [attachedDropId], references: [id], onDelete: SetNull)
 
@@ -642,7 +635,7 @@ model Subscription {
   providerPriceId        String? @map("provider_price_id")
 
   // Plan details
-  product String // "bundle" | "alias" | "drop"
+  product String // "bundle" | "alias" | "drop" | "form"
   tier    String // "plus" | "pro"
 
   // Status & billing period
@@ -671,6 +664,7 @@ model DeletionRequest {
   sessionsDeleted Boolean @default(false)
   aliasesDeleted  Boolean @default(false)
   domainsDeleted  Boolean @default(false)
+  formsDeleted    Boolean @default(false)
   dropsDeleted    Boolean @default(false)
   storageDeleted  Boolean @default(false)
 

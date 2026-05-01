@@ -1,4 +1,4 @@
-export type ProductContext = "alias" | "drop" | "default";
+export type ProductContext = "alias" | "drop" | "form" | "default";
 
 interface SiteConfig {
   name: string;
@@ -87,6 +87,19 @@ export const siteConfig: Record<ProductContext | "pricing" | "about" | "security
       keywords: ["file sharing", "encrypted transfer", "secure upload", "privacy", "drop"],
     }
   },
+  form: {
+    name: "anon.li Form",
+    shortName: "Form",
+    productName: "Form",
+    description: "Private, end-to-end encrypted forms for confidential intake.",
+    url: "https://anon.li/form",
+    pricingLink: "/pricing?form",
+    ctaLink: "/register",
+    metadata: {
+      title: "Private E2EE Forms",
+      keywords: ["encrypted forms", "whistleblowing", "confidential intake", "privacy", "form"],
+    }
+  },
   pricing: {
     name: "Pricing",
     shortName: "Pricing",
@@ -150,6 +163,9 @@ export function getProductContext(pathname: string): ProductContext {
   }
   if (pathname.startsWith("/drop") || pathname.startsWith("/dashboard/drop") || pathname.startsWith("/d/")) {
     return "drop";
+  }
+  if (pathname.startsWith("/form") || pathname.startsWith("/dashboard/form") || pathname.startsWith("/f/")) {
+    return "form";
   }
   return "default";
 }

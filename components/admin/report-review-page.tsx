@@ -10,6 +10,7 @@ import { Separator } from "@/components/ui/separator"
 import {
     FileBox,
     Mail,
+    ClipboardList,
     Clock,
     CheckCircle,
     AlertTriangle,
@@ -23,6 +24,7 @@ import { getReasonBadgeClass, TAKEDOWN_SUGGESTIONS } from "./report-review/utils
 import { ContentAccessCard } from "./report-review/content-access-card"
 import { DropDetailsCard } from "./report-review/drop-details-card"
 import { AliasDetailsCard } from "./report-review/alias-details-card"
+import { FormDetailsCard } from "./report-review/form-details-card"
 import { OwnerCard } from "./report-review/owner-card"
 import { ReportHistoryCard } from "./report-review/report-history-card"
 import { ReviewActions } from "./report-review/review-actions"
@@ -37,6 +39,7 @@ export function ReportReviewPage({ data }: ReportReviewPageProps) {
     const report = data.report as Report
     const drop = data.drop
     const alias = data.alias
+    const form = data.form
     const previousReports = data.previousReports
 
     const [loading, setLoading] = useState(false)
@@ -97,6 +100,11 @@ export function ReportReviewPage({ data }: ReportReviewPageProps) {
                                 <FileBox className="h-3 w-3" />
                                 File
                             </Badge>
+                        ) : report.serviceType === "form" ? (
+                            <Badge variant="outline" className="gap-1">
+                                <ClipboardList className="h-3 w-3" />
+                                Form
+                            </Badge>
                         ) : (
                             <Badge variant="outline" className="gap-1">
                                 <Mail className="h-3 w-3" />
@@ -139,6 +147,20 @@ export function ReportReviewPage({ data }: ReportReviewPageProps) {
                 </div>
             )}
 
+            {report.serviceType === "form" && form?.takenDown && (
+                <div className="flex items-center gap-2 p-3 bg-green-500/10 border border-green-500/20 rounded-lg text-sm text-green-700 dark:text-green-400">
+                    <CheckCircle className="h-4 w-4" />
+                    This form has already been taken down.
+                </div>
+            )}
+
+            {report.serviceType === "form" && !form && (
+                <div className="flex items-center gap-2 p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-lg text-sm text-yellow-700 dark:text-yellow-400">
+                    <AlertTriangle className="h-4 w-4" />
+                    This form no longer exists (deleted).
+                </div>
+            )}
+
             {/* Content Access */}
             <ContentAccessCard report={report} drop={drop} />
 
@@ -155,9 +177,23 @@ export function ReportReviewPage({ data }: ReportReviewPageProps) {
                 <AliasDetailsCard alias={alias} loading={false} />
             )}
 
+            {report.serviceType === "form" && (
+                <FormDetailsCard
+                    resourceId={report.resourceId}
+                    form={form}
+                    loading={false}
+                />
+            )}
+
             {/* Owner */}
             <OwnerCard
-                user={report.serviceType === "drop" ? drop?.user : alias?.user}
+                user={
+                    report.serviceType === "drop"
+                        ? drop?.user
+                        : report.serviceType === "alias"
+                            ? alias?.user
+                            : form?.user
+                }
                 loading={false}
                 serviceType={report.serviceType}
             />
@@ -197,6 +233,7 @@ export function ReportReviewPage({ data }: ReportReviewPageProps) {
                 report={report}
                 drop={drop}
                 alias={alias}
+                form={form}
                 newStatus={newStatus}
                 setNewStatus={setNewStatus}
                 actionTaken={actionTaken}

@@ -8,6 +8,7 @@ import {
     LayoutDashboard,
     Users,
     FileBox,
+    ClipboardList,
     Mail,
     Flag,
     Globe,
@@ -65,6 +66,13 @@ const navGroups: NavGroup[] = [
         defaultOpen: true,
         items: [
             { title: "Drops", href: "/admin/drops", icon: FileBox },
+        ]
+    },
+    {
+        title: "FORM SERVICE",
+        defaultOpen: true,
+        items: [
+            { title: "Forms", href: "/admin/forms", icon: ClipboardList },
         ]
     },
     {

@@ -190,6 +190,7 @@ describe("getPlanLimitsAsync", () => {
         vi.mocked(getEffectiveTiers).mockResolvedValue({
             alias: "pro",
             drop: "free",
+            form: "free",
         })
 
         await expect(getPlanLimitsAsync("user-123")).resolves.toEqual(ALIAS_LIMITS.pro)

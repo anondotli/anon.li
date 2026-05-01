@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import {
     Sheet,
     SheetContent,
+    SheetDescription,
     SheetHeader,
     SheetTitle,
     SheetTrigger,
@@ -39,6 +40,9 @@ export function SiteMobileNav({ product, config, isLoggedIn }: SiteMobileNavProp
                         <Icons.logo className="h-5 w-5 text-primary" />
                         <span>anon.li</span>
                     </SheetTitle>
+                    <SheetDescription className="sr-only">
+                        Navigate site sections and product areas.
+                    </SheetDescription>
                 </SheetHeader>
                 <div className="flex flex-col gap-6 mt-6 flex-1 min-h-0 overflow-y-auto">
                     {/* Product Switcher */}

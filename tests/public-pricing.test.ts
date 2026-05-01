@@ -8,7 +8,7 @@ describe("public pricing catalog", () => {
         const serialized = JSON.stringify(catalog)
 
         expect(catalog.url).toBe("https://anon.li/pricing")
-        expect(catalog.products.map((product) => product.id)).toEqual(["bundle", "alias", "drop"])
+        expect(catalog.products.map((product) => product.id)).toEqual(["bundle", "alias", "drop", "form"])
 
         for (const product of catalog.products) {
             expect(product.plans.map((plan) => plan.tier)).toEqual(["free", "plus", "pro"])
@@ -31,9 +31,9 @@ describe("public pricing catalog", () => {
             .find((product) => product.id === "alias")
             ?.plans.find((plan) => plan.tier === "pro")
 
-        expect(bundlePlus?.prices.monthly).toBe(3.99)
-        expect(bundlePlus?.prices.yearly).toBe(39.49)
-        expect(bundlePlus?.prices.yearlyEquivalentMonthly).toBe(3.29)
+        expect(bundlePlus?.prices.monthly).toBe(6.99)
+        expect(bundlePlus?.prices.yearly).toBe(69.49)
+        expect(bundlePlus?.prices.yearlyEquivalentMonthly).toBe(5.79)
         expect(aliasPro?.entitlements.alias?.randomAliases).toBe("unlimited")
     })
 

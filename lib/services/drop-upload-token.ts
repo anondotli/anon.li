@@ -10,13 +10,13 @@ import { prisma } from "@/lib/prisma";
 
 const TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
 
-function hashToken(raw: string): string {
+export function hashUploadToken(raw: string): string {
     return crypto.createHash("sha256").update(raw).digest("hex");
 }
 
 export async function issueUploadToken(dropId: string): Promise<string> {
     const raw = crypto.randomBytes(32).toString("base64url");
-    const tokenHash = hashToken(raw);
+    const tokenHash = hashUploadToken(raw);
     const expiresAt = new Date(Date.now() + TOKEN_TTL_MS);
     await prisma.uploadToken.create({
         data: { dropId, tokenHash, expiresAt },
@@ -24,20 +24,40 @@ export async function issueUploadToken(dropId: string): Promise<string> {
     return raw;
 }
 
-export async function verifyUploadToken(request: Request, dropId: string): Promise<boolean> {
-    const raw = request.headers.get("x-upload-token");
-    if (!raw) return false;
+export type ValidUploadToken = {
+    id: string;
+    dropId: string;
+    formId: string | null;
+    expiresAt: Date;
+};
 
-    const tokenHash = hashToken(raw);
+export async function getValidUploadToken(raw: string, dropId?: string): Promise<ValidUploadToken | null> {
+    const tokenHash = hashUploadToken(raw);
     const record = await prisma.uploadToken.findUnique({
         where: { tokenHash },
+        select: {
+            id: true,
+            dropId: true,
+            formId: true,
+            expiresAt: true,
+        },
     });
 
-    if (!record) return false;
-    if (record.dropId !== dropId) return false;
-    if (record.expiresAt.getTime() <= Date.now()) return false;
+    if (!record) return null;
+    if (dropId && record.dropId !== dropId) return null;
+    if (record.expiresAt.getTime() <= Date.now()) return null;
 
-    return true;
+    return record;
+}
+
+export async function getValidUploadTokenForRequest(request: Request, dropId?: string): Promise<ValidUploadToken | null> {
+    const raw = request.headers.get("x-upload-token");
+    if (!raw) return null;
+    return getValidUploadToken(raw, dropId);
+}
+
+export async function verifyUploadToken(request: Request, dropId: string): Promise<boolean> {
+    return (await getValidUploadTokenForRequest(request, dropId)) !== null;
 }
 
 export async function revokeUploadTokens(dropId: string): Promise<void> {

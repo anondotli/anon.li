@@ -8,7 +8,9 @@ export function DashboardBranding() {
 
   // Determine the section name based on path
   let sectionName = "Dashboard";
-  if (pathname.startsWith("/dashboard/drop")) {
+  if (pathname.startsWith("/dashboard/form")) {
+    sectionName = "Form";
+  } else if (pathname.startsWith("/dashboard/drop")) {
     sectionName = "Drop";
   } else if (pathname.startsWith("/dashboard/alias")) {
     sectionName = "Alias";

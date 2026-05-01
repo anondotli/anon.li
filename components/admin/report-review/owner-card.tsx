@@ -64,7 +64,7 @@ export function OwnerCard({ user, loading, serviceType }: OwnerCardProps) {
                             {user.banned && (
                                 <Badge variant="destructive">Banned</Badge>
                             )}
-                            {serviceType === "drop" && user.banFileUpload && (
+                            {(serviceType === "drop" || serviceType === "form") && user.banFileUpload && (
                                 <Badge variant="secondary">Upload Banned</Badge>
                             )}
                             {serviceType === "alias" && user.banAliasCreation && (

@@ -18,6 +18,11 @@ const takedownDropSchema = z.object({
     reason: reasonSchema,
 })
 
+const takedownFormSchema = z.object({
+    formId: idSchema,
+    reason: reasonSchema,
+})
+
 const idOnlySchema = z.object({
     id: idSchema,
 })
@@ -230,6 +235,34 @@ export async function hardDeleteDrop(dropId: string) {
 }
 
 // ============================================================================
+// Form Actions
+// ============================================================================
+
+export async function takedownForm(formId: string, reason: string) {
+    return runAdminAction({ schema: takedownFormSchema, data: { formId, reason } }, async (validated, adminId) => {
+        await AdminService.takedownForm(validated.formId, validated.reason)
+        await audit({ action: "form.takedown", actorId: adminId, targetId: validated.formId, metadata: { reason: validated.reason } })
+        logger.info("Form taken down", { adminId, formId: validated.formId, reason: validated.reason })
+        revalidatePath(`/admin/forms/${validated.formId}`)
+        revalidatePath("/admin/forms")
+        revalidatePath("/admin/takedowns")
+        return { success: true }
+    })
+}
+
+export async function restoreForm(formId: string) {
+    return runAdminAction({ schema: idOnlySchema, data: { id: formId } }, async (validated, adminId) => {
+        await AdminService.restoreForm(validated.id)
+        await audit({ action: "form.restore", actorId: adminId, targetId: validated.id })
+        logger.info("Form restored", { adminId, formId: validated.id })
+        revalidatePath("/admin/takedowns")
+        revalidatePath(`/admin/forms/${validated.id}`)
+        revalidatePath("/admin/forms")
+        return { success: true }
+    })
+}
+
+// ============================================================================
 // Report Management
 // ============================================================================
 
@@ -281,6 +314,8 @@ export async function updateReport(
                     await AdminService.takedownDrop(resourceId, takedownReason)
                 } else if (serviceType === "alias") {
                     await AdminService.takedownAlias(resourceId)
+                } else if (serviceType === "form") {
+                    await AdminService.takedownForm(resourceId, takedownReason)
                 }
             }
 
@@ -297,7 +332,7 @@ export async function updateReport(
             if (validated.actionTaken === "ban") {
                 const userId = await AdminService.getResourceOwnerUserId(serviceType, resourceId)
                 if (userId) {
-                    const banOptions = serviceType === "drop"
+                    const banOptions = serviceType === "drop" || serviceType === "form"
                         ? { fileUpload: true, reason: validated.notes || "Banned due to abuse report" }
                         : { aliasCreation: true, reason: validated.notes || "Banned due to abuse report" }
                     await AdminService.banUser(userId, banOptions)

@@ -34,6 +34,9 @@ export const monthlyApiLimiters = {
   dropFree: createLimiter("api:drop:monthly:free", 500, "30 d", false),
   dropPlus: createLimiter("api:drop:monthly:plus", 25000, "30 d", false),
   dropPro: createLimiter("api:drop:monthly:pro", 100000, "30 d", false),
+  formFree: createLimiter("api:form:monthly:free", 500, "30 d", false),
+  formPlus: createLimiter("api:form:monthly:plus", 25000, "30 d", false),
+  formPro: createLimiter("api:form:monthly:pro", 100000, "30 d", false),
 };
 
 // Rate limiters for different endpoints (per-request abuse prevention)
@@ -72,16 +75,25 @@ export const rateLimiters = {
   dropDownload: createLimiter("ratelimit:drop:download", 100, "1 h"),
   dropMetadata: createLimiter("ratelimit:drop:metadata", 120, "1 m"),
   dropMetadataPerDrop: createLimiter("ratelimit:drop:metadata:perdrop", 200, "1 h"),
+  formCreate: createLimiter("ratelimit:form:create", 30, "1 h"),
+  formOps: createLimiter("ratelimit:form:ops", 100, "1 h"),
+  formList: createLimiter("ratelimit:form:list", 60, "1 m"),
+  // Public form submission endpoint is strict per-IP; separate limiter for
+  // authenticated submitters avoids punishing users with shared IPs (offices,
+  // mobile carriers) when they submit forms.
+  formSubmit: createLimiter("ratelimit:form:submit", 20, "1 h"),
+  formSubmitAuth: createLimiter("ratelimit:form:submit:auth", 200, "1 h"),
+  formSubmissionRead: createLimiter("ratelimit:form:submission:read", 300, "1 h"),
   stripeOps: createLimiter("ratelimit:stripe:ops", 10, "1 h"),
   profileUpdate: createLimiter("ratelimit:profile:update", 30, "1 h"),
   vaultBootstrap: createLimiter("ratelimit:vault:bootstrap", 5, "1 m"),
   vaultSetup: createLimiter("ratelimit:vault:setup", 5, "1 h"),
   vaultOps: createLimiter("ratelimit:vault:ops", 60, "1 h"),
   vaultDropKeysRead: createLimiter("ratelimit:vault:drop-keys:read", 300, "1 h"),
+  vaultFormKeysRead: createLimiter("ratelimit:vault:form-keys:read", 300, "1 h"),
   passwordReset: createLimiter("ratelimit:password:reset", 5, "1 h"),
   passwordResetEmail: createLimiter("ratelimit:password:reset:email", 3, "1 h"),
   cspReport: createLimiter("ratelimit:csp:report", 20, "1 m"),
-  internal: createLimiter("ratelimit:internal", 1000, "1 m"),
 };
 
 export type RateLimitKey = keyof typeof rateLimiters

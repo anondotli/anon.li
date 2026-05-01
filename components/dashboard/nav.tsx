@@ -4,7 +4,7 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
-import { Mail, Globe, Settings, CreditCard, FileUp, BarChart3 } from "lucide-react"
+import { Mail, Globe, Settings, CreditCard, FileUp, BarChart3, ClipboardList } from "lucide-react"
 
 export function DashboardNav({ className, ...props }: React.HTMLAttributes<HTMLElement>) {
     const pathname = usePathname()
@@ -12,6 +12,7 @@ export function DashboardNav({ className, ...props }: React.HTMLAttributes<HTMLE
     const mainItems = [
         { href: "/dashboard/alias", title: "Aliases", icon: <Mail className="mr-2 h-4 w-4" /> },
         { href: "/dashboard/drop", title: "Drops", icon: <FileUp className="mr-2 h-4 w-4" /> },
+        { href: "/dashboard/form", title: "Forms", icon: <ClipboardList className="mr-2 h-4 w-4" /> },
     ]
 
     const manageItems = [

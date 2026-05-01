@@ -37,7 +37,7 @@ describe("agent skills discovery", () => {
                 {
                     name: "anon-li",
                     type: "skill-md",
-                    description: "Manage anon.li email aliases, recipients, and encrypted drop metadata through the MCP server or REST API.",
+                    description: "Manage anon.li email aliases, recipients, encrypted drop metadata, and end-to-end encrypted forms through the MCP server or REST API.",
                     url: getPublishedAgentSkillPath("anon-li"),
                     digest: getExpectedDigest(expectedContent),
                 },

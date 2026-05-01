@@ -12,7 +12,7 @@ export function SiteFooter() {
                     <div className="space-y-4">
                         <FooterProductSwitcher />
                         <p className="text-sm text-muted-foreground leading-relaxed">
-                            Privacy-first platform. Anonymous email aliases and end-to-end encrypted file sharing.
+                            Privacy-first platform. Anonymous email aliases, end-to-end encrypted file sharing, and confidential forms.
                         </p>
                         <ModeToggle />
                     </div>
@@ -26,6 +26,9 @@ export function SiteFooter() {
                             </li>
                             <li>
                                 <Link href="/drop" className="hover:text-foreground transition-colors">File Sharing</Link>
+                            </li>
+                            <li>
+                                <Link href="/form" className="hover:text-foreground transition-colors">Forms</Link>
                             </li>
                             <li>
                                 <Link href="/cli" className="hover:text-foreground transition-colors">CLI</Link>

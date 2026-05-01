@@ -12,6 +12,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const issueUploadTokenMock = vi.fn();
 const verifyUploadTokenMock = vi.fn();
 const revokeUploadTokensMock = vi.fn();
+const resolveTokenUploadAccessMock = vi.fn();
+const validateFormDropFileMock = vi.fn();
 const getTurnstileErrorMock = vi.fn();
 
 vi.mock("@/auth", () => ({ auth: vi.fn() }));
@@ -54,6 +56,10 @@ vi.mock("@/lib/services/drop-upload-token", () => ({
     issueUploadToken: issueUploadTokenMock,
     verifyUploadToken: verifyUploadTokenMock,
     revokeUploadTokens: revokeUploadTokensMock,
+}));
+vi.mock("@/lib/services/form-upload", () => ({
+    resolveTokenUploadAccess: resolveTokenUploadAccessMock,
+    validateFormDropFile: validateFormDropFileMock,
 }));
 vi.mock("@/lib/turnstile", () => ({
     getTurnstileError: getTurnstileErrorMock,
@@ -269,7 +275,7 @@ describe("POST /api/v1/drop/[id]/file guest branch", () => {
 
     it("rejects guest add-file without an X-Upload-Token header", async () => {
         (auth as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(null);
-        verifyUploadTokenMock.mockResolvedValue(false);
+        resolveTokenUploadAccessMock.mockResolvedValue(null);
 
         const { POST } = await import("@/app/api/v1/drop/[id]/file/route");
         const response = await POST(
@@ -283,7 +289,7 @@ describe("POST /api/v1/drop/[id]/file guest branch", () => {
 
     it("rejects guest add-file when verifyUploadToken returns false", async () => {
         (auth as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(null);
-        verifyUploadTokenMock.mockResolvedValue(false);
+        resolveTokenUploadAccessMock.mockResolvedValue(null);
 
         const { POST } = await import("@/app/api/v1/drop/[id]/file/route");
         const response = await POST(
@@ -292,13 +298,13 @@ describe("POST /api/v1/drop/[id]/file guest branch", () => {
         );
 
         expect(response.status).toBe(401);
-        expect(verifyUploadTokenMock).toHaveBeenCalled();
+        expect(resolveTokenUploadAccessMock).toHaveBeenCalled();
         expect(DropService.addFile).not.toHaveBeenCalled();
     });
 
     it("accepts guest add-file with a valid X-Upload-Token and passes null userId", async () => {
         (auth as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(null);
-        verifyUploadTokenMock.mockResolvedValue(true);
+        resolveTokenUploadAccessMock.mockResolvedValue({ mode: "guest", effectiveUserId: null, formId: null });
 
         const { POST } = await import("@/app/api/v1/drop/[id]/file/route");
         const response = await POST(

@@ -2,6 +2,7 @@ import {
     ALIAS_PLANS,
     BUNDLE_PLANS,
     DROP_PLANS,
+    FORM_PLANS,
     PLAN_ENTITLEMENTS,
     type PlanDefinition,
     type Product,
@@ -40,9 +41,21 @@ interface PublicDropEntitlements {
     apiRequestsPerMonth: number
 }
 
+interface PublicFormEntitlements {
+    forms: number | "unlimited"
+    submissionsPerMonth: number | "unlimited"
+    retentionDays: number
+    passwordProtection: boolean
+    removeBranding: boolean
+    maxSubmissionFileSizeBytes: number
+    maxSubmissionFileSize: string
+    apiRequestsPerMonth: number
+}
+
 interface PublicEntitlements {
     alias?: PublicAliasEntitlements
     drop?: PublicDropEntitlements
+    form?: PublicFormEntitlements
 }
 
 export interface PublicPriceOption {
@@ -97,13 +110,13 @@ interface PublicPricingCatalog {
 
 const SITE_URL = "https://anon.li"
 
-const PRODUCT_ORDER = ["bundle", "alias", "drop"] as const
+const PRODUCT_ORDER = ["bundle", "alias", "drop", "form"] as const
 const TIER_ORDER = ["free", "plus", "pro"] as const
 
 const PRODUCTS: Record<Product, ProductConfig> = {
     bundle: {
         name: "Bundle",
-        description: "Complete privacy suite with email aliases and encrypted file sharing.",
+        description: "Complete privacy suite with email aliases, encrypted file sharing, and forms.",
         url: `${SITE_URL}/pricing`,
         plans: BUNDLE_PLANS,
     },
@@ -118,6 +131,12 @@ const PRODUCTS: Record<Product, ProductConfig> = {
         description: "End-to-end encrypted file sharing.",
         url: `${SITE_URL}/pricing?drop`,
         plans: DROP_PLANS,
+    },
+    form: {
+        name: "Form",
+        description: "End-to-end encrypted forms for confidential intake.",
+        url: `${SITE_URL}/pricing?form`,
+        plans: FORM_PLANS,
     },
 }
 
@@ -161,6 +180,24 @@ function getDropEntitlements(tier: PublicTier): PublicDropEntitlements {
     }
 }
 
+function getFormEntitlements(tier: PublicTier): PublicFormEntitlements {
+    const entitlements = PLAN_ENTITLEMENTS.form[tier]
+
+    const forms = entitlements.forms as number
+    const submissionsPerMonth = entitlements.submissionsPerMonth as number
+    return {
+        forms: forms === -1 ? "unlimited" : forms,
+        submissionsPerMonth:
+            submissionsPerMonth === -1 ? "unlimited" : submissionsPerMonth,
+        retentionDays: entitlements.retentionDays,
+        passwordProtection: entitlements.customKey,
+        removeBranding: entitlements.removeBranding,
+        maxSubmissionFileSizeBytes: entitlements.maxSubmissionFileSize,
+        maxSubmissionFileSize: formatBytes(entitlements.maxSubmissionFileSize),
+        apiRequestsPerMonth: entitlements.apiRequests,
+    }
+}
+
 function getEntitlements(product: Product, tier: PublicTier): PublicEntitlements {
     if (product === "alias") {
         return { alias: getAliasEntitlements(tier) }
@@ -170,9 +207,14 @@ function getEntitlements(product: Product, tier: PublicTier): PublicEntitlements
         return { drop: getDropEntitlements(tier) }
     }
 
+    if (product === "form") {
+        return { form: getFormEntitlements(tier) }
+    }
+
     return {
         alias: getAliasEntitlements(tier),
         drop: getDropEntitlements(tier),
+        form: getFormEntitlements(tier),
     }
 }
 
@@ -249,7 +291,7 @@ function serializePlan(product: Product, tier: PublicTier, plan: PlanDefinition)
 export function getPublicPricingCatalog(): PublicPricingCatalog {
     return {
         name: "anon.li Pricing",
-        description: "Public pricing for anon.li Bundle, Alias, and Drop plans.",
+        description: "Public pricing for anon.li Bundle, Alias, Drop, and Form plans.",
         url: `${SITE_URL}/pricing`,
         currency: "USD",
         billingNotes: [

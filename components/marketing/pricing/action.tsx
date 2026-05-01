@@ -79,7 +79,7 @@ export function PricingAction({ user, planId, isYearly, className, promoCode, cu
                 analytics.checkoutStarted(product, tier, "monthly")
                 try {
                     const result = await createCheckoutSession({
-                        product: product as "bundle" | "alias" | "drop",
+                        product: product as "bundle" | "alias" | "drop" | "form",
                         tier: tier as "plus" | "pro",
                         frequency: "monthly",
                         promoCode: promoCode

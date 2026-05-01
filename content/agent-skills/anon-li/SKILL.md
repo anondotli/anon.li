@@ -1,6 +1,6 @@
 ---
 name: anon-li
-description: Manage anon.li email aliases, recipients, and encrypted drop metadata through the MCP server or REST API.
+description: Manage anon.li email aliases, recipients, encrypted drop metadata, and end-to-end encrypted forms through the MCP server or REST API.
 ---
 
 # anon.li
@@ -10,6 +10,7 @@ Use this skill when the user wants to work with anon.li resources:
 - Create, list, toggle, or delete email aliases
 - Add or inspect verified recipients
 - Review or manage encrypted drop metadata
+- List, toggle, or delete end-to-end encrypted forms (submission contents cannot be read by agents — they are E2EE)
 - Connect an agent to anon.li through MCP
 
 ## Prefer MCP when available
@@ -40,6 +41,7 @@ Relevant documentation:
 - Recipients: `https://anon.li/docs/api/recipient`
 - Domains: `https://anon.li/docs/api/domain`
 - Drops: `https://anon.li/docs/api/drop`
+- Forms: `https://anon.li/docs/api/form`
 
 ## Constraints
 
@@ -48,6 +50,10 @@ Relevant documentation:
   vault material.
 - Drop file contents and filenames are end-to-end encrypted and are not exposed
   through MCP.
+- Form submission payloads are end-to-end encrypted with a per-form keypair;
+  MCP exposes only form metadata (titles, counts, state). Creating forms or
+  decrypting submissions requires client-side vault access and cannot be done
+  by a remote agent.
 - Creating or uploading Drop file contents requires client-side encryption.
   Remote agents should not fabricate encryption flows they cannot actually run.
 

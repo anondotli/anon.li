@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { AlertTriangle, Send, Mail, FileIcon, Loader2, CheckCircle2, Copy } from "lucide-react";
+import { AlertTriangle, Send, Mail, FileIcon, ClipboardList, Loader2, CheckCircle2, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -18,7 +18,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Turnstile } from "@/components/ui/turnstile";
 import { useSearchParams } from "next/navigation";
 
-type ServiceType = "alias" | "drop";
+type ServiceType = "alias" | "drop" | "form";
 type AbuseReason = "spam" | "illegal" | "harassment" | "copyright" | "malware" | "other";
 
 interface ReportFormData {
@@ -31,7 +31,6 @@ interface ReportFormData {
 }
 
 const turnstileSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
-
 export function ReportAbuseForm() {
     const searchParams = useSearchParams();
     const [formData, setFormData] = useState<ReportFormData>({
@@ -46,17 +45,23 @@ export function ReportAbuseForm() {
     const [submitted, setSubmitted] = useState(false);
     const [trackingToken, setTrackingToken] = useState<string | null>(null);
     const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+    const [turnstileRequested, setTurnstileRequested] = useState(false);
+    const [turnstileRenderKey, setTurnstileRenderKey] = useState(0);
     const [copied, setCopied] = useState(false);
 
     const [error, setError] = useState<string | null>(null);
+
+    const resetTurnstile = () => {
+        setTurnstileToken(null);
+        setTurnstileRenderKey((key) => key + 1);
+    };
 
     const isValidEmail = (email: string): boolean => {
         if (email.length > 254) return false;
         return z.string().email().safeParse(email).success;
     };
 
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
+    const submitReport = async (verifiedTurnstileToken?: string) => {
         setError(null);
 
         if (!formData.serviceType || !formData.resourceId || !formData.reason || !formData.description) {
@@ -84,8 +89,9 @@ export function ReportAbuseForm() {
             return;
         }
 
-        if (turnstileSiteKey && !turnstileToken) {
-            setError("Please complete the verification challenge.");
+        const tokenForSubmit = verifiedTurnstileToken ?? turnstileToken;
+        if (turnstileSiteKey && !tokenForSubmit) {
+            setTurnstileRequested(true);
             return;
         }
 
@@ -99,7 +105,7 @@ export function ReportAbuseForm() {
                 },
                 body: JSON.stringify({
                     ...formData,
-                    turnstileToken,
+                    turnstileToken: tokenForSubmit,
                 }),
             });
 
@@ -119,6 +125,17 @@ export function ReportAbuseForm() {
         } finally {
             setIsSubmitting(false);
         }
+    };
+
+    const handleTurnstileVerify = (token: string) => {
+        setTurnstileToken(token);
+        setTurnstileRequested(false);
+        void submitReport(token);
+    };
+
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        void submitReport();
     };
 
     const copyTrackingToken = () => {
@@ -163,6 +180,8 @@ export function ReportAbuseForm() {
                             setSubmitted(false);
                             setTrackingToken(null);
                             setTurnstileToken(null);
+                            setTurnstileRequested(false);
+                            setTurnstileRenderKey((key) => key + 1);
                             setFormData({
                                 serviceType: "",
                                 resourceId: "",
@@ -230,6 +249,12 @@ export function ReportAbuseForm() {
                                         <span>anon.li Drop</span>
                                     </div>
                                 </SelectItem>
+                                <SelectItem value="form">
+                                    <div className="flex items-center gap-2">
+                                        <ClipboardList className="w-4 h-4" />
+                                        <span>anon.li Form</span>
+                                    </div>
+                                </SelectItem>
                             </SelectContent>
                         </Select>
                     </div>
@@ -241,7 +266,9 @@ export function ReportAbuseForm() {
                                 ? "Email Alias or Address *"
                                 : formData.serviceType === "drop"
                                     ? "Drop ID or URL *"
-                                    : "Resource Identifier *"}
+                                    : formData.serviceType === "form"
+                                        ? "Form ID or URL *"
+                                        : "Resource Identifier *"}
                         </Label>
                         <Input
                             id="resourceId"
@@ -265,7 +292,9 @@ export function ReportAbuseForm() {
                                     ? "e.g., spam@example.anon.li or the email you received"
                                     : formData.serviceType === "drop"
                                         ? "e.g., https://anon.li/d/abc123 or just abc123"
-                                        : "Select a service first"
+                                        : formData.serviceType === "form"
+                                            ? "e.g., https://anon.li/f/abc123 or just abc123"
+                                            : "Select a service first"
                             }
                             disabled={!formData.serviceType}
                         />
@@ -274,7 +303,9 @@ export function ReportAbuseForm() {
                                 ? "You can paste the full URL or just the file ID from the URL."
                                 : formData.serviceType === "alias"
                                     ? "Provide the alias address or any identifying information."
-                                    : ""}
+                                    : formData.serviceType === "form"
+                                        ? "You can paste the full URL or just the form ID."
+                                        : ""}
                         </p>
                     </div>
 
@@ -349,10 +380,12 @@ export function ReportAbuseForm() {
                     </div>
 
                     {/* Turnstile */}
-                    {turnstileSiteKey && (
+                    {turnstileSiteKey && turnstileRequested && (
                         <Turnstile
+                            key={turnstileRenderKey}
                             siteKey={turnstileSiteKey}
-                            onVerify={setTurnstileToken}
+                            onVerify={handleTurnstileVerify}
+                            onError={resetTurnstile}
                             onExpire={() => setTurnstileToken(null)}
                         />
                     )}
@@ -367,7 +400,7 @@ export function ReportAbuseForm() {
                         type="submit"
                         className="w-full"
                         size="lg"
-                        disabled={isSubmitting || (!!turnstileSiteKey && !turnstileToken)}
+                        disabled={isSubmitting || (!!turnstileSiteKey && turnstileRequested && !turnstileToken)}
                     >
                         {isSubmitting ? (
                             <>

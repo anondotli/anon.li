@@ -13,6 +13,7 @@ const TURNSTILE_FAILED_MESSAGE = "Bot verification failed. Please try again."
 
 export function VerifyRecipientChallenge({ token, siteKey }: { token: string; siteKey: string }) {
     const [turnstileToken, setTurnstileToken] = useState<string | null>(null)
+    const [turnstileRequested, setTurnstileRequested] = useState(false)
     const [turnstileRenderKey, setTurnstileRenderKey] = useState(0)
     const [result, setResult] = useState<RecipientVerificationResult | null>(null)
     const [error, setError] = useState<string | null>(null)
@@ -23,15 +24,17 @@ export function VerifyRecipientChallenge({ token, siteKey }: { token: string; si
         setTurnstileRenderKey((key) => key + 1)
     }
 
-    const handleVerify = () => {
-        if (!turnstileToken) {
-            setError("Please complete the verification challenge.")
+    const submitVerification = (verifiedToken?: string) => {
+        const tokenForSubmit = verifiedToken ?? turnstileToken
+        if (!tokenForSubmit) {
+            setTurnstileRequested(true)
+            setError(null)
             return
         }
 
         setError(null)
         startTransition(async () => {
-            const verification = await verifyRecipientByTokenAction(token, turnstileToken)
+            const verification = await verifyRecipientByTokenAction(token, tokenForSubmit)
             resetTurnstile()
 
             if (
@@ -44,6 +47,16 @@ export function VerifyRecipientChallenge({ token, siteKey }: { token: string; si
 
             setResult(verification)
         })
+    }
+
+    const handleTurnstileVerify = (verifiedToken: string) => {
+        setTurnstileToken(verifiedToken)
+        setTurnstileRequested(false)
+        submitVerification(verifiedToken)
+    }
+
+    const handleVerify = () => {
+        submitVerification()
     }
 
     if (result) {
@@ -60,13 +73,15 @@ export function VerifyRecipientChallenge({ token, siteKey }: { token: string; si
                 </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-                <Turnstile
-                    key={turnstileRenderKey}
-                    siteKey={siteKey}
-                    onVerify={setTurnstileToken}
-                    onError={resetTurnstile}
-                    onExpire={() => setTurnstileToken(null)}
-                />
+                {turnstileRequested ? (
+                    <Turnstile
+                        key={turnstileRenderKey}
+                        siteKey={siteKey}
+                        onVerify={handleTurnstileVerify}
+                        onError={resetTurnstile}
+                        onExpire={() => setTurnstileToken(null)}
+                    />
+                ) : null}
 
                 {error && (
                     <div className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
@@ -78,7 +93,7 @@ export function VerifyRecipientChallenge({ token, siteKey }: { token: string; si
                     type="button"
                     className="w-full"
                     onClick={handleVerify}
-                    disabled={isPending || !turnstileToken}
+                    disabled={isPending || (turnstileRequested && !turnstileToken)}
                 >
                     {isPending ? "Verifying..." : "Verify Email"}
                 </Button>

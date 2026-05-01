@@ -35,7 +35,7 @@ export default function UsageLoading() {
             </div>
 
             <div className="grid gap-6 md:grid-cols-2">
-                {[1, 2, 3, 4].map((i) => (
+                {[1, 2, 3, 4, 5, 6].map((i) => (
                     <UsageCardSkeleton key={i} />
                 ))}
 

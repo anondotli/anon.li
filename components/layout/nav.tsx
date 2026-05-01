@@ -13,7 +13,7 @@ import {
     NavigationMenuList,
     NavigationMenuTrigger,
 } from "@/components/ui/navigation-menu";
-import { BookOpen, Code2, FileText, Shield, HelpCircle, Users, Check, Mail, FileUp, ChevronDown, Terminal, Puzzle } from "lucide-react";
+import { BookOpen, Code2, FileText, Shield, HelpCircle, Users, Check, Mail, FileUp, ClipboardList, ChevronDown, Terminal, Puzzle } from "lucide-react";
 import { siteConfig, getProductContext } from "@/config/site";
 import { productOptions, landingPages } from "@/config/navigation";
 import { cn } from "@/lib/utils";
@@ -143,6 +143,16 @@ export function SiteNav({ isLoggedIn }: { isLoggedIn?: boolean }) {
                             <div>
                                 <div className="text-sm font-medium">Drop</div>
                                 <p className="text-xs text-muted-foreground">E2EE file sharing</p>
+                            </div>
+                        </Link>
+                        <Link
+                            href="/form"
+                            className="flex items-center gap-3 select-none rounded-md p-3 leading-none no-underline outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground"
+                        >
+                            <ClipboardList className="h-4 w-4" />
+                            <div>
+                                <div className="text-sm font-medium">Form</div>
+                                <p className="text-xs text-muted-foreground">E2EE forms</p>
                             </div>
                         </Link>
                     </NavDropdown>

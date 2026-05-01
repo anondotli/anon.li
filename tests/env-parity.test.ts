@@ -36,6 +36,7 @@ const SCRIPT_ONLY_VARS = new Set([
 const ALLOWLIST = new Set([...FRAMEWORK_VARS, ...TEST_ONLY_VARS, ...SCRIPT_ONLY_VARS])
 const IGNORED_SOURCE_DIRS = new Set([
     ".git",
+    ".kilo",
     ".next",
     "anon-video",
     "build",

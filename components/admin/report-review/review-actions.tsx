@@ -12,12 +12,13 @@ import {
 } from "@/components/ui/select"
 import { AlertTriangle } from "lucide-react"
 import { ACTION_DESCRIPTIONS } from "./utils"
-import type { Report, DropDetails, AliasDetails } from "./types"
+import type { Report, DropDetails, AliasDetails, FormDetails } from "./types"
 
 interface ReviewActionsProps {
     report: Report
     drop?: DropDetails | null
     alias?: AliasDetails | null
+    form?: FormDetails | null
     newStatus: string
     setNewStatus: (v: string) => void
     actionTaken: string
@@ -32,6 +33,7 @@ export function ReviewActions({
     report,
     drop,
     alias,
+    form,
     newStatus,
     setNewStatus,
     actionTaken,
@@ -41,9 +43,14 @@ export function ReviewActions({
     reviewNotes,
     setReviewNotes,
 }: ReviewActionsProps) {
-    const hasUser = report.serviceType === "drop" ? !!drop?.user : !!alias?.user
+    const hasUser = report.serviceType === "drop"
+        ? !!drop?.user
+        : report.serviceType === "alias"
+            ? !!alias?.user
+            : !!form?.user
     const isDropTakenDown = report.serviceType === "drop" && drop?.takenDown
     const isAliasTakenDown = report.serviceType === "alias" && alias && !alias.active
+    const isFormTakenDown = report.serviceType === "form" && form?.takenDown
 
     return (
         <div className="space-y-4">
@@ -100,12 +107,12 @@ export function ReviewActions({
                             </SelectItem>
                             <SelectItem
                                 value="takedown"
-                                disabled={!!isDropTakenDown || !!isAliasTakenDown}
+                                disabled={!!isDropTakenDown || !!isAliasTakenDown || !!isFormTakenDown}
                             >
                                 <div>
                                     <div>Content taken down</div>
                                     <div className="text-xs text-muted-foreground">
-                                        {isDropTakenDown || isAliasTakenDown
+                                        {isDropTakenDown || isAliasTakenDown || isFormTakenDown
                                             ? "Already taken down"
                                             : ACTION_DESCRIPTIONS.takedown}
                                     </div>
@@ -151,7 +158,7 @@ export function ReviewActions({
                             <>Owner will receive a warning notification about policy concerns.</>
                         )}
                         {actionTaken === "ban" && (
-                            <>User will be restricted from {report.serviceType === "alias" ? "creating aliases" : "uploading"}. Existing content remains accessible.</>
+                            <>User will be restricted from {report.serviceType === "alias" ? "creating aliases" : report.serviceType === "form" ? "uploading files and creating forms" : "uploading"}. Existing content remains accessible.</>
                         )}
                     </div>
                 </div>

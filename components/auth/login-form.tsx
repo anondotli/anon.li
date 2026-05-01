@@ -50,6 +50,7 @@ export function LoginForm({
     const [formError, setFormError] = React.useState<string | null>(null)
     const [resendCooldown, setResendCooldown] = React.useState(0)
     const [turnstileToken, setTurnstileToken] = React.useState<string | null>(null)
+    const [turnstileRequested, setTurnstileRequested] = React.useState(false)
     const [turnstileRenderKey, setTurnstileRenderKey] = React.useState(0)
 
     React.useEffect(() => {
@@ -89,14 +90,16 @@ export function LoginForm({
         }
     }
 
-    const sendMagicLink = async () => {
+    const sendMagicLink = async (verifiedTurnstileToken?: string) => {
         const normalizedEmail = email.trim()
         if (!normalizedEmail) {
             throw new Error("Enter your email address")
         }
 
-        if (turnstileSiteKey && !turnstileToken) {
-            throw new Error("Please complete the verification challenge.")
+        const tokenForSubmit = verifiedTurnstileToken ?? turnstileToken
+        if (turnstileSiteKey && !tokenForSubmit) {
+            setTurnstileRequested(true)
+            return
         }
 
         try {
@@ -108,7 +111,7 @@ export function LoginForm({
                 ...(turnstileSiteKey
                     ? {
                         fetchOptions: {
-                            headers: { "x-captcha-response": turnstileToken! },
+                            headers: { "x-captcha-response": tokenForSubmit! },
                         },
                     }
                     : {}),
@@ -130,37 +133,40 @@ export function LoginForm({
         }
 
         setNotice({ type: "magic-link", email: normalizedEmail })
+        setTurnstileRequested(false)
         setResendCooldown(RESEND_COOLDOWN)
     }
 
-    const onSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
-        event.preventDefault()
+    const submitMagicLink = async (verifiedTurnstileToken?: string, fallbackMessage = "Authentication failed") => {
         setIsLoading(true)
         setFormError(null)
 
         try {
-            await sendMagicLink()
+            await sendMagicLink(verifiedTurnstileToken)
         } catch (error) {
-            setFormError(error instanceof Error ? error.message : "Authentication failed")
+            setFormError(error instanceof Error ? error.message : fallbackMessage)
         } finally {
             setIsLoading(false)
         }
     }
 
-    const magicLinkDisabled = isLoading || !!providerLoading || (!!turnstileSiteKey && !turnstileToken)
+    const handleTurnstileVerify = (token: string) => {
+        setTurnstileToken(token)
+        setTurnstileRequested(false)
+        void submitMagicLink(token)
+    }
+
+    const onSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+        event.preventDefault()
+        void submitMagicLink()
+    }
+
+    const hasEmail = email.trim().length > 0
+    const showTurnstile = !!turnstileSiteKey && hasEmail && turnstileRequested
+    const magicLinkDisabled = isLoading || !!providerLoading || (showTurnstile && !turnstileToken)
 
     const handleNoticeResend = async () => {
-        setIsLoading(true)
-        setFormError(null)
-
-        try {
-            await sendMagicLink()
-        } catch (error) {
-            setNotice(null)
-            setFormError(error instanceof Error ? error.message : "Request failed")
-        } finally {
-            setIsLoading(false)
-        }
+        void submitMagicLink(undefined, "Request failed")
     }
 
     if (notice) {
@@ -193,11 +199,17 @@ export function LoginForm({
                     Open the link to continue. If your vault needs setup, you will create its password after signing in.
                 </div>
 
-                {turnstileSiteKey && (
+                {formError && (
+                    <div className="rounded-2xl border border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+                        {formError}
+                    </div>
+                )}
+
+                {turnstileSiteKey && turnstileRequested && (
                     <Turnstile
                         key={`notice-${turnstileRenderKey}`}
                         siteKey={turnstileSiteKey}
-                        onVerify={setTurnstileToken}
+                        onVerify={handleTurnstileVerify}
                         onError={resetTurnstile}
                         onExpire={() => setTurnstileToken(null)}
                     />
@@ -207,7 +219,7 @@ export function LoginForm({
                     variant="outline"
                     size="sm"
                     onClick={() => void handleNoticeResend()}
-                    disabled={isLoading || resendCooldown > 0 || (!!turnstileSiteKey && !turnstileToken)}
+                    disabled={isLoading || resendCooldown > 0 || (!!turnstileSiteKey && turnstileRequested && !turnstileToken)}
                     className="mx-auto gap-2"
                 >
                     <RotateCw className="h-3.5 w-3.5" />
@@ -220,6 +232,7 @@ export function LoginForm({
                     onClick={() => {
                         setNotice(null)
                         setFormError(null)
+                        setTurnstileRequested(false)
                         resetTurnstile()
                     }}
                     className="mx-auto gap-2 text-muted-foreground hover:text-foreground"
@@ -242,8 +255,13 @@ export function LoginForm({
                         value={email}
                         placeholder="joe.doe@anon.li"
                         onChange={(event) => {
-                            setEmail(event.target.value)
+                            const next = event.target.value
+                            setEmail(next)
                             setFormError(null)
+                            if (!next.trim()) {
+                                setTurnstileToken(null)
+                                setTurnstileRequested(false)
+                            }
                         }}
                         autoCapitalize="none"
                         autoComplete="email"
@@ -259,11 +277,11 @@ export function LoginForm({
                     </div>
                 )}
 
-                {turnstileSiteKey && (
+                {showTurnstile && (
                     <Turnstile
                         key={`form-${turnstileRenderKey}`}
-                        siteKey={turnstileSiteKey}
-                        onVerify={setTurnstileToken}
+                        siteKey={turnstileSiteKey!}
+                        onVerify={handleTurnstileVerify}
                         onError={resetTurnstile}
                         onExpire={() => setTurnstileToken(null)}
                     />

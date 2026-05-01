@@ -28,6 +28,9 @@ const fileFields = {
  * Used by: app/api/v1/drop/[id]/file/route.ts
  */
 export const addFileApiSchema = z.object(fileFields)
+    .extend({
+        formFieldId: z.string().min(1).max(64).optional(),
+    })
     .refine(chunkSizeValid, {
         message: "Chunk size must be at least 5MB for multi-part uploads",
         path: ["chunkSize"],

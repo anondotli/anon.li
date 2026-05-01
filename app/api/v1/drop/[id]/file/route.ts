@@ -5,12 +5,14 @@
 
 import { NextResponse } from "next/server"
 
-import { getDropLimits } from "@/lib/limits"
-import { prisma } from "@/lib/prisma"
 import { getClientIp, rateLimit } from "@/lib/rate-limit"
 import { withPolicy } from "@/lib/route-policy"
 import { DropService } from "@/lib/services/drop"
-import { verifyUploadToken } from "@/lib/services/drop-upload-token"
+import {
+    getFormUploadQuotaOverride,
+    resolveTokenUploadAccess,
+    validateFormDropFile,
+} from "@/lib/services/form-upload"
 import { getChunkPresignedUrls } from "@/lib/storage"
 import { addFileApiSchema } from "@/lib/validations/drop"
 
@@ -29,18 +31,27 @@ export const POST = withPolicy<RouteParams>(
     },
     async (ctx, routeContext) => {
         const { id: dropId } = await routeContext!.params
+        let effectiveUserId = ctx.userId
+        let formId: string | null = null
+        const hasUploadToken = Boolean(ctx.request.headers.get("x-upload-token"))
 
         // Guest branch: enforce the stricter per-IP fileUpload limiter (50/h)
-        // on top of the withPolicy limiter, and require a valid upload token.
+        // on top of the withPolicy limiter.
         if (!ctx.userId) {
             const ip = await getClientIp()
             const rateLimited = await rateLimit("fileUpload", ip)
             if (rateLimited) return rateLimited
+        }
 
-            const ok = await verifyUploadToken(ctx.request, dropId)
-            if (!ok) {
+        if (hasUploadToken) {
+            const access = await resolveTokenUploadAccess(ctx.request, dropId)
+            if (!access) {
                 return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
             }
+            effectiveUserId = access.effectiveUserId
+            formId = access.formId
+        } else if (!ctx.userId) {
+            return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
         }
 
         const body = await ctx.request.json()
@@ -49,44 +60,28 @@ export const POST = withPolicy<RouteParams>(
             return NextResponse.json({ error: "Invalid request body" }, { status: 400 })
         }
 
-        if (ctx.userId) {
-            const user = await prisma.user.findUnique({
-                where: { id: ctx.userId },
-                select: {
-                    stripePriceId: true,
-                    stripeCurrentPeriodEnd: true,
-                    storageUsed: true,
-                },
+        let quotaOverride: Awaited<ReturnType<typeof getFormUploadQuotaOverride>> | undefined
+        if (formId) {
+            await validateFormDropFile(formId, {
+                dropId,
+                fieldId: validation.data.formFieldId,
+                size: validation.data.size,
+                mimeType: validation.data.mimeType,
+                chunkCount: validation.data.chunkCount,
             })
-
-            if (!user) {
-                return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-            }
-
-            const limits = getDropLimits(user)
-            const storageUsed = user.storageUsed || BigInt(0)
-            const storageLimit = BigInt(limits.maxStorage)
-            const newTotal = storageUsed + BigInt(validation.data.size)
-
-            if (newTotal > storageLimit) {
-                return NextResponse.json(
-                    {
-                        error: "Storage quota exceeded",
-                        code: "QUOTA_EXCEEDED",
-                        storage: {
-                            used: storageUsed.toString(),
-                            limit: storageLimit.toString(),
-                        },
-                    },
-                    { status: 402 },
-                )
-            }
+            quotaOverride = await getFormUploadQuotaOverride(formId)
         }
 
-        const result = await DropService.addFile(ctx.userId, {
-            dropId,
-            ...validation.data,
-        })
+        const { formFieldId: _formFieldId, ...dropFileInput } = validation.data
+        const result = quotaOverride
+            ? await DropService.addFile(effectiveUserId, {
+                  dropId,
+                  ...dropFileInput,
+              }, { quotaOverride })
+            : await DropService.addFile(effectiveUserId, {
+                  dropId,
+                  ...dropFileInput,
+              })
 
         const partNumbers = Array.from({ length: validation.data.chunkCount }, (_, index) => index + 1)
         const uploadUrls = await getChunkPresignedUrls(result.storageKey, result.s3UploadId, partNumbers)

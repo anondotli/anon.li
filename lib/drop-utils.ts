@@ -6,7 +6,7 @@
 import { getDropLimits, getEffectiveTier } from "@/lib/limits";
 import { getUserById } from "@/lib/data/user";
 import { formatBytes } from "@/lib/utils";
-import { ValidationError, UpgradeRequiredError } from "@/lib/api-error-utils";
+import { ForbiddenError, ValidationError, UpgradeRequiredError } from "@/lib/api-error-utils";
 
 type DropTier = "guest" | "free" | "plus" | "pro";
 
@@ -88,7 +88,7 @@ export async function getUserAndLimits(userId: string): Promise<UserLimits> {
     const user = await getUserById(userId);
     if (user) {
         if (user.banned || user.banFileUpload) {
-            throw new Error(
+            throw new ForbiddenError(
                 user.banned
                     ? user.banReason || "Account suspended"
                     : "File uploads restricted"

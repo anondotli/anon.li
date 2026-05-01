@@ -1,5 +1,5 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Users, FileBox, Mail, AlertTriangle, HardDrive, CreditCard, Trash2, ShieldAlert } from "lucide-react"
+import { Users, FileBox, ClipboardList, Mail, AlertTriangle, HardDrive, CreditCard, Trash2, ShieldAlert } from "lucide-react"
 import Link from "next/link"
 import { StatCard } from "@/components/admin/stat-card"
 import { PageHeader } from "@/components/admin/page-header"
@@ -52,6 +52,14 @@ export default async function AdminDashboard() {
                     description="Email forwarding aliases"
                     icon={Mail}
                     href="/admin/aliases"
+                />
+
+                <StatCard
+                    title="Total Forms"
+                    value={stats.totalForms}
+                    description={`${stats.takenDownForms} taken down`}
+                    icon={ClipboardList}
+                    href="/admin/forms"
                 />
 
                 <StatCard

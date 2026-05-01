@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
 import { Button } from "@/components/ui/button"
 import { Menu } from "lucide-react"
 import { DashboardNav } from "@/components/dashboard/nav"
@@ -20,6 +20,12 @@ export function DashboardMobileNav() {
                 </Button>
             </SheetTrigger>
             <SheetContent side="left" className="pr-0">
+                <SheetHeader className="sr-only">
+                    <SheetTitle>Dashboard navigation</SheetTitle>
+                    <SheetDescription>
+                        Navigate between dashboard sections.
+                    </SheetDescription>
+                </SheetHeader>
                 <div className="px-7">
                     <Link
                         href="/"

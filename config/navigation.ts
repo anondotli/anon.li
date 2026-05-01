@@ -1,4 +1,4 @@
-import { Package, Mail, FileUp } from "lucide-react";
+import { ClipboardList, Package, Mail, FileUp } from "lucide-react";
 import { type ProductContext } from "@/config/site";
 
 /**
@@ -9,6 +9,7 @@ export const productOptions = [
     { id: "default", name: "anon.li", tagline: "Complete privacy suite", icon: Package, href: "/" },
     { id: "alias", name: "Alias", tagline: "Anonymous email aliases", icon: Mail, href: "/alias" },
     { id: "drop", name: "Drop", tagline: "E2E encrypted sharing", icon: FileUp, href: "/drop" },
+    { id: "form", name: "Form", tagline: "Encrypted form submissions", icon: ClipboardList, href: "/form" },
 ];
 
 /**
@@ -19,4 +20,5 @@ export const landingPages: Record<ProductContext, string> = {
     default: "/",
     alias: "/alias",
     drop: "/drop",
+    form: "/form",
 };

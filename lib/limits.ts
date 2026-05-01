@@ -1,6 +1,6 @@
 import { getPlanFromPriceId, type Product, type Tier } from "@/config/plans"
 import { ALIAS_LIMITS, STORAGE_LIMITS, DROP_SIZE_LIMITS, EXPIRY_LIMITS, DROP_FEATURES } from "@/config/plans"
-import { PLAN_ENTITLEMENTS, type AliasEntitlements } from "@/config/plans"
+import { PLAN_ENTITLEMENTS, type AliasEntitlements, type FormEntitlements } from "@/config/plans"
 import { DAY_MS } from "@/lib/constants"
 
 type DropFeatures = typeof DROP_FEATURES[keyof typeof DROP_FEATURES];
@@ -88,6 +88,23 @@ export function getDropLimits(user?: UserSub | null): DropLimits {
     return freeLimits
 }
 
+export function getFormLimits(user?: UserSub | null): FormEntitlements {
+    const resolved = resolveSubscription(user)
+    if (!resolved) return PLAN_ENTITLEMENTS.form.free
+
+    const { product, tier } = resolved
+    if ((product === 'form' || product === 'bundle') && (tier === 'plus' || tier === 'pro')) {
+        return PLAN_ENTITLEMENTS.form[tier]
+    }
+    return PLAN_ENTITLEMENTS.form.free
+}
+
+export async function getFormLimitsAsync(userId: string): Promise<FormEntitlements> {
+    const { getEffectiveTiers } = await import("@/lib/entitlements")
+    const tiers = await getEffectiveTiers(userId)
+    return PLAN_ENTITLEMENTS.form[tiers.form]
+}
+
 /**
  * Get effective tier for a user across both products.
  * Returns the highest tier the user has access to.
@@ -100,7 +117,7 @@ export function getEffectiveTier(user?: UserSub | null): 'free' | 'plus' | 'pro'
 /**
  * Get product type from price ID
  */
-export function getProductFromPriceId(stripePriceId?: string | null): 'bundle' | 'alias' | 'drop' | null {
+export function getProductFromPriceId(stripePriceId?: string | null): 'bundle' | 'alias' | 'drop' | 'form' | null {
     if (!stripePriceId) return null
     return getPlanFromPriceId(stripePriceId)?.product ?? null
 }

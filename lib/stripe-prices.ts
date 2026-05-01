@@ -11,7 +11,7 @@ import { createLogger } from "@/lib/logger"
 const logger = createLogger("StripePrices")
 
 // Valid values for type safety and validation
-const VALID_PRODUCTS = ["bundle", "alias", "drop"] as const
+const VALID_PRODUCTS = ["bundle", "alias", "drop", "form"] as const
 const VALID_TIERS = ["plus", "pro"] as const
 const VALID_FREQUENCIES = ["monthly", "yearly"] as const
 
