@@ -1,3 +1,5 @@
+import type { SubscriptionLike } from "@/lib/limits"
+
 export interface McpSession {
     userId: string
     clientId: string
@@ -7,7 +9,5 @@ export interface McpSession {
 
 export interface McpUser {
     id: string
-    stripeSubscriptionId: string | null
-    stripePriceId: string | null
-    stripeCurrentPeriodEnd: Date | null
+    subscriptions: SubscriptionLike[]
 }

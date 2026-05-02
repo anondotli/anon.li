@@ -31,6 +31,10 @@ vi.mock('@/lib/prisma', () => ({
         },
         subscription: {
             upsert: vi.fn().mockResolvedValue({}),
+            findUnique: vi.fn().mockResolvedValue({
+                user: { id: 'user_123', email: 'test@example.com' },
+            }),
+            findFirst: vi.fn().mockResolvedValue(null),
         },
         alias: {
             count: vi.fn().mockResolvedValue(0),
@@ -50,6 +54,7 @@ vi.mock('@/lib/prisma', () => ({
     },
 }))
 
+
 // Store original env
 const originalEnv = process.env
 
@@ -62,6 +67,17 @@ vi.mock('@upstash/redis', () => ({
         set = mockRedisSet
         del = mockRedisDel
     },
+}))
+
+// Mock subscription-sync — the real upsertStripeSubscription depends on
+// `getPlanFromPriceId` which is resolved at module load against env vars that
+// aren't in scope for this test file. Mocking it lets us assert call shape
+// directly while keeping the webhook's control flow intact.
+const { mockUpsertStripeSubscription } = vi.hoisted(() => ({
+    mockUpsertStripeSubscription: vi.fn().mockResolvedValue(true),
+}))
+vi.mock('@/lib/services/subscription-sync', () => ({
+    upsertStripeSubscription: mockUpsertStripeSubscription,
 }))
 
 // Create mock functions for resend
@@ -134,6 +150,9 @@ describe('Stripe Webhook Handler', () => {
             STRIPE_WEBHOOK_SECRET: 'whsec_test_123',
             UPSTASH_REDIS_REST_URL: 'https://test.upstash.io',
             UPSTASH_REDIS_REST_TOKEN: 'test_token',
+            // Map the synthetic 'price_123' used in test fixtures to a known plan so
+            // upsertStripeSubscription doesn't bail out with "unknown price ID".
+            STRIPE_BUNDLE_PLUS_MONTHLY_PRICE_ID: 'price_123',
         }
     })
 
@@ -287,15 +306,13 @@ describe('Stripe Webhook Handler', () => {
             const response = await POST(request)
             expect(response.status).toBe(200)
 
-            // console.log('Mock calls:', mockUserUpdate.mock.calls)
-
-            // Verify that cancel_at_period_end is tracked
-            expect(prisma.user.update).toHaveBeenCalledWith(
+            // Verify that cancelAtPeriodEnd is tracked on the canonical Subscription row
+            expect(mockUpsertStripeSubscription).toHaveBeenCalledWith(
+                'user_123',
                 expect.objectContaining({
-                    data: expect.objectContaining({
-                        stripeCancelAtPeriodEnd: true,
-                    }),
-                })
+                    id: 'sub_123',
+                    cancel_at_period_end: true,
+                }),
             )
         })
 

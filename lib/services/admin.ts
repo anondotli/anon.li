@@ -653,7 +653,6 @@ export class AdminService {
                 banned: boolean
                 banAliasCreation: boolean
                 banFileUpload: boolean
-                stripePriceId: string | null
                 isAdmin: boolean
             } | null
         } | null = null
@@ -679,7 +678,6 @@ export class AdminService {
                 banned: boolean
                 banAliasCreation: boolean
                 banFileUpload: boolean
-                stripePriceId: string | null
                 isAdmin: boolean
             } | null
         } | null = null
@@ -706,7 +704,6 @@ export class AdminService {
                             banned: true,
                             banAliasCreation: true,
                             banFileUpload: true,
-                            stripePriceId: true,
                             isAdmin: true
                         }
                     },
@@ -750,7 +747,6 @@ export class AdminService {
                             tosViolations: true,
                             banned: true,
                             banAliasCreation: true,
-                            stripePriceId: true,
                             isAdmin: true
                         }
                     }
@@ -780,7 +776,6 @@ export class AdminService {
                             banned: true,
                             banAliasCreation: true,
                             banFileUpload: true,
-                            stripePriceId: true,
                             isAdmin: true
                         }
                     }

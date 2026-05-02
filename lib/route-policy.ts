@@ -29,6 +29,7 @@ import { getAuthUserState } from "@/lib/data/auth"
 import { prisma } from "@/lib/prisma"
 import { rateLimiters, rateLimit } from "@/lib/rate-limit"
 import { validateCsrf } from "@/lib/csrf"
+import type { SubscriptionLike } from "@/lib/limits"
 import {
     generateRequestId,
     apiError,
@@ -71,9 +72,7 @@ interface PolicyContext {
     /** User data from DB (available when authenticated) */
     user: {
         id: string
-        stripeSubscriptionId: string | null
-        stripePriceId: string | null
-        stripeCurrentPeriodEnd: Date | null
+        subscriptions: SubscriptionLike[]
     } | null
     /** API key ID if authenticated via API key */
     apiKeyId?: string

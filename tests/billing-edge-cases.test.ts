@@ -99,6 +99,13 @@ vi.mock("next/headers", () => ({
     }),
 }))
 
+const { mockUpsertStripeSubscription } = vi.hoisted(() => ({
+    mockUpsertStripeSubscription: vi.fn().mockResolvedValue(true),
+}))
+vi.mock("@/lib/services/subscription-sync", () => ({
+    upsertStripeSubscription: mockUpsertStripeSubscription,
+}))
+
 import { stripe } from "@/lib/stripe"
 import { prisma } from "@/lib/prisma"
 import { POST as stripeWebhook } from "@/app/api/webhooks/stripe/route"
@@ -162,12 +169,12 @@ describe("Billing Edge Cases", () => {
             const response = await stripeWebhook(makeStripeRequest())
             expect(response.status).toBe(200)
 
-            // Verify legacy User fields were updated
-            expect(prisma.user.update).toHaveBeenCalled()
-
-            // Verify Subscription table upsert was attempted
-            // (may fail due to unknown price in test env, but the call should be made)
-            // The upsert is wrapped in try/catch so it won't break the handler
+            // Canonical Subscription write is the only DB mutation now — legacy
+            // user.update is no longer part of the checkout-completion flow.
+            expect(mockUpsertStripeSubscription).toHaveBeenCalledWith(
+                "user_1",
+                expect.objectContaining({ id: "sub_1" }),
+            )
         })
 
         it("should mark event as processed only after success", async () => {

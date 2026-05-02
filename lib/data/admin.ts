@@ -57,9 +57,6 @@ type AdminUserListRow = {
     banFileUpload: boolean
     banReason: string | null
     tosViolations: number
-    stripePriceId: string | null
-    stripeCurrentPeriodEnd: Date | null
-    stripeCancelAtPeriodEnd: boolean
     paymentMethod: string
     storageUsed: bigint
     createdAt: Date
@@ -255,11 +252,6 @@ type AdminUserDetailRow = {
     email: string
     emailVerified: boolean
     image: string | null
-    stripeCustomerId: string | null
-    stripeSubscriptionId: string | null
-    stripePriceId: string | null
-    stripeCurrentPeriodEnd: Date | null
-    stripeCancelAtPeriodEnd: boolean
     storageUsed: bigint
     storageLimit: bigint
     createdAt: Date
@@ -404,18 +396,6 @@ type AdminCryptoPaymentRow = {
     user: UserRef
 }
 
-type AdminLegacyBillingUserRow = {
-    id: string
-    email: string
-    name: string | null
-    stripeCustomerId: string | null
-    stripeSubscriptionId: string | null
-    stripePriceId: string | null
-    stripeCurrentPeriodEnd: Date | null
-    stripeCancelAtPeriodEnd: boolean
-    paymentMethod: string
-}
-
 type AdminDeletionRequestRow = {
     id: string
     userId: string
@@ -475,8 +455,6 @@ function getPrimarySubscription(subscriptions: AdminSubscriptionSummary[]) {
 }
 
 function getAdminStorageLimit(user: {
-    stripePriceId: string | null
-    stripeCurrentPeriodEnd: Date | null
     subscriptions: AdminSubscriptionSummary[]
 }) {
     const subscription = getPrimarySubscription(user.subscriptions)
@@ -491,7 +469,11 @@ function getAdminStorageLimit(user: {
         return STORAGE_LIMITS[subscription.tier]
     }
 
-    return getDropLimits(user).maxStorage
+    return getDropLimits({
+        subscriptions: user.subscriptions
+            .filter(isSubscriptionCurrentlyActive)
+            .map((s) => ({ status: s.status, product: s.product, tier: s.tier, currentPeriodEnd: s.currentPeriodEnd })),
+    }).maxStorage
 }
 
 function mapAliasRecipients(alias: AliasRoutingInput) {
@@ -628,9 +610,6 @@ export async function getAdminUsers(params: { search?: string; filter?: string; 
                 banFileUpload: true,
                 banReason: true,
                 tosViolations: true,
-                stripePriceId: true,
-                stripeCurrentPeriodEnd: true,
-                stripeCancelAtPeriodEnd: true,
                 paymentMethod: true,
                 storageUsed: true,
                 createdAt: true,
@@ -1550,7 +1529,7 @@ export async function getAdminBilling(searchParams: SearchParams) {
         }),
     }
 
-    const [subscriptions, total, cryptoPayments, legacyUsers] = await Promise.all([
+    const [subscriptions, total, cryptoPayments] = await Promise.all([
         prismaPayload<Promise<AdminSubscriptionRow[]>>(prisma.subscription.findMany({
             where,
             include: {
@@ -1575,38 +1554,11 @@ export async function getAdminBilling(searchParams: SearchParams) {
             orderBy: { createdAt: "desc" },
             take: 10,
         })),
-        prismaPayload<Promise<AdminLegacyBillingUserRow[]>>(prisma.user.findMany({
-            where: {
-                stripePriceId: { not: null },
-                subscriptions: { none: {} },
-                ...(search && {
-                    OR: [
-                        { email: { contains: search, mode: "insensitive" } },
-                        { stripeSubscriptionId: { contains: search, mode: "insensitive" } },
-                        { stripeCustomerId: { contains: search, mode: "insensitive" } },
-                    ],
-                }),
-            },
-            select: {
-                id: true,
-                email: true,
-                name: true,
-                stripeCustomerId: true,
-                stripeSubscriptionId: true,
-                stripePriceId: true,
-                stripeCurrentPeriodEnd: true,
-                stripeCancelAtPeriodEnd: true,
-                paymentMethod: true,
-            },
-            orderBy: { updatedAt: "desc" },
-            take: 10,
-        })),
     ])
 
     return {
         subscriptions,
         cryptoPayments,
-        legacyUsers,
         total,
         search,
         status,

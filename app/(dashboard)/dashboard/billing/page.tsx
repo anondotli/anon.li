@@ -4,27 +4,23 @@ import { prisma } from "@/lib/prisma"
 import { BillingToast } from "./billing-toast"
 import { BillingContent } from "./billing-content"
 import { getUserSubscriptionPlan } from "@/lib/subscription"
-import { DAY_MS } from "@/lib/constants"
 
 export default async function BillingPage() {
     const session = await auth()
     if (!session?.user?.id) redirect("/login")
 
     const user = await prisma.user.findUnique({
-        where: { id: session.user.id }
+        where: { id: session.user.id },
+        select: { id: true, paymentMethod: true },
     })
 
     if (!user) redirect("/login")
 
     const subscriptionPlan = await getUserSubscriptionPlan(user)
-    const currentTier = subscriptionPlan.tier === 'guest' ? 'free' : subscriptionPlan.tier
+    const currentTier = subscriptionPlan.tier
 
-    // Compute isExpired directly from user fields — getUserSubscriptionPlan falls through to free for expired
-    const now = new Date()
-    const isExpired = !!(user.stripePriceId && user.stripeCurrentPeriodEnd &&
-        new Date(user.stripeCurrentPeriodEnd).getTime() + DAY_MS < now.getTime())
+    const isExpired = Boolean(subscriptionPlan.isExpired)
 
-    // Determine subscription status
     const subscriptionStatus = isExpired
         ? "past_due" as const
         : subscriptionPlan.isCanceled

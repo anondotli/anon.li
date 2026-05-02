@@ -31,12 +31,21 @@ export async function GET() {
                 name: true,
                 email: true,
                 emailVerified: true,
-                stripeCustomerId: true,
-                stripePriceId: true,
-                stripeCurrentPeriodEnd: true,
                 storageUsed: true,
                 storageLimit: true,
                 createdAt: true,
+                subscriptions: {
+                    where: { status: { in: ["active", "trialing"] } },
+                    select: {
+                        provider: true,
+                        product: true,
+                        tier: true,
+                        status: true,
+                        currentPeriodStart: true,
+                        currentPeriodEnd: true,
+                        cancelAtPeriodEnd: true,
+                    },
+                },
             }
         })
 
@@ -128,6 +137,7 @@ export async function GET() {
         const aliasLimits = getDisplayPlanLimits(user)
         const dropLimits = getDropLimits(user)
         const tier = getEffectiveTier(user)
+        const primarySub = user.subscriptions[0] ?? null
 
         // Build export data
         const exportData = {
@@ -141,9 +151,11 @@ export async function GET() {
             },
             subscription: {
                 tier,
-                stripeCustomerId: user.stripeCustomerId ? "[redacted]" : null,
-                stripePriceId: user.stripePriceId,
-                currentPeriodEnd: user.stripeCurrentPeriodEnd,
+                provider: primarySub?.provider ?? null,
+                product: primarySub?.product ?? null,
+                status: primarySub?.status ?? null,
+                currentPeriodEnd: primarySub?.currentPeriodEnd ?? null,
+                cancelAtPeriodEnd: primarySub?.cancelAtPeriodEnd ?? false,
             },
             limits: {
                 alias: aliasLimits,

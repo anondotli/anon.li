@@ -2,10 +2,10 @@
  * Billing Downgrade Service
  *
  * Handles graduated resource removal when a user's subscription ends.
- * Three phases:
+ * Three phases (delays from `lib/constants` — currently 7 + 7 days):
  *   Phase 1 (day 0):  Record downgrade, send warning email
- *   Phase 2 (day 30): Schedule excess resources for removal
- *   Phase 3 (day 44): Delete scheduled resources
+ *   Phase 2 (day 7):  Schedule excess resources for removal
+ *   Phase 3 (day 14): Delete scheduled resources
  */
 
 import { prisma } from "@/lib/prisma";
@@ -128,12 +128,20 @@ export class BillingDowngradeService {
         // Re-verify user is still on free tier
         const user = await prisma.user.findUnique({
             where: { id: userId },
-            select: { id: true, email: true, stripePriceId: true, downgradedAt: true },
+            select: {
+                id: true,
+                email: true,
+                downgradedAt: true,
+                subscriptions: {
+                    where: { status: { in: ["active", "trialing"] } },
+                    select: { id: true },
+                },
+            },
         });
 
         if (!user) return;
 
-        if (user.stripePriceId !== null) {
+        if (user.subscriptions.length > 0) {
             // User re-subscribed — cancel downgrade
             await this.cancelDowngrade(userId);
             return;
@@ -281,7 +289,7 @@ export class BillingDowngradeService {
         const users = await prisma.user.findMany({
             where: {
                 downgradedAt: { not: null, lte: schedulingCutoff },
-                stripePriceId: null,
+                subscriptions: { none: { status: { in: ["active", "trialing"] } } },
                 // Exclude users who already have resources scheduled
                 AND: [
                     { aliases: { none: { scheduledForRemovalAt: { not: null } } } },
@@ -322,8 +330,15 @@ export class BillingDowngradeService {
             select: {
                 id: true,
                 email: true,
-                stripePriceId: true,
-                stripeCurrentPeriodEnd: true,
+                subscriptions: {
+                    where: { status: { in: ["active", "trialing"] } },
+                    select: {
+                        status: true,
+                        product: true,
+                        tier: true,
+                        currentPeriodEnd: true,
+                    },
+                },
             },
         });
 

@@ -3,6 +3,7 @@ import { getAuthApiKeyRecord, getAuthUserState, touchApiKeyLastUsed } from "@/li
 import { checkApiQuota, createRateLimitHeaders, type ApiQuotaType, type RateLimitResult } from "@/lib/api-rate-limit"
 import { rateLimiters } from "@/lib/rate-limit"
 import { ApiKeyService } from "@/lib/services/api-key"
+import type { SubscriptionLike } from "@/lib/limits"
 
 /**
  * SafeUser contains only the fields needed by API consumers.
@@ -10,9 +11,7 @@ import { ApiKeyService } from "@/lib/services/api-key"
  */
 interface SafeUser {
     id: string
-    stripeSubscriptionId: string | null
-    stripePriceId: string | null
-    stripeCurrentPeriodEnd: Date | null
+    subscriptions: SubscriptionLike[]
 }
 
 interface ApiKeyValidationResult {

@@ -51,7 +51,18 @@ export class DomainService {
         // Check plan limits
         const user = await prisma.user.findUnique({
             where: { id: userId },
-            include: { domains: true }
+            include: {
+                domains: true,
+                subscriptions: {
+                    where: { status: { in: ["active", "trialing"] } },
+                    select: {
+                        status: true,
+                        product: true,
+                        tier: true,
+                        currentPeriodEnd: true,
+                    },
+                },
+            }
         })
 
         if (!user) {

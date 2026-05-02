@@ -1,19 +1,15 @@
 /**
  * Entitlement Resolution Layer
  *
- * Resolves a user's effective entitlements by querying their active subscriptions.
- * Falls back to legacy User-level Stripe fields for un-migrated users.
+ * Resolves a user's effective entitlements by querying their active subscriptions
+ * in the canonical Subscription table.
  *
  * This module is the runtime bridge between the Subscription table and
  * the canonical PLAN_ENTITLEMENTS config in config/plans.ts.
  */
 
 import { prisma } from "@/lib/prisma"
-import {
-    getPlanFromPriceId,
-    type Product,
-    type PaidTier,
-} from "@/config/plans"
+import type { Product, PaidTier } from "@/config/plans"
 import { DAY_MS } from "@/lib/constants"
 
 type EffectiveTiers = {
@@ -29,11 +25,9 @@ function higherTier(a: "free" | PaidTier, b: "free" | PaidTier): "free" | PaidTi
 }
 
 /**
- * Resolve a user's effective tiers across alias and drop products.
- * Checks the Subscription table first, then falls back to legacy User fields.
+ * Resolve a user's effective tiers across alias, drop, and form products.
  */
 export async function getEffectiveTiers(userId: string): Promise<EffectiveTiers> {
-    // Try new Subscription table first
     const subscriptions = await prisma.subscription.findMany({
         where: {
             userId,
@@ -46,63 +40,30 @@ export async function getEffectiveTiers(userId: string): Promise<EffectiveTiers>
         },
     })
 
-    // Filter to non-expired subscriptions
     const now = Date.now()
     const active = subscriptions.filter(
         (s) => !s.currentPeriodEnd || new Date(s.currentPeriodEnd).getTime() + DAY_MS > now
     )
 
-    if (active.length > 0) {
-        let aliasTier: "free" | PaidTier = "free"
-        let dropTier: "free" | PaidTier = "free"
-        let formTier: "free" | PaidTier = "free"
+    let aliasTier: "free" | PaidTier = "free"
+    let dropTier: "free" | PaidTier = "free"
+    let formTier: "free" | PaidTier = "free"
 
-        for (const sub of active) {
-            const tier = sub.tier as PaidTier
-            if (tier !== "plus" && tier !== "pro") continue
+    for (const sub of active) {
+        const tier = sub.tier as PaidTier
+        if (tier !== "plus" && tier !== "pro") continue
 
-            const product = sub.product as Product
-            if (product === "bundle" || product === "alias") {
-                aliasTier = higherTier(aliasTier, tier)
-            }
-            if (product === "bundle" || product === "drop") {
-                dropTier = higherTier(dropTier, tier)
-            }
-            if (product === "bundle" || product === "form") {
-                formTier = higherTier(formTier, tier)
-            }
+        const product = sub.product as Product
+        if (product === "bundle" || product === "alias") {
+            aliasTier = higherTier(aliasTier, tier)
         }
-
-        return { alias: aliasTier, drop: dropTier, form: formTier }
+        if (product === "bundle" || product === "drop") {
+            dropTier = higherTier(dropTier, tier)
+        }
+        if (product === "bundle" || product === "form") {
+            formTier = higherTier(formTier, tier)
+        }
     }
 
-    // Fallback: legacy User-level Stripe fields for un-migrated users
-    const user = await prisma.user.findUnique({
-        where: { id: userId },
-        select: {
-            stripePriceId: true,
-            stripeCurrentPeriodEnd: true,
-        },
-    })
-
-    if (!user?.stripePriceId || !user.stripeCurrentPeriodEnd) {
-        return { alias: "free", drop: "free", form: "free" }
-    }
-
-    if (new Date(user.stripeCurrentPeriodEnd).getTime() + DAY_MS < now) {
-        return { alias: "free", drop: "free", form: "free" }
-    }
-
-    const resolved = getPlanFromPriceId(user.stripePriceId)
-    if (!resolved || (resolved.tier !== "plus" && resolved.tier !== "pro")) {
-        return { alias: "free", drop: "free", form: "free" }
-    }
-
-    const { product, tier } = resolved
-    return {
-        alias: (product === "alias" || product === "bundle") ? tier : "free",
-        drop: (product === "drop" || product === "bundle") ? tier : "free",
-        form: (product === "form" || product === "bundle") ? tier : "free",
-    }
+    return { alias: aliasTier, drop: dropTier, form: formTier }
 }
-

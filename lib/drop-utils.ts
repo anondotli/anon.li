@@ -3,8 +3,8 @@
  * Handles expiry calculation and validation
  */
 
-import { getDropLimits, getEffectiveTier } from "@/lib/limits";
-import { getUserById } from "@/lib/data/user";
+import { getDropLimits, getEffectiveTier, type SubscriptionLike } from "@/lib/limits";
+import { prisma } from "@/lib/prisma";
 import { formatBytes } from "@/lib/utils";
 import { ForbiddenError, ValidationError, UpgradeRequiredError } from "@/lib/api-error-utils";
 
@@ -28,7 +28,7 @@ interface UserLimits {
     userId: string;
     limits: ReturnType<typeof getDropLimits>;
     storageUsed: bigint;
-    user: { stripePriceId: string | null; stripeCurrentPeriodEnd: Date | null } | null;
+    user: { subscriptions: SubscriptionLike[] } | null;
     tier: DropTier;
 }
 
@@ -85,7 +85,26 @@ export function calculateExpiry(
  * Get user and their limits, with ban checking
  */
 export async function getUserAndLimits(userId: string): Promise<UserLimits> {
-    const user = await getUserById(userId);
+    const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+            id: true,
+            banned: true,
+            banFileUpload: true,
+            banReason: true,
+            storageUsed: true,
+            subscriptions: {
+                where: { status: { in: ["active", "trialing"] } },
+                select: {
+                    status: true,
+                    product: true,
+                    tier: true,
+                    currentPeriodEnd: true,
+                },
+            },
+        },
+    });
+
     if (user) {
         if (user.banned || user.banFileUpload) {
             throw new ForbiddenError(
@@ -94,10 +113,10 @@ export async function getUserAndLimits(userId: string): Promise<UserLimits> {
                     : "File uploads restricted"
             );
         }
-        const userRef = { stripePriceId: user.stripePriceId, stripeCurrentPeriodEnd: user.stripeCurrentPeriodEnd };
+        const userRef = { subscriptions: user.subscriptions };
         return {
             userId: user.id,
-            limits: getDropLimits(user),
+            limits: getDropLimits(userRef),
             storageUsed: user.storageUsed,
             user: userRef,
             tier: getEffectiveTier(userRef) as DropTier,

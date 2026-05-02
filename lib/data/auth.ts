@@ -1,21 +1,27 @@
 import { prisma } from "@/lib/prisma"
+import type { SubscriptionLike } from "@/lib/limits"
 
 interface AuthUserState {
     id: string
     isAdmin: boolean
     banned: boolean
     twoFactorEnabled: boolean
-    stripeSubscriptionId: string | null
-    stripePriceId: string | null
-    stripeCurrentPeriodEnd: Date | null
+    subscriptions: SubscriptionLike[]
 }
 
 interface AuthApiKeyRecord {
     id: string
-    user: Pick<
-        AuthUserState,
-        "id" | "banned" | "stripeSubscriptionId" | "stripePriceId" | "stripeCurrentPeriodEnd"
-    >
+    user: Pick<AuthUserState, "id" | "banned" | "subscriptions">
+}
+
+const ACTIVE_SUBSCRIPTION_SELECT = {
+    where: { status: { in: ["active", "trialing"] } },
+    select: {
+        status: true,
+        product: true,
+        tier: true,
+        currentPeriodEnd: true,
+    },
 }
 
 export async function getAuthUserState(userId: string): Promise<AuthUserState | null> {
@@ -26,9 +32,7 @@ export async function getAuthUserState(userId: string): Promise<AuthUserState | 
             isAdmin: true,
             banned: true,
             twoFactorEnabled: true,
-            stripeSubscriptionId: true,
-            stripePriceId: true,
-            stripeCurrentPeriodEnd: true,
+            subscriptions: ACTIVE_SUBSCRIPTION_SELECT,
             deletionRequest: {
                 select: { id: true },
             },
@@ -53,9 +57,7 @@ export async function getAuthApiKeyRecord(keyHash: string): Promise<(AuthApiKeyR
                 select: {
                     id: true,
                     banned: true,
-                    stripeSubscriptionId: true,
-                    stripePriceId: true,
-                    stripeCurrentPeriodEnd: true,
+                    subscriptions: ACTIVE_SUBSCRIPTION_SELECT,
                     deletionRequest: {
                         select: { id: true },
                     },

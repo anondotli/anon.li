@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic"
  * On-demand subscription sync from Stripe.
  * Use this when:
  * - User reports their subscription state looks stale
- * - stripeCurrentPeriodEnd is in the past but user believes they're subscribed
+ * - The canonical Subscription row has a past period end but the user believes they're subscribed
  * - After a failed webhook that was manually resolved in Stripe
  */
 export async function POST(req: Request) {

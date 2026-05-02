@@ -17,6 +17,17 @@ export default async function UsagePage() {
 
     const user = await prisma.user.findUnique({
         where: { id: session.user.id },
+        include: {
+            subscriptions: {
+                where: { status: { in: ["active", "trialing"] } },
+                select: {
+                    status: true,
+                    product: true,
+                    tier: true,
+                    currentPeriodEnd: true,
+                },
+            },
+        },
     })
 
     if (!user) redirect("/login")

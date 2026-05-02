@@ -15,16 +15,11 @@ vi.mock('@/lib/stripe', () => ({
     },
 }))
 
-// Mock prisma
+// Mock prisma — getUserSubscriptionPlan reads only prisma.subscription.findFirst
 vi.mock('@/lib/prisma', () => ({
     prisma: {
-        user: {
-            findUnique: vi.fn(),
-            update: vi.fn(),
-        },
         subscription: {
-            findFirst: vi.fn().mockResolvedValue(null),
-            findMany: vi.fn().mockResolvedValue([]),
+            findFirst: vi.fn(),
         },
     },
 }))
@@ -44,38 +39,12 @@ describe('getUserSubscriptionPlan', () => {
         process.env = originalEnv
     })
 
-    const baseUser = {
-        id: 'user-1',
-        name: 'Test User',
-        email: 'test@example.com',
-        emailVerified: false,
-        image: null,
-        stripeCustomerId: null,
-        stripeSubscriptionId: null,
-        stripePriceId: null,
-        stripeCurrentPeriodEnd: null,
-        stripeCancelAtPeriodEnd: false,
-        storageUsed: BigInt(0),
-        storageLimit: BigInt(5368709120),
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        isAdmin: false,
-        banned: false,
-        banAliasCreation: false,
-        banFileUpload: false,
-        banReason: null,
-        tosViolations: 0,
-        downgradedAt: null,
-        paymentMethod: 'stripe',
-        twoFactorEnabled: false,
-    }
+    it('should return free plan when no active subscription exists', async () => {
+        const { prisma } = await import('@/lib/prisma')
+        vi.mocked(prisma.subscription.findFirst).mockResolvedValue(null)
 
-    it('should return free plan for user without subscription', async () => {
         const { getUserSubscriptionPlan } = await import('@/lib/subscription')
-
-        const user = { ...baseUser }
-
-        const result = await getUserSubscriptionPlan(user)
+        const result = await getUserSubscriptionPlan({ id: 'user-1' })
 
         expect(result.tier).toBe('free')
         expect(result.product).toBe('bundle')
@@ -83,62 +52,91 @@ describe('getUserSubscriptionPlan', () => {
         expect(result.isCanceled).toBe(false)
     })
 
-    it('should return free plan for expired subscription', async () => {
-        const { getUserSubscriptionPlan } = await import('@/lib/subscription')
-
+    it('should return free plan when active subscription is past its grace window', async () => {
         const expiredDate = new Date()
-        expiredDate.setDate(expiredDate.getDate() - 10) // 10 days ago
+        expiredDate.setDate(expiredDate.getDate() - 10) // 10 days ago, well past 1-day grace
 
-        const user = {
-            ...baseUser,
-            stripeCustomerId: 'cus_123',
-            stripeSubscriptionId: 'sub_123',
-            stripePriceId: MOCK_BUNDLE_PLUS_MONTHLY,
-            stripeCurrentPeriodEnd: expiredDate,
-        }
+        const { prisma } = await import('@/lib/prisma')
+        vi.mocked(prisma.subscription.findFirst).mockResolvedValue({
+            id: 'sub-1',
+            userId: 'user-1',
+            provider: 'stripe',
+            providerSubscriptionId: 'sub_123',
+            providerCustomerId: 'cus_123',
+            providerPriceId: MOCK_BUNDLE_PLUS_MONTHLY,
+            product: 'bundle',
+            tier: 'plus',
+            status: 'active',
+            currentPeriodStart: null,
+            currentPeriodEnd: expiredDate,
+            cancelAtPeriodEnd: false,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+        // biome-ignore lint/suspicious/noExplicitAny: test mock for Subscription model
+        } as any)
 
-        const result = await getUserSubscriptionPlan(user)
+        const { getUserSubscriptionPlan } = await import('@/lib/subscription')
+        const result = await getUserSubscriptionPlan({ id: 'user-1' })
 
         expect(result.tier).toBe('free')
         expect(result.isPaid).toBe(false)
     })
 
-    it('should return isCanceled true when stripeCancelAtPeriodEnd is true', async () => {
-        const { getUserSubscriptionPlan } = await import('@/lib/subscription')
-
+    it('should return isCanceled true when cancelAtPeriodEnd is set on the active subscription', async () => {
         const futureDate = new Date()
         futureDate.setDate(futureDate.getDate() + 30)
 
-        const user = {
-            ...baseUser,
-            stripeCustomerId: 'cus_123',
-            stripeSubscriptionId: 'sub_123',
-            stripePriceId: MOCK_BUNDLE_PLUS_MONTHLY,
-            stripeCurrentPeriodEnd: futureDate,
-            stripeCancelAtPeriodEnd: true,
-        }
+        const { prisma } = await import('@/lib/prisma')
+        vi.mocked(prisma.subscription.findFirst).mockResolvedValue({
+            id: 'sub-1',
+            userId: 'user-1',
+            provider: 'stripe',
+            providerSubscriptionId: 'sub_123',
+            providerCustomerId: 'cus_123',
+            providerPriceId: MOCK_BUNDLE_PLUS_MONTHLY,
+            product: 'bundle',
+            tier: 'plus',
+            status: 'active',
+            currentPeriodStart: null,
+            currentPeriodEnd: futureDate,
+            cancelAtPeriodEnd: true,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+        // biome-ignore lint/suspicious/noExplicitAny: test mock for Subscription model
+        } as any)
 
-        const result = await getUserSubscriptionPlan(user)
+        const { getUserSubscriptionPlan } = await import('@/lib/subscription')
+        const result = await getUserSubscriptionPlan({ id: 'user-1' })
 
         expect(result.isCanceled).toBe(true)
         expect(result.isPaid).toBe(true)
     })
 
-    it('should return correct plan for bundle plus subscription', async () => {
-        const { getUserSubscriptionPlan } = await import('@/lib/subscription')
-
+    it('should return correct plan for an active bundle/plus subscription', async () => {
         const futureDate = new Date()
         futureDate.setDate(futureDate.getDate() + 30)
 
-        const user = {
-            ...baseUser,
-            stripeCustomerId: 'cus_123',
-            stripeSubscriptionId: 'sub_123',
-            stripePriceId: MOCK_BUNDLE_PLUS_MONTHLY,
-            stripeCurrentPeriodEnd: futureDate,
-        }
+        const { prisma } = await import('@/lib/prisma')
+        vi.mocked(prisma.subscription.findFirst).mockResolvedValue({
+            id: 'sub-1',
+            userId: 'user-1',
+            provider: 'stripe',
+            providerSubscriptionId: 'sub_123',
+            providerCustomerId: 'cus_123',
+            providerPriceId: MOCK_BUNDLE_PLUS_MONTHLY,
+            product: 'bundle',
+            tier: 'plus',
+            status: 'active',
+            currentPeriodStart: null,
+            currentPeriodEnd: futureDate,
+            cancelAtPeriodEnd: false,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+        // biome-ignore lint/suspicious/noExplicitAny: test mock for Subscription model
+        } as any)
 
-        const result = await getUserSubscriptionPlan(user)
+        const { getUserSubscriptionPlan } = await import('@/lib/subscription')
+        const result = await getUserSubscriptionPlan({ id: 'user-1' })
 
         expect(result.product).toBe('bundle')
         expect(result.tier).toBe('plus')

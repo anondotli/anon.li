@@ -1,9 +1,9 @@
 import Stripe from "stripe"
-import { clearUserSubscriptionState, getUserSubscriptionSyncState, updateUserSubscriptionStateById } from "@/lib/data/user"
 import { stripe } from "@/lib/stripe"
 import { prisma } from "@/lib/prisma"
 import { createLogger } from "@/lib/logger"
 import { getPlanFromPriceId } from "@/config/plans"
+import type { Prisma } from "@prisma/client"
 
 const logger = createLogger("SubscriptionSync")
 
@@ -100,55 +100,71 @@ export async function syncSubscriptionFromStripe(userId: string): Promise<{
     synced: boolean
     error?: string
 }> {
-    const user = await getUserSubscriptionSyncState(userId)
+    const SYNC_LIMIT = 50
+    const subscriptions = await prisma.subscription.findMany({
+        where: { userId, provider: "stripe", providerSubscriptionId: { not: null } },
+        select: { providerSubscriptionId: true },
+        orderBy: { createdAt: "desc" },
+        take: SYNC_LIMIT,
+    })
 
-    if (!user) {
-        return { synced: false, error: "User not found" }
-    }
-
-    // No subscription to sync
-    if (!user.stripeSubscriptionId) {
+    if (subscriptions.length === 0) {
         return { synced: true }
     }
 
-    try {
-        const subscription = await stripe.subscriptions.retrieve(user.stripeSubscriptionId)
-
-        const isActive = subscription.status === 'active' || subscription.status === 'trialing'
-        const priceId = subscription.items.data[0]?.price.id
-
-        await updateUserSubscriptionStateById(userId, {
-            stripePriceId: isActive ? priceId : null,
-            stripeCurrentPeriodEnd: new Date(subscription.current_period_end * 1000),
-            stripeCancelAtPeriodEnd: subscription.cancel_at_period_end,
-            stripeCustomerId: typeof subscription.customer === 'string'
-                ? subscription.customer
-                : subscription.customer.id,
+    if (subscriptions.length === SYNC_LIMIT) {
+        logger.warn("syncSubscriptionFromStripe hit row cap — older subscriptions skipped", {
+            userId,
+            limit: SYNC_LIMIT,
         })
-
-        // Write to canonical Subscription table
-        await upsertStripeSubscription(userId, subscription)
-
-        return { synced: true }
-    } catch (error) {
-        logger.error("Failed to sync subscription from Stripe", error)
-
-        // If subscription doesn't exist in Stripe, clear local data
-        if (error instanceof Stripe.errors.StripeInvalidRequestError && error.code === "resource_missing") {
-            await clearUserSubscriptionState(userId)
-            return { synced: true }
-        }
-
-        return { synced: false, error: error instanceof Error ? error.message : "Unknown error" }
     }
+
+    let synced = 0
+    let lastError: string | undefined
+
+    for (const sub of subscriptions) {
+        if (!sub.providerSubscriptionId) continue
+
+        try {
+            const subscription = await stripe.subscriptions.retrieve(sub.providerSubscriptionId)
+            await upsertStripeSubscription(userId, subscription)
+            synced++
+        } catch (error) {
+            logger.error("Failed to sync subscription from Stripe", error, { subscriptionId: sub.providerSubscriptionId })
+
+            // If subscription doesn't exist in Stripe, mark canonical row as canceled.
+            if (error instanceof Stripe.errors.StripeInvalidRequestError && error.code === "resource_missing") {
+                await prisma.subscription.updateMany({
+                    where: { providerSubscriptionId: sub.providerSubscriptionId },
+                    data: { status: "canceled", cancelAtPeriodEnd: false },
+                })
+                synced++
+                continue
+            }
+
+            lastError = error instanceof Error ? error.message : "Unknown error"
+        }
+    }
+
+    if (synced === 0 && lastError) {
+        return { synced: false, error: lastError }
+    }
+
+    return { synced: true }
 }
 
 /**
  * Create or update a crypto subscription in the canonical Subscription table.
  * Uses a synthetic providerSubscriptionId (crypto_{orderId}) for idempotent upserts.
  * Deactivates any other active subscriptions for the user first.
+ *
+ * Must be invoked from inside a Serializable transaction so that the
+ * read-then-write logic (expire-others / upsert-this) is conflict-checked by
+ * Postgres — otherwise concurrent IPNs for the same user can both observe no
+ * existing actives and end up creating two simultaneously-active rows.
  */
 export async function createCryptoSubscription(
+    tx: Prisma.TransactionClient,
     userId: string,
     product: string,
     tier: string,
@@ -158,37 +174,35 @@ export async function createCryptoSubscription(
 ): Promise<void> {
     const syntheticSubId = `crypto_${orderId}`
 
-    await prisma.$transaction(async (tx) => {
-        // Expire other active subscriptions (not this one)
-        await tx.subscription.updateMany({
-            where: {
-                userId,
-                status: "active",
-                providerSubscriptionId: { not: syntheticSubId },
-            },
-            data: { status: "expired" },
-        })
+    // Expire other active subscriptions (not this one)
+    await tx.subscription.updateMany({
+        where: {
+            userId,
+            status: "active",
+            providerSubscriptionId: { not: syntheticSubId },
+        },
+        data: { status: "expired" },
+    })
 
-        // Upsert this subscription idempotently
-        await tx.subscription.upsert({
-            where: { providerSubscriptionId: syntheticSubId },
-            create: {
-                userId,
-                provider: "crypto",
-                providerSubscriptionId: syntheticSubId,
-                product,
-                tier,
-                status: "active",
-                currentPeriodStart: periodStart,
-                currentPeriodEnd: periodEnd,
-            },
-            update: {
-                product,
-                tier,
-                status: "active",
-                currentPeriodStart: periodStart,
-                currentPeriodEnd: periodEnd,
-            },
-        })
+    // Upsert this subscription idempotently
+    await tx.subscription.upsert({
+        where: { providerSubscriptionId: syntheticSubId },
+        create: {
+            userId,
+            provider: "crypto",
+            providerSubscriptionId: syntheticSubId,
+            product,
+            tier,
+            status: "active",
+            currentPeriodStart: periodStart,
+            currentPeriodEnd: periodEnd,
+        },
+        update: {
+            product,
+            tier,
+            status: "active",
+            currentPeriodStart: periodStart,
+            currentPeriodEnd: periodEnd,
+        },
     })
 }

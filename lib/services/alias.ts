@@ -8,11 +8,11 @@ import {
     getAliasesByUserId,
     deleteAliasById as dbDeleteAlias,
 } from "@/lib/data/alias"
-import { getUserById } from "@/lib/data/user"
+import { getUserById, type UserWithSubscriptions } from "@/lib/data/user"
 import { getDomainsByUserId } from "@/lib/data/domain"
 import { getRecipientById, getDefaultRecipientByUserId, getRecipientByUserIdAndEmail } from "@/lib/data/recipient"
 import { prisma } from "@/lib/prisma"
-import type { User, Alias, Recipient } from "@prisma/client"
+import type { Alias, Recipient } from "@prisma/client"
 import { ValidationError, NotFoundError, ForbiddenError, ConflictError, UpgradeRequiredError } from "@/lib/api-error-utils"
 
 const logger = createLogger("AliasService");
@@ -224,7 +224,7 @@ export class AliasService {
         return user
     }
 
-    private static async _validateDomainAccess(user: User, domain: string) {
+    private static async _validateDomainAccess(user: UserWithSubscriptions, domain: string) {
         // anon.li is the main shared domain - always allowed
         if (domain === "anon.li") {
             return
@@ -243,7 +243,7 @@ export class AliasService {
     }
 
     private static async _generateOrValidateAlias(
-        user: User,
+        user: UserWithSubscriptions,
         aliases: Alias[],
         domain: string,
         format: "RANDOM" | "CUSTOM",

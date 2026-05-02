@@ -93,24 +93,15 @@ export async function createCheckoutSession(params: CheckoutParams) {
                 throw new Error("Invalid Price Configuration")
             }
 
-            // Block duplicate subscriptions - check both canonical table and User record.
-            // The stripePriceId check guards against races where the Subscription
-            // table hasn't been populated yet (e.g. webhook delay).
-            const [existingSub, billingUser] = await Promise.all([
-                prisma.subscription.findFirst({
-                    where: {
-                        userId,
-                        status: { in: ["active", "trialing"] },
-                        currentPeriodEnd: { gt: new Date() },
-                    },
-                }),
-                prisma.user.findUnique({
-                    where: { id: userId },
-                    select: { stripePriceId: true },
-                }),
-            ])
+            const existingSub = await prisma.subscription.findFirst({
+                where: {
+                    userId,
+                    status: { in: ["active", "trialing"] },
+                    currentPeriodEnd: { gt: new Date() },
+                },
+            })
 
-            if (existingSub || billingUser?.stripePriceId) {
+            if (existingSub) {
                 throw new Error("You already have an active subscription. Manage it from your billing page.")
             }
 

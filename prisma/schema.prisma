@@ -16,14 +16,6 @@ model User {
   accounts      Account[]
   sessions      Session[]
 
-  // Billing & Subscriptions
-  // Note: We sync Stripe state here to avoid round-trips for basic access checks.
-  stripeCustomerId        String?   @unique @map(name: "stripe_customer_id")
-  stripeSubscriptionId    String?   @unique @map(name: "stripe_subscription_id")
-  stripePriceId           String?   @map(name: "stripe_price_id")
-  stripeCurrentPeriodEnd  DateTime? @map(name: "stripe_current_period_end")
-  stripeCancelAtPeriodEnd Boolean   @default(false) @map(name: "stripe_cancel_at_period_end")
-
   // Resource Ownership
   aliases           Alias[]
   domains           Domain[]

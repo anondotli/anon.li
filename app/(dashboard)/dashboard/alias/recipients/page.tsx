@@ -18,9 +18,16 @@ export default async function RecipientsPage() {
         select: {
             id: true,
             email: true,
-            stripePriceId: true,
-            stripeCurrentPeriodEnd: true,
             downgradedAt: true,
+            subscriptions: {
+                where: { status: { in: ["active", "trialing"] } },
+                select: {
+                    status: true,
+                    product: true,
+                    tier: true,
+                    currentPeriodEnd: true,
+                },
+            },
         }
     })
 

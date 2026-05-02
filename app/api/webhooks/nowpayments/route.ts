@@ -7,6 +7,7 @@ import { createLogger } from "@/lib/logger"
 import { isValidCryptoProduct, isValidCryptoTier, getCryptoPrice } from "@/lib/crypto-prices"
 import type { CryptoProduct, CryptoTier } from "@/lib/crypto-prices"
 import { createCryptoSubscription } from "@/lib/services/subscription-sync"
+import { Prisma } from "@prisma/client"
 
 const logger = createLogger("NOWPaymentsWebhook")
 
@@ -224,8 +225,15 @@ export async function POST(req: Request) {
             const periodEnd = new Date(now)
             periodEnd.setFullYear(periodEnd.getFullYear() + 1)
 
-            await prisma.$transaction([
-                prisma.cryptoPayment.update({
+            // Single Serializable transaction across CryptoPayment, User, and the
+            // canonical Subscription row. Serializable isolation is required so
+            // concurrent IPNs for the same user (e.g. the user paid two crypto
+            // invoices) cannot both observe "no active subs" and end up creating
+            // two simultaneously-active rows. Postgres aborts the loser; the
+            // released claim lets NOWPayments retry and the synthetic-id upsert
+            // is then a no-op idempotent update.
+            await prisma.$transaction(async (tx) => {
+                await tx.cryptoPayment.update({
                     where: { id: payment.id },
                     data: {
                         nowPaymentId: paymentId,
@@ -236,19 +244,15 @@ export async function POST(req: Request) {
                         periodStart: now,
                         periodEnd: periodEnd,
                     },
-                }),
-                prisma.user.update({
+                })
+                await tx.user.update({
                     where: { id: payment.userId },
                     data: {
-                        stripePriceId: payment.planPriceId,
-                        stripeCurrentPeriodEnd: periodEnd,
                         paymentMethod: "crypto",
                     },
-                }),
-            ])
-
-            // Write to canonical Subscription table (idempotent via orderId)
-            await createCryptoSubscription(payment.userId, payment.product, payment.tier, now, periodEnd, orderId)
+                })
+                await createCryptoSubscription(tx, payment.userId, payment.product, payment.tier, now, periodEnd, orderId)
+            }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
 
             // Non-critical side effects outside transaction
             await postActivationSideEffects(payment, periodEnd)

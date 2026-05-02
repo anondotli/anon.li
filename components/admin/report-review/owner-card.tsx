@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ExternalLink, User, Loader2 } from "lucide-react"
-import { getPlanName } from "@/lib/admin/format"
 import { getStrikesBadge } from "./utils"
 
 interface OwnerUser {
@@ -15,7 +14,6 @@ interface OwnerUser {
     banned: boolean
     banAliasCreation?: boolean
     banFileUpload?: boolean
-    stripePriceId: string | null
     isAdmin: boolean
 }
 
@@ -53,9 +51,6 @@ export function OwnerCard({ user, loading, serviceType }: OwnerCardProps) {
                     <div className="space-y-2">
                         <p className="font-mono text-sm">{user.email}</p>
                         <div className="flex items-center gap-2 flex-wrap">
-                            <Badge variant="outline">
-                                {getPlanName(user.stripePriceId)}
-                            </Badge>
                             {user.isAdmin && (
                                 <Badge className="bg-purple-500/10 text-purple-500 border-purple-500/20">
                                     Admin

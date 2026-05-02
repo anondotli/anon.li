@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
-import { getUserBillingState } from "@/lib/data/user"
+import { prisma } from "@/lib/prisma"
 import { rateLimit } from "@/lib/rate-limit"
 import { readApiRateLimit, readDropApiRateLimit } from "@/lib/api-rate-limit"
 import { createLogger } from "@/lib/logger"
@@ -36,7 +36,20 @@ export async function GET() {
         const rateLimited = await rateLimit("dropList", session.user.id)
         if (rateLimited) return rateLimited
 
-        const user = await getUserBillingState(session.user.id)
+        const user = await prisma.user.findUnique({
+            where: { id: session.user.id },
+            select: {
+                subscriptions: {
+                    where: { status: { in: ["active", "trialing"] } },
+                    select: {
+                        status: true,
+                        product: true,
+                        tier: true,
+                        currentPeriodEnd: true,
+                    },
+                },
+            },
+        })
 
         if (!user) {
             return NextResponse.json({ error: "User not found" }, { status: 404 })

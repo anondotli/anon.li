@@ -88,9 +88,7 @@ export async function invokeTool<T>(
     try {
         return await handler({
             id: userId,
-            stripeSubscriptionId: user.stripeSubscriptionId,
-            stripePriceId: user.stripePriceId,
-            stripeCurrentPeriodEnd: user.stripeCurrentPeriodEnd,
+            subscriptions: user.subscriptions,
         })
     } catch (error) {
         if (error instanceof McpError) throw error

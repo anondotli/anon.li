@@ -30,7 +30,7 @@ import {
     Shield,
     CreditCard
 } from "lucide-react"
-import { formatBytes, formatDateTime, getPlanName } from "@/lib/admin/format"
+import { formatBytes, formatDateTime } from "@/lib/admin/format"
 import { banUser, unbanUser, deleteUser } from "@/actions/admin"
 import { toast } from "sonner"
 
@@ -47,11 +47,6 @@ interface UserDetailClientProps {
         tosViolations: number
         emailVerified: boolean
         twoFactorEnabled: boolean
-        stripePriceId: string | null
-        stripeCustomerId: string | null
-        stripeSubscriptionId: string | null
-        stripeCurrentPeriodEnd: Date | null
-        stripeCancelAtPeriodEnd: boolean
         paymentMethod: string
         downgradedAt: Date | null
         storageUsed: string
@@ -210,7 +205,7 @@ export function UserDetailClient({ user }: UserDetailClientProps) {
     const isBanned = user.banned || user.banAliasCreation || user.banFileUpload
     const planLabel = user.primarySubscription
         ? `${user.primarySubscription.product.charAt(0).toUpperCase() + user.primarySubscription.product.slice(1)} ${user.primarySubscription.tier.charAt(0).toUpperCase() + user.primarySubscription.tier.slice(1)}`
-        : getPlanName(user.stripePriceId)
+        : "Free"
 
     return (
         <div className="space-y-6">
@@ -323,9 +318,9 @@ export function UserDetailClient({ user }: UserDetailClientProps) {
                             {user.primarySubscription?.provider ?? user.paymentMethod}
                             {user.primarySubscription?.status ? ` · ${user.primarySubscription.status}` : ""}
                         </p>
-                        {user.stripeCustomerId && (
+                        {user.subscriptions[0]?.providerCustomerId && (
                             <p className="text-xs text-muted-foreground truncate">
-                                {user.stripeCustomerId}
+                                {user.subscriptions[0].providerCustomerId}
                             </p>
                         )}
                     </CardContent>
@@ -451,7 +446,7 @@ export function UserDetailClient({ user }: UserDetailClientProps) {
                 <Card>
                     <CardHeader>
                         <CardTitle>Subscriptions</CardTitle>
-                        <CardDescription>Canonical Subscription records with legacy Stripe fallback visible above.</CardDescription>
+                        <CardDescription>Canonical Subscription records.</CardDescription>
                     </CardHeader>
                     <CardContent>
                         {user.subscriptions.length > 0 ? (

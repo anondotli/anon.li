@@ -1,7 +1,7 @@
 "use server"
 
 import { createCryptoPayment } from "@/lib/data/crypto-payment"
-import { getUserBillingState } from "@/lib/data/user"
+import { prisma } from "@/lib/prisma"
 import { redirect } from "next/navigation"
 import { nanoid } from "nanoid"
 import { getNOWPaymentsClient } from "@/lib/nowpayments"
@@ -33,9 +33,15 @@ export async function createCryptoCheckout(params: CryptoCheckoutParams) {
             }
 
             // Check for existing active subscription
-            const user = await getUserBillingState(userId)
+            const existingSub = await prisma.subscription.findFirst({
+                where: {
+                    userId,
+                    status: { in: ["active", "trialing"] },
+                    currentPeriodEnd: { gt: new Date() },
+                },
+            })
 
-            if (user?.stripePriceId && user.stripeCurrentPeriodEnd && new Date(user.stripeCurrentPeriodEnd) > new Date()) {
+            if (existingSub) {
                 throw new Error("You already have an active subscription. Please wait for it to expire or cancel it first.")
             }
 

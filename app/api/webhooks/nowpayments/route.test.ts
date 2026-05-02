@@ -3,8 +3,8 @@ import crypto from 'crypto'
 
 vi.mock('server-only', () => ({}))
 
-vi.mock('@/lib/prisma', () => ({
-    prisma: {
+vi.mock('@/lib/prisma', () => {
+    const mockPrisma = {
         cryptoPayment: {
             findUnique: vi.fn(),
             update: vi.fn(),
@@ -18,10 +18,16 @@ vi.mock('@/lib/prisma', () => ({
             findMany: vi.fn().mockResolvedValue([]),
             create: vi.fn().mockResolvedValue({}),
             updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+            upsert: vi.fn().mockResolvedValue({}),
         },
-        $transaction: vi.fn().mockResolvedValue([{}, {}]),
-    },
-}))
+        $transaction: vi.fn(async (arg: unknown) => {
+            if (Array.isArray(arg)) return Promise.all(arg)
+            if (typeof arg === 'function') return (arg as (tx: typeof mockPrisma) => unknown)(mockPrisma)
+            return undefined
+        }),
+    }
+    return { prisma: mockPrisma }
+})
 
 const mockRedisSet = vi.fn()
 const mockRedisDel = vi.fn()
@@ -272,7 +278,6 @@ describe('NOWPayments IPN Webhook', () => {
             expect.objectContaining({
                 where: { id: 'user_2' },
                 data: expect.objectContaining({
-                    stripePriceId: 'price_test_yearly',
                     paymentMethod: 'crypto',
                 }),
             })

@@ -39,7 +39,6 @@ export interface DropUser {
     banned: boolean
     banAliasCreation: boolean
     banFileUpload: boolean
-    stripePriceId: string | null
     isAdmin: boolean
 }
 
@@ -64,7 +63,6 @@ export interface AliasDetails {
         tosViolations: number
         banned: boolean
         banAliasCreation: boolean
-        stripePriceId: string | null
         isAdmin: boolean
     }
 }
@@ -89,7 +87,6 @@ export interface FormDetails {
         banned: boolean
         banAliasCreation: boolean
         banFileUpload: boolean
-        stripePriceId: string | null
         isAdmin: boolean
     } | null
 }

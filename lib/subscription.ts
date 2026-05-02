@@ -1,10 +1,8 @@
-import type { User } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
-import { BUNDLE_PLANS, getPlanFromPriceId, ALIAS_PLANS, DROP_PLANS, FORM_PLANS } from "@/config/plans"
+import { BUNDLE_PLANS, ALIAS_PLANS, DROP_PLANS, FORM_PLANS } from "@/config/plans"
 import { DAY_MS } from "@/lib/constants"
 
-export async function getUserSubscriptionPlan(user: Pick<User, "id" | "stripePriceId" | "stripeCurrentPeriodEnd" | "stripeCancelAtPeriodEnd">) {
-    // Try new Subscription table first
+export async function getUserSubscriptionPlan(user: { id: string }) {
     const subscription = await prisma.subscription.findFirst({
         where: {
             userId: user.id,
@@ -31,36 +29,6 @@ export async function getUserSubscriptionPlan(user: Pick<User, "id" | "stripePri
                 isCanceled: subscription.cancelAtPeriodEnd,
                 isExpired: false,
                 stripeCurrentPeriodEnd: subscription.currentPeriodEnd.getTime(),
-            }
-        }
-    }
-
-    // Fallback: legacy User-level Stripe fields
-    const priceId = user.stripePriceId
-    const isExpired = user.stripeCurrentPeriodEnd && new Date(user.stripeCurrentPeriodEnd).getTime() + DAY_MS < Date.now()
-
-    if (priceId && !isExpired) {
-        const planInfo = getPlanFromPriceId(priceId)
-
-        if (planInfo) {
-            const { product, tier } = planInfo
-
-            let plan
-            if (product === 'bundle') plan = BUNDLE_PLANS[tier as 'plus' | 'pro']
-            else if (product === 'alias') plan = ALIAS_PLANS[tier as 'plus' | 'pro']
-            else if (product === 'drop') plan = DROP_PLANS[tier as 'plus' | 'pro']
-            else if (product === 'form') plan = FORM_PLANS[tier as 'plus' | 'pro']
-
-            if (plan) {
-                return {
-                    ...plan,
-                    product,
-                    tier,
-                    isPaid: true,
-                    isCanceled: user.stripeCancelAtPeriodEnd ?? false,
-                    isExpired: false,
-                    stripeCurrentPeriodEnd: user.stripeCurrentPeriodEnd?.getTime() || null,
-                }
             }
         }
     }

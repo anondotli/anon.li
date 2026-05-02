@@ -1,6 +1,15 @@
-import { getPlanFromPriceId, type Product, type Tier } from "@/config/plans"
-import { ALIAS_LIMITS, STORAGE_LIMITS, DROP_SIZE_LIMITS, EXPIRY_LIMITS, DROP_FEATURES } from "@/config/plans"
-import { PLAN_ENTITLEMENTS, type AliasEntitlements, type FormEntitlements } from "@/config/plans"
+import {
+    ALIAS_LIMITS,
+    STORAGE_LIMITS,
+    DROP_SIZE_LIMITS,
+    EXPIRY_LIMITS,
+    DROP_FEATURES,
+    PLAN_ENTITLEMENTS,
+    type AliasEntitlements,
+    type FormEntitlements,
+    type PaidTier,
+    type Product,
+} from "@/config/plans"
 import { DAY_MS } from "@/lib/constants"
 
 type DropFeatures = typeof DROP_FEATURES[keyof typeof DROP_FEATURES];
@@ -12,28 +21,41 @@ type DropLimits = {
     features: DropFeatures;
 };
 
-// Legacy type kept for callers that still pass a user object
-type UserSub = { stripePriceId?: string | null; stripeCurrentPeriodEnd?: Date | null }
+export type SubscriptionLike = {
+    status: string
+    product: string
+    tier: string
+    currentPeriodEnd: Date | null
+}
+export type UserSub = { subscriptions?: SubscriptionLike[] | null }
 
-function resolveSubscription(user?: UserSub | null): { product: Product; tier: Tier } | null {
-    if (!user?.stripePriceId || !user.stripeCurrentPeriodEnd) return null
-    if (new Date(user.stripeCurrentPeriodEnd).getTime() + DAY_MS < Date.now()) return null
-    return getPlanFromPriceId(user.stripePriceId)
+const TIER_RANK: Record<string, number> = { free: 0, plus: 1, pro: 2 }
+
+function isActive(sub: SubscriptionLike): boolean {
+    if (sub.status !== "active" && sub.status !== "trialing") return false
+    if (sub.currentPeriodEnd && sub.currentPeriodEnd.getTime() + DAY_MS < Date.now()) return false
+    return true
 }
 
-/**
- * Get alias limits for a user. Prefers async resolution via Subscription table.
- * Falls back to synchronous legacy resolution if a user object is passed.
- */
-export function getPlanLimits(user?: UserSub | null): AliasEntitlements {
-    const resolved = resolveSubscription(user)
-    if (!resolved) return ALIAS_LIMITS.free
+function higherTier(a: 'free' | PaidTier, b: 'free' | PaidTier): 'free' | PaidTier {
+    return (TIER_RANK[a] ?? 0) >= (TIER_RANK[b] ?? 0) ? a : b
+}
 
-    const { product, tier } = resolved
-    if ((product === 'alias' || product === 'bundle') && (tier === 'plus' || tier === 'pro')) {
-        return ALIAS_LIMITS[tier]
+function resolveTierForProduct(user: UserSub | null | undefined, product: Product): 'free' | PaidTier {
+    if (!user?.subscriptions) return 'free'
+    let best: 'free' | PaidTier = 'free'
+    for (const sub of user.subscriptions) {
+        if (!isActive(sub)) continue
+        if (sub.tier !== 'plus' && sub.tier !== 'pro') continue
+        if (sub.product !== 'bundle' && sub.product !== product) continue
+        best = higherTier(best, sub.tier as PaidTier)
     }
-    return ALIAS_LIMITS.free
+    return best
+}
+
+export function getPlanLimits(user?: UserSub | null): AliasEntitlements {
+    const tier = resolveTierForProduct(user, 'alias')
+    return tier === 'free' ? ALIAS_LIMITS.free : ALIAS_LIMITS[tier]
 }
 
 /**
@@ -42,16 +64,7 @@ export function getPlanLimits(user?: UserSub | null): AliasEntitlements {
  * enforcement uses a hidden high cap.
  */
 export function getDisplayPlanLimits(user?: UserSub | null): AliasEntitlements {
-    const resolved = resolveSubscription(user)
-
-    if (!resolved) return ALIAS_LIMITS.free
-
-    const { product, tier } = resolved
-    if ((product === "alias" || product === "bundle") && (tier === "plus" || tier === "pro")) {
-        return ALIAS_LIMITS[tier]
-    }
-
-    return ALIAS_LIMITS.free
+    return getPlanLimits(user)
 }
 
 /**
@@ -64,39 +77,28 @@ export async function getPlanLimitsAsync(userId: string): Promise<AliasEntitleme
 }
 
 export function getDropLimits(user?: UserSub | null): DropLimits {
-    const freeLimits: DropLimits = {
-        maxStorage: STORAGE_LIMITS.free,
-        maxFileSize: DROP_SIZE_LIMITS.free,
-        maxExpiry: EXPIRY_LIMITS.free,
-        downloadLimits: DROP_FEATURES.free.downloadLimits,
-        features: DROP_FEATURES.free,
-    }
-
-    const resolved = resolveSubscription(user)
-    if (!resolved) return freeLimits
-
-    const { product, tier } = resolved
-    if ((product === 'drop' || product === 'bundle') && (tier === 'plus' || tier === 'pro')) {
+    const tier = resolveTierForProduct(user, 'drop')
+    if (tier === 'free') {
         return {
-            maxStorage: STORAGE_LIMITS[tier],
-            maxFileSize: DROP_SIZE_LIMITS[tier],
-            maxExpiry: EXPIRY_LIMITS[tier],
-            downloadLimits: DROP_FEATURES[tier].downloadLimits,
-            features: DROP_FEATURES[tier],
+            maxStorage: STORAGE_LIMITS.free,
+            maxFileSize: DROP_SIZE_LIMITS.free,
+            maxExpiry: EXPIRY_LIMITS.free,
+            downloadLimits: DROP_FEATURES.free.downloadLimits,
+            features: DROP_FEATURES.free,
         }
     }
-    return freeLimits
+    return {
+        maxStorage: STORAGE_LIMITS[tier],
+        maxFileSize: DROP_SIZE_LIMITS[tier],
+        maxExpiry: EXPIRY_LIMITS[tier],
+        downloadLimits: DROP_FEATURES[tier].downloadLimits,
+        features: DROP_FEATURES[tier],
+    }
 }
 
 export function getFormLimits(user?: UserSub | null): FormEntitlements {
-    const resolved = resolveSubscription(user)
-    if (!resolved) return PLAN_ENTITLEMENTS.form.free
-
-    const { product, tier } = resolved
-    if ((product === 'form' || product === 'bundle') && (tier === 'plus' || tier === 'pro')) {
-        return PLAN_ENTITLEMENTS.form[tier]
-    }
-    return PLAN_ENTITLEMENTS.form.free
+    const tier = resolveTierForProduct(user, 'form')
+    return PLAN_ENTITLEMENTS.form[tier]
 }
 
 export async function getFormLimitsAsync(userId: string): Promise<FormEntitlements> {
@@ -106,20 +108,17 @@ export async function getFormLimitsAsync(userId: string): Promise<FormEntitlemen
 }
 
 /**
- * Get effective tier for a user across both products.
- * Returns the highest tier the user has access to.
+ * Get the highest paid tier a user has across any product.
  */
-export function getEffectiveTier(user?: UserSub | null): 'free' | 'plus' | 'pro' {
-    const tier = resolveSubscription(user)?.tier
-    return (tier === 'plus' || tier === 'pro') ? tier : 'free'
-}
-
-/**
- * Get product type from price ID
- */
-export function getProductFromPriceId(stripePriceId?: string | null): 'bundle' | 'alias' | 'drop' | 'form' | null {
-    if (!stripePriceId) return null
-    return getPlanFromPriceId(stripePriceId)?.product ?? null
+export function getEffectiveTier(user?: UserSub | null): 'free' | PaidTier {
+    if (!user?.subscriptions) return 'free'
+    let best: 'free' | PaidTier = 'free'
+    for (const sub of user.subscriptions) {
+        if (!isActive(sub)) continue
+        if (sub.tier !== 'plus' && sub.tier !== 'pro') continue
+        best = higherTier(best, sub.tier as PaidTier)
+    }
+    return best
 }
 
 /**

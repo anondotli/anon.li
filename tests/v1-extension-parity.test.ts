@@ -106,9 +106,6 @@ describe("extension parity routes", () => {
         mockPolicyContext.userId = "user-123"
         mockPolicyContext.user = {
             id: "user-123",
-            stripeSubscriptionId: null,
-            stripePriceId: "price_plus",
-            stripeCurrentPeriodEnd: null,
         }
 
         getEffectiveTier.mockReturnValue("plus")
@@ -141,8 +138,14 @@ describe("extension parity routes", () => {
             id: "user-123",
             email: "user@example.com",
             name: "Example User",
-            stripePriceId: "price_plus",
-            stripeCurrentPeriodEnd: null,
+            subscriptions: [
+                {
+                    status: "active",
+                    product: "bundle",
+                    tier: "plus",
+                    currentPeriodEnd: new Date(Date.now() + 30 * 86400000),
+                },
+            ],
             storageUsed: BigInt(512),
             createdAt: new Date("2026-04-19T00:00:00.000Z"),
             _count: {

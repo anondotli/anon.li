@@ -4,17 +4,20 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const auth = vi.fn()
-const getUserBillingState = vi.fn()
 const rateLimit = vi.fn()
 const readApiRateLimit = vi.fn()
 const readDropApiRateLimit = vi.fn()
 const checkApiRateLimit = vi.fn()
 const checkDropApiRateLimit = vi.fn()
 
+const prismaUserFindUnique = vi.fn()
+
 vi.mock("@/auth", () => ({ auth }))
 
-vi.mock("@/lib/data/user", () => ({
-    getUserBillingState,
+vi.mock("@/lib/prisma", () => ({
+    prisma: {
+        user: { findUnique: prismaUserFindUnique },
+    },
 }))
 
 vi.mock("@/lib/rate-limit", () => ({
@@ -34,7 +37,7 @@ describe("GET /api/user/usage", () => {
         vi.clearAllMocks()
         auth.mockResolvedValue({ user: { id: "user-123" } })
         rateLimit.mockResolvedValue(null)
-        getUserBillingState.mockResolvedValue({ stripePriceId: null, stripeCurrentPeriodEnd: null })
+        prismaUserFindUnique.mockResolvedValue({ subscriptions: [] })
         readApiRateLimit.mockResolvedValue({ success: true, limit: 500, remaining: 450, reset: new Date("2026-04-16T00:00:00.000Z") })
         readDropApiRateLimit.mockResolvedValue({ success: true, limit: 500, remaining: 475, reset: new Date("2026-04-16T00:00:00.000Z") })
     })
@@ -48,8 +51,8 @@ describe("GET /api/user/usage", () => {
         expect(response.status).toBe(200)
         expect(body.alias.used).toBe(50)
         expect(body.drop.used).toBe(25)
-        expect(readApiRateLimit).toHaveBeenCalledWith("user-123", { stripePriceId: null, stripeCurrentPeriodEnd: null })
-        expect(readDropApiRateLimit).toHaveBeenCalledWith("user-123", { stripePriceId: null, stripeCurrentPeriodEnd: null })
+        expect(readApiRateLimit).toHaveBeenCalledWith("user-123", { subscriptions: [] })
+        expect(readDropApiRateLimit).toHaveBeenCalledWith("user-123", { subscriptions: [] })
         expect(checkApiRateLimit).not.toHaveBeenCalled()
         expect(checkDropApiRateLimit).not.toHaveBeenCalled()
     })

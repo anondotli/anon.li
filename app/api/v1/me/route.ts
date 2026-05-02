@@ -5,7 +5,8 @@
 
 import { EXPIRY_LIMITS } from "@/config/plans"
 import { apiError, apiSuccess, ErrorCodes } from "@/lib/api-response"
-import { getDisplayPlanLimits, getDropLimits, getEffectiveTier, getProductFromPriceId } from "@/lib/limits"
+import { getDisplayPlanLimits, getDropLimits, getEffectiveTier, type SubscriptionLike } from "@/lib/limits"
+import { DAY_MS } from "@/lib/constants"
 import { prisma } from "@/lib/prisma"
 import { withPolicy } from "@/lib/route-policy"
 
@@ -25,10 +26,9 @@ export const GET = withPolicy(
             id: string
             email: string | null
             name: string | null
-            stripePriceId: string | null
-            stripeCurrentPeriodEnd: Date | null
             storageUsed: bigint
             createdAt: Date
+            subscriptions: SubscriptionLike[]
             _count: { aliases: number; drops: number; domains: number; recipients: number }
         } | null
 
@@ -43,10 +43,17 @@ export const GET = withPolicy(
                     id: true,
                     email: true,
                     name: true,
-                    stripePriceId: true,
-                    stripeCurrentPeriodEnd: true,
                     storageUsed: true,
                     createdAt: true,
+                    subscriptions: {
+                        where: { status: { in: ["active", "trialing"] } },
+                        select: {
+                            status: true,
+                            product: true,
+                            tier: true,
+                            currentPeriodEnd: true,
+                        },
+                    },
                     _count: {
                         select: {
                             aliases: true,
@@ -75,7 +82,10 @@ export const GET = withPolicy(
         const tier = getEffectiveTier(user)
         const aliasLimits = getDisplayPlanLimits(user)
         const dropLimits = getDropLimits(user)
-        const product = getProductFromPriceId(user.stripePriceId)
+        const now = Date.now()
+        const product = user.subscriptions
+            .filter((s) => !s.currentPeriodEnd || s.currentPeriodEnd.getTime() + DAY_MS > now)
+            .find((s) => s.tier === "plus" || s.tier === "pro")?.product ?? null
         const randomCount = aliasByFormat.find((group) => group.format === "RANDOM")?._count._all ?? 0
         const customCount = aliasByFormat.find((group) => group.format === "CUSTOM")?._count._all ?? 0
         const expiryDays = tier === "free"

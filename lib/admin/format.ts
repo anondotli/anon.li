@@ -2,7 +2,6 @@
  * Shared formatting utilities for the admin panel
  * Uses European date format (DD/MM/YYYY)
  */
-import { getPlanFromPriceId } from "@/config/plans"
 
 /**
  * Format a date as DD/MM/YYYY
@@ -63,18 +62,6 @@ export function formatRelativeTime(date: Date | string): string {
     if (diffDays < 30) return `${diffDays} day${diffDays !== 1 ? "s" : ""} ago`
 
     return formatDate(d)
-}
-
-/**
- * Get plan name from Stripe price ID
- */
-export function getPlanName(priceId: string | null): string {
-    if (!priceId) return "Free"
-    const planInfo = getPlanFromPriceId(priceId)
-    if (!planInfo) return "Free"
-    const productLabel = planInfo.product.charAt(0).toUpperCase() + planInfo.product.slice(1)
-    const tierLabel = planInfo.tier.charAt(0).toUpperCase() + planInfo.tier.slice(1)
-    return `${productLabel} ${tierLabel}`
 }
 
 /**

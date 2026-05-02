@@ -1,29 +1,58 @@
-
 import { prisma } from "@/lib/prisma"
 import type { User } from "@prisma/client"
+import { DAY_MS } from "@/lib/constants"
+import type { SubscriptionLike } from "@/lib/limits"
 
-type UserSubscriptionState = {
-    stripePriceId: string | null
-    stripeCurrentPeriodEnd: Date | null
-    stripeCancelAtPeriodEnd: boolean
-}
+/**
+ * User row enriched with the active/trialing subscriptions needed by the
+ * synchronous limit helpers in `lib/limits`.
+ */
+export type UserWithSubscriptions = User & { subscriptions: SubscriptionLike[] }
 
-export async function getUserById(id: string): Promise<User | null> {
+export async function getUserById(id: string): Promise<UserWithSubscriptions | null> {
     return await prisma.user.findUnique({
         where: { id },
+        include: {
+            subscriptions: {
+                where: { status: { in: ["active", "trialing"] } },
+                select: {
+                    status: true,
+                    product: true,
+                    tier: true,
+                    currentPeriodEnd: true,
+                },
+            },
+        },
     })
 }
 
+/**
+ * Returns the user's email and Stripe customer ID (resolved from the canonical
+ * Subscription table) for billing portal / checkout flows.
+ */
 export async function getUserBillingState(userId: string) {
-    return await prisma.user.findUnique({
-        where: { id: userId },
-        select: {
-            email: true,
-            stripeCustomerId: true,
-            stripePriceId: true,
-            stripeCurrentPeriodEnd: true,
-        },
-    })
+    const [user, stripeSub] = await Promise.all([
+        prisma.user.findUnique({
+            where: { id: userId },
+            select: { email: true },
+        }),
+        prisma.subscription.findFirst({
+            where: {
+                userId,
+                provider: "stripe",
+                providerCustomerId: { not: null },
+            },
+            orderBy: [{ status: "asc" }, { createdAt: "desc" }],
+            select: { providerCustomerId: true },
+        }),
+    ])
+
+    if (!user) return null
+
+    return {
+        email: user.email,
+        stripeCustomerId: stripeSub?.providerCustomerId ?? null,
+    }
 }
 
 export async function getUserIdByEmail(email: string) {
@@ -33,64 +62,27 @@ export async function getUserIdByEmail(email: string) {
     })
 }
 
+/**
+ * Look up a user by Stripe customer ID via the canonical Subscription table.
+ */
 export async function getUserIdByStripeCustomerId(stripeCustomerId: string) {
-    return await prisma.user.findUnique({
-        where: { stripeCustomerId },
-        select: { id: true },
+    const sub = await prisma.subscription.findFirst({
+        where: { provider: "stripe", providerCustomerId: stripeCustomerId },
+        select: { userId: true },
+        orderBy: { createdAt: "desc" },
     })
+    return sub ? { id: sub.userId } : null
 }
 
+/**
+ * Look up a user by Stripe subscription ID via the canonical Subscription table.
+ */
 export async function getUserByStripeSubscriptionId(stripeSubscriptionId: string) {
-    return await prisma.user.findUnique({
-        where: { stripeSubscriptionId },
-        select: { id: true, email: true },
+    const sub = await prisma.subscription.findUnique({
+        where: { providerSubscriptionId: stripeSubscriptionId },
+        select: { user: { select: { id: true, email: true } } },
     })
-}
-
-export async function getUserSubscriptionSyncState(userId: string) {
-    return await prisma.user.findUnique({
-        where: { id: userId },
-        select: {
-            id: true,
-            stripeSubscriptionId: true,
-            stripeCustomerId: true,
-        },
-    })
-}
-
-export async function updateUserSubscriptionStateById(
-    userId: string,
-    data: Partial<UserSubscriptionState> & {
-        stripeSubscriptionId?: string | null
-        stripeCustomerId?: string | null
-        paymentMethod?: string
-    }
-) {
-    return await prisma.user.update({
-        where: { id: userId },
-        data,
-    })
-}
-
-export async function updateUserSubscriptionStateBySubscriptionId(
-    stripeSubscriptionId: string,
-    data: UserSubscriptionState
-) {
-    return await prisma.user.update({
-        where: { stripeSubscriptionId },
-        data,
-    })
-}
-
-export async function clearUserSubscriptionState(userId: string) {
-    return await prisma.user.update({
-        where: { id: userId },
-        data: {
-            stripePriceId: null,
-            stripeSubscriptionId: null,
-            stripeCancelAtPeriodEnd: false,
-        },
-    })
+    return sub?.user ?? null
 }
 
 /**
@@ -128,7 +120,7 @@ export async function getDripCohort(opts: {
             createdAt: { gte: lowerBound, lt: upperBound },
             emailVerified: true,
             banned: false,
-            stripeSubscriptionId: null,
+            subscriptions: { none: { status: { in: ["active", "trialing"] } } },
             dripUnsubscribed: false,
             email: {
                 notIn: excludeEmails,
@@ -170,7 +162,11 @@ export async function getHeavyFreeUsers(opts: {
         SELECT u.id, u.email, COUNT(a.id)::int AS "aliasCount", COALESCE(SUM(a."emailsReceived"), 0)::int AS "emailsForwarded"
         FROM users u
         INNER JOIN aliases a ON a."userId" = u.id
-        WHERE u."stripeSubscriptionId" IS NULL
+        WHERE NOT EXISTS (
+            SELECT 1 FROM subscriptions s
+            WHERE s."userId" = u.id
+              AND s.status IN ('active', 'trialing')
+          )
           AND u.banned = false
           AND u."emailVerified" = true
           AND u."drip_unsubscribed" = false
@@ -184,21 +180,34 @@ export async function getHeavyFreeUsers(opts: {
     `;
 }
 
-export async function getCryptoRenewalReminderUsers(now: Date, fourteenDaysOut: Date) {
-    return await prisma.user.findMany({
+/**
+ * Find crypto subscribers whose canonical subscription expires within `windowEnd`.
+ * Used by the billing cron to send 14-day / 3-day renewal reminders.
+ */
+export async function getCryptoRenewalReminderUsers(now: Date, windowEnd: Date) {
+    const subs = await prisma.subscription.findMany({
         where: {
-            paymentMethod: "crypto",
-            stripePriceId: { not: null },
-            stripeCurrentPeriodEnd: {
-                gt: now,
-                lte: fourteenDaysOut,
-            },
+            provider: "crypto",
+            status: { in: ["active", "trialing"] },
+            currentPeriodEnd: { gt: now, lte: windowEnd },
         },
         select: {
-            id: true,
-            email: true,
-            stripePriceId: true,
-            stripeCurrentPeriodEnd: true,
+            product: true,
+            tier: true,
+            currentPeriodEnd: true,
+            user: { select: { id: true, email: true } },
         },
-    })
+    });
+
+    // Within the grace window (DAY_MS) treat the period end as still valid.
+    const cutoff = now.getTime();
+    return subs
+        .filter((s) => s.currentPeriodEnd && s.currentPeriodEnd.getTime() + DAY_MS > cutoff)
+        .map((s) => ({
+            id: s.user.id,
+            email: s.user.email,
+            product: s.product,
+            tier: s.tier,
+            currentPeriodEnd: s.currentPeriodEnd,
+        }));
 }

@@ -3,7 +3,6 @@ import { validateCronAuth } from "@/lib/cron-auth";
 import { createLogger } from "@/lib/logger";
 import { getCryptoRenewalReminderUsers } from "@/lib/data/user";
 import { Redis } from "@upstash/redis";
-import { getPlanFromPriceId } from "@/config/plans";
 
 const logger = createLogger("CronBilling");
 
@@ -63,16 +62,16 @@ async function processCryptoRenewalReminders(): Promise<{ sent: number; errors: 
     const fourteenDaysOut = new Date(now);
     fourteenDaysOut.setDate(fourteenDaysOut.getDate() + 14);
 
-    // Find crypto users whose subscription expires within 14 days
+    // Find crypto subscribers whose subscription expires within 14 days
     const users = await getCryptoRenewalReminderUsers(now, fourteenDaysOut);
 
     const { sendCryptoRenewalReminderEmail } = await import("@/lib/resend");
 
     for (const user of users) {
-        if (!user.stripeCurrentPeriodEnd || !user.stripePriceId) continue;
+        if (!user.currentPeriodEnd) continue;
 
         const daysRemaining = Math.ceil(
-            (user.stripeCurrentPeriodEnd.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)
+            (user.currentPeriodEnd.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)
         );
 
         // Determine which reminder tier (14d or 3d)
@@ -99,14 +98,10 @@ async function processCryptoRenewalReminders(): Promise<{ sent: number; errors: 
         if (alreadySent) continue;
 
         try {
-            const planInfo = getPlanFromPriceId(user.stripePriceId);
-            const product = planInfo?.product ?? "bundle";
-            const tier = planInfo?.tier ?? "plus";
-
             await sendCryptoRenewalReminderEmail(user.email, {
                 daysRemaining,
-                product,
-                tier,
+                product: user.product,
+                tier: user.tier,
             });
 
             // Mark as sent (TTL: 30 days)

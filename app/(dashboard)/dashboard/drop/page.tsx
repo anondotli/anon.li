@@ -20,7 +20,19 @@ export default async function DropDashboardPage() {
   // Get user with storage info
   const user = await prisma.user.findUnique({
     where: { id: session.user.id },
-    select: { stripePriceId: true, stripeCurrentPeriodEnd: true, storageUsed: true, downgradedAt: true }
+    select: {
+      storageUsed: true,
+      downgradedAt: true,
+      subscriptions: {
+        where: { status: { in: ["active", "trialing"] } },
+        select: {
+          status: true,
+          product: true,
+          tier: true,
+          currentPeriodEnd: true,
+        },
+      },
+    }
   });
 
   const tier = getEffectiveTier(user);

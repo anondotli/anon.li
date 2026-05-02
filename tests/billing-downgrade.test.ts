@@ -195,7 +195,7 @@ describe("BillingDowngradeService", () => {
             mockUserFindUnique.mockResolvedValue({
                 id: "user_1",
                 email: "test@example.com",
-                stripePriceId: "price_123",
+                subscriptions: [{ id: "sub_1" }],
                 downgradedAt: new Date(),
             });
             mockUserUpdate.mockResolvedValue({});
@@ -216,7 +216,7 @@ describe("BillingDowngradeService", () => {
             mockUserFindUnique.mockResolvedValue({
                 id: "user_1",
                 email: "test@example.com",
-                stripePriceId: null,
+                subscriptions: [],
                 downgradedAt: new Date(),
             });
             // Resources already scheduled
@@ -234,7 +234,7 @@ describe("BillingDowngradeService", () => {
             mockUserFindUnique.mockResolvedValue({
                 id: "user_1",
                 email: "test@example.com",
-                stripePriceId: null,
+                subscriptions: [],
                 downgradedAt: new Date(),
             });
 
@@ -289,7 +289,7 @@ describe("BillingDowngradeService", () => {
             mockUserFindUnique.mockResolvedValue({
                 id: "user_1",
                 email: "test@example.com",
-                stripePriceId: null,
+                subscriptions: [],
                 downgradedAt: new Date(),
             });
 
@@ -327,7 +327,7 @@ describe("BillingDowngradeService", () => {
             mockUserFindUnique.mockResolvedValue({
                 id: "user_1",
                 email: "test@example.com",
-                stripePriceId: null,
+                subscriptions: [],
                 downgradedAt: new Date(),
             });
             mockAliasCount.mockResolvedValue(0);
@@ -357,12 +357,13 @@ describe("BillingDowngradeService", () => {
 
     describe("deleteScheduledForUser", () => {
         it("should delete excess and spare remaining", async () => {
-            mockUserFindUnique.mockResolvedValue({
+            mockUserFindUnique.mockResolvedValueOnce({
                 id: "user_1",
                 email: "test@example.com",
-                stripePriceId: null, // still on free tier
-                stripeCurrentPeriodEnd: null,
+                subscriptions: [], // still on free tier
             });
+            // Second findUnique call inside deleteScheduledForUser reads storageUsed
+            mockUserFindUnique.mockResolvedValueOnce({ storageUsed: BigInt(0) });
 
             // Free limits: 10 random, 1 custom, 0 domains, 1 recipient
             // Current totals: 12 random, 3 custom, 2 domains, 3 recipients
@@ -413,12 +414,21 @@ describe("BillingDowngradeService", () => {
             });
             mockGetRecipientLimitImpl.mockReturnValue(10);
 
-            mockUserFindUnique.mockResolvedValue({
+            const futureDate = new Date(Date.now() + 30 * 86400000);
+            mockUserFindUnique.mockResolvedValueOnce({
                 id: "user_1",
                 email: "test@example.com",
-                stripePriceId: "price_pro_monthly", // re-subscribed to pro
-                stripeCurrentPeriodEnd: new Date(Date.now() + 30 * 86400000),
+                subscriptions: [
+                    {
+                        status: "active",
+                        product: "bundle",
+                        tier: "pro",
+                        currentPeriodEnd: futureDate,
+                    },
+                ],
             });
+            // Second findUnique call inside deleteScheduledForUser reads storageUsed
+            mockUserFindUnique.mockResolvedValueOnce({ storageUsed: BigInt(0) });
 
             // Pro limits: hidden 10k random cap, 100 custom, 10 domains, 10 recipients
             // Current totals are all under pro limits
@@ -473,8 +483,8 @@ describe("BillingDowngradeService", () => {
             mockUserFindUnique.mockResolvedValue({
                 id: "user_1",
                 email: "test@example.com",
-                stripePriceId: null,
-                stripeCurrentPeriodEnd: null,
+                subscriptions: [],
+                storageUsed: BigInt(0),
             });
 
             // Simplified: no excess after deletion check

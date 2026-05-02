@@ -1,12 +1,11 @@
 "use client"
 
-import Link from "next/link"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { DataTable, type Column } from "@/components/admin/data-table"
 import { UserLink } from "@/components/admin/entity-link"
-import { formatDateTime, formatRelativeTime, getPlanName } from "@/lib/admin/format"
+import { formatDateTime, formatRelativeTime } from "@/lib/admin/format"
 
 interface SubscriptionRow {
     id: string
@@ -42,22 +41,9 @@ interface CryptoPaymentRow {
     user: { id: string; email: string; name: string | null }
 }
 
-interface LegacyUserRow {
-    id: string
-    email: string
-    name: string | null
-    stripeCustomerId: string | null
-    stripeSubscriptionId: string | null
-    stripePriceId: string | null
-    stripeCurrentPeriodEnd: Date | null
-    stripeCancelAtPeriodEnd: boolean
-    paymentMethod: string
-}
-
 interface BillingTablesProps {
     subscriptions: SubscriptionRow[]
     cryptoPayments: CryptoPaymentRow[]
-    legacyUsers: LegacyUserRow[]
     total: number
     page: number
     totalPages: number
@@ -72,7 +58,6 @@ function statusVariant(status: string) {
 export function BillingTables({
     subscriptions,
     cryptoPayments,
-    legacyUsers,
     total,
     page,
     totalPages,
@@ -180,54 +165,6 @@ export function BillingTables({
                                 <TableRow>
                                     <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
                                         No crypto payments found
-                                    </TableCell>
-                                </TableRow>
-                            )}
-                        </TableBody>
-                    </Table>
-                </CardContent>
-            </Card>
-
-            <Card>
-                <CardHeader>
-                    <CardTitle>Legacy Stripe Users</CardTitle>
-                    <CardDescription>Users with legacy Stripe fields and no canonical subscription row.</CardDescription>
-                </CardHeader>
-                <CardContent>
-                    <Table>
-                        <TableHeader>
-                            <TableRow>
-                                <TableHead>User</TableHead>
-                                <TableHead>Plan</TableHead>
-                                <TableHead>Subscription</TableHead>
-                                <TableHead>Period End</TableHead>
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                            {legacyUsers.map((user) => (
-                                <TableRow key={user.id}>
-                                    <TableCell>
-                                        <Link href={`/admin/users/${user.id}`} className="hover:underline">
-                                            {user.email}
-                                        </Link>
-                                    </TableCell>
-                                    <TableCell>{getPlanName(user.stripePriceId)}</TableCell>
-                                    <TableCell>
-                                        {user.stripeSubscriptionId ? (
-                                            <code className="text-xs">{user.stripeSubscriptionId}</code>
-                                        ) : (
-                                            <span className="text-muted-foreground">-</span>
-                                        )}
-                                    </TableCell>
-                                    <TableCell>
-                                        {user.stripeCurrentPeriodEnd ? formatDateTime(user.stripeCurrentPeriodEnd) : "-"}
-                                    </TableCell>
-                                </TableRow>
-                            ))}
-                            {legacyUsers.length === 0 && (
-                                <TableRow>
-                                    <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
-                                        No legacy billing records found
                                     </TableCell>
                                 </TableRow>
                             )}

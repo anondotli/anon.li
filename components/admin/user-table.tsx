@@ -2,7 +2,7 @@
 
 import { Badge } from "@/components/ui/badge"
 import { DataTable, Column } from "./data-table"
-import { formatDate, formatBytes, getPlanName } from "@/lib/admin/format"
+import { formatDate, formatBytes } from "@/lib/admin/format"
 
 interface User {
     id: string
@@ -14,7 +14,6 @@ interface User {
     banFileUpload: boolean
     banReason: string | null
     tosViolations: number
-    stripePriceId: string | null
     paymentMethod: string
     twoFactorEnabled: boolean
     storageUsed: string
@@ -73,7 +72,7 @@ function getSubscriptionLabel(user: User) {
         return `${product} ${tier}`
     }
 
-    return getPlanName(user.stripePriceId)
+    return "Free"
 }
 
 export function UserTable({ users, total, page, totalPages, search, filter }: UserTableProps) {

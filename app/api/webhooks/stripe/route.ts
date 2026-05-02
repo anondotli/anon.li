@@ -4,8 +4,6 @@ import {
     getUserByStripeSubscriptionId,
     getUserIdByEmail,
     getUserIdByStripeCustomerId,
-    updateUserSubscriptionStateById,
-    updateUserSubscriptionStateBySubscriptionId,
 } from "@/lib/data/user"
 import { prisma } from "@/lib/prisma"
 import { stripe } from "@/lib/stripe"
@@ -28,17 +26,6 @@ function getRedis(): Redis | null {
         })
     }
     return redis
-}
-
-/**
- * Safely convert Stripe's current_period_end to a Date object.
- * Returns a 30-day fallback if the value is invalid.
- */
-function getSafePeriodEndDate(currentPeriodEnd: number | undefined | null): Date {
-    if (currentPeriodEnd && typeof currentPeriodEnd === 'number' && currentPeriodEnd > 0) {
-        return new Date(currentPeriodEnd * 1000)
-    }
-    return new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
 }
 
 /**
@@ -105,6 +92,9 @@ function getSubscriptionPriceId(subscription: Stripe.Subscription): string | nul
 /**
  * Handle downgrade notification after subscription loss.
  * Shared by handleInvoicePaymentFailed and handleCustomerSubscriptionDeleted.
+ *
+ * Email failures are logged but never thrown — otherwise Stripe retries the
+ * whole webhook, re-running idempotent DB writes but also re-sending the email.
  */
 async function handleDowngradeNotification(userId: string, email: string, dropExpiryDate: Date): Promise<void> {
     const { BillingDowngradeService } = await import("@/lib/services/billing-downgrade")
@@ -113,17 +103,21 @@ async function handleDowngradeNotification(userId: string, email: string, dropEx
     const excess = await BillingDowngradeService.calculateExcess(userId)
     const hasExcess = excess.excessRandom + excess.excessCustom + excess.excessDomains + excess.excessRecipients > 0
 
-    if (hasExcess) {
-        const schedulingDate = new Date()
-        schedulingDate.setDate(schedulingDate.getDate() + DOWNGRADE_SCHEDULING_DELAY_DAYS)
-        const deletionDate = new Date()
-        deletionDate.setDate(deletionDate.getDate() + DOWNGRADE_SCHEDULING_DELAY_DAYS + DOWNGRADE_DELETION_DELAY_DAYS)
+    try {
+        if (hasExcess) {
+            const schedulingDate = new Date()
+            schedulingDate.setDate(schedulingDate.getDate() + DOWNGRADE_SCHEDULING_DELAY_DAYS)
+            const deletionDate = new Date()
+            deletionDate.setDate(deletionDate.getDate() + DOWNGRADE_SCHEDULING_DELAY_DAYS + DOWNGRADE_DELETION_DELAY_DAYS)
 
-        const { sendDowngradeWarningEmail } = await import("@/lib/resend")
-        await sendDowngradeWarningEmail(email, excess, schedulingDate, deletionDate)
-    } else {
-        const { sendSubscriptionCanceledEmail } = await import("@/lib/resend")
-        await sendSubscriptionCanceledEmail(email, dropExpiryDate)
+            const { sendDowngradeWarningEmail } = await import("@/lib/resend")
+            await sendDowngradeWarningEmail(email, excess, schedulingDate, deletionDate)
+        } else {
+            const { sendSubscriptionCanceledEmail } = await import("@/lib/resend")
+            await sendSubscriptionCanceledEmail(email, dropExpiryDate)
+        }
+    } catch (error) {
+        logger.error("Failed to send downgrade notification email", error, { userId })
     }
 }
 
@@ -265,14 +259,6 @@ async function handleCheckoutSessionCompleted(event: Stripe.Event): Promise<void
         throw new PermanentWebhookError(`Subscription ${subscriptionId} has no price ID`)
     }
 
-    await updateUserSubscriptionStateById(userId, {
-        stripeSubscriptionId: subscription.id,
-        stripeCustomerId: subscription.customer as string,
-        stripePriceId: priceId,
-        stripeCurrentPeriodEnd: getSafePeriodEndDate(subscription.current_period_end),
-        stripeCancelAtPeriodEnd: subscription.cancel_at_period_end,
-    })
-
     // Write to canonical Subscription table (required - transient failures will retry via Stripe)
     await upsertStripeSubscription(userId, subscription)
 
@@ -293,12 +279,6 @@ async function handleInvoicePaymentSucceeded(invoice: Stripe.Invoice) {
         logger.error("Subscription has no price ID on payment success", null, { subscriptionId })
         return
     }
-
-    await updateUserSubscriptionStateBySubscriptionId(subscription.id, {
-        stripePriceId: priceId,
-        stripeCurrentPeriodEnd: getSafePeriodEndDate(subscription.current_period_end),
-        stripeCancelAtPeriodEnd: subscription.cancel_at_period_end,
-    })
 
     // Cancel any active downgrade - payment succeeded (e.g. retry after failure)
     const user = await getUserByStripeSubscriptionId(subscription.id)
@@ -325,14 +305,6 @@ async function handleInvoicePaymentFailed(invoice: Stripe.Invoice) {
     const user = await getUserByStripeSubscriptionId(subscription.id)
 
     if (user) {
-        const priceId = getSubscriptionPriceId(subscription)
-
-        await updateUserSubscriptionStateById(user.id, {
-            stripePriceId: isActive ? priceId : null,
-            stripeCurrentPeriodEnd: getSafePeriodEndDate(subscription.current_period_end),
-            stripeCancelAtPeriodEnd: subscription.cancel_at_period_end,
-        })
-
         // Write to canonical Subscription table (required - transient failures will retry via Stripe)
         await upsertStripeSubscription(user.id, subscription)
 
@@ -394,12 +366,6 @@ async function handleCustomerSubscriptionUpdated(subscription: Stripe.Subscripti
     // Only sync price if subscription is active or trialing
     const isActive = subscription.status === 'active' || subscription.status === 'trialing'
 
-    await updateUserSubscriptionStateBySubscriptionId(subscription.id, {
-        stripePriceId: isActive ? priceId : null,
-        stripeCurrentPeriodEnd: getSafePeriodEndDate(subscription.current_period_end),
-        stripeCancelAtPeriodEnd: subscription.cancel_at_period_end,
-    })
-
     // Write to canonical Subscription table (required - transient failures will retry via Stripe)
     const userForUpsert = await getUserByStripeSubscriptionId(subscription.id)
     if (userForUpsert) {
@@ -423,13 +389,6 @@ async function handleCustomerSubscriptionDeleted(subscription: Stripe.Subscripti
     const user = await getUserByStripeSubscriptionId(subscription.id)
 
     if (user) {
-        // Update user's subscription status
-        await updateUserSubscriptionStateById(user.id, {
-            stripePriceId: null,
-            stripeCurrentPeriodEnd: getSafePeriodEndDate(subscription.current_period_end),
-            stripeCancelAtPeriodEnd: false,
-        })
-
         // Write to canonical Subscription table (required - transient failures will retry via Stripe)
         await upsertStripeSubscription(user.id, subscription)
 
@@ -457,12 +416,6 @@ async function handleCustomerSubscriptionResumed(subscription: Stripe.Subscripti
         logger.error("Subscription has no price ID on resume", null, { subscriptionId: subscription.id })
         return
     }
-
-    await updateUserSubscriptionStateBySubscriptionId(subscription.id, {
-        stripePriceId: priceId,
-        stripeCurrentPeriodEnd: getSafePeriodEndDate(subscription.current_period_end),
-        stripeCancelAtPeriodEnd: false,
-    })
 
     // Cancel any active downgrade since subscription resumed
     const user = await getUserByStripeSubscriptionId(subscription.id)

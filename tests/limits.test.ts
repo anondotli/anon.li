@@ -2,9 +2,6 @@ import { describe, expect, it } from "vitest"
 
 import {
     ALIAS_LIMITS,
-    ALIAS_PLANS,
-    BUNDLE_PLANS,
-    DROP_PLANS,
     EXPIRY_LIMITS,
     STORAGE_LIMITS,
 } from "@/config/plans"
@@ -14,19 +11,33 @@ import {
     getEffectiveTier,
     getPlanLimits,
     getPlanLimitsAsync,
-    getProductFromPriceId,
     getRecipientLimit,
+    type SubscriptionLike,
 } from "@/lib/limits"
 
 import { vi } from "vitest"
 
-const PRICE_IDS = {
-    bundlePlus: BUNDLE_PLANS.plus.priceIds!.monthly,
-    bundlePro: BUNDLE_PLANS.pro.priceIds!.monthly,
-    aliasPlus: ALIAS_PLANS.plus.priceIds!.monthly,
-    aliasPro: ALIAS_PLANS.pro.priceIds!.monthly,
-    dropPlus: DROP_PLANS.plus.priceIds!.monthly,
-} as const
+const futureDate = () => {
+    const d = new Date()
+    d.setDate(d.getDate() + 30)
+    return d
+}
+
+const expiredDate = () => {
+    const d = new Date()
+    d.setDate(d.getDate() - 10)
+    return d
+}
+
+const recentlyExpiredDate = () => {
+    const d = new Date()
+    d.setHours(d.getHours() - 12)
+    return d
+}
+
+function sub(product: string, tier: string, end: Date | null, status = "active"): SubscriptionLike {
+    return { status, product, tier, currentPeriodEnd: end }
+}
 
 describe("getPlanLimits", () => {
     it("returns free limits for undefined users", () => {
@@ -34,37 +45,24 @@ describe("getPlanLimits", () => {
     })
 
     it("returns paid alias limits for active bundle subscriptions", () => {
-        const futureDate = new Date()
-        futureDate.setDate(futureDate.getDate() + 30)
-
         expect(getPlanLimits({
-            stripePriceId: PRICE_IDS.bundlePlus,
-            stripeCurrentPeriodEnd: futureDate,
+            subscriptions: [sub("bundle", "plus", futureDate())],
         })).toEqual(ALIAS_LIMITS.plus)
 
         expect(getPlanLimits({
-            stripePriceId: PRICE_IDS.bundlePro,
-            stripeCurrentPeriodEnd: futureDate,
+            subscriptions: [sub("bundle", "pro", futureDate())],
         })).toEqual(ALIAS_LIMITS.pro)
     })
 
     it("falls back to free limits for expired subscriptions", () => {
-        const expiredDate = new Date()
-        expiredDate.setDate(expiredDate.getDate() - 10)
-
         expect(getPlanLimits({
-            stripePriceId: PRICE_IDS.bundlePro,
-            stripeCurrentPeriodEnd: expiredDate,
+            subscriptions: [sub("bundle", "pro", expiredDate())],
         })).toEqual(ALIAS_LIMITS.free)
     })
 
     it("returns free alias limits for drop-only subscriptions", () => {
-        const futureDate = new Date()
-        futureDate.setDate(futureDate.getDate() + 30)
-
         expect(getPlanLimits({
-            stripePriceId: PRICE_IDS.dropPlus,
-            stripeCurrentPeriodEnd: futureDate,
+            subscriptions: [sub("drop", "plus", futureDate())],
         })).toEqual(ALIAS_LIMITS.free)
     })
 })
@@ -78,22 +76,14 @@ describe("getDropLimits", () => {
     })
 
     it("returns paid drop limits for active drop subscriptions", () => {
-        const futureDate = new Date()
-        futureDate.setDate(futureDate.getDate() + 30)
-
         expect(getDropLimits({
-            stripePriceId: PRICE_IDS.dropPlus,
-            stripeCurrentPeriodEnd: futureDate,
+            subscriptions: [sub("drop", "plus", futureDate())],
         }).maxStorage).toBe(STORAGE_LIMITS.plus)
     })
 
     it("returns free drop limits for alias-only subscriptions", () => {
-        const futureDate = new Date()
-        futureDate.setDate(futureDate.getDate() + 30)
-
         const result = getDropLimits({
-            stripePriceId: PRICE_IDS.aliasPlus,
-            stripeCurrentPeriodEnd: futureDate,
+            subscriptions: [sub("alias", "plus", futureDate())],
         })
 
         expect(result.maxStorage).toBe(STORAGE_LIMITS.free)
@@ -103,79 +93,53 @@ describe("getDropLimits", () => {
 
 describe("getDisplayPlanLimits", () => {
     it("keeps the public pro alias display unlimited", () => {
-        const futureDate = new Date()
-        futureDate.setDate(futureDate.getDate() + 30)
-
         expect(getDisplayPlanLimits({
-            stripePriceId: PRICE_IDS.bundlePro,
-            stripeCurrentPeriodEnd: futureDate,
+            subscriptions: [sub("bundle", "pro", futureDate())],
         })).toEqual(ALIAS_LIMITS.pro)
     })
 
     it("keeps visible limits unchanged for non-pro users", () => {
-        const futureDate = new Date()
-        futureDate.setDate(futureDate.getDate() + 30)
-
         expect(getDisplayPlanLimits({
-            stripePriceId: PRICE_IDS.bundlePlus,
-            stripeCurrentPeriodEnd: futureDate,
+            subscriptions: [sub("bundle", "plus", futureDate())],
         })).toEqual(ALIAS_LIMITS.plus)
     })
 })
 
 describe("getEffectiveTier", () => {
     it("returns the highest active tier and honors the grace period", () => {
-        const futureDate = new Date()
-        futureDate.setDate(futureDate.getDate() + 30)
-
         expect(getEffectiveTier({
-            stripePriceId: PRICE_IDS.bundlePlus,
-            stripeCurrentPeriodEnd: futureDate,
+            subscriptions: [sub("bundle", "plus", futureDate())],
         })).toBe("plus")
 
-        const recentlyExpired = new Date()
-        recentlyExpired.setHours(recentlyExpired.getHours() - 12)
-
+        // Within grace period (DAY_MS) the recently-expired subscription still counts.
         expect(getEffectiveTier({
-            stripePriceId: PRICE_IDS.bundlePro,
-            stripeCurrentPeriodEnd: recentlyExpired,
+            subscriptions: [sub("bundle", "pro", recentlyExpiredDate())],
         })).toBe("pro")
     })
 
     it("falls back to free outside the grace period or without a renewal date", () => {
-        const expiredDate = new Date()
-        expiredDate.setDate(expiredDate.getDate() - 10)
-
         expect(getEffectiveTier({
-            stripePriceId: PRICE_IDS.bundlePro,
-            stripeCurrentPeriodEnd: expiredDate,
+            subscriptions: [sub("bundle", "pro", expiredDate())],
         })).toBe("free")
-        expect(getEffectiveTier({ stripePriceId: PRICE_IDS.bundlePro })).toBe("free")
+        // No active subscriptions at all.
+        expect(getEffectiveTier({ subscriptions: [] })).toBe("free")
     })
-})
 
-describe("getProductFromPriceId", () => {
-    it("maps known price IDs to products", () => {
-        expect(getProductFromPriceId(PRICE_IDS.bundlePlus)).toBe("bundle")
-        expect(getProductFromPriceId(PRICE_IDS.aliasPlus)).toBe("alias")
-        expect(getProductFromPriceId(PRICE_IDS.dropPlus)).toBe("drop")
-        expect(getProductFromPriceId("price_unknown")).toBeNull()
+    it("ignores canceled subscriptions even if currentPeriodEnd is in the future", () => {
+        expect(getEffectiveTier({
+            subscriptions: [sub("bundle", "pro", futureDate(), "canceled")],
+        })).toBe("free")
     })
 })
 
 describe("getRecipientLimit", () => {
     it("uses alias entitlements for active plans", () => {
-        const futureDate = new Date()
-        futureDate.setDate(futureDate.getDate() + 30)
-
         expect(getRecipientLimit(undefined)).toBe(ALIAS_LIMITS.free.recipients)
         expect(getRecipientLimit({
-            stripePriceId: PRICE_IDS.bundlePlus,
-            stripeCurrentPeriodEnd: futureDate,
+            subscriptions: [sub("bundle", "plus", futureDate())],
         })).toBe(ALIAS_LIMITS.plus.recipients)
         expect(getRecipientLimit({
-            stripePriceId: PRICE_IDS.aliasPro,
-            stripeCurrentPeriodEnd: futureDate,
+            subscriptions: [sub("alias", "pro", futureDate())],
         })).toBe(ALIAS_LIMITS.pro.recipients)
     })
 })

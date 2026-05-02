@@ -2,7 +2,7 @@
  * API Rate Limiting - Monthly quota tracking for API key users
  * Uses tier-based limits from ALIAS_LIMITS and DROP_LIMITS configuration
  */
-import { getEffectiveTier } from "@/lib/limits"
+import { getEffectiveTier, type UserSub } from "@/lib/limits"
 import { ALIAS_LIMITS, DROP_LIMITS, FORM_LIMITS } from "@/config/plans"
 import { monthlyApiLimiters } from "@/lib/rate-limit"
 import type { Ratelimit } from "@upstash/ratelimit"
@@ -16,7 +16,7 @@ export interface RateLimitResult {
 
 export type ApiQuotaType = "alias" | "drop" | "form"
 
-type UserSubscription = { stripePriceId?: string | null, stripeCurrentPeriodEnd?: Date | null }
+type UserSubscription = UserSub
 
 type LimiterMap = { free: Ratelimit | null, plus: Ratelimit | null, pro: Ratelimit | null }
 

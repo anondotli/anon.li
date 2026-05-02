@@ -77,8 +77,15 @@ export const GET = withPolicy(
                 where: { id: ctx.userId },
                 select: {
                     storageUsed: true,
-                    stripePriceId: true,
-                    stripeCurrentPeriodEnd: true,
+                    subscriptions: {
+                        where: { status: { in: ["active", "trialing"] } },
+                        select: {
+                            status: true,
+                            product: true,
+                            tier: true,
+                            currentPeriodEnd: true,
+                        },
+                    },
                 },
             }),
         ])
