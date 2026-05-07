@@ -8,7 +8,7 @@ import { getFileIcon } from "@/lib/file-icons"
 import type { FieldPresentation } from "./types"
 import type { FormField } from "@/lib/form-schema"
 
-export interface FileHandle {
+interface FileHandle {
     focus: () => void
 }
 

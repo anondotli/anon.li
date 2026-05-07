@@ -2,23 +2,6 @@ import type { FormField } from "@/lib/form-schema"
 
 export type FieldPresentation = "spotlight" | "compact"
 
-export interface FieldComponentProps<T extends FormField = FormField> {
-    field: T
-    value: unknown
-    onChange: (next: unknown) => void
-    /** Called when the field self-advances (single_select, rating) or when the user
-     * presses Enter inside a single-line input. The flow controller decides whether
-     * advancing actually moves to the next step. */
-    onAdvance?: () => void
-    presentation: FieldPresentation
-    disabled?: boolean
-    autoFocus?: boolean
-    /** Error message to render below the field, e.g. "This field is required". */
-    error?: string | null
-    /** Used to register a focus method so the parent can refocus on shake. */
-    focusRef?: React.RefObject<{ focus: () => void } | null>
-}
-
 export interface FieldBehavior {
     /** When true, plain Enter inside the input advances to next step. */
     enterAdvances: boolean

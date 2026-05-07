@@ -24,7 +24,7 @@ function sanitizeFilename(name: string): string {
         .slice(0, 200) || 'unnamed_file';     // Length limit
 }
 
-export interface DecryptedFile {
+interface DecryptedFile {
     id: string;
     encryptedName: string;
     decryptedName: string;

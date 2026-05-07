@@ -55,8 +55,6 @@ import {
     megabytesToBytes,
 } from "@/lib/form-field-utils"
 
-export { createField } from "@/lib/form-field-utils"
-
 const MIME_REORDER = "application/x-form-reorder-index"
 
 interface FieldTypeInfo {
@@ -66,7 +64,7 @@ interface FieldTypeInfo {
     icon: LucideIcon
 }
 
-export const FIELD_TYPES: FieldTypeInfo[] = [
+const FIELD_TYPES: FieldTypeInfo[] = [
     { value: "short_text", label: "Short text", description: "Single-line answer", icon: Type },
     { value: "long_text", label: "Long text", description: "Multi-line answer", icon: AlignLeft },
     { value: "email", label: "Email", description: "Validated email address", icon: Mail },
@@ -440,7 +438,7 @@ interface FieldTypePaletteProps {
     layout?: "list" | "grid"
 }
 
-export function FieldTypePalette({
+function FieldTypePalette({
     onAdd,
     disabled,
     className,

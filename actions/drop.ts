@@ -28,7 +28,7 @@ const logger = createLogger("DropActions")
 // Types for Drop List
 // ============================================================================
 
-export interface DropFileData {
+interface DropFileData {
     id: string
     encryptedName: string
     size: string

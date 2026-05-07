@@ -22,7 +22,7 @@ interface SingleLineProps {
     autoFocus?: boolean
 }
 
-export interface FieldHandle {
+interface FieldHandle {
     focus: () => void
 }
 

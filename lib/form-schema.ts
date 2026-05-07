@@ -17,7 +17,7 @@ const BaseField = z.object({
 
 const OptionList = z.array(z.string().min(1).max(200))
 
-export const FormFieldSchema = z.discriminatedUnion("type", [
+const FormFieldSchema = z.discriminatedUnion("type", [
     BaseField.extend({
         type: z.literal("short_text"),
         maxLength: z.number().int().min(1).max(500).optional(),
@@ -95,22 +95,6 @@ export const EMPTY_FORM_SCHEMA: FormSchemaDoc = {
     fields: [],
     submitButtonText: "Submit",
 }
-
-// Accepted answer payload: runtime validation for a submitted answers map.
-// Keys are field ids from the schema; values are plain strings/numbers/arrays
-// depending on the field type. File fields only carry file-id references —
-// the actual content lives in the paired Drop.
-export const FormAnswerValue = z.union([
-    z.string().max(50_000),
-    z.number(),
-    z.boolean(),
-    z.array(z.string().max(500)).max(100),
-    z.null(),
-])
-
-export const FormAnswersPayload = z.record(z.string(), FormAnswerValue)
-
-export type FormAnswers = z.infer<typeof FormAnswersPayload>
 
 function isEmptyAnswer(value: unknown): boolean {
     return value === undefined || value === null || value === "" || (Array.isArray(value) && value.length === 0)
@@ -238,11 +222,6 @@ export function validateAnswersAgainstSchema(
         }
     }
     return out
-}
-
-export function parseSchemaJson(raw: string): FormSchemaDoc {
-    const parsed = JSON.parse(raw)
-    return FormSchemaDoc.parse(parsed)
 }
 
 export function serializeSchema(schema: FormSchemaDoc): string {

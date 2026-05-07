@@ -32,7 +32,7 @@ export interface DropDetails {
     user: DropUser | null
 }
 
-export interface DropUser {
+interface DropUser {
     id: string
     email: string
     tosViolations: number

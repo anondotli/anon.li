@@ -22,7 +22,7 @@ import { upsertCachedWrappedDropKey } from "@/lib/vault/drop-keys-client";
 import { useOptionalVault } from "@/components/vault/vault-provider";
 import { analytics } from "@/lib/analytics";
 
-export type UploadPhase = "idle" | "encrypting" | "uploading" | "finalizing" | "complete" | "error";
+type UploadPhase = "idle" | "encrypting" | "uploading" | "finalizing" | "complete" | "error";
 
 export interface UploadProgress {
     phase: UploadPhase;

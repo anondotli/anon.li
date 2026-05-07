@@ -137,17 +137,6 @@ export async function readDropApiRateLimit(
     })
 }
 
-export async function readFormApiRateLimit(
-    userId: string,
-    user: UserSubscription,
-): Promise<RateLimitResult> {
-    return readTieredQuota(userId, user, FORM_LIMITS, {
-        free: monthlyApiLimiters.formFree,
-        plus: monthlyApiLimiters.formPlus,
-        pro: monthlyApiLimiters.formPro,
-    })
-}
-
 export async function checkApiQuota(
     userId: string,
     user: UserSubscription,

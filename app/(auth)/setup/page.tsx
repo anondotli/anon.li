@@ -1,3 +1,4 @@
+import { Suspense } from "react"
 import { SetupPasswordPageContent } from "./setup-password-content"
 
 export const metadata = {
@@ -6,5 +7,9 @@ export const metadata = {
 }
 
 export default function SetupPasswordPage() {
-    return <SetupPasswordPageContent />
+    return (
+        <Suspense fallback={null}>
+            <SetupPasswordPageContent />
+        </Suspense>
+    )
 }

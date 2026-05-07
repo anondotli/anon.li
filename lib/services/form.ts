@@ -41,7 +41,7 @@ function nextFormTier(currentTier: FormTier): "plus" | "pro" {
     return currentTier === "free" ? "plus" : "pro"
 }
 
-export interface CreateFormInput {
+interface CreateFormInput {
     title: string
     description?: string | null
     schema: FormSchemaDocType
@@ -61,7 +61,7 @@ export interface CreateFormInput {
     customKeyVerifier?: string | null
 }
 
-export interface UpdateFormInput {
+interface UpdateFormInput {
     title?: string
     description?: string | null
     schema?: FormSchemaDocType
@@ -80,7 +80,7 @@ export interface UpdateFormInput {
     customKeyVerifier?: string | null
 }
 
-export interface FormListItem {
+interface FormListItem {
     id: string
     title: string
     description: string | null
@@ -97,7 +97,7 @@ export interface FormListItem {
     updatedAt: Date
 }
 
-export interface PublicFormView {
+interface PublicFormView {
     id: string
     title: string
     description: string | null
@@ -114,14 +114,14 @@ export interface PublicFormView {
     maxFileSizeOverride: number | null
 }
 
-export interface SubmissionListItem {
+interface SubmissionListItem {
     id: string
     createdAt: Date
     readAt: Date | null
     hasAttachedDrop: boolean
 }
 
-export interface SubmissionDetail extends SubmissionListItem {
+interface SubmissionDetail extends SubmissionListItem {
     ephemeralPubKey: string
     iv: string
     encryptedPayload: string

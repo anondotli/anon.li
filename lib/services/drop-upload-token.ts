@@ -31,7 +31,7 @@ export type ValidUploadToken = {
     expiresAt: Date;
 };
 
-export async function getValidUploadToken(raw: string, dropId?: string): Promise<ValidUploadToken | null> {
+async function getValidUploadToken(raw: string, dropId?: string): Promise<ValidUploadToken | null> {
     const tokenHash = hashUploadToken(raw);
     const record = await prisma.uploadToken.findUnique({
         where: { tokenHash },

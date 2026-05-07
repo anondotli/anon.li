@@ -1,7 +1,7 @@
 import { PLAN_ENTITLEMENTS } from "@/config/plans"
 
-export type FeaturePriority = "primary" | "secondary" | "tertiary"
-export type FeatureProduct = "alias" | "drop" | "trust" | "developer"
+type FeaturePriority = "primary" | "secondary" | "tertiary"
+type FeatureProduct = "alias" | "drop" | "trust" | "developer"
 
 export interface FeaturePresentation {
     id: string

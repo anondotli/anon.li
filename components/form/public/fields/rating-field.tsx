@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils"
 import type { FieldPresentation } from "./types"
 import type { FormField } from "@/lib/form-schema"
 
-export interface RatingHandle {
+interface RatingHandle {
     focus: () => void
 }
 

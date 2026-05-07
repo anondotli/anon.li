@@ -11,7 +11,3 @@ export function SiteHeader() {
     const { data: session, isPending } = authClient.useSession()
     return <SiteNav isLoggedIn={!isPending && Boolean(session?.user)} />
 }
-
-export function SiteHeaderFallback() {
-    return <SiteNav />
-}

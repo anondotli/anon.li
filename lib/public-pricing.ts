@@ -58,7 +58,7 @@ interface PublicEntitlements {
     form?: PublicFormEntitlements
 }
 
-export interface PublicPriceOption {
+interface PublicPriceOption {
     interval: BillingInterval
     price: number
     currency: "USD"
@@ -66,7 +66,7 @@ export interface PublicPriceOption {
     equivalentMonthlyPrice?: number
 }
 
-export interface PublicFeatureGroup {
+interface PublicFeatureGroup {
     name: string
     included: string[]
     unavailable: string[]

@@ -1,3 +1,4 @@
+import { Suspense } from "react"
 import { LoginPageContent } from "./login-content"
 
 export const metadata = {
@@ -6,5 +7,9 @@ export const metadata = {
 }
 
 export default function LoginPage() {
-    return <LoginPageContent />
+    return (
+        <Suspense fallback={null}>
+            <LoginPageContent />
+        </Suspense>
+    )
 }

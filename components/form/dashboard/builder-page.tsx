@@ -70,7 +70,7 @@ type NormalizedFormInput = {
     customKeyVerifier?: string | null
 }
 
-export interface EditableFormInitial {
+interface EditableFormInitial {
     id: string
     title: string
     description: string | null

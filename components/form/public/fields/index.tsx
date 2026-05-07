@@ -9,8 +9,7 @@ import { FileField } from "./file-field"
 import type { FieldPresentation } from "./types"
 
 export { getFieldBehavior } from "./types"
-export type { FieldBehavior, FieldPresentation } from "./types"
-export { indexToLetter, letterToIndex } from "./letters"
+export { letterToIndex } from "./letters"
 
 export interface FieldHandle {
     focus: () => void

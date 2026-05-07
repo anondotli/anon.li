@@ -106,9 +106,3 @@ export const listSubmissionsQuerySchema = z.object({
     unreadOnly: z.coerce.boolean().optional(),
 })
 
-export const formIdParam = z.object({ id: FormId })
-export const submissionIdParam = z.object({ sid: SubmissionId })
-
-export type CreateFormInput = z.infer<typeof createFormSchema>
-export type UpdateFormInput = z.infer<typeof updateFormSchema>
-export type SubmitFormInput = z.infer<typeof submitFormSchema>

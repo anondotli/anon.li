@@ -114,5 +114,3 @@ export async function decryptFromSubmission(
     )
     return new TextDecoder().decode(plain)
 }
-
-export const __internal = { bufToB64Url, b64UrlToBuf }

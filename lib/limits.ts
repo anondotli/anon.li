@@ -96,11 +96,6 @@ export function getDropLimits(user?: UserSub | null): DropLimits {
     }
 }
 
-export function getFormLimits(user?: UserSub | null): FormEntitlements {
-    const tier = resolveTierForProduct(user, 'form')
-    return PLAN_ENTITLEMENTS.form[tier]
-}
-
 export async function getFormLimitsAsync(userId: string): Promise<FormEntitlements> {
     const { getEffectiveTiers } = await import("@/lib/entitlements")
     const tiers = await getEffectiveTiers(userId)

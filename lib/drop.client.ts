@@ -5,7 +5,7 @@
 /**
  * File metadata for download
  */
-export interface DropFile {
+interface DropFile {
     id: string;
     encryptedName: string;
     size: string;

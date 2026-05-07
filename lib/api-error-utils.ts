@@ -56,7 +56,7 @@ export class RateLimitError extends ApiError {
     }
 }
 
-export type UpgradeScope =
+type UpgradeScope =
     | "alias_random"
     | "alias_custom"
     | "alias_domains"

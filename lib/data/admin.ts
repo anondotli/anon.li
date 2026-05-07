@@ -142,16 +142,6 @@ type AdminFormDetailRow = {
     _count: { submissions: number }
 }
 
-type AdminFormTakedownRow = {
-    id: string
-    title: string
-    takedownReason: string | null
-    takenDownAt: Date | null
-    createdAt: Date
-    user: UserRef | null
-    _count: { submissions: number }
-}
-
 type AdminDomainRow = {
     id: string
     domain: string
@@ -853,49 +843,6 @@ export async function getAdminFormDetail(formId: string) {
     return {
         ...form,
         maxFileSizeOverride: form.maxFileSizeOverride?.toString() ?? null,
-    }
-}
-
-export async function getAdminFormTakedowns(searchParams: SearchParams) {
-    const search = sanitizeSearch(getStringParam(searchParams, "search"))
-    const page = parsePage(getStringParam(searchParams, "page"))
-
-    const where: Prisma.FormWhereInput = {
-        takenDown: true,
-        ...(search && {
-            OR: [
-                { id: { contains: search, mode: "insensitive" } },
-                { title: { contains: search, mode: "insensitive" } },
-                { takedownReason: { contains: search, mode: "insensitive" } },
-                { user: { email: { contains: search, mode: "insensitive" } } },
-            ],
-        }),
-    }
-
-    const [forms, total] = await Promise.all([
-        prismaPayload<Promise<AdminFormTakedownRow[]>>(prisma.form.findMany({
-            where,
-            select: {
-                id: true,
-                title: true,
-                takedownReason: true,
-                takenDownAt: true,
-                createdAt: true,
-                user: { select: { id: true, email: true, name: true } },
-                _count: { select: { submissions: true } },
-            },
-            orderBy: { takenDownAt: "desc" },
-            skip: (page - 1) * ADMIN_PAGE_SIZE,
-            take: ADMIN_PAGE_SIZE,
-        })),
-        prisma.form.count({ where }),
-    ])
-
-    return {
-        forms,
-        total,
-        search,
-        ...getPageMetadata(total, page),
     }
 }
 

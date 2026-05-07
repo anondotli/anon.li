@@ -9,7 +9,7 @@ import type { FormField } from "@/lib/form-schema"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { asString } from "./types"
 
-export interface ChoiceHandle {
+interface ChoiceHandle {
     focus: () => void
 }
 

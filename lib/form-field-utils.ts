@@ -35,7 +35,7 @@ export function convertField(
     )
 }
 
-export function fieldForType(
+function fieldForType(
     type: FormFieldType,
     base: Pick<FormField, "id" | "label" | "required" | "helpText">,
     maxFileSizeLimit?: number,
@@ -59,7 +59,7 @@ export function fieldForType(
     }
 }
 
-export function uniqueFieldId(type: FormFieldType, fields: FormField[]): string {
+function uniqueFieldId(type: FormFieldType, fields: FormField[]): string {
     const base = type.replace(/_text$/, "")
     const used = new Set(fields.map((field) => field.id))
     let index = fields.length + 1
