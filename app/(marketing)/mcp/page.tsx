@@ -15,7 +15,6 @@ import {
 import { Button } from "@/components/ui/button"
 import { FeatureCard } from "@/components/marketing/feature-card"
 import { StepCard } from "@/components/marketing/step-card"
-import { getCspNonce } from "@/lib/csp"
 
 export const metadata: Metadata = {
     title: "MCP Server",
@@ -41,9 +40,7 @@ const toolRows = [
     ["delete_drop", "Clean up old drops and reclaim storage quota"],
 ] as const
 
-export default async function McpPage() {
-    const nonce = await getCspNonce()
-
+export default function McpPage() {
     return (
         <>
             {/* Hero */}
@@ -244,7 +241,6 @@ export default async function McpPage() {
 
             {/* JSON-LD */}
             <script
-                nonce={nonce}
                 suppressHydrationWarning
                 type="application/ld+json"
                 dangerouslySetInnerHTML={{

@@ -34,7 +34,6 @@ import {
 } from "@/config/plans"
 import { formatBytes } from "@/lib/utils"
 import { siteConfig } from "@/config/site"
-import { getCspNonce } from "@/lib/csp"
 
 const PAGE_URL = `${siteConfig.default.url}/drop/upload`
 const FILE_SIZE_LABEL = formatBytes(GUEST_MAX_DROP_BYTES)
@@ -168,8 +167,6 @@ export default async function UploadCompatibilityPage() {
     if (session?.user?.id) {
         redirect("/dashboard/drop")
     }
-
-    const nonce = await getCspNonce()
 
     const softwareSchema = {
         "@context": "https://schema.org",
@@ -398,19 +395,16 @@ export default async function UploadCompatibilityPage() {
             </section>
 
             <script
-                nonce={nonce}
                 suppressHydrationWarning
                 type="application/ld+json"
                 dangerouslySetInnerHTML={{ __html: JSON.stringify(softwareSchema) }}
             />
             <script
-                nonce={nonce}
                 suppressHydrationWarning
                 type="application/ld+json"
                 dangerouslySetInnerHTML={{ __html: JSON.stringify(howToSchema) }}
             />
             <script
-                nonce={nonce}
                 suppressHydrationWarning
                 type="application/ld+json"
                 dangerouslySetInnerHTML={{ __html: JSON.stringify(faqSchema) }}

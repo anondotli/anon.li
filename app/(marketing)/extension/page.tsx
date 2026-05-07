@@ -5,7 +5,6 @@ import { Mail, FileUp, QrCode, Keyboard, Key, MousePointerClick, Download, Check
 import { FeatureCard } from "@/components/marketing/feature-card"
 import { StepCard } from "@/components/marketing/step-card"
 import { BrowserBadges } from "./browser-badges"
-import { getCspNonce } from "@/lib/csp"
 
 export const metadata: Metadata = {
     title: "Browser Extension",
@@ -20,9 +19,7 @@ export const metadata: Metadata = {
     },
 }
 
-export default async function ExtensionPage() {
-    const nonce = await getCspNonce()
-
+export default function ExtensionPage() {
     return (
         <>
             {/* Hero */}
@@ -230,7 +227,6 @@ export default async function ExtensionPage() {
 
             {/* JSON-LD */}
             <script
-                nonce={nonce}
                 suppressHydrationWarning
                 type="application/ld+json"
                 dangerouslySetInnerHTML={{

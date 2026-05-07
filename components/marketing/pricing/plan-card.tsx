@@ -37,7 +37,8 @@ export function PricingPlanCard({
     dashboardLink = "/dashboard"
 }: PricingPlanCardProps) {
     const isFree = planId === "free"
-    const price = isFree ? 0 : (isYearly ? (plan.price.yearly / 12).toFixed(2) : plan.price.monthly)
+    const price = isFree ? "0" : formatPrice(isYearly ? plan.price.yearly / 12 : plan.price.monthly)
+    const yearlyPrice = formatPrice(plan.price.yearly)
     const fullPlanId = `${product}_${planId}`
 
     const cardClassName = `rounded-[2rem] p-8 flex flex-col gap-6 transition-all duration-300 hover:shadow-xl hover:shadow-primary/5 relative overflow-hidden ${
@@ -69,10 +70,17 @@ export function PricingPlanCard({
             )}
             <div className={`space-y-4 ${isDark ? "relative z-10" : ""}`}>
                 <h3 className="text-xl font-medium font-serif">{plan.name}</h3>
-                <div className="flex items-baseline gap-1">
-                    <span className="text-4xl font-serif font-normal">${price}</span>
-                    {!isFree && (
-                        <span className="text-muted-foreground font-light text-sm">/mo</span>
+                <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                    <div className="flex items-baseline gap-1">
+                        <span className="text-4xl font-serif font-normal">${price}</span>
+                        {!isFree && (
+                            <span className="text-muted-foreground font-light text-sm">/mo</span>
+                        )}
+                    </div>
+                    {!isFree && isYearly && (
+                        <span className="rounded-full bg-secondary/70 px-3 py-1 text-xs font-medium text-muted-foreground">
+                            Billed ${yearlyPrice}/year
+                        </span>
                     )}
                 </div>
                 <div className={dividerClassName} />
@@ -115,6 +123,10 @@ export function PricingPlanCard({
             </div>
         </div>
     )
+}
+
+function formatPrice(price: number) {
+    return price.toFixed(2)
 }
 
 interface PlanFeaturesProps {

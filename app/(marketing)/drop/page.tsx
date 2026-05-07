@@ -10,7 +10,6 @@ import { TrustIndicatorBar } from "@/components/marketing/trust-indicator-bar"
 import { DROP_PRO_LIMIT_LABELS } from "@/config/features"
 
 import { siteConfig } from "@/config/site"
-import { getCspNonce } from "@/lib/csp"
 
 export const metadata: Metadata = {
     title: siteConfig.drop.metadata?.title,
@@ -25,9 +24,7 @@ export const metadata: Metadata = {
     }
 }
 
-export default async function DropProductPage() {
-    const nonce = await getCspNonce()
-
+export default function DropProductPage() {
     return (
         <>
             <section className="relative w-full py-12 md:py-20 lg:py-24 flex items-center justify-center min-h-[80vh] overflow-hidden">
@@ -271,7 +268,6 @@ export default async function DropProductPage() {
             </section>
 
             <script
-                nonce={nonce}
                 suppressHydrationWarning
                 type="application/ld+json"
                 dangerouslySetInnerHTML={{

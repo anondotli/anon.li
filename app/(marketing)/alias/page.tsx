@@ -10,7 +10,6 @@ import { InteractiveDotGrid } from "@/components/marketing/dot-grid"
 import { TrustIndicatorBar } from "@/components/marketing/trust-indicator-bar"
 
 import { siteConfig } from "@/config/site"
-import { getCspNonce } from "@/lib/csp"
 
 export const metadata: Metadata = {
     title: siteConfig.alias.metadata?.title,
@@ -27,7 +26,6 @@ export const metadata: Metadata = {
 
 export default async function AliasLandingPage() {
     const session = await auth()
-    const nonce = await getCspNonce()
 
     return (
         <>
@@ -228,7 +226,6 @@ export default async function AliasLandingPage() {
             </section>
 
             <script
-                nonce={nonce}
                 suppressHydrationWarning
                 type="application/ld+json"
                 dangerouslySetInnerHTML={{

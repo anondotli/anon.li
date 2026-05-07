@@ -1,12 +1,17 @@
-import { auth } from "@/auth"
+"use client"
+
+import { authClient } from "@/lib/auth-client"
 import { SiteNav } from "@/components/layout/nav"
 
-export async function SiteHeader() {
-    const session = await auth()
-    return <SiteNav isLoggedIn={!!session?.user} />
+// Client-side session check so the marketing layout can be statically
+// prerendered. Logged-in users see a brief moment of "logged out" nav before
+// the session resolves; logged-out users (the vast majority of marketing
+// traffic) see no transition at all.
+export function SiteHeader() {
+    const { data: session, isPending } = authClient.useSession()
+    return <SiteNav isLoggedIn={!isPending && Boolean(session?.user)} />
 }
 
-/** Static shell shown while auth() resolves — no layout shift */
 export function SiteHeaderFallback() {
     return <SiteNav />
 }

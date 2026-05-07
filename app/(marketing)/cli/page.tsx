@@ -5,7 +5,6 @@ import { Terminal, Download, Mail, Lock, Key, Globe, CheckCircle2 } from "lucide
 import { FeatureCard } from "@/components/marketing/feature-card"
 import { StepCard } from "@/components/marketing/step-card"
 import { InstallCommands } from "./install-commands"
-import { getCspNonce } from "@/lib/csp"
 
 export const metadata: Metadata = {
     title: "CLI",
@@ -20,9 +19,7 @@ export const metadata: Metadata = {
     },
 }
 
-export default async function CliPage() {
-    const nonce = await getCspNonce()
-
+export default function CliPage() {
     return (
         <>
             {/* Hero */}
@@ -202,7 +199,6 @@ export default async function CliPage() {
 
             {/* JSON-LD */}
             <script
-                nonce={nonce}
                 suppressHydrationWarning
                 type="application/ld+json"
                 dangerouslySetInnerHTML={{

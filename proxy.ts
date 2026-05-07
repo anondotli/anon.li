@@ -10,6 +10,30 @@ const DEFAULT_UMAMI_API_URL = "https://api-gateway.umami.dev/api/send"
 const TURNSTILE_ORIGIN = "https://challenges.cloudflare.com"
 const TWO_FACTOR_COOKIE_NAMES = ["better-auth.two_factor", "__Secure-better-auth.two_factor"] as const
 
+// Paths that render per-request and need a strict nonce-based CSP.
+// Everything else (marketing, blog, docs, public drop/form pages) is treated
+// as static-eligible and receives a relaxed-but-scoped CSP without nonce so
+// the HTML can be cached at the edge.
+const STRICT_CSP_PATH_PREFIXES = [
+    "/api",
+    "/dashboard",
+    "/admin",
+    "/login",
+    "/register",
+    "/reset",
+    "/setup",
+    "/2fa",
+    "/verify-recipient",
+    "/workspace",
+    "/oauth",
+] as const
+
+function pathNeedsStrictCsp(pathname: string): boolean {
+    return STRICT_CSP_PATH_PREFIXES.some(
+        (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+    )
+}
+
 function getOrigin(url: string | undefined, fallback: string): string {
     try {
         return new URL(url || fallback).origin
@@ -28,7 +52,12 @@ function extractOrigin(url: string | undefined): string | null {
     }
 }
 
-function buildCsp(nonce: string, analyticsEnabled: boolean, allowEmbed: boolean) {
+function buildCsp(
+    nonce: string | null,
+    analyticsEnabled: boolean,
+    allowEmbed: boolean,
+    strict: boolean,
+) {
     const isDev = process.env.NODE_ENV === "development"
     const umamiOrigin = getOrigin(process.env.NEXT_PUBLIC_UMAMI_URL, DEFAULT_UMAMI_SCRIPT_URL)
     const umamiApiOrigin = getOrigin(process.env.NEXT_PUBLIC_UMAMI_API_URL, DEFAULT_UMAMI_API_URL)
@@ -36,11 +65,18 @@ function buildCsp(nonce: string, analyticsEnabled: boolean, allowEmbed: boolean)
     const r2PublicOrigin = extractOrigin(process.env.R2_PUBLIC_ENDPOINT)
     const r2DirectOrigin = extractOrigin(process.env.R2_ENDPOINT)
 
+    // Strict mode: nonce + 'strict-dynamic' for dynamic auth/dashboard/admin
+    // routes where session-aware HTML is rendered per request.
+    // Relaxed mode: 'unsafe-inline' for static-eligible marketing/public pages
+    // so the HTML can be edge-cached (a per-request nonce would force dynamic
+    // rendering on every request). A hash cannot coexist with 'unsafe-inline'
+    // — once any hash is in script-src, browsers ignore 'unsafe-inline' and
+    // block Next.js's own framework inline scripts (e.g. __next_f.push).
     const scriptSrc = [
         "'self'",
-        isDev ? null : `'nonce-${nonce}'`,
-        isDev ? null : "'strict-dynamic'",
-        isDev ? "'unsafe-inline'" : null,
+        isDev ? null : (strict && nonce ? `'nonce-${nonce}'` : null),
+        isDev ? null : (strict ? "'strict-dynamic'" : null),
+        (isDev || !strict) ? "'unsafe-inline'" : null,
         isDev ? "'unsafe-eval'" : null,
         "'wasm-unsafe-eval'",
         analyticsEnabled ? umamiOrigin : null,
@@ -103,12 +139,18 @@ export default async function proxy(req: NextRequest) {
         return NextResponse.redirect(new URL('/login', nextUrl))
     }
 
-    const nonce = crypto.randomBytes(16).toString("base64")
+    const strictCsp = pathNeedsStrictCsp(pathname)
+    // Only generate a nonce when the route renders dynamically. Static-eligible
+    // marketing pages would have to render per-request to embed a unique nonce,
+    // which defeats edge caching.
+    const nonce = strictCsp ? crypto.randomBytes(16).toString("base64") : null
     const analyticsEnabled = shouldEnableAnalytics(pathname)
     const allowEmbed = isEmbeddablePath(pathname)
-    const csp = buildCsp(nonce, analyticsEnabled, allowEmbed)
+    const csp = buildCsp(nonce, analyticsEnabled, allowEmbed, strictCsp)
     const requestHeaders = new Headers(req.headers)
-    requestHeaders.set("x-nonce", nonce)
+    if (nonce) {
+        requestHeaders.set("x-nonce", nonce)
+    }
     requestHeaders.set("x-analytics-enabled", analyticsEnabled ? "1" : "0")
     requestHeaders.set("Content-Security-Policy", csp)
 
@@ -160,8 +202,12 @@ export default async function proxy(req: NextRequest) {
     return response;
 }
 
+// Skip middleware on Next internals, /public static files, .well-known/*, and
+// /api/health. These don't need CSP/nonce/CORS handling, and skipping them
+// avoids a per-request crypto.randomBytes + nanoid + CSP build that previously
+// ran on every uptime probe, sitemap fetch, robots fetch, and asset request.
 export const config = {
     matcher: [
-        '/((?!_next/static|_next/image|favicon.ico).*)',
+        '/((?!_next/static|_next/image|_next/data|favicon\\.ico|favicon-\\d+x\\d+\\.png|apple-touch-icon\\.png|android-chrome-\\d+x\\d+\\.png|icon-\\d+\\.png|og-image\\.png|noise\\.svg|black-square\\.svg|white-square\\.svg|site\\.webmanifest|canary\\.json|robots\\.txt|llms\\.txt|sitemap\\.xml|sitemap-\\d+\\.xml|fonts/.*|videos/.*|blog/.*|cli/.*|docs/.*|\\.well-known/.*|api/health).*)',
     ],
 };

@@ -1,12 +1,11 @@
 import type { Metadata, Viewport } from "next";
 import { siteConfig } from "@/config/site";
 import localFont from "next/font/local";
-import { headers } from "next/headers";
-import Script from "next/script";
 import "./globals.css";
 import { ThemeProvider } from "@/components/shared/theme-provider"
 import { LazyToaster } from "@/components/ui/lazy-toaster"
-import { getCspNonce } from "@/lib/csp";
+import { AnalyticsScript } from "@/components/shared/analytics-script"
+import { THEME_INIT_SCRIPT } from "@/lib/theme-init"
 
 const geistSans = localFont({
   src: [
@@ -99,21 +98,22 @@ export const metadata: Metadata = {
 };
 
 
-export default async function RootLayout({
+export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const nonce = await getCspNonce()
-  const requestHeaders = await headers()
-  const analyticsEnabled = requestHeaders.get("x-analytics-enabled") === "1"
-
   return (
     <html lang="en" suppressHydrationWarning data-scroll-behavior="smooth">
       <head>
-        {analyticsEnabled && process.env.NEXT_PUBLIC_UMAMI_WEBSITE_ID && (
-          <link rel="dns-prefetch" href="https://cloud.umami.is" />
-        )}
+        {/* Anti-FOUC theme bootstrap. Hash-pinned in CSP via lib/theme-init.ts.
+            Runs before paint so the correct theme class is applied without a
+            flash. next-themes' own injected script also runs (after hydration)
+            to wire up state changes. */}
+        <script
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }}
+        />
       </head>
       <body
         className={`${geistSans.variable} ${playfair.variable} antialiased`}
@@ -131,14 +131,12 @@ export default async function RootLayout({
           defaultTheme="system"
           enableSystem
           disableTransitionOnChange
-          nonce={nonce}
         >
           {children}
           <LazyToaster />
         </ThemeProvider>
         <script
           suppressHydrationWarning
-          nonce={nonce}
           type="application/ld+json"
           dangerouslySetInnerHTML={{
             __html: JSON.stringify({
@@ -150,16 +148,7 @@ export default async function RootLayout({
             })
           }}
         />
-        {/* Umami Analytics - Privacy-respecting, GDPR-compliant */}
-        {analyticsEnabled && process.env.NEXT_PUBLIC_UMAMI_WEBSITE_ID && (
-          <Script
-            defer
-            nonce={nonce}
-            src={process.env.NEXT_PUBLIC_UMAMI_URL || "https://cloud.umami.is/script.js"}
-            data-website-id={process.env.NEXT_PUBLIC_UMAMI_WEBSITE_ID}
-            strategy="afterInteractive"
-          />
-        )}
+        <AnalyticsScript />
       </body>
     </html>
   );

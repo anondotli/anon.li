@@ -17,7 +17,6 @@ import { FeatureCard } from "@/components/marketing/feature-card"
 import { StepCard } from "@/components/marketing/step-card"
 import { InteractiveDotGrid } from "@/components/marketing/dot-grid"
 import { siteConfig } from "@/config/site"
-import { getCspNonce } from "@/lib/csp"
 
 export const metadata: Metadata = {
     title: siteConfig.form.metadata?.title,
@@ -32,9 +31,7 @@ export const metadata: Metadata = {
     },
 }
 
-export default async function FormProductPage() {
-    const nonce = await getCspNonce()
-
+export default function FormProductPage() {
     return (
         <>
             <section className="relative w-full py-12 md:py-20 lg:py-24 flex items-center justify-center min-h-[80vh] overflow-hidden">
@@ -237,7 +234,6 @@ export default async function FormProductPage() {
             </section>
 
             <script
-                nonce={nonce}
                 suppressHydrationWarning
                 type="application/ld+json"
                 dangerouslySetInnerHTML={{

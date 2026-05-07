@@ -63,22 +63,12 @@ const config: Config = {
             },
             animation: {
                 shake: 'shake 0.5s ease-in-out',
-                "logo-breathe": "logo-breathe 4s cubic-bezier(0.4,0,0.6,1) infinite",
-                "loader-ring": "loader-ring 4s cubic-bezier(0.4,0,0.6,1) infinite",
             },
             keyframes: {
                 shake: {
                     '0%, 100%': { transform: 'translateX(0)' },
                     '10%, 30%, 50%, 70%, 90%': { transform: 'translateX(-4px)' },
                     '20%, 40%, 60%, 80%': { transform: 'translateX(4px)' },
-                },
-                "logo-breathe": {
-                    "0%, 100%": { opacity: "0.4" },
-                    "50%": { opacity: "1" },
-                },
-                "loader-ring": {
-                    "0%, 100%": { opacity: "0", transform: "scale(0.92)" },
-                    "50%": { opacity: "1", transform: "scale(1)" },
                 },
             }
         }
