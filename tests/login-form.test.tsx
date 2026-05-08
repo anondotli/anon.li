@@ -74,7 +74,7 @@ describe("LoginForm", () => {
         expect(screen.queryByLabelText("Confirm password")).toBeNull()
     })
 
-    it("sends login magic links to the vault setup handoff", async () => {
+    it("sends login magic links to the default dashboard destination", async () => {
         const onEmailSentChange = vi.fn()
         const { LoginForm } = await import("@/components/auth/login-form")
 
@@ -88,8 +88,8 @@ describe("LoginForm", () => {
         await waitFor(() => {
             expect(authMocks.signInMagicLink).toHaveBeenCalledWith({
                 email: "user@example.com",
-                callbackURL: "/setup",
-                newUserCallbackURL: "/setup",
+                callbackURL: "/dashboard/alias",
+                newUserCallbackURL: "/dashboard/alias",
             })
         })
 
@@ -115,8 +115,8 @@ describe("LoginForm", () => {
             expect(authMocks.signInMagicLink).toHaveBeenCalledWith({
                 email: "new@example.com",
                 name: "anon.li user",
-                callbackURL: "/setup?callbackUrl=%2Fdashboard%2Fdrop",
-                newUserCallbackURL: "/setup?callbackUrl=%2Fdashboard%2Fdrop",
+                callbackURL: "/dashboard/drop",
+                newUserCallbackURL: "/dashboard/drop",
             })
         })
 
@@ -124,7 +124,7 @@ describe("LoginForm", () => {
         expect(screen.queryByLabelText("Password")).toBeNull()
     })
 
-    it("routes social sign-in through vault setup", async () => {
+    it("routes social sign-in to the requested dashboard destination", async () => {
         const { LoginForm } = await import("@/components/auth/login-form")
 
         render(<LoginForm mode="login" callbackUrl="/dashboard/settings" />)
@@ -134,7 +134,7 @@ describe("LoginForm", () => {
         await waitFor(() => {
             expect(authMocks.signInSocial).toHaveBeenCalledWith({
                 provider: "google",
-                callbackURL: "/setup?callbackUrl=%2Fdashboard%2Fsettings",
+                callbackURL: "/dashboard/settings",
             })
         })
         expect(analyticsMocks.loginStarted).toHaveBeenCalledWith("google")
@@ -164,8 +164,8 @@ describe("LoginForm", () => {
             await waitFor(() => {
                 expect(authMocks.signInMagicLink).toHaveBeenCalledWith({
                     email: "user@example.com",
-                    callbackURL: "/setup",
-                    newUserCallbackURL: "/setup",
+                    callbackURL: "/dashboard/alias",
+                    newUserCallbackURL: "/dashboard/alias",
                     fetchOptions: {
                         headers: { "x-captcha-response": "captcha-token" },
                     },

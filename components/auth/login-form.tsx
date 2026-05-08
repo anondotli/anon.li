@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Turnstile } from "@/components/ui/turnstile"
 import { cn } from "@/lib/utils"
-import { buildSetupPasswordUrl } from "@/lib/safe-callback-url"
+import { sanitizeAuthCallbackUrl } from "@/lib/safe-callback-url"
 
 const RESEND_COOLDOWN = 60
 const turnstileSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY
@@ -63,7 +63,7 @@ export function LoginForm({
         return () => window.clearTimeout(timer)
     }, [resendCooldown])
 
-    const destination = buildSetupPasswordUrl(callbackUrl)
+    const destination = sanitizeAuthCallbackUrl(callbackUrl)
 
     const resetTurnstile = React.useCallback(() => {
         setTurnstileToken(null)

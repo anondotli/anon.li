@@ -1,7 +1,7 @@
 import { PLAN_ENTITLEMENTS } from "@/config/plans"
 
 type FeaturePriority = "primary" | "secondary" | "tertiary"
-type FeatureProduct = "alias" | "drop" | "trust" | "developer"
+type FeatureProduct = "alias" | "drop" | "form" | "trust" | "developer"
 
 export interface FeaturePresentation {
     id: string
@@ -201,6 +201,69 @@ export const FEATURE_CATALOG: readonly FeaturePresentation[] = [
         shortTitle: "No branding",
         description: "Remove anon.li branding from download pages on Pro.",
         href: "/pricing?drop",
+    },
+    {
+        id: "form_e2e_encrypted",
+        product: "form",
+        priority: "primary",
+        title: "End-to-End Encrypted Forms",
+        shortTitle: "Encrypted forms",
+        description: "Each form gets its own keypair. Submitters encrypt answers in the browser so only you can decrypt them.",
+        href: "/form#features",
+    },
+    {
+        id: "form_block_builder",
+        product: "form",
+        priority: "primary",
+        title: "Drag-and-Drop Builder",
+        shortTitle: "Form builder",
+        description: "Compose fields visually or paste a versioned JSON schema and share the same shape with CLI and AI tools.",
+        href: "/form#features",
+    },
+    {
+        id: "form_confidential_intake",
+        product: "form",
+        priority: "primary",
+        title: "Confidential Intake",
+        shortTitle: "Confidential intake",
+        description: "Built for whistleblowing, patient intake, legal contact, and any response that should never sit in plaintext.",
+        href: "/form#use-cases",
+    },
+    {
+        id: "form_password_protection",
+        product: "form",
+        priority: "secondary",
+        title: "Password Protection",
+        shortTitle: "Form passwords",
+        description: "Require a password before respondents can open the form, on top of end-to-end encryption.",
+        href: "/form#features",
+    },
+    {
+        id: "form_attachments",
+        product: "form",
+        priority: "secondary",
+        title: "Encrypted Attachments",
+        shortTitle: "Attachments",
+        description: "Accept files per submission with owner-billed storage governed by the form plan.",
+        href: "/form#features",
+    },
+    {
+        id: "form_submission_caps",
+        product: "form",
+        priority: "secondary",
+        title: "Submission Caps and Closing",
+        shortTitle: "Submission caps",
+        description: "Cap total responses, set closing dates, and shut a form down without losing decrypted submissions.",
+        href: "/form#features",
+    },
+    {
+        id: "form_iframe_embed",
+        product: "form",
+        priority: "secondary",
+        title: "Iframe Embed",
+        shortTitle: "Iframe embed",
+        description: "Embed forms on any origin via /embed/f/[id]. Encryption still happens in the visitor's browser.",
+        href: "/form#features",
     },
     {
         id: "trust_open_source",

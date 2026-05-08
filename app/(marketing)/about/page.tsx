@@ -3,7 +3,7 @@ import Link from "next/link"
 import { siteConfig } from "@/config/site"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
-import { Shield, Heart, Users, Globe, Lock, Code, ArrowRight } from "lucide-react"
+import { Shield, Heart, Users, Globe, Lock, Code, ArrowRight, ClipboardList } from "lucide-react"
 
 export const metadata: Metadata = {
     title: siteConfig.about.metadata?.title,
@@ -36,7 +36,7 @@ export default function AboutPage() {
             {/* Mission */}
             <section className="space-y-8">
                 <h2 className="text-3xl font-serif font-medium text-center">Our Mission</h2>
-                <div className="grid gap-6 md:grid-cols-3">
+                <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
                     <Card className="border-border/40">
                         <CardContent className="pt-6 space-y-4">
                             <div className="p-3 w-fit rounded-xl bg-primary/10 text-primary">
@@ -56,6 +56,17 @@ export default function AboutPage() {
                             <h3 className="text-xl font-medium">Secure Sharing</h3>
                             <p className="text-muted-foreground text-sm leading-relaxed">
                                 Enable truly private file sharing where even we can&apos;t see what you&apos;re sharing.
+                            </p>
+                        </CardContent>
+                    </Card>
+                    <Card className="border-border/40">
+                        <CardContent className="pt-6 space-y-4">
+                            <div className="p-3 w-fit rounded-xl bg-primary/10 text-primary">
+                                <ClipboardList className="h-6 w-6" />
+                            </div>
+                            <h3 className="text-xl font-medium">Confidential Intake</h3>
+                            <p className="text-muted-foreground text-sm leading-relaxed">
+                                Encrypted forms for whistleblowing, patient intake & legal contact. Only you can decrypt.
                             </p>
                         </CardContent>
                     </Card>
@@ -100,7 +111,7 @@ export default function AboutPage() {
                 <h2 className="text-3xl font-serif font-medium">Our Technical Philosophy</h2>
                 <div className="space-y-4 text-muted-foreground leading-relaxed">
                     <p>
-                        <strong className="text-foreground">Drop Is Zero-Knowledge by Design:</strong> Drop encryption happens on your device, and the file keys never reach our servers. Alias uses a different trust model: mail is forwarded in real time without being stored.
+                        <strong className="text-foreground">Drop &amp; Form Are Zero-Knowledge by Design:</strong> Drop encryption happens on your device, and the file keys never reach our servers. Form responses are encrypted in the submitter&apos;s browser to your form&apos;s public key, so only you can decrypt them after unlocking your vault. Alias uses a different trust model: mail is forwarded in real time without being stored.
                     </p>
                     <p>
                         <strong className="text-foreground">Minimal Data Collection:</strong> We only collect what&apos;s absolutely necessary to provide the service. No selling data, no advertising trackers, and only cookie-free aggregate analytics.

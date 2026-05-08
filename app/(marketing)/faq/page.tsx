@@ -8,7 +8,7 @@ import {
     AccordionItem,
     AccordionTrigger,
 } from "@/components/ui/accordion"
-import { Mail, FileUp, Shield, HelpCircle, ArrowRight, Terminal } from "lucide-react"
+import { Mail, FileUp, Shield, HelpCircle, ArrowRight, Terminal, ClipboardList } from "lucide-react"
 
 export const metadata: Metadata = {
     title: siteConfig.faq.metadata?.title,
@@ -37,7 +37,7 @@ export default function FAQPage() {
                     Frequently Asked Questions
                 </h1>
                 <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-                    Everything you need to know about anon.li&apos;s email aliases and encrypted file sharing.
+                    Everything you need to know about anon.li&apos;s email aliases, encrypted file sharing, and confidential forms.
                 </p>
             </section>
 
@@ -51,7 +51,7 @@ export default function FAQPage() {
                 </div>
                 <Accordion type="single" collapsible className="space-y-3">
                     <FAQItem value="what-is-anonli" question="What is anon.li?">
-                        anon.li is a privacy platform with two core services: private email aliases (anon.li Alias) and end-to-end encrypted file sharing (anon.li Drop). Alias forwards email in real time without storing message content, while Drop is client-side encrypted so we never receive the plaintext files or keys. You can use them through the web dashboard, the <a href="/cli" className="text-primary hover:underline">CLI tool</a>, the <a href="/extension" className="text-primary hover:underline">browser extension</a>, or the REST API.
+                        anon.li is a privacy platform with three core services: private email aliases (anon.li Alias), end-to-end encrypted file sharing (anon.li Drop), and end-to-end encrypted forms (anon.li Form). Alias forwards email in real time without storing message content, Drop is client-side encrypted so we never receive the plaintext files or keys, and Form responses are encrypted in the submitter&apos;s browser to a per-form public key — only you can decrypt them. You can use them through the web dashboard, the <a href="/cli" className="text-primary hover:underline">CLI tool</a>, the <a href="/extension" className="text-primary hover:underline">browser extension</a>, or the REST API.
                     </FAQItem>
                     <FAQItem value="is-free" question="Is anon.li free?">
                         Yes! We offer generous free tiers for both services. Free accounts include email aliases and file uploads with reasonable limits. Paid plans unlock higher limits, longer expiry times, and advanced features like custom domains and custom encryption keys.
@@ -130,6 +130,39 @@ export default function FAQPage() {
                     </FAQItem>
                     <FAQItem value="file-size" question="What's the maximum file size?">
                         Your max file size equals your remaining bandwidth. Free users get 5GB bandwidth, Plus gets 50GB, and Pro gets 250GB. We support chunked uploads, so large files upload reliably even on slower connections.
+                    </FAQItem>
+                </Accordion>
+            </section>
+
+            {/* Form Questions */}
+            <section className="space-y-6">
+                <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-lg bg-primary/10 text-primary">
+                        <ClipboardList className="h-5 w-5" />
+                    </div>
+                    <h2 className="text-2xl font-medium">anon.li <span className="font-serif">Form</span></h2>
+                </div>
+                <Accordion type="single" collapsible className="space-y-3">
+                    <FAQItem value="what-is-form" question="What is anon.li Form?">
+                        anon.li Form lets you publish end-to-end encrypted forms at <code className="text-foreground">/f/[id]</code>. Each form gets its own P-256 keypair; the private half is wrapped in your vault and never reaches our servers unwrapped. Submitters encrypt their answers in the browser before they leave their device, so only you can decrypt the responses.
+                    </FAQItem>
+                    <FAQItem value="form-use-cases" question="What is it good for?">
+                        Anything where a Google Form would betray trust: whistleblowing tip lines, patient intake at clinics, legal client contact, HR forms, grant applications, and confidential research surveys. If responses contain anything sensitive, Form keeps them encrypted from the submitter&apos;s browser to your dashboard.
+                    </FAQItem>
+                    <FAQItem value="form-attachments" question="Can submitters attach files?">
+                        Yes. File attachments are accepted per submission and are encrypted in the browser alongside the rest of the response. Storage is governed by the form plan and billed to the form owner.
+                    </FAQItem>
+                    <FAQItem value="form-builder" question="How do I build a form?">
+                        Use the drag-and-drop block builder, or paste a JSON schema directly. The schema is versioned, so developers and AI agents can author and diff forms like code, and the same shape is shared with the CLI and API.
+                    </FAQItem>
+                    <FAQItem value="form-embed" question="Can I embed a form on my own site?">
+                        Yes. Forms can be loaded directly at <code className="text-foreground">/f/[id]</code> or embedded via iframe at <code className="text-foreground">/embed/f/[id]</code> on any origin. Encryption still happens in the visitor&apos;s browser.
+                    </FAQItem>
+                    <FAQItem value="form-notifications" question="Do I get notified about new submissions?">
+                        Yes. New submissions trigger an account-email notification to you. The notification never includes any encrypted response content — only that a new response arrived.
+                    </FAQItem>
+                    <FAQItem value="form-abuse" question="How do you prevent abuse and spam?">
+                        Forms support optional Cloudflare Turnstile challenges, password protection, submission caps, and closing dates. You can throttle who can submit and shut a form down at any time without losing previously decrypted responses.
                     </FAQItem>
                 </Accordion>
             </section>

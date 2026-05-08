@@ -64,11 +64,3 @@ export function sanitizeAuthCallbackUrl(
     return fallback
 }
 
-export function buildSetupPasswordUrl(callbackUrl?: string | null): string {
-    const safeCallbackUrl = sanitizeAuthCallbackUrl(callbackUrl)
-    if (safeCallbackUrl === DEFAULT_AUTH_CALLBACK_URL) {
-        return "/setup"
-    }
-
-    return `/setup?callbackUrl=${encodeURIComponent(safeCallbackUrl)}`
-}

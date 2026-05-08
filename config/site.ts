@@ -27,13 +27,13 @@ export const siteConfig: Record<ProductContext | "pricing" | "about" | "security
     name: "anon.li",
     shortName: "anon.li",
     productName: null,
-    description: "Protect your identity with private email aliases and end-to-end encrypted file sharing. Sign up free, forward email without exposing your personal address, and share files with client-side encryption.",
+    description: "Protect your identity with private email aliases, end-to-end encrypted file sharing, and confidential forms. Sign up free, forward email without exposing your personal address, share files with client-side encryption, and collect responses only you can decrypt.",
     url: "https://anon.li",
     pricingLink: "/pricing",
     ctaLink: "/register",
     metadata: {
       title: {
-        default: "anon.li - Privacy-First Email Aliases & Encrypted File Sharing",
+        default: "anon.li - Privacy-First Email Aliases, Encrypted File Sharing & Forms",
         template: "%s | anon.li",
       },
       keywords: [
@@ -49,8 +49,12 @@ export const siteConfig: Record<ProductContext | "pricing" | "about" | "security
         "secure file transfer",
         "zero knowledge",
         "E2E encryption",
+        "encrypted forms",
+        "confidential intake",
+        "whistleblowing form",
         "WeTransfer alternative",
         "SimpleLogin alternative",
+        "Google Forms alternative",
       ],
       authors: [{ name: "Anon.li Team" }],
       creator: "Anon.li",

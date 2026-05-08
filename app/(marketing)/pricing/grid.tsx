@@ -113,7 +113,7 @@ export function PricingGrid({ user, currentPlanId }: PricingGridProps) {
                         <span className="italic">Upgrade when you outgrow it.</span>
                     </h1>
                     <p className="text-lg text-muted-foreground max-w-2xl mx-auto font-light leading-relaxed">
-                        Email aliases plus end-to-end encrypted file drops. No trials, upsell popups... Free is designed to be usable forever.
+                        Email aliases, end-to-end encrypted file drops, and confidential forms. No trials, upsell popups... Free is designed to be usable forever.
                     </p>
                 </div>
 

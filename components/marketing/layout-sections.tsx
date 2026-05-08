@@ -1,4 +1,4 @@
-import { Mail, FileUp } from "lucide-react"
+import { Mail, FileUp, ClipboardList } from "lucide-react"
 import { CtaAuthButtons } from "./auth-aware-cta"
 
 export function HowItWorksSection() {
@@ -12,7 +12,7 @@ export function HowItWorksSection() {
                     </p>
                 </div>
 
-                <div className="grid gap-8 lg:gap-12 lg:grid-cols-2">
+                <div className="grid gap-8 lg:gap-12 lg:grid-cols-3">
                     {/* Mail Steps */}
                     <div className="space-y-8">
                         <div className="flex items-center gap-3 mb-5">
@@ -37,6 +37,19 @@ export function HowItWorksSection() {
                         <StepItem number="1" title="Drop Your File" description="Drag and drop any file. Encryption starts instantly in your browser." />
                         <StepItem number="2" title="Get a Link" description="Receive a unique link with the encryption key. That's it." />
                         <StepItem number="3" title="Share Securely" description="Recipients decrypt in their browser. We never see the contents." />
+                    </div>
+
+                    {/* Form Steps */}
+                    <div className="space-y-8">
+                        <div className="flex items-center gap-3 mb-5">
+                            <div className="p-2.5 rounded-lg bg-primary/10 text-primary">
+                                <ClipboardList className="h-5 w-5" />
+                            </div>
+                            <h3 className="text-xl font-serif font-medium">Encrypted Forms</h3>
+                        </div>
+                        <StepItem number="1" title="Build a Form" description="Compose fields visually or paste a JSON schema. A form keypair is wrapped in your vault." />
+                        <StepItem number="2" title="Share the Link" description="Respondents open /f/[id] and their browser encrypts answers with your public key before sending." />
+                        <StepItem number="3" title="Decrypt Privately" description="Unlock your vault to read submissions. Our servers only ever see ciphertext." />
                     </div>
                 </div>
             </div>

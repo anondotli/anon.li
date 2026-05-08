@@ -66,7 +66,7 @@ export const metadata: Metadata = {
         url: "/og-image.png",
         width: 1200,
         height: 630,
-        alt: `${siteConfig.default.name} - Privacy-First Email Aliasing & File Sharing`,
+        alt: `${siteConfig.default.name} - Privacy-First Email Aliasing, File Sharing & Encrypted Forms`,
       },
     ],
   },
