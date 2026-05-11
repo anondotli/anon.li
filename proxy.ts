@@ -4,11 +4,20 @@ import { getSessionCookie } from "better-auth/cookies";
 import { nanoid } from "nanoid";
 import { shouldEnableAnalytics } from "@/lib/analytics-policy";
 import { appendVaryHeader, createMarkdownRewriteUrl, shouldRewriteToMarkdown } from "@/lib/markdown-negotiation";
+import { THEME_INIT_SCRIPT_SHA256 } from "@/lib/theme-init";
 
 const DEFAULT_UMAMI_SCRIPT_URL = "https://cloud.umami.is/script.js"
 const DEFAULT_UMAMI_API_URL = "https://api-gateway.umami.dev/api/send"
 const TURNSTILE_ORIGIN = "https://challenges.cloudflare.com"
 const TWO_FACTOR_COOKIE_NAMES = ["better-auth.two_factor", "__Secure-better-auth.two_factor"] as const
+
+// SHA-256 of next-themes' SSR-injected <script>, pinned for strict-mode CSP.
+// Content is derived from the props passed to <ThemeProvider> in app/layout.tsx
+// plus next-themes' internal helper. If either the version or those props
+// change, the browser will report the new expected hash in a CSP error — copy
+// it here. Currently tied to next-themes ^0.4.6 with attribute="class",
+// defaultTheme="system", enableSystem, disableTransitionOnChange.
+const NEXT_THEMES_SCRIPT_SHA256 = "n46vPwSWuMC0W703pBofImv82Z26xo4LXymv0E9caPk="
 
 // Paths that render per-request and need a strict nonce-based CSP.
 // Everything else (marketing, blog, docs, public drop/form pages) is treated
@@ -66,7 +75,10 @@ function buildCsp(
     const r2DirectOrigin = extractOrigin(process.env.R2_ENDPOINT)
 
     // Strict mode: nonce + 'strict-dynamic' for dynamic auth/dashboard/admin
-    // routes where session-aware HTML is rendered per request.
+    // routes where session-aware HTML is rendered per request. The two
+    // theme-bootstrap inline scripts in app/layout.tsx (anti-FOUC + next-themes)
+    // are pinned by SHA-256 hash so they survive without a nonce attribute —
+    // adding a nonce there would force the whole shared layout dynamic.
     // Relaxed mode: 'unsafe-inline' for static-eligible marketing/public pages
     // so the HTML can be edge-cached (a per-request nonce would force dynamic
     // rendering on every request). A hash cannot coexist with 'unsafe-inline'
@@ -76,6 +88,8 @@ function buildCsp(
         "'self'",
         isDev ? null : (strict && nonce ? `'nonce-${nonce}'` : null),
         isDev ? null : (strict ? "'strict-dynamic'" : null),
+        strict ? `'sha256-${THEME_INIT_SCRIPT_SHA256}'` : null,
+        strict ? `'sha256-${NEXT_THEMES_SCRIPT_SHA256}'` : null,
         (isDev || !strict) ? "'unsafe-inline'" : null,
         isDev ? "'unsafe-eval'" : null,
         "'wasm-unsafe-eval'",
