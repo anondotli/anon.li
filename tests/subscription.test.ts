@@ -1,10 +1,31 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import type { Subscription } from '@prisma/client'
 
 // Mock environment variables for Stripe price IDs
 const MOCK_BUNDLE_PLUS_MONTHLY = 'price_bundle_plus_monthly'
 
 // Store original env
 const originalEnv = process.env
+
+function mockSubscription(overrides: Partial<Subscription> = {}): Subscription {
+    return {
+        id: 'sub-1',
+        userId: 'user-1',
+        provider: 'stripe',
+        providerSubscriptionId: 'sub_123',
+        providerCustomerId: 'cus_123',
+        providerPriceId: MOCK_BUNDLE_PLUS_MONTHLY,
+        product: 'bundle',
+        tier: 'plus',
+        status: 'active',
+        currentPeriodStart: null,
+        currentPeriodEnd: new Date(),
+        cancelAtPeriodEnd: false,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        ...overrides,
+    }
+}
 
 // Mock the stripe module
 vi.mock('@/lib/stripe', () => ({
@@ -57,23 +78,9 @@ describe('getUserSubscriptionPlan', () => {
         expiredDate.setDate(expiredDate.getDate() - 10) // 10 days ago, well past 1-day grace
 
         const { prisma } = await import('@/lib/prisma')
-        vi.mocked(prisma.subscription.findFirst).mockResolvedValue({
-            id: 'sub-1',
-            userId: 'user-1',
-            provider: 'stripe',
-            providerSubscriptionId: 'sub_123',
-            providerCustomerId: 'cus_123',
-            providerPriceId: MOCK_BUNDLE_PLUS_MONTHLY,
-            product: 'bundle',
-            tier: 'plus',
-            status: 'active',
-            currentPeriodStart: null,
+        vi.mocked(prisma.subscription.findFirst).mockResolvedValue(mockSubscription({
             currentPeriodEnd: expiredDate,
-            cancelAtPeriodEnd: false,
-            createdAt: new Date(),
-            updatedAt: new Date(),
-        // biome-ignore lint/suspicious/noExplicitAny: test mock for Subscription model
-        } as any)
+        }))
 
         const { getUserSubscriptionPlan } = await import('@/lib/subscription')
         const result = await getUserSubscriptionPlan({ id: 'user-1' })
@@ -87,23 +94,10 @@ describe('getUserSubscriptionPlan', () => {
         futureDate.setDate(futureDate.getDate() + 30)
 
         const { prisma } = await import('@/lib/prisma')
-        vi.mocked(prisma.subscription.findFirst).mockResolvedValue({
-            id: 'sub-1',
-            userId: 'user-1',
-            provider: 'stripe',
-            providerSubscriptionId: 'sub_123',
-            providerCustomerId: 'cus_123',
-            providerPriceId: MOCK_BUNDLE_PLUS_MONTHLY,
-            product: 'bundle',
-            tier: 'plus',
-            status: 'active',
-            currentPeriodStart: null,
+        vi.mocked(prisma.subscription.findFirst).mockResolvedValue(mockSubscription({
             currentPeriodEnd: futureDate,
             cancelAtPeriodEnd: true,
-            createdAt: new Date(),
-            updatedAt: new Date(),
-        // biome-ignore lint/suspicious/noExplicitAny: test mock for Subscription model
-        } as any)
+        }))
 
         const { getUserSubscriptionPlan } = await import('@/lib/subscription')
         const result = await getUserSubscriptionPlan({ id: 'user-1' })
@@ -117,23 +111,9 @@ describe('getUserSubscriptionPlan', () => {
         futureDate.setDate(futureDate.getDate() + 30)
 
         const { prisma } = await import('@/lib/prisma')
-        vi.mocked(prisma.subscription.findFirst).mockResolvedValue({
-            id: 'sub-1',
-            userId: 'user-1',
-            provider: 'stripe',
-            providerSubscriptionId: 'sub_123',
-            providerCustomerId: 'cus_123',
-            providerPriceId: MOCK_BUNDLE_PLUS_MONTHLY,
-            product: 'bundle',
-            tier: 'plus',
-            status: 'active',
-            currentPeriodStart: null,
+        vi.mocked(prisma.subscription.findFirst).mockResolvedValue(mockSubscription({
             currentPeriodEnd: futureDate,
-            cancelAtPeriodEnd: false,
-            createdAt: new Date(),
-            updatedAt: new Date(),
-        // biome-ignore lint/suspicious/noExplicitAny: test mock for Subscription model
-        } as any)
+        }))
 
         const { getUserSubscriptionPlan } = await import('@/lib/subscription')
         const result = await getUserSubscriptionPlan({ id: 'user-1' })

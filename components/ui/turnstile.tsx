@@ -38,6 +38,16 @@ function isTurnstileReady(): boolean {
     return typeof window !== "undefined" && !!window.turnstile;
 }
 
+function getCurrentScriptNonce(): string | undefined {
+    if (typeof document === "undefined") return undefined;
+
+    for (const script of Array.from(document.scripts)) {
+        if (script.nonce) return script.nonce;
+    }
+
+    return undefined;
+}
+
 export function Turnstile({
     siteKey,
     onVerify,
@@ -88,12 +98,17 @@ export function Turnstile({
             setHasError(true);
         };
 
+        const nonce = getCurrentScriptNonce();
+
         if (!script) {
             script = document.createElement("script");
             script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
             script.async = true;
             script.defer = true;
+            if (nonce) script.nonce = nonce;
             document.head.appendChild(script);
+        } else if (nonce && !script.nonce) {
+            script.nonce = nonce;
         }
 
         script.addEventListener("load", handleLoad);
