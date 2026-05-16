@@ -2,7 +2,6 @@ import crypto from "crypto"
 
 const ALGORITHM = "aes-256-gcm"
 const IV_LENGTH = 12
-const AUTH_TAG_LENGTH = 16
 
 // Prefix to detect whether a value is encrypted
 const ENCRYPTED_PREFIX = "enc:"
@@ -36,35 +35,3 @@ export function encryptField(plaintext: string, envVar: string): string {
 
     return ENCRYPTED_PREFIX + combined.toString("base64")
 }
-
-/**
- * Decrypt a field encrypted with encryptField.
- */
-export function decryptField(value: string, envVar: string): string {
-    if (!value.startsWith(ENCRYPTED_PREFIX)) {
-        // Plaintext value from before encryption was enabled
-        return value
-    }
-
-    const key = getKey(envVar)
-    const combined = Buffer.from(value.slice(ENCRYPTED_PREFIX.length), "base64")
-
-    if (combined.length < IV_LENGTH + AUTH_TAG_LENGTH) {
-        throw new Error("Invalid encrypted data: too short")
-    }
-
-    const iv = combined.subarray(0, IV_LENGTH)
-    const authTag = combined.subarray(combined.length - AUTH_TAG_LENGTH)
-    const ciphertext = combined.subarray(IV_LENGTH, combined.length - AUTH_TAG_LENGTH)
-
-    const decipher = crypto.createDecipheriv(ALGORITHM, key, iv)
-    decipher.setAuthTag(authTag)
-
-    const decrypted = Buffer.concat([
-        decipher.update(ciphertext),
-        decipher.final(),
-    ])
-
-    return decrypted.toString("utf8")
-}
-

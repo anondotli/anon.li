@@ -82,6 +82,33 @@ interface PolicyContext {
 
 type PolicyHandler<TRouteContext = void> = (ctx: PolicyContext, routeContext: TRouteContext) => Promise<Response>
 
+async function resolveRateLimitIdentifier<TRouteContext>(
+    policy: RoutePolicy,
+    ctx: PolicyContext,
+    routeContext: TRouteContext,
+): Promise<string | null> {
+    if (typeof policy.rateLimitIdentifier === "string") {
+        return policy.rateLimitIdentifier
+    }
+    if (typeof policy.rateLimitIdentifier === "function") {
+        return policy.rateLimitIdentifier(ctx, routeContext)
+    }
+    return ctx.userId
+}
+
+async function applyPolicyRateLimit<TRouteContext>(
+    policy: RoutePolicy,
+    ctx: PolicyContext,
+    routeContext: TRouteContext,
+): Promise<Response | null> {
+    if (!policy.rateLimit) return null
+
+    const identifier = await resolveRateLimitIdentifier(policy, ctx, routeContext)
+    if (!identifier) return null
+
+    return rateLimit(policy.rateLimit, identifier)
+}
+
 // ─── Main middleware ────────────────────────────────────────────────────────
 
 /**
@@ -167,22 +194,8 @@ export function withPolicy<TRouteContext = void>(policy: RoutePolicy, handler: P
                                 rateLimitHeaders,
                             }
 
-                            if (policy.rateLimit) {
-                                let identifier: string | null = null
-
-                                if (typeof policy.rateLimitIdentifier === "string") {
-                                    identifier = policy.rateLimitIdentifier
-                                } else if (typeof policy.rateLimitIdentifier === "function") {
-                                    identifier = await policy.rateLimitIdentifier(ctx, routeContext)
-                                } else if (userId) {
-                                    identifier = userId
-                                }
-
-                                if (identifier) {
-                                    const rateLimited = await rateLimit(policy.rateLimit, identifier)
-                                    if (rateLimited) return rateLimited
-                                }
-                            }
+                            const rateLimited = await applyPolicyRateLimit(policy, ctx, routeContext)
+                            if (rateLimited) return rateLimited
 
                             const response = await handler(ctx, routeContext)
                             return withApiHeaders(response, requestId, rateLimitHeaders)
@@ -224,28 +237,16 @@ export function withPolicy<TRouteContext = void>(policy: RoutePolicy, handler: P
 
             // ── Rate limiting ───────────────────────────────────────────
 
-            if (policy.rateLimit) {
-                let identifier: string | null = null
-
-                if (typeof policy.rateLimitIdentifier === "string") {
-                    identifier = policy.rateLimitIdentifier
-                } else if (typeof policy.rateLimitIdentifier === "function") {
-                    identifier = await policy.rateLimitIdentifier({
-                        requestId,
-                        request,
-                        userId,
-                        user,
-                        apiKeyId,
-                        rateLimitHeaders,
-                    }, routeContext)
-                } else if (userId) {
-                    identifier = userId
-                }
-
-                if (identifier) {
-                    const rateLimited = await rateLimit(policy.rateLimit, identifier)
-                    if (rateLimited) return rateLimited
-                }
+            const rateLimited = await applyPolicyRateLimit(policy, {
+                requestId,
+                request,
+                userId,
+                user,
+                apiKeyId,
+                rateLimitHeaders,
+            }, routeContext)
+            if (rateLimited) {
+                return rateLimited
             }
 
             // ── Execute handler ─────────────────────────────────────────

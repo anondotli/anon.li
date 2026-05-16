@@ -54,27 +54,9 @@ export async function fetchWrappedDropKeys(): Promise<WrappedDropKeyRecord[]> {
     }
 }
 
-export async function fetchWrappedDropKey(dropId: string): Promise<WrappedDropKeyRecord | null> {
-    const cached = getCachedWrappedDropKeys()
-    if (cached) {
-        return cached.find((record) => record.dropId === dropId) ?? null
-    }
-
-    try {
-        return await readVaultApiData<WrappedDropKeyRecord>(`/api/vault/drop-keys?dropId=${encodeURIComponent(dropId)}`)
-    } catch {
-        return getCachedWrappedDropKeys()?.find((record) => record.dropId === dropId) ?? null
-    }
-}
-
 export function upsertCachedWrappedDropKey(record: WrappedDropKeyRecord) {
     const current = getCachedWrappedDropKeys() ?? []
     const next = current.filter((entry) => entry.dropId !== record.dropId)
     next.unshift(record)
     cacheWrappedDropKeys(next)
-}
-
-export function clearWrappedDropKeysCache() {
-    wrappedDropKeysCache = null
-    wrappedDropKeysInflight = null
 }

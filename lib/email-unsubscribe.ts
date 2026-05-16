@@ -26,7 +26,7 @@ function hmac(userId: string): string {
         .slice(0, HMAC_LENGTH);
 }
 
-export function signUnsubscribeToken(userId: string): string {
+function signUnsubscribeToken(userId: string): string {
     return `${userId}.${hmac(userId)}`;
 }
 

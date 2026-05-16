@@ -19,11 +19,40 @@ export type ApiQuotaType = "alias" | "drop" | "form"
 type UserSubscription = UserSub
 
 type LimiterMap = { free: Ratelimit | null, plus: Ratelimit | null, pro: Ratelimit | null }
+type QuotaLimitConfig = Record<string, { apiRequests: number }>
+type QuotaConfig = { limits: QuotaLimitConfig; limiters: LimiterMap }
+
+const API_QUOTA_CONFIG: Record<ApiQuotaType, QuotaConfig> = {
+    alias: {
+        limits: ALIAS_LIMITS,
+        limiters: {
+            free: monthlyApiLimiters.free,
+            plus: monthlyApiLimiters.plus,
+            pro: monthlyApiLimiters.pro,
+        },
+    },
+    drop: {
+        limits: DROP_LIMITS,
+        limiters: {
+            free: monthlyApiLimiters.dropFree,
+            plus: monthlyApiLimiters.dropPlus,
+            pro: monthlyApiLimiters.dropPro,
+        },
+    },
+    form: {
+        limits: FORM_LIMITS,
+        limiters: {
+            free: monthlyApiLimiters.formFree,
+            plus: monthlyApiLimiters.formPlus,
+            pro: monthlyApiLimiters.formPro,
+        },
+    },
+}
 
 async function checkTieredQuota(
     userId: string,
     user: UserSubscription,
-    limitConfig: Record<string, { apiRequests: number }>,
+    limitConfig: QuotaLimitConfig,
     limiterMap: LimiterMap,
 ): Promise<RateLimitResult> {
     const tier = getEffectiveTier(user)
@@ -54,7 +83,7 @@ async function checkTieredQuota(
 async function readTieredQuota(
     userId: string,
     user: UserSubscription,
-    limitConfig: Record<string, { apiRequests: number }>,
+    limitConfig: QuotaLimitConfig,
     limiterMap: LimiterMap,
 ): Promise<RateLimitResult> {
     const tier = getEffectiveTier(user)
@@ -82,59 +111,20 @@ async function readTieredQuota(
     }
 }
 
-async function checkApiRateLimit(
-    userId: string,
-    user: UserSubscription,
-): Promise<RateLimitResult> {
-    return checkTieredQuota(userId, user, ALIAS_LIMITS, {
-        free: monthlyApiLimiters.free,
-        plus: monthlyApiLimiters.plus,
-        pro: monthlyApiLimiters.pro,
-    })
-}
-
-async function checkDropApiRateLimit(
-    userId: string,
-    user: UserSubscription,
-): Promise<RateLimitResult> {
-    return checkTieredQuota(userId, user, DROP_LIMITS, {
-        free: monthlyApiLimiters.dropFree,
-        plus: monthlyApiLimiters.dropPlus,
-        pro: monthlyApiLimiters.dropPro,
-    })
-}
-
-async function checkFormApiRateLimit(
-    userId: string,
-    user: UserSubscription,
-): Promise<RateLimitResult> {
-    return checkTieredQuota(userId, user, FORM_LIMITS, {
-        free: monthlyApiLimiters.formFree,
-        plus: monthlyApiLimiters.formPlus,
-        pro: monthlyApiLimiters.formPro,
-    })
-}
-
 export async function readApiRateLimit(
     userId: string,
     user: UserSubscription,
 ): Promise<RateLimitResult> {
-    return readTieredQuota(userId, user, ALIAS_LIMITS, {
-        free: monthlyApiLimiters.free,
-        plus: monthlyApiLimiters.plus,
-        pro: monthlyApiLimiters.pro,
-    })
+    const config = API_QUOTA_CONFIG.alias
+    return readTieredQuota(userId, user, config.limits, config.limiters)
 }
 
 export async function readDropApiRateLimit(
     userId: string,
     user: UserSubscription,
 ): Promise<RateLimitResult> {
-    return readTieredQuota(userId, user, DROP_LIMITS, {
-        free: monthlyApiLimiters.dropFree,
-        plus: monthlyApiLimiters.dropPlus,
-        pro: monthlyApiLimiters.dropPro,
-    })
+    const config = API_QUOTA_CONFIG.drop
+    return readTieredQuota(userId, user, config.limits, config.limiters)
 }
 
 export async function checkApiQuota(
@@ -142,9 +132,8 @@ export async function checkApiQuota(
     user: UserSubscription,
     type: ApiQuotaType,
 ): Promise<RateLimitResult> {
-    if (type === "alias") return checkApiRateLimit(userId, user)
-    if (type === "drop") return checkDropApiRateLimit(userId, user)
-    return checkFormApiRateLimit(userId, user)
+    const config = API_QUOTA_CONFIG[type]
+    return checkTieredQuota(userId, user, config.limits, config.limiters)
 }
 
 /**

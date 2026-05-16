@@ -16,23 +16,30 @@ afterEach(() => {
     vi.restoreAllMocks();
 });
 
-describe("signUnsubscribeToken / verifyUnsubscribeToken", () => {
+async function buildUnsubscribeToken(userId: string) {
+    const { unsubscribeUrl } = await import("@/lib/email-unsubscribe");
+    const token = new URL(unsubscribeUrl(userId)).searchParams.get("token");
+    if (!token) throw new Error("unsubscribe token was not generated");
+    return token;
+}
+
+describe("unsubscribe token verification", () => {
     it("roundtrips a valid user id", async () => {
-        const { signUnsubscribeToken, verifyUnsubscribeToken } = await import("@/lib/email-unsubscribe");
-        const token = signUnsubscribeToken("user_abc");
+        const { verifyUnsubscribeToken } = await import("@/lib/email-unsubscribe");
+        const token = await buildUnsubscribeToken("user_abc");
         expect(verifyUnsubscribeToken(token)).toBe("user_abc");
     });
 
     it("rejects a tampered hmac", async () => {
-        const { signUnsubscribeToken, verifyUnsubscribeToken } = await import("@/lib/email-unsubscribe");
-        const token = signUnsubscribeToken("user_abc");
+        const { verifyUnsubscribeToken } = await import("@/lib/email-unsubscribe");
+        const token = await buildUnsubscribeToken("user_abc");
         const tampered = token.slice(0, -1) + (token.at(-1) === "A" ? "B" : "A");
         expect(verifyUnsubscribeToken(tampered)).toBeNull();
     });
 
     it("rejects a token with a swapped user id", async () => {
-        const { signUnsubscribeToken, verifyUnsubscribeToken } = await import("@/lib/email-unsubscribe");
-        const token = signUnsubscribeToken("user_abc");
+        const { verifyUnsubscribeToken } = await import("@/lib/email-unsubscribe");
+        const token = await buildUnsubscribeToken("user_abc");
         const dot = token.lastIndexOf(".");
         const mac = token.slice(dot + 1);
         const swapped = `user_xyz.${mac}`;
@@ -48,8 +55,7 @@ describe("signUnsubscribeToken / verifyUnsubscribeToken", () => {
     });
 
     it("changes token when secret changes", async () => {
-        const { signUnsubscribeToken } = await import("@/lib/email-unsubscribe");
-        const token = signUnsubscribeToken("user_abc");
+        const token = await buildUnsubscribeToken("user_abc");
         process.env.AUTH_SECRET = "rotated-secret";
         vi.resetModules();
         const rotated = await import("@/lib/email-unsubscribe");
@@ -69,8 +75,7 @@ describe("/api/email/unsubscribe route", () => {
     });
 
     it("GET with a valid token flips the flag and returns 200 HTML", async () => {
-        const { signUnsubscribeToken } = await import("@/lib/email-unsubscribe");
-        const token = signUnsubscribeToken("user_abc");
+        const token = await buildUnsubscribeToken("user_abc");
 
         const { GET } = await import("@/app/api/email/unsubscribe/route");
         const req = new Request(`https://anon.li/api/email/unsubscribe?token=${encodeURIComponent(token)}`) as unknown as import("next/server").NextRequest;
@@ -97,8 +102,7 @@ describe("/api/email/unsubscribe route", () => {
     });
 
     it("POST RFC 8058 one-click flips the flag", async () => {
-        const { signUnsubscribeToken } = await import("@/lib/email-unsubscribe");
-        const token = signUnsubscribeToken("user_abc");
+        const token = await buildUnsubscribeToken("user_abc");
 
         const { POST } = await import("@/app/api/email/unsubscribe/route");
         const req = new Request(`https://anon.li/api/email/unsubscribe?token=${encodeURIComponent(token)}`, {

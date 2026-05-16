@@ -4,7 +4,7 @@ import path from "node:path"
 
 import matter from "gray-matter"
 
-export const AGENT_SKILLS_SCHEMA_URL = "https://schemas.agentskills.io/discovery/0.2.0/schema.json"
+const AGENT_SKILLS_SCHEMA_URL = "https://schemas.agentskills.io/discovery/0.2.0/schema.json"
 export const AGENT_SKILLS_CACHE_CONTROL = "public, max-age=3600, s-maxage=3600, stale-while-revalidate=86400"
 export const AGENT_SKILLS_CORS_HEADERS = {
     "Access-Control-Allow-Origin": "*",
@@ -41,7 +41,7 @@ function getSkillFilePath(name: PublishedAgentSkillName) {
     return path.join(agentSkillsRoot, name, "SKILL.md")
 }
 
-export function getPublishedAgentSkillPath(name: PublishedAgentSkillName) {
+function getPublishedAgentSkillPath(name: PublishedAgentSkillName) {
     return `/.well-known/agent-skills/${name}/SKILL.md`
 }
 

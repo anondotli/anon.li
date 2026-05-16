@@ -3,7 +3,10 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
-import type { PublicFormData } from "@/components/form/public/submission-page"
+import type { ComponentProps } from "react"
+import type { FormSubmissionPage } from "@/components/form/public/submission-page"
+
+type PublicFormData = ComponentProps<typeof FormSubmissionPage>["form"]
 
 vi.mock("@/components/ui/turnstile", () => ({
     Turnstile: ({ onVerify }: { onVerify: (token: string) => void }) => (

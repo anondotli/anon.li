@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { cleanupStaleDomains } from '@/app/api/cron/domains/route'
+import { cleanupStaleDomains } from '@/lib/services/cron-domains'
 import { prisma } from '@/lib/prisma'
 import * as resend from '@/lib/resend'
 

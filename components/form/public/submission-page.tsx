@@ -26,7 +26,7 @@ import { Notice } from "./notice"
 
 const turnstileSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY
 
-export interface PublicFormData {
+interface PublicFormData {
     id: string
     title: string
     description: string | null

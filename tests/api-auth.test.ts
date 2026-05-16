@@ -8,6 +8,8 @@ const getAuthUserState = vi.fn()
 const getAuthApiKeyRecord = vi.fn()
 const touchApiKeyLastUsed = vi.fn()
 const hashKey = vi.fn()
+const rateLimit = vi.fn()
+const prismaUserFindUnique = vi.fn()
 
 vi.mock("@/auth", () => ({ auth }))
 
@@ -34,8 +36,17 @@ vi.mock("@/lib/api-rate-limit", () => ({
 }))
 
 vi.mock("@/lib/rate-limit", () => ({
+    rateLimit,
     rateLimiters: {
         api: null,
+    },
+}))
+
+vi.mock("@/lib/prisma", () => ({
+    prisma: {
+        user: {
+            findUnique: prismaUserFindUnique,
+        },
     },
 }))
 
@@ -71,13 +82,17 @@ describe("api auth", () => {
             twoFactorVerified: true,
         })
         getAuthApiKeyRecord.mockResolvedValue(null)
+        const handler = vi.fn(async () => new Response(null, { status: 204 }))
 
-        const { validateRequest } = await import("@/lib/api-auth")
+        const { withPolicy } = await import("@/lib/route-policy")
+        const route = withPolicy({ auth: "api_key_or_session", apiQuota: "alias" }, handler)
         const request = new Request("http://localhost/api/v1/me", {
             headers: { authorization: "Bearer ak_invalid" },
         })
 
-        await expect(validateRequest(request, "alias")).resolves.toBeNull()
+        const response = await route(request)
+        expect(response.status).toBe(401)
         expect(auth).not.toHaveBeenCalled()
+        expect(handler).not.toHaveBeenCalled()
     })
 })

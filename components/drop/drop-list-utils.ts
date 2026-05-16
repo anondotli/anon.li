@@ -16,7 +16,7 @@ interface DropExpiryState {
   maxDownloads: number | null;
 }
 
-export function hasDropReachedDownloadLimit(downloads: number, maxDownloads: number | null) {
+function hasDropReachedDownloadLimit(downloads: number, maxDownloads: number | null) {
   return maxDownloads !== null && downloads >= maxDownloads;
 }
 

@@ -1,10 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { formatDropExpiry, hasDropReachedDownloadLimit, isDropExpired } from "@/components/drop/drop-list-utils";
+import { formatDropExpiry, isDropExpired } from "@/components/drop/drop-list-utils";
 
 describe("drop list availability helpers", () => {
   it("marks download-limit drops as expired", () => {
-    expect(hasDropReachedDownloadLimit(1, 1)).toBe(true);
     expect(
       isDropExpired({
         downloads: 1,

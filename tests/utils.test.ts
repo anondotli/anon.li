@@ -1,11 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import {
     cn,
-    generateRandomString,
     sanitizeEmailSubject,
     sanitizeFilename,
     sanitizeDomain,
-    escapeHtml,
     formatBytes,
 } from '@/lib/utils'
 
@@ -13,21 +11,6 @@ describe('cn', () => {
     it('should merge classes correctly', () => {
         expect(cn('bg-red-500', 'text-white')).toBe('bg-red-500 text-white')
         expect(cn('px-2 py-1', 'p-4')).toBe('p-4')
-    })
-})
-
-describe('generateRandomString', () => {
-    it('should generate a string of correct length', () => {
-        expect(generateRandomString(10)).toHaveLength(10)
-        expect(generateRandomString()).toHaveLength(6)
-    })
-
-    it('should consist of lowercase alphanumeric characters', () => {
-        expect(generateRandomString(100)).toMatch(/^[a-z0-9]+$/)
-    })
-
-    it('should be random', () => {
-        expect(generateRandomString(10)).not.toBe(generateRandomString(10))
     })
 })
 
@@ -118,20 +101,6 @@ describe('sanitizeDomain', () => {
     it('should remove leading/trailing dots and hyphens', () => {
         expect(sanitizeDomain('.example.com.')).toBe('example.com')
         expect(sanitizeDomain('-example.com-')).toBe('example.com')
-    })
-})
-
-describe('escapeHtml', () => {
-    it('should escape HTML special characters', () => {
-        expect(escapeHtml('<script>')).toBe('&lt;script&gt;')
-        expect(escapeHtml('"test"')).toBe('&quot;test&quot;')
-        expect(escapeHtml("it's")).toBe("it&#39;s")
-        expect(escapeHtml('a & b')).toBe('a &amp; b')
-    })
-
-    it('should handle mixed content', () => {
-        expect(escapeHtml('<div className="test">Hello & Goodbye</div>'))
-            .toBe('&lt;div className=&quot;test&quot;&gt;Hello &amp; Goodbye&lt;/div&gt;')
     })
 })
 

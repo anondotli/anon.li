@@ -7,11 +7,7 @@ import path from "node:path"
 
 import { describe, expect, it } from "vitest"
 
-import {
-    AGENT_SKILLS_CACHE_CONTROL,
-    AGENT_SKILLS_SCHEMA_URL,
-    getPublishedAgentSkillPath,
-} from "@/config/agent-skills"
+import { AGENT_SKILLS_CACHE_CONTROL } from "@/config/agent-skills"
 
 const skillFilePath = path.join(process.cwd(), "content", "agent-skills", "anon-li", "SKILL.md")
 
@@ -32,13 +28,13 @@ describe("agent skills discovery", () => {
         expect(response.headers.get("access-control-allow-methods")).toBe("GET, HEAD, OPTIONS")
 
         await expect(response.json()).resolves.toEqual({
-            $schema: AGENT_SKILLS_SCHEMA_URL,
+            $schema: "https://schemas.agentskills.io/discovery/0.2.0/schema.json",
             skills: [
                 {
                     name: "anon-li",
                     type: "skill-md",
                     description: "Manage anon.li email aliases, recipients, encrypted drop metadata, and end-to-end encrypted forms through the MCP server or REST API.",
-                    url: getPublishedAgentSkillPath("anon-li"),
+                    url: "/.well-known/agent-skills/anon-li/SKILL.md",
                     digest: getExpectedDigest(expectedContent),
                 },
             ],

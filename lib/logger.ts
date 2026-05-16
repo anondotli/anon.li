@@ -79,11 +79,7 @@ function sanitizeString(str: string): string {
     return str;
 }
 
-/**
- * Sanitize an object by redacting sensitive values.
- * Exported for testing only — do not use directly outside this module.
- */
-export function sanitizeObject(obj: unknown, depth = 0): unknown {
+function sanitizeObject(obj: unknown, depth = 0): unknown {
     // Prevent infinite recursion
     if (depth > 10) return "[MAX_DEPTH]";
 
@@ -297,4 +293,3 @@ export function createLogger(context: string) {
             logError(context, message, error, data),
     };
 }
-

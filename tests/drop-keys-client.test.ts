@@ -31,24 +31,4 @@ describe("drop-keys client cache", () => {
         expect(readVaultApiData).toHaveBeenCalledTimes(1)
         expect(readVaultApiData).toHaveBeenCalledWith("/api/vault/drop-keys")
     })
-
-    it("seeds the cache with newly uploaded keys", async () => {
-        const { clearWrappedDropKeysCache, fetchWrappedDropKey, upsertCachedWrappedDropKey } = await import("@/lib/vault/drop-keys-client")
-
-        clearWrappedDropKeysCache()
-        upsertCachedWrappedDropKey({
-            dropId: "drop-new",
-            wrappedKey: "wrapped-new",
-            vaultGeneration: 2,
-        })
-
-        const record = await fetchWrappedDropKey("drop-new")
-
-        expect(record).toEqual({
-            dropId: "drop-new",
-            wrappedKey: "wrapped-new",
-            vaultGeneration: 2,
-        })
-        expect(readVaultApiData).not.toHaveBeenCalled()
-    })
 })

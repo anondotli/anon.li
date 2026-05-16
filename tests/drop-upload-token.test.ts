@@ -28,7 +28,7 @@ vi.mock("@/lib/prisma", () => ({
 
 import {
     issueUploadToken,
-    verifyUploadToken,
+    getValidUploadTokenForRequest,
     revokeUploadTokens,
 } from "@/lib/services/drop-upload-token";
 import crypto from "crypto";
@@ -62,61 +62,67 @@ describe("upload-token service", () => {
         expect(args.data.expiresAt.getTime()).toBeGreaterThan(Date.now());
     });
 
-    it("verifyUploadToken rejects requests missing the header", async () => {
-        const ok = await verifyUploadToken(makeRequest(), "drop-123");
-        expect(ok).toBe(false);
+    it("getValidUploadTokenForRequest rejects requests missing the header", async () => {
+        const token = await getValidUploadTokenForRequest(makeRequest(), "drop-123");
+        expect(token).toBeNull();
         expect(uploadTokenFindUnique).not.toHaveBeenCalled();
     });
 
-    it("verifyUploadToken rejects unknown tokens", async () => {
+    it("getValidUploadTokenForRequest rejects unknown tokens", async () => {
         uploadTokenFindUnique.mockResolvedValue(null);
-        const ok = await verifyUploadToken(
+        const token = await getValidUploadTokenForRequest(
             makeRequest({ "x-upload-token": "bogus" }),
             "drop-123",
         );
-        expect(ok).toBe(false);
+        expect(token).toBeNull();
     });
 
-    it("verifyUploadToken rejects tokens bound to a different drop", async () => {
+    it("getValidUploadTokenForRequest rejects tokens bound to a different drop", async () => {
         const raw = "raw-token-value";
         uploadTokenFindUnique.mockResolvedValue({
+            id: "token-1",
             dropId: "drop-OTHER",
+            formId: null,
             tokenHash: sha256(raw),
             expiresAt: new Date(Date.now() + 60_000),
         });
-        const ok = await verifyUploadToken(
+        const token = await getValidUploadTokenForRequest(
             makeRequest({ "x-upload-token": raw }),
             "drop-123",
         );
-        expect(ok).toBe(false);
+        expect(token).toBeNull();
     });
 
-    it("verifyUploadToken rejects expired tokens", async () => {
+    it("getValidUploadTokenForRequest rejects expired tokens", async () => {
         const raw = "raw-token-value";
         uploadTokenFindUnique.mockResolvedValue({
+            id: "token-1",
             dropId: "drop-123",
+            formId: null,
             tokenHash: sha256(raw),
             expiresAt: new Date(Date.now() - 1_000),
         });
-        const ok = await verifyUploadToken(
+        const token = await getValidUploadTokenForRequest(
             makeRequest({ "x-upload-token": raw }),
             "drop-123",
         );
-        expect(ok).toBe(false);
+        expect(token).toBeNull();
     });
 
-    it("verifyUploadToken accepts a valid token for the matching drop", async () => {
+    it("getValidUploadTokenForRequest accepts a valid token for the matching drop", async () => {
         const raw = "raw-token-value";
         uploadTokenFindUnique.mockResolvedValue({
+            id: "token-1",
             dropId: "drop-123",
+            formId: null,
             tokenHash: sha256(raw),
             expiresAt: new Date(Date.now() + 60_000),
         });
-        const ok = await verifyUploadToken(
+        const token = await getValidUploadTokenForRequest(
             makeRequest({ "x-upload-token": raw }),
             "drop-123",
         );
-        expect(ok).toBe(true);
+        expect(token).toMatchObject({ id: "token-1", dropId: "drop-123", formId: null });
         expect(uploadTokenFindUnique).toHaveBeenCalledWith({
             where: { tokenHash: sha256(raw) },
             select: {

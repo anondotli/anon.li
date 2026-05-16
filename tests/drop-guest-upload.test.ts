@@ -10,7 +10,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const issueUploadTokenMock = vi.fn();
-const verifyUploadTokenMock = vi.fn();
 const revokeUploadTokensMock = vi.fn();
 const resolveTokenUploadAccessMock = vi.fn();
 const validateFormDropFileMock = vi.fn();
@@ -54,7 +53,6 @@ vi.mock("@/lib/services/drop", () => ({
 }));
 vi.mock("@/lib/services/drop-upload-token", () => ({
     issueUploadToken: issueUploadTokenMock,
-    verifyUploadToken: verifyUploadTokenMock,
     revokeUploadTokens: revokeUploadTokensMock,
 }));
 vi.mock("@/lib/services/form-upload", () => ({
@@ -287,7 +285,7 @@ describe("POST /api/v1/drop/[id]/file guest branch", () => {
         expect(DropService.addFile).not.toHaveBeenCalled();
     });
 
-    it("rejects guest add-file when verifyUploadToken returns false", async () => {
+    it("rejects guest add-file when token upload access is invalid", async () => {
         (auth as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(null);
         resolveTokenUploadAccessMock.mockResolvedValue(null);
 

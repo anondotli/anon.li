@@ -56,10 +56,6 @@ export async function getValidUploadTokenForRequest(request: Request, dropId?: s
     return getValidUploadToken(raw, dropId);
 }
 
-export async function verifyUploadToken(request: Request, dropId: string): Promise<boolean> {
-    return (await getValidUploadTokenForRequest(request, dropId)) !== null;
-}
-
 export async function revokeUploadTokens(dropId: string): Promise<void> {
     await prisma.uploadToken.deleteMany({ where: { dropId } });
 }

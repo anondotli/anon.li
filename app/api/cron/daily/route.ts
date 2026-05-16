@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { validateCronAuth } from "@/lib/cron-auth";
 import { createLogger } from "@/lib/logger";
+import { handleBillingCron } from "@/lib/services/cron-billing";
+import { handleCryptoRecoveryCron } from "@/lib/services/cron-crypto-recovery";
+import { handleDomainsCron } from "@/lib/services/cron-domains";
+import { handleDripCron } from "@/lib/services/cron-drip";
 
 const logger = createLogger("CronDaily");
 
@@ -13,7 +17,6 @@ async function handleCron(req: NextRequest) {
 
     // --- Domains ---
     try {
-        const { handleDomainsCron } = await import("../domains/route");
         const domainsResult = await handleDomainsCron();
         results.domains = domainsResult;
     } catch (error) {
@@ -23,7 +26,6 @@ async function handleCron(req: NextRequest) {
 
     // --- Billing ---
     try {
-        const { handleBillingCron } = await import("../billing/route");
         const billingResult = await handleBillingCron();
         results.billing = billingResult;
     } catch (error) {
@@ -33,7 +35,6 @@ async function handleCron(req: NextRequest) {
 
     // --- Welcome drip ---
     try {
-        const { handleDripCron } = await import("../drip/route");
         results.drip = await handleDripCron();
     } catch (error) {
         logger.error("Daily cron: drip task failed", error);
@@ -42,7 +43,6 @@ async function handleCron(req: NextRequest) {
 
     // --- Crypto invoice recovery ---
     try {
-        const { handleCryptoRecoveryCron } = await import("../crypto-recovery/route");
         results.cryptoRecovery = await handleCryptoRecoveryCron();
     } catch (error) {
         logger.error("Daily cron: crypto recovery task failed", error);

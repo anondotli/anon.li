@@ -5,18 +5,24 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
 
 import proxy from "@/proxy"
-import { requestPrefersMarkdown } from "@/lib/markdown-negotiation"
 
 describe("markdown negotiation", () => {
     afterEach(() => {
         vi.restoreAllMocks()
     })
 
-    it("prefers markdown only when it is explicitly requested", () => {
-        expect(requestPrefersMarkdown("text/markdown, text/html;q=0.9")).toBe(true)
-        expect(requestPrefersMarkdown("text/*")).toBe(true)
-        expect(requestPrefersMarkdown("*/*")).toBe(false)
-        expect(requestPrefersMarkdown("text/html, text/markdown;q=0.5")).toBe(false)
+    it("rewrites only when markdown is explicitly preferred", async () => {
+        async function rewriteForAccept(accept: string) {
+            const response = await proxy(new NextRequest("http://localhost/docs/api", {
+                headers: { Accept: accept },
+            }))
+            return response.headers.get("x-middleware-rewrite")
+        }
+
+        expect(await rewriteForAccept("text/markdown, text/html;q=0.9")).toBe("http://localhost/__markdown?target=%2Fdocs%2Fapi")
+        expect(await rewriteForAccept("text/*")).toBe("http://localhost/__markdown?target=%2Fdocs%2Fapi")
+        expect(await rewriteForAccept("*/*")).toBeNull()
+        expect(await rewriteForAccept("text/html, text/markdown;q=0.5")).toBeNull()
     })
 
     it("rewrites public page requests that prefer markdown", async () => {

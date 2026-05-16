@@ -50,11 +50,6 @@ function resetStorageClients(): void {
   r2DownloadPresignClient = null;
 }
 
-export function resetStorageCacheForTests(): void {
-  storageEnvSignature = null;
-  resetStorageClients();
-}
-
 function syncStorageEnvCache(): void {
   const nextSignature = currentStorageEnvSignature();
   if (process.env.NODE_ENV !== "production" && storageEnvSignature && storageEnvSignature !== nextSignature) {

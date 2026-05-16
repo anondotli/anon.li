@@ -1,8 +1,8 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import type { FormField, FormSchemaDoc } from "@/lib/form-schema"
-import { isFieldVisible } from "@/lib/form-schema"
+import { useVisibleFormFields } from "@/components/form/use-visible-form-fields"
 import { QuestionFrame, type QuestionFrameHandle } from "./question-frame"
 import { ProgressRail } from "./progress-rail"
 import { getFieldBehavior, letterToIndex } from "./fields"
@@ -63,28 +63,7 @@ export function OneQuestionFlow({
     disabled,
     bottomSlot,
 }: Props) {
-    const visibleFields = useMemo(
-        () => schema.fields.filter((f) => isFieldVisible(f, answers)),
-        [schema.fields, answers],
-    )
-    const visibleIdsRef = useRef<Set<string>>(new Set(visibleFields.map((f) => f.id)))
-
-    // When a field becomes hidden, drop its answer so stale data never leaks into the submission.
-    useEffect(() => {
-        const next = new Set(visibleFields.map((f) => f.id))
-        const removed: string[] = []
-        for (const f of schema.fields) {
-            if (visibleIdsRef.current.has(f.id) && !next.has(f.id) && answers[f.id] !== undefined) {
-                removed.push(f.id)
-            }
-        }
-        visibleIdsRef.current = next
-        if (removed.length > 0) {
-            const copy = { ...answers }
-            for (const id of removed) delete copy[id]
-            onChange(copy)
-        }
-    }, [visibleFields, schema.fields, answers, onChange])
+    const visibleFields = useVisibleFormFields(schema, answers, onChange)
 
     const [step, setStep] = useState(0)
     const [error, setError] = useState<string | null>(null)

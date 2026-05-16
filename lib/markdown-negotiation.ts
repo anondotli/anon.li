@@ -113,7 +113,7 @@ export function appendVaryHeader(headers: Headers, value: string) {
     }
 }
 
-export function requestPrefersMarkdown(acceptHeader: string | null): boolean {
+function requestPrefersMarkdown(acceptHeader: string | null): boolean {
     const parsedValues = parseAcceptHeader(acceptHeader)
     if (parsedValues.length === 0) return false
 

@@ -1,14 +1,8 @@
 import { type ClassValue, clsx } from "clsx"
 import { twMerge } from "tailwind-merge"
-import { customAlphabet } from "nanoid"
 
 export function cn(...inputs: ClassValue[]) {
     return twMerge(clsx(inputs))
-}
-
-export function generateRandomString(length: number = 6): string {
-    const nanoid = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", length)
-    return nanoid()
 }
 
 export function formatRelativeTime(date: Date | string | number): string {
@@ -97,15 +91,4 @@ export function sanitizeDomain(domain: string): string {
     sanitized = sanitized.replace(/^[.-]+|[.-]+$/g, "")
 
     return sanitized
-}
-
-export function escapeHtml(input: string): string {
-    const htmlEntities: Record<string, string> = {
-        "&": "&amp;",
-        "<": "&lt;",
-        ">": "&gt;",
-        '"': "&quot;",
-        "'": "&#39;",
-    }
-    return input.replace(/[&<>"']/g, (char) => htmlEntities[char] || char)
 }

@@ -23,7 +23,7 @@ interface TurnstileRenderOptions {
 
 declare global {
     interface Window {
-        turnstile: {
+        turnstile?: {
             render: (container: HTMLElement, options: TurnstileRenderOptions) => string;
             remove: (widgetId: string) => void;
             reset: (widgetId: string) => void;

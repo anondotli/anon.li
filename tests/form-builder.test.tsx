@@ -147,7 +147,7 @@ describe("FormBuilderPage", () => {
     })
 
     it("derives file uploads from file fields", async () => {
-        const { buildFormInput } = await import("@/components/form/dashboard/builder-page")
+        const { buildFormInput } = await import("@/components/form/dashboard/form-input")
         const result = buildFormInput({
             title: "File form",
             description: "",
@@ -179,7 +179,7 @@ describe("FormBuilderPage", () => {
     })
 
     it("persists the submission notification toggle", async () => {
-        const { buildFormInput } = await import("@/components/form/dashboard/builder-page")
+        const { buildFormInput } = await import("@/components/form/dashboard/form-input")
         const result = buildFormInput({
             title: "Quiet form",
             description: "",
@@ -296,7 +296,7 @@ describe("FormBuilderPage", () => {
     })
 
     it("preserves existing password material when editing without a password change", async () => {
-        const { buildFormInput } = await import("@/components/form/dashboard/builder-page")
+        const { buildFormInput } = await import("@/components/form/dashboard/form-input")
         const result = buildFormInput({
             title: "Protected form",
             description: "",
@@ -320,7 +320,7 @@ describe("FormBuilderPage", () => {
     })
 
     it("rejects duplicate field IDs before saving", async () => {
-        const { buildFormInput } = await import("@/components/form/dashboard/builder-page")
+        const { buildFormInput } = await import("@/components/form/dashboard/form-input")
         const result = buildFormInput({
             title: "Duplicate fields",
             description: "",
@@ -343,7 +343,7 @@ describe("FormBuilderPage", () => {
     })
 
     it("rejects invalid max submission values", async () => {
-        const { buildFormInput } = await import("@/components/form/dashboard/builder-page")
+        const { buildFormInput } = await import("@/components/form/dashboard/form-input")
         const result = buildFormInput({
             title: "Limited form",
             description: "",

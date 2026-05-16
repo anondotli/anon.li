@@ -1,11 +1,10 @@
 "use client"
 
-import { useEffect, useMemo, useRef } from "react"
 import type { FormField, FormSchemaDoc } from "@/lib/form-schema"
-import { isFieldVisible } from "@/lib/form-schema"
 import { FieldInput } from "./fields"
 import { cn } from "@/lib/utils"
 import { AlertCircle } from "lucide-react"
+import { useVisibleFormFields } from "@/components/form/use-visible-form-fields"
 
 interface Props {
     schema: FormSchemaDoc
@@ -29,27 +28,7 @@ export function ClassicFlow({
     description,
     footer,
 }: Props) {
-    const visibleFields = useMemo(
-        () => schema.fields.filter((f) => isFieldVisible(f, answers)),
-        [schema.fields, answers],
-    )
-    const visibleIdsRef = useRef<Set<string>>(new Set(visibleFields.map((f) => f.id)))
-
-    useEffect(() => {
-        const next = new Set(visibleFields.map((f) => f.id))
-        const removed: string[] = []
-        for (const f of schema.fields) {
-            if (visibleIdsRef.current.has(f.id) && !next.has(f.id) && answers[f.id] !== undefined) {
-                removed.push(f.id)
-            }
-        }
-        visibleIdsRef.current = next
-        if (removed.length > 0) {
-            const copy = { ...answers }
-            for (const id of removed) delete copy[id]
-            onChange(copy)
-        }
-    }, [visibleFields, schema.fields, answers, onChange])
+    const visibleFields = useVisibleFormFields(schema, answers, onChange)
 
     const setAnswer = (id: string, value: unknown) => onChange({ ...answers, [id]: value })
 

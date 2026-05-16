@@ -36,9 +36,12 @@ const mockPolicyContext: {
     requestId: string
     user: {
         id: string
-        stripeSubscriptionId: string | null
-        stripePriceId: string | null
-        stripeCurrentPeriodEnd: Date | null
+        subscriptions: Array<{
+            status: string
+            product: string
+            tier: string
+            currentPeriodEnd: Date | null
+        }>
     } | null
     apiKeyId?: string
     rateLimitHeaders: Headers | null
@@ -47,9 +50,7 @@ const mockPolicyContext: {
     requestId: "req-test",
     user: {
         id: "user-123",
-        stripeSubscriptionId: null,
-        stripePriceId: "price_plus",
-        stripeCurrentPeriodEnd: null,
+        subscriptions: [],
     },
     apiKeyId: "api-key-123",
     rateLimitHeaders: null,
@@ -106,6 +107,7 @@ describe("extension parity routes", () => {
         mockPolicyContext.userId = "user-123"
         mockPolicyContext.user = {
             id: "user-123",
+            subscriptions: [],
         }
 
         getEffectiveTier.mockReturnValue("plus")

@@ -1,9 +1,10 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const originalEnv = process.env
 
 describe("storage configuration", () => {
-    beforeEach(async () => {
+    beforeEach(() => {
+        vi.resetModules()
         process.env = {
             ...originalEnv,
             NODE_ENV: "test",
@@ -13,15 +14,11 @@ describe("storage configuration", () => {
             R2_PUBLIC_ENDPOINT: "https://r2.anon.li",
             R2_BUCKET_NAME: "anon-li-files",
         }
-
-        const { resetStorageCacheForTests } = await import("@/lib/storage")
-        resetStorageCacheForTests()
     })
 
-    afterEach(async () => {
+    afterEach(() => {
         process.env = originalEnv
-        const { resetStorageCacheForTests } = await import("@/lib/storage")
-        resetStorageCacheForTests()
+        vi.resetModules()
     })
 
     it("signs download URLs against the public R2 custom domain", async () => {
@@ -39,8 +36,7 @@ describe("storage configuration", () => {
     it("throws a service-unavailable error when storage env is missing", async () => {
         delete process.env.R2_PUBLIC_ENDPOINT
 
-        const { resetStorageCacheForTests, getPresignedDownloadUrl } = await import("@/lib/storage")
-        resetStorageCacheForTests()
+        const { getPresignedDownloadUrl } = await import("@/lib/storage")
 
         await expect(getPresignedDownloadUrl("drop/file-123", 60)).rejects.toMatchObject({
             name: "ServiceUnavailableError",
