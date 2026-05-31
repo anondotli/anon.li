@@ -5,7 +5,7 @@ import { deleteApiKeyAction } from "@/actions/api-key"
 import { Loader2, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 import { useState } from "react"
-import { formatRelativeTime } from "@/lib/utils"
+import { formatRelativeTime } from "@/lib/format"
 
 interface ApiKey {
     id: string

@@ -1,11 +1,19 @@
 "use client"
 
+import { useMemo, useState } from "react"
+import { ChevronDown } from "lucide-react"
 import { PricingAction } from "@/components/marketing/pricing/action"
 import { FeatureItem } from "@/components/marketing/feature-item"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
 import { type PlanDefinition } from "@/config/plans"
 import { User } from "@/types/auth"
+
+// How many feature rows each section previews before the rest collapse behind
+// the toggle. Bundle cards have several sections, so they preview fewer per
+// section to keep every product (Alias/Drop/Form) visible without going tall.
+const PREVIEW_PER_SECTION_MULTI = 2
+const PREVIEW_PER_SECTION_SINGLE = 4
 
 type ProductType = "bundle" | "alias" | "drop" | "form"
 
@@ -40,6 +48,11 @@ export function PricingPlanCard({
     const price = isFree ? "0" : formatPrice(isYearly ? plan.price.yearly / 12 : plan.price.monthly)
     const yearlyPrice = formatPrice(plan.price.yearly)
     const fullPlanId = `${product}_${planId}`
+    // Real annual savings vs. paying monthly for a year — derived, never hardcoded,
+    // so the displayed discount always matches the actual prices in config/plans.ts.
+    const yearlySavingsPct = !isFree && plan.price.monthly > 0
+        ? Math.round((1 - plan.price.yearly / (plan.price.monthly * 12)) * 100)
+        : 0
 
     const cardClassName = `rounded-[2rem] p-8 flex flex-col gap-6 transition-all duration-300 hover:shadow-xl hover:shadow-primary/5 relative overflow-hidden ${
         isHighlighted ? "ring-2 ring-primary ring-offset-4 ring-offset-background" : ""
@@ -80,6 +93,9 @@ export function PricingPlanCard({
                     {!isFree && isYearly && (
                         <span className="rounded-full bg-secondary/70 px-3 py-1 text-xs font-medium text-muted-foreground">
                             Billed ${yearlyPrice}/year
+                            {yearlySavingsPct > 0 && (
+                                <span className="ml-1 text-green-600 dark:text-green-500">· save {yearlySavingsPct}%</span>
+                            )}
                         </span>
                     )}
                 </div>
@@ -119,7 +135,7 @@ export function PricingPlanCard({
             )}
 
             <div className={`space-y-3 ${isDark ? "relative z-10" : ""}`}>
-                <PlanFeatures plan={plan} planId={planId} />
+                <PlanFeatures plan={plan} planId={planId} isDark={isDark} />
             </div>
         </div>
     )
@@ -132,50 +148,114 @@ function formatPrice(price: number) {
 interface PlanFeaturesProps {
     plan: PlanDefinition
     planId: string
+    isDark?: boolean
 }
 
-function PlanFeatures({ plan, planId }: PlanFeaturesProps) {
+interface NormalizedItem {
+    text: string
+    included: boolean
+}
+
+interface NormalizedSection {
+    name: string
+    items: NormalizedItem[]
+}
+
+/**
+ * Flatten a plan's features (grouped bundle sections or a flat per-product list)
+ * into a single shape so the preview/expand logic works the same either way.
+ */
+function normalizeSections(plan: PlanDefinition, planId: string): NormalizedSection[] {
     if (plan.featureSections) {
-        return (
-            <div className="space-y-6">
-                {plan.featureSections.map((section, idx) => (
+        return plan.featureSections.map((section) => ({
+            name: section.name,
+            items: [
+                ...section.features.map((text) => ({ text, included: true })),
+                ...(section.missingFeatures ?? []).map((text) => ({ text, included: false })),
+            ],
+        }))
+    }
+
+    const labelText = planId === "free"
+        ? "Included"
+        : planId === "plus"
+            ? "Everything in Free, plus..."
+            : "Everything in Plus, plus..."
+
+    return [
+        {
+            name: labelText,
+            items: [
+                ...plan.features.map((text) => ({ text, included: true })),
+                ...(plan.missingFeatures ?? []).map((text) => ({ text, included: false })),
+            ],
+        },
+    ]
+}
+
+function PlanFeatures({ plan, planId, isDark }: PlanFeaturesProps) {
+    const [expanded, setExpanded] = useState(false)
+
+    const sections = useMemo(() => normalizeSections(plan, planId), [plan, planId])
+    const totalItems = sections.reduce((count, section) => count + section.items.length, 0)
+    const previewPerSection = sections.length > 1 ? PREVIEW_PER_SECTION_MULTI : PREVIEW_PER_SECTION_SINGLE
+    const previewCount = sections.reduce((count, section) => count + Math.min(section.items.length, previewPerSection), 0)
+    const hiddenCount = totalItems - previewCount
+    // Only collapse when it meaningfully shortens the card (at least 2 rows hidden).
+    const collapsible = hiddenCount >= 2
+    // When not collapsible, every item is part of the always-visible preview.
+    const perSection = collapsible ? previewPerSection : Infinity
+
+    return (
+        <div className="space-y-4">
+            {sections.map((section, idx) => {
+                const preview = section.items.slice(0, perSection)
+                const rest = section.items.slice(perSection)
+                return (
                     <div key={idx} className="space-y-3">
                         <p className="font-medium text-xs uppercase tracking-wider text-muted-foreground">
                             {section.name}
                         </p>
                         <ul className="space-y-3 text-sm text-muted-foreground">
-                            {section.features.map((feature, i) => (
-                                <FeatureItem key={i} included={true} text={feature} />
-                            ))}
-                            {section.missingFeatures?.map((feature, i) => (
-                                <FeatureItem key={`missing-${i}`} included={false} text={feature} />
+                            {preview.map((item, i) => (
+                                <FeatureItem key={i} included={item.included} text={item.text} />
                             ))}
                         </ul>
+                        {/* Remaining rows stay mounted and reveal via a grid-rows
+                            transition, so toggling never adds/removes DOM nodes
+                            (which is what made the page jump). */}
+                        {rest.length > 0 && (
+                            <div
+                                className={`grid transition-[grid-template-rows] duration-300 ease-out ${
+                                    expanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
+                                }`}
+                            >
+                                <ul className="space-y-3 overflow-hidden pt-3 text-sm text-muted-foreground">
+                                    {rest.map((item, i) => (
+                                        <FeatureItem key={i} included={item.included} text={item.text} />
+                                    ))}
+                                </ul>
+                            </div>
+                        )}
                     </div>
-                ))}
-            </div>
-        )
-    }
+                )
+            })}
 
-    const labelText = planId === "free" 
-        ? "Included" 
-        : planId === "plus" 
-            ? "Everything in Free, plus..." 
-            : "Everything in Plus, plus..."
-
-    return (
-        <>
-            <p className="font-medium text-xs uppercase tracking-wider text-muted-foreground">
-                {labelText}
-            </p>
-            <ul className="space-y-3 text-sm text-muted-foreground">
-                {plan.features.map((feature, i) => (
-                    <FeatureItem key={i} included={true} text={feature} />
-                ))}
-                {plan.missingFeatures?.map((feature, i) => (
-                    <FeatureItem key={`missing-${i}`} included={false} text={feature} />
-                ))}
-            </ul>
-        </>
+            {collapsible && (
+                <button
+                    type="button"
+                    onClick={() => setExpanded((v) => !v)}
+                    aria-expanded={expanded}
+                    className={`inline-flex items-center gap-1.5 text-sm font-medium transition-colors ${
+                        isDark
+                            ? "text-secondary-foreground/70 hover:text-secondary-foreground"
+                            : "text-primary/80 hover:text-primary"
+                    }`}
+                >
+                    {expanded ? "Show less" : `Show all ${totalItems} features`}
+                    <ChevronDown className={`h-4 w-4 transition-transform ${expanded ? "rotate-180" : ""}`} />
+                </button>
+            )}
+        </div>
     )
 }

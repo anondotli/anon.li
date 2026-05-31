@@ -51,7 +51,7 @@ export default function DropProductPage() {
                                 <span className="italic text-muted-foreground">Not Your Data.</span>
                             </h1>
                             <p className="mx-auto max-w-2xl text-muted-foreground md:text-lg lg:text-xl leading-relaxed font-light animate-in fade-in slide-in-from-bottom-6 duration-1000 fill-mode-both delay-200">
-                                End-to-end encrypted file sharing. We can&apos;t see your files, only people with the full link can decrypt them.
+                                End-to-end encrypted file sharing for transfers up to {DROP_PRO_LIMIT_LABELS.maxFileSizeValue}. We can&apos;t see your files, only people with the full link can decrypt them.
                             </p>
                         </div>
 
@@ -95,8 +95,8 @@ export default function DropProductPage() {
                         />
                         <FeatureCard
                             icon={<Upload className="h-6 w-6" />}
-                            title="Multi-File & Large Uploads"
-                            description={`Upload multiple files with smart chunking and ${DROP_PRO_LIMIT_LABELS.maxFileSize.replace("Up to ", "up to ")} on Pro.`}
+                            title={`Up to ${DROP_PRO_LIMIT_LABELS.maxFileSizeValue} Per Transfer`}
+                            description="Send multiple files in a single drop with smart, resumable chunking — all encrypted in your browser before they upload."
                         />
                         <FeatureCard
                             icon={<Download className="h-6 w-6" />}

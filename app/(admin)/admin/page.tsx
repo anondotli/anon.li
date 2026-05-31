@@ -3,7 +3,7 @@ import { Users, FileBox, ClipboardList, Mail, AlertTriangle, HardDrive, CreditCa
 import Link from "next/link"
 import { StatCard } from "@/components/admin/stat-card"
 import { PageHeader } from "@/components/admin/page-header"
-import { formatBytes } from "@/lib/admin/format"
+import { formatBytes } from "@/lib/format"
 import { getAdminDashboardStats } from "@/lib/data/admin"
 
 export const dynamic = "force-dynamic"

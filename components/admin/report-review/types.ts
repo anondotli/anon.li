@@ -16,6 +16,17 @@ export interface Report {
     priority?: string | null
 }
 
+/** Moderation view of a resource owner, shared across report detail cards. */
+interface ModerationUser {
+    id: string
+    email: string
+    tosViolations: number
+    banned: boolean
+    banAliasCreation: boolean
+    banFileUpload: boolean
+    isAdmin: boolean
+}
+
 export interface DropDetails {
     id: string
     disabled: boolean
@@ -29,17 +40,7 @@ export interface DropDetails {
     createdAt: Date
     fileCount: number
     totalSize: number | string
-    user: DropUser | null
-}
-
-interface DropUser {
-    id: string
-    email: string
-    tosViolations: number
-    banned: boolean
-    banAliasCreation: boolean
-    banFileUpload: boolean
-    isAdmin: boolean
+    user: ModerationUser | null
 }
 
 export interface PreviousReport {
@@ -57,14 +58,8 @@ export interface AliasDetails {
     emailsReceived: number
     emailsBlocked: number
     createdAt: Date
-    user: {
-        id: string
-        email: string
-        tosViolations: number
-        banned: boolean
-        banAliasCreation: boolean
-        isAdmin: boolean
-    }
+    // Alias detail query does not surface banFileUpload.
+    user: Omit<ModerationUser, "banFileUpload">
 }
 
 export interface FormDetails {
@@ -80,15 +75,7 @@ export interface FormDetails {
     maxSubmissions: number | null
     closesAt: Date | null
     createdAt: Date
-    user: {
-        id: string
-        email: string
-        tosViolations: number
-        banned: boolean
-        banAliasCreation: boolean
-        banFileUpload: boolean
-        isAdmin: boolean
-    } | null
+    user: ModerationUser | null
 }
 
 export interface ReportDetailsResponse {

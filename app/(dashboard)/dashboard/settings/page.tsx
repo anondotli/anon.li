@@ -13,6 +13,8 @@ import { Card, CardContent } from "@/components/ui/card"
 import { cookies } from "next/headers"
 import { PasswordSettings } from "@/components/vault/password-settings"
 import { getVaultSchemaState, VAULT_SCHEMA_UNAVAILABLE_MESSAGE } from "@/lib/vault/schema"
+import { InviteFriends } from "./invite-friends"
+import { getReferralStats, REFERRAL_REWARD_DAYS } from "@/lib/services/referral"
 
 export default async function SettingsPage() {
     const session = await auth()
@@ -25,6 +27,9 @@ export default async function SettingsPage() {
     })
 
     if (!user) redirect("/login")
+
+    const referral = await getReferralStats(session.user.id)
+    const referralLink = `${process.env.NEXT_PUBLIC_APP_URL ?? ""}/?ref=${referral.code}`
 
     const cookieStore = await cookies()
     const currentSessionToken = cookieStore.get("better-auth.session_token")?.value?.split(".")[0] ?? ""
@@ -59,6 +64,17 @@ export default async function SettingsPage() {
             <div className="grid gap-8">
                 {/* Profile */}
                 <SettingsForm user={user} />
+
+                {/* Invite & earn */}
+                <div className="space-y-2">
+                    <h4 className="text-lg font-medium font-serif text-muted-foreground px-1">Invite &amp; earn</h4>
+                    <InviteFriends
+                        link={referralLink}
+                        successfulReferrals={referral.successfulReferrals}
+                        plusUntil={referral.plusUntil ? referral.plusUntil.toISOString() : null}
+                        rewardDays={REFERRAL_REWARD_DAYS}
+                    />
+                </div>
 
                 {/* Security */}
                 <div className="space-y-2">

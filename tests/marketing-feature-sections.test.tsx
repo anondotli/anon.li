@@ -30,7 +30,7 @@ describe("marketing feature sections", () => {
         expect(screen.getByText("Private Email Aliases")).toBeTruthy()
         expect(screen.getByText("Zero-Knowledge Share Links")).toBeTruthy()
         expect(screen.getByText("Advanced controls")).toBeTruthy()
-        expect(screen.getByText("Power tools")).toBeTruthy()
+        expect(screen.getByText("Automation & AI access")).toBeTruthy()
         expect(screen.getByText("MCP")).toBeTruthy()
         expect(screen.queryByText(/keep files forever/i)).toBeNull()
     })

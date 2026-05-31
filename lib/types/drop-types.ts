@@ -1,4 +1,4 @@
-import { formatBytes } from "@/lib/utils";
+import { formatBytes } from "@/lib/format";
 
 export interface DropShareOptions {
     shareUrl: string;

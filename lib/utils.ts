@@ -5,45 +5,6 @@ export function cn(...inputs: ClassValue[]) {
     return twMerge(clsx(inputs))
 }
 
-export function formatRelativeTime(date: Date | string | number): string {
-    const now = new Date()
-    const target = new Date(date)
-    const diffInSeconds = Math.floor((now.getTime() - target.getTime()) / 1000)
-
-    if (diffInSeconds < 60) return "just now"
-
-    const intervals = {
-        year: 31536000,
-        month: 2592000,
-        week: 604800,
-        day: 86400,
-        hour: 3600,
-        minute: 60
-    }
-
-    for (const [unit, seconds] of Object.entries(intervals)) {
-        const interval = Math.floor(diffInSeconds / seconds)
-        if (interval >= 1) {
-            return new Intl.RelativeTimeFormat("en", { numeric: "auto" })
-                .format(-interval, unit as Intl.RelativeTimeFormatUnit)
-        }
-    }
-
-    return "just now"
-}
-
-export function formatBytes(bytes: number | bigint, decimals: number = 2): string {
-    const numBytes = typeof bytes === "bigint" ? Number(bytes) : bytes
-    if (numBytes === 0) return "0 B"
-
-    const k = 1024
-    const dm = decimals < 0 ? 0 : decimals
-    const sizes = ["B", "KB", "MB", "GB", "TB", "PB"]
-
-    const i = Math.floor(Math.log(numBytes) / Math.log(k))
-    return `${parseFloat((numBytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`
-}
-
 export function sanitizeEmailSubject(input: string, maxLength: number = 100): string {
     let sanitized = input.replace(/[\r\n]/g, " ")
     sanitized = sanitized.replace(/\0/g, "")

@@ -113,7 +113,10 @@ describe("admin data mappers", () => {
                         product: "drop",
                         tier: "pro",
                         status: "active",
-                        currentPeriodEnd: new Date("2026-05-17T10:00:00.000Z"),
+                        // Must be dynamic relative to "now": getAdminStorageLimit treats a
+                        // subscription whose currentPeriodEnd is in the past as expired (free tier).
+                        // A hardcoded date silently rots into a failing test once it passes.
+                        currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
                         cancelAtPeriodEnd: false,
                         createdAt: new Date("2026-04-17T10:00:00.000Z"),
                     },

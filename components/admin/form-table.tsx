@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { Badge } from "@/components/ui/badge"
 import { DataTable, Column } from "./data-table"
-import { formatDate } from "@/lib/admin/format"
+import { formatDate } from "@/lib/format"
 
 interface Form {
     id: string

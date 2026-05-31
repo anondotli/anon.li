@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { Badge } from "@/components/ui/badge"
 import { DataTable, Column } from "./data-table"
-import { formatDate, formatBytes } from "@/lib/admin/format"
+import { formatDate, formatBytes } from "@/lib/format"
 
 interface Drop {
     id: string

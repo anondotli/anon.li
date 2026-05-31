@@ -26,6 +26,7 @@ import { auth } from "@/auth"
 import { validateApiKey, hasExplicitApiKey } from "@/lib/api-auth"
 import { createRateLimitHeaders, type ApiQuotaType } from "@/lib/api-rate-limit"
 import { getAuthUserState } from "@/lib/data/auth"
+import { evaluateBan } from "@/lib/data/user-bans"
 import { prisma } from "@/lib/prisma"
 import { rateLimiters, rateLimit } from "@/lib/rate-limit"
 import { validateCsrf } from "@/lib/csrf"
@@ -226,11 +227,9 @@ export function withPolicy<TRouteContext = void>(policy: RoutePolicy, handler: P
                     select: { banFileUpload: true, banAliasCreation: true },
                 })
                 if (banState) {
-                    if (policy.checkBan === "upload" && banState.banFileUpload) {
-                        return apiError("File uploads are disabled for this account", ErrorCodes.FORBIDDEN, requestId, 403)
-                    }
-                    if (policy.checkBan === "alias" && banState.banAliasCreation) {
-                        return apiError("Alias creation is disabled for this account", ErrorCodes.FORBIDDEN, requestId, 403)
+                    const ban = evaluateBan(banState, policy.checkBan)
+                    if (ban) {
+                        return apiError(ban.reason, ErrorCodes.FORBIDDEN, requestId, 403)
                     }
                 }
             }

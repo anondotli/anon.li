@@ -11,6 +11,7 @@ import { z } from "zod"
 import { createLogger } from "@/lib/logger"
 import { type ActionState, runSecureAction } from "@/lib/safe-action"
 import { addFileActionSchema } from "@/lib/validations/drop"
+import { assertVaultIdentity } from "@/lib/vault/identity"
 import type { UpgradeRequiredDetails } from "@/lib/api-error-utils"
 import {
     DropOwnerKeyConflictError,
@@ -131,23 +132,7 @@ export type FinishDropActionResult = {
 }
 
 async function persistDropOwnerKey(userId: string, dropId: string, wrappedKey: string, vaultId: string, vaultGeneration: number) {
-    const security = await prisma.userSecurity.findUnique({
-        where: { userId },
-        select: { id: true, vaultGeneration: true },
-    })
-
-    if (!security) {
-        throw new Error("Vault security is not configured")
-    }
-
-    if (security.id !== vaultId) {
-        throw new Error("Vault identity mismatch")
-    }
-
-    if (security.vaultGeneration !== vaultGeneration) {
-        throw new Error("Vault generation mismatch")
-    }
-
+    await assertVaultIdentity(userId, vaultId, vaultGeneration)
     await persistOwnedDropKey(prisma, userId, dropId, wrappedKey, vaultGeneration)
 }
 

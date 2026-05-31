@@ -16,7 +16,7 @@ import {
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { DataTable, Column } from "./data-table"
-import { formatDate } from "@/lib/admin/format"
+import { formatDate } from "@/lib/format"
 import { deleteAlias } from "@/actions/admin"
 import { toast } from "sonner"
 import { Trash2 } from "lucide-react"

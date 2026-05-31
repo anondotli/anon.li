@@ -7,11 +7,12 @@ interface AuthUserState {
     banned: boolean
     twoFactorEnabled: boolean
     subscriptions: SubscriptionLike[]
+    referralPlusUntil: Date | null
 }
 
 interface AuthApiKeyRecord {
     id: string
-    user: Pick<AuthUserState, "id" | "banned" | "subscriptions">
+    user: Pick<AuthUserState, "id" | "banned" | "subscriptions" | "referralPlusUntil">
 }
 
 const ACTIVE_SUBSCRIPTION_SELECT = {
@@ -32,6 +33,7 @@ export async function getAuthUserState(userId: string): Promise<AuthUserState | 
             isAdmin: true,
             banned: true,
             twoFactorEnabled: true,
+            referralPlusUntil: true,
             subscriptions: ACTIVE_SUBSCRIPTION_SELECT,
             deletionRequest: {
                 select: { id: true },
@@ -57,6 +59,7 @@ export async function getAuthApiKeyRecord(keyHash: string): Promise<(AuthApiKeyR
                 select: {
                     id: true,
                     banned: true,
+                    referralPlusUntil: true,
                     subscriptions: ACTIVE_SUBSCRIPTION_SELECT,
                     deletionRequest: {
                         select: { id: true },

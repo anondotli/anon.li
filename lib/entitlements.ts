@@ -28,17 +28,23 @@ function higherTier(a: "free" | PaidTier, b: "free" | PaidTier): "free" | PaidTi
  * Resolve a user's effective tiers across alias, drop, and form products.
  */
 export async function getEffectiveTiers(userId: string): Promise<EffectiveTiers> {
-    const subscriptions = await prisma.subscription.findMany({
-        where: {
-            userId,
-            status: { in: ["active", "trialing"] },
-        },
-        select: {
-            product: true,
-            tier: true,
-            currentPeriodEnd: true,
-        },
-    })
+    const [subscriptions, user] = await Promise.all([
+        prisma.subscription.findMany({
+            where: {
+                userId,
+                status: { in: ["active", "trialing"] },
+            },
+            select: {
+                product: true,
+                tier: true,
+                currentPeriodEnd: true,
+            },
+        }),
+        prisma.user.findUnique({
+            where: { id: userId },
+            select: { referralPlusUntil: true },
+        }),
+    ])
 
     const now = Date.now()
     const active = subscriptions.filter(
@@ -63,6 +69,14 @@ export async function getEffectiveTiers(userId: string): Promise<EffectiveTiers>
         if (product === "bundle" || product === "form") {
             formTier = higherTier(formTier, tier)
         }
+    }
+
+    // Referral Plus tops up every product to at least Plus while it's active,
+    // without ever downgrading a paid Pro tier.
+    if (user?.referralPlusUntil && new Date(user.referralPlusUntil).getTime() > now) {
+        aliasTier = higherTier(aliasTier, "plus")
+        dropTier = higherTier(dropTier, "plus")
+        formTier = higherTier(formTier, "plus")
     }
 
     return { alias: aliasTier, drop: dropTier, form: formTier }

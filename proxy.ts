@@ -84,12 +84,16 @@ function buildCsp(
     // rendering on every request). A hash cannot coexist with 'unsafe-inline'
     // — once any hash is in script-src, browsers ignore 'unsafe-inline' and
     // block Next.js's own framework inline scripts (e.g. __next_f.push).
+    // Dev mode: nonce/strict-dynamic are disabled (HMR/Turbopack inject many
+    // inline scripts), so dev relies on 'unsafe-inline' even on strict paths —
+    // the theme hashes must therefore be omitted in dev too, or they'd silently
+    // disable 'unsafe-inline' and break the dev bootstrap.
     const scriptSrc = [
         "'self'",
         isDev ? null : (strict && nonce ? `'nonce-${nonce}'` : null),
         isDev ? null : (strict ? "'strict-dynamic'" : null),
-        strict ? `'sha256-${THEME_INIT_SCRIPT_SHA256}'` : null,
-        strict ? `'sha256-${NEXT_THEMES_SCRIPT_SHA256}'` : null,
+        (!isDev && strict) ? `'sha256-${THEME_INIT_SCRIPT_SHA256}'` : null,
+        (!isDev && strict) ? `'sha256-${NEXT_THEMES_SCRIPT_SHA256}'` : null,
         (isDev || !strict) ? "'unsafe-inline'" : null,
         isDev ? "'unsafe-eval'" : null,
         "'wasm-unsafe-eval'",
@@ -191,6 +195,23 @@ export default async function proxy(req: NextRequest) {
     response.headers.set("X-Request-Id", requestId)
     response.headers.set("Content-Security-Policy", csp)
     appendVaryHeader(response.headers, "Accept")
+
+    // Capture referral intent (?ref=CODE) as a first-touch cookie. It is consumed
+    // server-side once the referred user has verified + signed in. Validation is
+    // inlined to keep middleware free of server-only (Prisma) imports.
+    const refParam = nextUrl.searchParams.get("ref")
+    if (refParam && !req.cookies.get("anonli_ref")) {
+        const cleaned = refParam.replace(/[^a-zA-Z0-9]/g, "").toUpperCase().slice(0, 16)
+        if (cleaned.length >= 6) {
+            response.cookies.set("anonli_ref", cleaned, {
+                httpOnly: true,
+                secure: process.env.NODE_ENV === "production",
+                sameSite: "lax",
+                maxAge: 60 * 60 * 24 * 30,
+                path: "/",
+            })
+        }
+    }
 
     // CORS for API routes
     if (pathname.startsWith("/api/")) {

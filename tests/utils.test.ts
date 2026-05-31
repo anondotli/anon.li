@@ -4,8 +4,8 @@ import {
     sanitizeEmailSubject,
     sanitizeFilename,
     sanitizeDomain,
-    formatBytes,
 } from '@/lib/utils'
+import { formatBytes } from '@/lib/format'
 
 describe('cn', () => {
     it('should merge classes correctly', () => {

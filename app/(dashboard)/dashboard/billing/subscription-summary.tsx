@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { ManageSubscriptionButton } from "./manage-button"
 import { PaymentMethodDialog } from "@/components/billing"
-import { formatDate } from "@/lib/admin/format"
+import { formatDate } from "@/lib/format"
 
 interface SubscriptionSummaryProps {
     planId: string

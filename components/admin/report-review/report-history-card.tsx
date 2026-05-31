@@ -3,7 +3,7 @@
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { History } from "lucide-react"
-import { formatRelativeTime, getReportStatusInfo, getReasonLabel } from "@/lib/admin/format"
+import { formatRelativeTime, getReportStatusInfo, getReasonLabel } from "@/lib/format"
 import type { PreviousReport } from "./types"
 
 interface ReportHistoryCardProps {

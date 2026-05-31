@@ -40,7 +40,8 @@ import {
     X,
 } from "lucide-react"
 import { toggleFormAction, deleteFormAction } from "@/actions/form"
-import { formatRelativeTime, cn } from "@/lib/utils"
+import { cn } from "@/lib/utils"
+import { formatRelativeTime } from "@/lib/format"
 
 export interface FormListItemSerialized {
     id: string

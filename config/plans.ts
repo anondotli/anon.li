@@ -372,7 +372,7 @@ function bundlePlan(tier: "free" | PaidTier, opts: {
         ],
         featureSections: [
             { name: "Alias Features", features: alias.features, missingFeatures: alias.missingFeatures },
-            { name: "File Features", features: drop.features, missingFeatures: drop.missingFeatures },
+            { name: "Drop Features", features: drop.features, missingFeatures: drop.missingFeatures },
             { name: "Form Features", features: form.features, missingFeatures: form.missingFeatures },
         ],
         missingFeatures: [],

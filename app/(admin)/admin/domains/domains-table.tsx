@@ -3,7 +3,7 @@
 import { DataTable, type Column } from "@/components/admin/data-table"
 import { VerificationBadge, DomainVerificationStatus } from "@/components/admin/verification-badge"
 import { UserLink } from "@/components/admin/entity-link"
-import { formatRelativeTime } from "@/lib/admin/format"
+import { formatRelativeTime } from "@/lib/format"
 
 interface DomainWithUser {
     id: string

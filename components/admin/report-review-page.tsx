@@ -17,7 +17,7 @@ import {
     Loader2,
     ArrowLeft,
 } from "lucide-react"
-import { formatDateTime, formatRelativeTime, getReportStatusInfo, getReasonLabel } from "@/lib/admin/format"
+import { formatDateTime, formatRelativeTime, getReportStatusInfo, getReasonLabel } from "@/lib/format"
 import { updateReport } from "@/actions/admin"
 import { toast } from "sonner"
 import { getReasonBadgeClass, TAKEDOWN_SUGGESTIONS } from "./report-review/utils"

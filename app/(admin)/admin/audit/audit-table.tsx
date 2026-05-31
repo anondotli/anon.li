@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { Badge } from "@/components/ui/badge"
 import { DataTable, type Column } from "@/components/admin/data-table"
-import { formatRelativeTime } from "@/lib/admin/format"
+import { formatRelativeTime } from "@/lib/format"
 
 interface AuditLogRow {
     id: string

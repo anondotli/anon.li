@@ -31,7 +31,8 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
-import { cn, formatBytes } from "@/lib/utils";
+import { cn } from "@/lib/utils";
+import { formatBytes } from "@/lib/format";
 import { cryptoService } from "@/lib/crypto.client";
 import { buildDropShareUrl } from "@/lib/drop-share-url";
 import { fetchWrappedDropKeys } from "@/lib/vault/drop-keys-client";

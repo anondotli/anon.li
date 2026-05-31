@@ -4,7 +4,7 @@ import { useRef } from "react";
 import { X, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getFileIcon } from "@/lib/file-icons";
-import { formatBytes } from "@/lib/utils";
+import { formatBytes } from "@/lib/format";
 
 interface FileListProps {
   files: File[];

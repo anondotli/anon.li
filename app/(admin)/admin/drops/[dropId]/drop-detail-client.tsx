@@ -37,7 +37,7 @@ import {
     Calendar,
     User
 } from "lucide-react"
-import { formatBytes, formatDateTime, formatDate } from "@/lib/admin/format"
+import { formatBytes, formatDateTime, formatDate } from "@/lib/format"
 import { takedownDrop, deleteDrop } from "@/actions/admin"
 import { toast } from "sonner"
 

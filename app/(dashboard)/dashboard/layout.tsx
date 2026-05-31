@@ -7,6 +7,7 @@ import { redirect } from "next/navigation"
 import { prisma } from "@/lib/prisma"
 import { AlertTriangle } from "lucide-react"
 import { getVaultSchemaState, VAULT_SCHEMA_UNAVAILABLE_MESSAGE } from "@/lib/vault/schema"
+import { ReferralClaim } from "@/components/referral/referral-claim"
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
     const session = await auth()
@@ -51,6 +52,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
     return (
         <FileDropProvider>
         <VaultProvider enabled={vaultSchema.userSecurity}>
+        <ReferralClaim />
         <div className="flex min-h-screen flex-col bg-background">
             <header className="sticky top-0 z-50 w-full border-b border-border/40 bg-background/80 backdrop-blur-md">
                 <div className="container flex h-16 items-center">

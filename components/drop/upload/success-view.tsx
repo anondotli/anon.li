@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { Check, Copy, Mail, Key, Plus, Clock, Download, Lock, Infinity } from "lucide-react";
+import Link from "next/link";
+import { Check, Copy, Mail, Key, Plus, Clock, Download, Lock, Infinity, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { formatBytes } from "@/lib/utils";
+import { formatBytes } from "@/lib/format";
 import { generateMailtoLink, type DropShareOptions } from "@/lib/types/drop-types";
 import { toast } from "sonner";
 import { analytics } from "@/lib/analytics";
@@ -17,10 +18,12 @@ interface SuccessViewProps {
   expiresAt?: Date;
   maxDownloads?: number;
   onReset: () => void;
+  /** Guests upload anonymously (100MB cap, no dashboard) — show an account CTA. */
+  isGuest?: boolean;
 }
 
 export function SuccessView({
-  shareUrl, password, fileCount, totalSize, expiresAt, maxDownloads, onReset
+  shareUrl, password, fileCount, totalSize, expiresAt, maxDownloads, onReset, isGuest = false
 }: SuccessViewProps) {
   const [copied, setCopied] = useState(false);
 
@@ -109,6 +112,31 @@ export function SuccessView({
           <p className="text-sm text-amber-700 dark:text-amber-300">
             Remember to share your password separately
           </p>
+        </div>
+      )}
+
+      {/* Guests can't manage drops or send large files — nudge to a free account. */}
+      {isGuest && (
+        <div className="rounded-xl border border-primary/20 bg-primary/5 p-4">
+          <div className="flex items-start gap-3">
+            <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+              <UserPlus className="w-4 h-4 text-primary" />
+            </div>
+            <div className="space-y-2">
+              <p className="font-medium text-sm">Want to do more with anon.li?</p>
+              <p className="text-sm text-muted-foreground">
+                Create a free account to send files up to 5&nbsp;GB, manage and delete your drops, and see when they&apos;re downloaded.
+              </p>
+              <div className="flex flex-wrap gap-2 pt-1">
+                <Button asChild size="sm" className="rounded-full">
+                  <Link href="/register?from=drop">Create free account</Link>
+                </Button>
+                <Button asChild variant="ghost" size="sm" className="rounded-full">
+                  <Link href="/login">Sign in</Link>
+                </Button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 

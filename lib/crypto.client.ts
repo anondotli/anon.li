@@ -10,6 +10,10 @@ import {
   DROP_PASSWORD_MIN_LENGTH,
 } from "@/lib/constants";
 import { argon2id } from "hash-wasm";
+import {
+  arrayBufferToBase64Url as encodeBase64Url,
+  base64UrlToArrayBuffer as decodeBase64Url,
+} from "@/lib/crypto/base64url";
 
 /**
  * Calculate the encrypted size of a file.
@@ -346,32 +350,11 @@ class FileEncryptionService {
   }
 
   arrayBufferToBase64Url(buffer: ArrayBuffer | Uint8Array): string {
-    const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
-    let binary = "";
-    for (let i = 0; i < bytes.length; i++) {
-      const byte = bytes[i];
-      if (byte !== undefined) {
-          binary += String.fromCharCode(byte);
-      }
-    }
-    return btoa(binary)
-      .replace(/\+/g, "-")
-      .replace(/\//g, "_")
-      .replace(/=+$/, "");
+    return encodeBase64Url(buffer);
   }
 
   base64UrlToArrayBuffer(base64url: string): ArrayBuffer {
-    let base64 = base64url.replace(/-/g, "+").replace(/_/g, "/");
-    while (base64.length % 4) {
-      base64 += "=";
-    }
-
-    const binary = atob(base64);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) {
-      bytes[i] = binary.charCodeAt(i);
-    }
-    return bytes.buffer;
+    return decodeBase64Url(base64url);
   }
 
   async hashFileForResume(file: File): Promise<string> {

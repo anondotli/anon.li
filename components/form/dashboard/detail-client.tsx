@@ -48,7 +48,7 @@ import { useVault } from "@/components/vault/vault-provider"
 import { fetchWrappedFormKey } from "@/lib/vault/form-keys-client"
 import { unwrapVaultPayload, arrayBufferToBase64Url } from "@/lib/vault/crypto"
 import { decryptFromSubmission } from "@/lib/crypto/asymmetric"
-import { formatFormAnswerLabel } from "@/lib/form-answer-labels"
+import { formatFormAnswerLabel } from "@/lib/form-field-utils"
 import { cn } from "@/lib/utils"
 
 const DEFAULT_APP_ORIGIN = "https://anon.li"

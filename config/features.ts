@@ -18,6 +18,8 @@ const formatGb = (bytes: number) => `${bytes / (1024 * 1024 * 1024)}GB`
 
 export const DROP_PRO_LIMIT_LABELS = {
     maxFileSize: `Up to ${formatGb(PLAN_ENTITLEMENTS.drop.pro.maxFileSize)} files`,
+    /** Just the size, e.g. "250GB" — for headlines and inline copy. */
+    maxFileSizeValue: formatGb(PLAN_ENTITLEMENTS.drop.pro.maxFileSize),
     bandwidth: `Up to ${formatGb(PLAN_ENTITLEMENTS.drop.pro.bandwidth)}/mo`,
     expiry: `Up to ${PLAN_ENTITLEMENTS.drop.pro.maxExpiryDays}-day expiry`,
 } as const
@@ -50,6 +52,16 @@ export const FEATURE_CATALOG: readonly FeaturePresentation[] = [
         shortTitle: "Pause spam",
         description: "Pause or delete an alias the moment it starts receiving unwanted mail.",
         href: "/alias#features",
+    },
+    {
+        id: "alias_tracker_removal",
+        product: "alias",
+        priority: "primary",
+        title: "Tracking Pixel Removal",
+        shortTitle: "Tracking removal",
+        description: "Known tracking pixels and tracking parameters are stripped from forwarded HTML email before it reaches you.",
+        href: "/alias#features",
+        claimIds: ["alias_zero_tracking"],
     },
     {
         id: "alias_custom_domains",
@@ -130,7 +142,7 @@ export const FEATURE_CATALOG: readonly FeaturePresentation[] = [
     {
         id: "drop_large_uploads",
         product: "drop",
-        priority: "secondary",
+        priority: "primary",
         title: "Large Multi-File Uploads",
         shortTitle: "Large uploads",
         description: `${DROP_PRO_LIMIT_LABELS.maxFileSize} with chunked uploads and multi-file drops.`,
@@ -283,6 +295,25 @@ export const FEATURE_CATALOG: readonly FeaturePresentation[] = [
         shortTitle: "Claim checks",
         description: "Security claims are classified by whether they are source-verifiable or infrastructure-dependent.",
         href: "/security#claim-transparency",
+    },
+    {
+        id: "trust_no_logs",
+        product: "trust",
+        priority: "primary",
+        title: "Logs Auto-Deleted",
+        shortTitle: "No-logs",
+        description: "Request logs are automatically deleted after 7 days, so there's little to hand over or leak.",
+        href: "/security",
+        claimIds: ["logs_auto_deleted"],
+    },
+    {
+        id: "trust_warrant_canary",
+        product: "trust",
+        priority: "secondary",
+        title: "Warrant Canary",
+        shortTitle: "Warrant canary",
+        description: "We publish a regularly-updated warrant canary so you can verify we haven't been served a secret order.",
+        href: "/warrant-canary",
     },
     {
         id: "trust_two_factor",

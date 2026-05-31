@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { DataTable, type Column } from "@/components/admin/data-table"
 import { ConfirmDialog } from "@/components/admin/confirm-dialog"
-import { formatRelativeTime } from "@/lib/admin/format"
+import { formatRelativeTime } from "@/lib/format"
 import { cleanupOrphanedFiles } from "@/actions/admin"
 
 interface OrphanedFileRow {

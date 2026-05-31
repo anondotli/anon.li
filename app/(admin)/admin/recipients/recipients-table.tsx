@@ -3,7 +3,7 @@
 import { DataTable, type Column } from "@/components/admin/data-table"
 import { VerificationBadge } from "@/components/admin/verification-badge"
 import { UserLink } from "@/components/admin/entity-link"
-import { formatRelativeTime } from "@/lib/admin/format"
+import { formatRelativeTime } from "@/lib/format"
 import { Key } from "lucide-react"
 
 interface RecipientWithUser {

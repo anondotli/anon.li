@@ -27,7 +27,10 @@ export type SubscriptionLike = {
     tier: string
     currentPeriodEnd: Date | null
 }
-export type UserSub = { subscriptions?: SubscriptionLike[] | null }
+// referralPlusUntil grants complimentary Plus across all products until it lapses.
+// Optional so existing callers compile; selects that omit it simply won't apply
+// the referral bump (graceful degradation, never an over-grant).
+export type UserSub = { subscriptions?: SubscriptionLike[] | null; referralPlusUntil?: Date | null }
 
 const TIER_RANK: Record<string, number> = { free: 0, plus: 1, pro: 2 }
 
@@ -37,19 +40,24 @@ function isActive(sub: SubscriptionLike): boolean {
     return true
 }
 
+function hasActiveReferralPlus(user?: UserSub | null): boolean {
+    return Boolean(user?.referralPlusUntil && user.referralPlusUntil.getTime() > Date.now())
+}
+
 function higherTier(a: 'free' | PaidTier, b: 'free' | PaidTier): 'free' | PaidTier {
     return (TIER_RANK[a] ?? 0) >= (TIER_RANK[b] ?? 0) ? a : b
 }
 
 function resolveTierForProduct(user: UserSub | null | undefined, product: Product): 'free' | PaidTier {
-    if (!user?.subscriptions) return 'free'
     let best: 'free' | PaidTier = 'free'
-    for (const sub of user.subscriptions) {
+    for (const sub of user?.subscriptions ?? []) {
         if (!isActive(sub)) continue
         if (sub.tier !== 'plus' && sub.tier !== 'pro') continue
         if (sub.product !== 'bundle' && sub.product !== product) continue
         best = higherTier(best, sub.tier as PaidTier)
     }
+    // Referral Plus tops up to at least Plus, never downgrading a paid Pro.
+    if (hasActiveReferralPlus(user)) best = higherTier(best, 'plus')
     return best
 }
 
@@ -106,13 +114,13 @@ export async function getFormLimitsAsync(userId: string): Promise<FormEntitlemen
  * Get the highest paid tier a user has across any product.
  */
 export function getEffectiveTier(user?: UserSub | null): 'free' | PaidTier {
-    if (!user?.subscriptions) return 'free'
     let best: 'free' | PaidTier = 'free'
-    for (const sub of user.subscriptions) {
+    for (const sub of user?.subscriptions ?? []) {
         if (!isActive(sub)) continue
         if (sub.tier !== 'plus' && sub.tier !== 'pro') continue
         best = higherTier(best, sub.tier as PaidTier)
     }
+    if (hasActiveReferralPlus(user)) best = higherTier(best, 'plus')
     return best
 }
 

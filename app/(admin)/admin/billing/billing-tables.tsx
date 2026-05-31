@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { DataTable, type Column } from "@/components/admin/data-table"
 import { UserLink } from "@/components/admin/entity-link"
-import { formatDateTime, formatRelativeTime } from "@/lib/admin/format"
+import { formatDateTime, formatRelativeTime } from "@/lib/format"
 
 interface SubscriptionRow {
     id: string

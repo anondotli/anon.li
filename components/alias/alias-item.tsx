@@ -36,7 +36,7 @@ import {
     CollapsibleContent,
 } from "@/components/ui/collapsible"
 import { toast } from "sonner"
-import { formatRelativeTime } from "@/lib/utils"
+import { formatRelativeTime } from "@/lib/format"
 
 interface Recipient {
     id: string

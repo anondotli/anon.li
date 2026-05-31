@@ -2,7 +2,7 @@
 
 import { DataTable, type Column } from "@/components/admin/data-table"
 import { UserLink } from "@/components/admin/entity-link"
-import { formatRelativeTime } from "@/lib/admin/format"
+import { formatRelativeTime } from "@/lib/format"
 import { TakedownActions } from "./takedown-actions"
 
 interface TakedownDrop {

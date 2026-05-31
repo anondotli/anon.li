@@ -31,12 +31,17 @@ export function PageWrapper({ children, showBranding = true }: PageWrapperProps)
         {children}
       </main>
 
-      {/* Footer */}
+      {/* Footer — branded recipient pages double as an acquisition surface. */}
       {showBranding && (
-        <footer className="py-4 text-center">
+        <footer className="py-4 text-center space-y-1.5">
           <p className="text-xs text-muted-foreground inline-flex items-center gap-1 justify-center">
             Encrypted with <Shield className="w-3 h-3 relative -top-px" /> AES-256-GCM · Powered by{" "}
             <Link href="/" prefetch={false} className="hover:text-foreground transition-colors">anon.li</Link>
+          </p>
+          <p className="text-xs">
+            <Link href="/drop" prefetch={false} className="font-medium text-primary/80 hover:text-primary transition-colors">
+              Share your own files securely — free &rarr;
+            </Link>
           </p>
         </footer>
       )}

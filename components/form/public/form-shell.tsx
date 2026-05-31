@@ -32,11 +32,16 @@ export function FormShell({ children, showBranding, showFooter = true, className
             <main className="flex flex-1 flex-col px-4 sm:px-6">{children}</main>
 
             {showBranding && showFooter ? (
-                <footer className="px-6 pb-6 pt-3 text-center">
+                <footer className="space-y-1.5 px-6 pb-6 pt-3 text-center">
                     <p className="inline-flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
                         encrypted with <Shield className="h-3 w-3" /> AES-256-GCM · powered by{" "}
                         <Link href="/" prefetch={false} className="underline-offset-2 transition-colors hover:text-foreground hover:underline">
                             anon.li
+                        </Link>
+                    </p>
+                    <p className="text-xs">
+                        <Link href="/form" prefetch={false} className="font-medium text-primary/80 transition-colors hover:text-primary">
+                            Create your own encrypted form — free &rarr;
                         </Link>
                     </p>
                 </footer>

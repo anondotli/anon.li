@@ -8,6 +8,7 @@
 import { z } from "zod"
 
 import { apiError, apiList, apiSuccess, ErrorCodes, zodErrorToDetails } from "@/lib/api-response"
+import { checkVaultIdentity, vaultIdentityErrorResponse } from "@/lib/vault/identity"
 import { getDropLimits } from "@/lib/limits"
 import { prisma } from "@/lib/prisma"
 import { getClientIp } from "@/lib/rate-limit"
@@ -77,6 +78,7 @@ export const GET = withPolicy(
                 where: { id: ctx.userId },
                 select: {
                     storageUsed: true,
+                    referralPlusUntil: true,
                     subscriptions: {
                         where: { status: { in: ["active", "trialing"] } },
                         select: {
@@ -156,18 +158,14 @@ export const POST = withPolicy(
                 where: { userId: ctx.userId },
                 select: { id: true, vaultGeneration: true },
             })
-
-            if (!security) {
-                return apiError("Vault security is not configured", ErrorCodes.NOT_FOUND, ctx.requestId, 404)
-            }
-
-            if (security.id !== ownerKey.vaultId) {
-                return apiError("Vault identity mismatch", ErrorCodes.CONFLICT, ctx.requestId, 409)
-            }
-
-            if (security.vaultGeneration !== ownerKey.vaultGeneration) {
-                return apiError("Vault generation mismatch", ErrorCodes.CONFLICT, ctx.requestId, 409)
-            }
+            const identityError = vaultIdentityErrorResponse(
+                checkVaultIdentity(security, {
+                    vaultId: ownerKey.vaultId,
+                    vaultGeneration: ownerKey.vaultGeneration,
+                }),
+                ctx.requestId
+            )
+            if (identityError) return identityError
         }
 
         const result = await DropService.createDrop(ctx.userId, dropInput)

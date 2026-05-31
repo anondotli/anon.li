@@ -7,6 +7,15 @@ import {
     ARGON2_PARALLELISM,
     ARGON2_TIME,
 } from "@/lib/constants"
+import {
+    arrayBufferToBase64Url,
+    base64UrlToArrayBuffer,
+    toUint8Array,
+} from "@/lib/crypto/base64url"
+
+// Re-exported so existing `@/lib/vault/crypto` importers keep working; the
+// implementations now live once in `@/lib/crypto/base64url`.
+export { arrayBufferToBase64Url, base64UrlToArrayBuffer }
 
 const AES_GCM_ALGORITHM = { name: "AES-GCM", length: 256 } as const
 const AES_KW_ALGORITHM = { name: "AES-KW", length: 256 } as const
@@ -24,15 +33,6 @@ interface VaultEncryptedTextEnvelope {
 
 type BinaryLike = ArrayBufferLike | ArrayBufferView
 
-function toUint8Array(value: BinaryLike): Uint8Array {
-    if (value instanceof Uint8Array) return value
-    if (ArrayBuffer.isView(value)) {
-        return new Uint8Array(value.buffer, value.byteOffset, value.byteLength)
-    }
-
-    return new Uint8Array(value)
-}
-
 function toArrayBuffer(value: BinaryLike): ArrayBuffer {
     const bytes = toUint8Array(value)
     return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
@@ -46,30 +46,6 @@ function toCryptoBufferSource(value: BinaryLike): BufferSource {
     }
 
     return toArrayBuffer(bytes)
-}
-
-export function arrayBufferToBase64Url(value: BinaryLike): string {
-    const bytes = toUint8Array(value)
-    let binary = ""
-
-    for (const byte of bytes) {
-        binary += String.fromCharCode(byte)
-    }
-
-    return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "")
-}
-
-export function base64UrlToArrayBuffer(value: string): ArrayBuffer {
-    const normalized = value.replace(/-/g, "+").replace(/_/g, "/")
-    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=")
-    const binary = atob(padded)
-    const bytes = new Uint8Array(binary.length)
-
-    for (let index = 0; index < binary.length; index++) {
-        bytes[index] = binary.charCodeAt(index)
-    }
-
-    return bytes.buffer
 }
 
 async function deriveBytes(password: string, salt: string | Uint8Array): Promise<Uint8Array> {

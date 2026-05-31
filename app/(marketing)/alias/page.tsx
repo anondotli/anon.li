@@ -104,6 +104,11 @@ export default async function AliasLandingPage() {
                             description="Disable any alias with one click to stop receiving unwanted mail without touching your real inbox."
                         />
                         <FeatureCard
+                            icon={<EyeOff className="h-6 w-6" />}
+                            title="Tracking Pixel Removal"
+                            description="Known tracking pixels and tracking parameters are stripped from forwarded HTML email before it reaches your inbox."
+                        />
+                        <FeatureCard
                             icon={<Key className="h-6 w-6" />}
                             title="PGP Forwarding"
                             description="Add a PGP key to a verified recipient to encrypt delivered copies before they reach your destination inbox."

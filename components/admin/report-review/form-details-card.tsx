@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ExternalLink, ClipboardList, Lock, Inbox, Loader2 } from "lucide-react"
-import { formatDateTime } from "@/lib/admin/format"
+import { formatDateTime } from "@/lib/format"
 import type { FormDetails } from "./types"
 
 interface FormDetailsCardProps {

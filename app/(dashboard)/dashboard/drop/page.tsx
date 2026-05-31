@@ -23,6 +23,7 @@ export default async function DropDashboardPage() {
     select: {
       storageUsed: true,
       downgradedAt: true,
+      referralPlusUntil: true,
       subscriptions: {
         where: { status: { in: ["active", "trialing"] } },
         select: {

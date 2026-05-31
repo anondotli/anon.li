@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { formatFormAnswerLabel } from "@/lib/form-answer-labels"
+import { formatFormAnswerLabel } from "@/lib/form-field-utils"
 
 describe("formatFormAnswerLabel", () => {
     it("uses the current field label when the field still exists", () => {

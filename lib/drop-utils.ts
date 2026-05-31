@@ -5,8 +5,9 @@
 
 import { getDropLimits, getEffectiveTier, type SubscriptionLike } from "@/lib/limits";
 import { prisma } from "@/lib/prisma";
-import { formatBytes } from "@/lib/utils";
+import { formatBytes } from "@/lib/format";
 import { ForbiddenError, ValidationError, UpgradeRequiredError } from "@/lib/api-error-utils";
+import { evaluateBan } from "@/lib/data/user-bans";
 
 type DropTier = "guest" | "free" | "plus" | "pro";
 
@@ -93,6 +94,7 @@ export async function getUserAndLimits(userId: string): Promise<UserLimits> {
             banFileUpload: true,
             banReason: true,
             storageUsed: true,
+            referralPlusUntil: true,
             subscriptions: {
                 where: { status: { in: ["active", "trialing"] } },
                 select: {
@@ -106,14 +108,11 @@ export async function getUserAndLimits(userId: string): Promise<UserLimits> {
     });
 
     if (user) {
-        if (user.banned || user.banFileUpload) {
-            throw new ForbiddenError(
-                user.banned
-                    ? user.banReason || "Account suspended"
-                    : "File uploads restricted"
-            );
+        const ban = evaluateBan(user, "upload");
+        if (ban) {
+            throw new ForbiddenError(ban.reason);
         }
-        const userRef = { subscriptions: user.subscriptions };
+        const userRef = { subscriptions: user.subscriptions, referralPlusUntil: user.referralPlusUntil };
         return {
             userId: user.id,
             limits: getDropLimits(userRef),

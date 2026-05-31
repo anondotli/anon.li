@@ -48,7 +48,7 @@ export function ProductsSection() {
                             </div>
                         </div>
                         <p className="text-muted-foreground leading-relaxed font-light text-base mb-5">
-                            Generate a different email identity for every site, forward to verified inboxes, reply privately, and shut down spam without changing your real address.
+                            Generate a different email identity for every site, forward to verified inboxes, and shut down spam without exposing your real address.
                         </p>
                         <div className="grid grid-cols-2 gap-4">
                             <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -132,7 +132,7 @@ export function ProductsSection() {
                             </div>
                         </div>
                         <p className="text-muted-foreground leading-relaxed font-light text-base mb-5">
-                            Build a form, publish a link, and let respondents submit answers that only you can decrypt. Embed anywhere, attach files, throttle abuse with Turnstile.
+                            Build a form, publish a link, and collect answers only you can decrypt. Embed anywhere, attach files, and throttle abuse with Turnstile.
                         </p>
                         <div className="grid grid-cols-2 gap-4">
                             <div className="flex items-center gap-2 text-sm text-muted-foreground">

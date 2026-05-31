@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Monitor, Smartphone, Globe, Loader2, Trash2, LogOut } from "lucide-react"
 import { toast } from "sonner"
 import { revokeSessionAction, revokeAllOtherSessionsAction } from "@/actions/session"
-import { formatRelativeTime } from "@/lib/utils"
+import { formatRelativeTime } from "@/lib/format"
 
 interface SessionInfo {
     id: string

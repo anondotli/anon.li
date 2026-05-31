@@ -2,6 +2,7 @@ import { McpError, ErrorCode } from "@modelcontextprotocol/sdk/types.js"
 import { ApiError, ForbiddenError, NotFoundError, RateLimitError, ValidationError } from "@/lib/api-error-utils"
 import { checkApiQuota, type ApiQuotaType } from "@/lib/api-rate-limit"
 import { getAuthUserState } from "@/lib/data/auth"
+import { evaluateBan } from "@/lib/data/user-bans"
 import { prisma } from "@/lib/prisma"
 import { rateLimiters } from "@/lib/rate-limit"
 import { createLogger } from "@/lib/logger"
@@ -32,26 +33,19 @@ export async function invokeTool<T>(
     if (!user) {
         throw new McpError(ErrorCode.InvalidRequest, "Account no longer active")
     }
-    if (user.banned) {
-        throw new McpError(-32001, "Account suspended", { code: "ACCOUNT_BANNED" })
+    const accountBan = evaluateBan(user)
+    if (accountBan) {
+        throw new McpError(-32001, accountBan.reason, { code: accountBan.code })
     }
 
     if (opts.checkBan) {
-        const ban = await prisma.user.findUnique({
+        const banFlags = await prisma.user.findUnique({
             where: { id: userId },
             select: { banFileUpload: true, banAliasCreation: true },
         })
-        if (ban) {
-            if (opts.checkBan === "alias" && ban.banAliasCreation) {
-                throw new McpError(-32001, "Alias creation is disabled for this account", {
-                    code: "BAN_ALIAS_CREATION",
-                })
-            }
-            if (opts.checkBan === "upload" && ban.banFileUpload) {
-                throw new McpError(-32001, "File uploads are disabled for this account", {
-                    code: "BAN_FILE_UPLOAD",
-                })
-            }
+        const scopeBan = banFlags && evaluateBan(banFlags, opts.checkBan)
+        if (scopeBan) {
+            throw new McpError(-32001, scopeBan.reason, { code: scopeBan.code })
         }
     }
 

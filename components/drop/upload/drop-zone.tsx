@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { Upload } from "lucide-react";
-import { formatBytes } from "@/lib/utils";
+import { formatBytes } from "@/lib/format";
 
 interface DropZoneProps {
   onFilesAdded: (files: File[]) => void;

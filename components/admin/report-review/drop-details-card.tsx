@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ExternalLink, FileBox, Lock, Download, CheckCircle, XCircle, Loader2 } from "lucide-react"
-import { formatDateTime, formatBytes } from "@/lib/admin/format"
+import { formatDateTime, formatBytes } from "@/lib/format"
 import { getDropStatus } from "./utils"
 import type { DropDetails } from "./types"
 

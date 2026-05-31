@@ -34,14 +34,14 @@ export function SettingsForm({ user }: { user: { name?: string | null, email?: s
     return (
         <form action={formAction}>
             <Card className="rounded-3xl border-border/40 shadow-sm">
-                <CardHeader className="p-8 pb-4">
+                <CardHeader className="p-6 pb-3">
                     <CardTitle className="text-xl font-medium font-serif">Profile</CardTitle>
                     <CardDescription>
                         Update your personal information.
                     </CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-6 p-8 pt-4">
-                    <div className="space-y-3">
+                <CardContent className="space-y-5 p-6 pt-3">
+                    <div className="space-y-2">
                         <Label htmlFor="name" className="text-sm font-medium">Display Name</Label>
                         <div className="relative">
                             <Input
@@ -56,7 +56,7 @@ export function SettingsForm({ user }: { user: { name?: string | null, email?: s
                             </div>
                         </div>
                     </div>
-                    <div className="space-y-3">
+                    <div className="space-y-2">
                         <Label htmlFor="email" className="text-sm font-medium">Email Address</Label>
                         <Input
                             id="email"

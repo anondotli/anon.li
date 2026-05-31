@@ -32,7 +32,7 @@ import {
     GUEST_MAX_FILES_PER_DROP,
     PLAN_ENTITLEMENTS,
 } from "@/config/plans"
-import { formatBytes } from "@/lib/utils"
+import { formatBytes } from "@/lib/format"
 import { siteConfig } from "@/config/site"
 
 const PAGE_URL = `${siteConfig.default.url}/drop/upload`

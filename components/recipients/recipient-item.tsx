@@ -23,7 +23,7 @@ import {
     CollapsibleContent,
 } from "@/components/ui/collapsible"
 import { toast } from "sonner"
-import { formatRelativeTime } from "@/lib/utils"
+import { formatRelativeTime } from "@/lib/format"
 import { RecipientPgpDialog } from "./recipient-pgp-dialog"
 
 interface Recipient {

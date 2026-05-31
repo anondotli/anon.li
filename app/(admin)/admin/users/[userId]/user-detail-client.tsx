@@ -30,7 +30,7 @@ import {
     Shield,
     CreditCard
 } from "lucide-react"
-import { formatBytes, formatDateTime } from "@/lib/admin/format"
+import { formatBytes, formatDateTime } from "@/lib/format"
 import { banUser, unbanUser, deleteUser } from "@/actions/admin"
 import { toast } from "sonner"
 

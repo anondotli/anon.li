@@ -2,9 +2,9 @@
 
 import { useEffect, useRef, useState } from "react"
 import { useSearchParams } from "next/navigation"
-import { Package, Mail, FileUp, ClipboardList } from "lucide-react"
+import { Mail, FileUp, ClipboardList, ChevronDown } from "lucide-react"
 import { PricingToggle } from "@/components/marketing/pricing/toggle"
-import { BUNDLE_PLANS, ALIAS_PLANS, DROP_PLANS, FORM_PLANS } from "@/config/plans"
+import { BUNDLE_PLANS, ALIAS_PLANS, DROP_PLANS, FORM_PLANS, type PlanDefinition } from "@/config/plans"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { PricingFAQ } from "@/components/marketing/pricing/faq"
 import { PricingPlanCard } from "@/components/marketing/pricing/plan-card"
@@ -18,14 +18,16 @@ interface PricingGridProps {
 }
 
 type ProductType = "bundle" | "alias" | "drop" | "form"
+type IndividualProduct = "alias" | "drop" | "form"
+type PlanTier = "free" | "plus" | "pro"
 
-const PRODUCT_CONFIG = {
-    bundle: {
-        name: "Bundle",
-        description: "Complete privacy suite with email aliases, encrypted file sharing, and forms",
-        icon: Package,
-        plans: BUNDLE_PLANS,
-    },
+type PlanSet = Record<PlanTier, PlanDefinition>
+
+// Individual (single-product) plans live behind a disclosure. The bundle is the
+// headline offer because the billing system only allows one active subscription
+// per user (see actions/create-checkout-session.ts) — mixing per-product subs
+// isn't actually possible, so leading with the bundle matches how billing works.
+const INDIVIDUAL_CONFIG: Record<IndividualProduct, { name: string; description: string; icon: typeof Mail; plans: PlanSet }> = {
     alias: {
         name: "Alias",
         description: "Anonymous email aliases to protect your inbox",
@@ -46,8 +48,6 @@ const PRODUCT_CONFIG = {
     },
 }
 
-type PlanTier = "free" | "plus" | "pro"
-
 function parseHighlight(raw: string | null): { product: ProductType; tier: PlanTier } | null {
     if (!raw) return null
     const [p, t] = raw.split("_")
@@ -57,52 +57,88 @@ function parseHighlight(raw: string | null): { product: ProductType; tier: PlanT
     return { product: p as ProductType, tier: t as PlanTier }
 }
 
+const TIER_ROW: { id: PlanTier; isPopular?: boolean; isDark?: boolean }[] = [
+    { id: "free" },
+    { id: "plus", isPopular: true },
+    { id: "pro", isDark: true },
+]
+
 export function PricingGrid({ user, currentPlanId }: PricingGridProps) {
     const searchParams = useSearchParams()
     const [isYearly, setIsYearly] = useState(true)
 
-    const [selection, setSelection] = useState<{ product: ProductType; highlightedTier: PlanTier | null }>(() => {
-        // `?highlight=<product>_<tier>` takes precedence (sent by upgrade-required
-        // dialogs and growth emails) — falls back to the legacy `?alias` / `?drop`
-        // presence flags for deep links from marketing pages.
+    // `?highlight=<product>_<tier>` (from upgrade dialogs and growth emails) takes
+    // precedence, then the legacy `?alias` / `?drop` / `?form` presence flags from
+    // product marketing pages. Anything pointing at a single product opens the
+    // individual-plans disclosure and pre-selects that product.
+    const initial = (() => {
         const parsed = parseHighlight(searchParams.get("highlight"))
-        if (parsed) return { product: parsed.product, highlightedTier: parsed.tier }
-        if (searchParams.has("alias")) return { product: "alias", highlightedTier: null }
-        if (searchParams.has("drop")) return { product: "drop", highlightedTier: null }
-        if (searchParams.has("form")) return { product: "form", highlightedTier: null }
-        return { product: "bundle", highlightedTier: null }
-    })
+        if (parsed) return { product: parsed.product, tier: parsed.tier }
+        if (searchParams.has("alias")) return { product: "alias" as const, tier: null }
+        if (searchParams.has("drop")) return { product: "drop" as const, tier: null }
+        if (searchParams.has("form")) return { product: "form" as const, tier: null }
+        return { product: "bundle" as const, tier: null }
+    })()
 
-    const { product, highlightedTier } = selection
+    const wantsIndividual = initial.product !== "bundle"
+    const [showIndividual, setShowIndividual] = useState(wantsIndividual)
+    const [individualProduct, setIndividualProduct] = useState<IndividualProduct>(
+        wantsIndividual ? (initial.product as IndividualProduct) : "alias"
+    )
+    const [highlightedTier, setHighlightedTier] = useState<PlanTier | null>(initial.tier)
+
     const highlightRef = useRef<HTMLDivElement | null>(null)
+    const individualRef = useRef<HTMLDivElement | null>(null)
 
-    // Scroll the highlighted plan into view on initial mount so emailed links
-    // land the user directly on the card the email was pitching.
+    // On mount, scroll the highlighted card (or the opened individual section) into
+    // view so emailed/deep links land directly on the card they were pitching.
     useEffect(() => {
-        if (!highlightedTier) return
-        const node = highlightRef.current
+        if (!highlightedTier && !wantsIndividual) return
+        const node = highlightRef.current ?? individualRef.current
         if (!node) return
-        // Defer one frame so the grid has laid out.
-        const id = requestAnimationFrame(() => {
+        const frame = requestAnimationFrame(() => {
             node.scrollIntoView({ behavior: "smooth", block: "center" })
         })
-        // Drop the ring after 6 seconds so the page doesn't stay permanently "noisy".
-        const timeout = window.setTimeout(() => {
-            setSelection((current) => ({ ...current, highlightedTier: null }))
-        }, 6000)
+        // Drop the ring after 6s so the page doesn't stay permanently "noisy".
+        const timeout = window.setTimeout(() => setHighlightedTier(null), 6000)
         return () => {
-            cancelAnimationFrame(id)
+            cancelAnimationFrame(frame)
             window.clearTimeout(timeout)
         }
-    }, [highlightedTier])
+        // Mount-only: deep-link intent is read once.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
 
-    // If the user changes the product tab, drop the highlight — it no longer applies.
-    const handleProductChange = (next: ProductType) => {
-        setSelection({ product: next, highlightedTier: null })
+    const handleIndividualChange = (next: IndividualProduct) => {
+        setIndividualProduct(next)
+        setHighlightedTier(null)
     }
 
-    const currentConfig = PRODUCT_CONFIG[product]
-    const plans = currentConfig.plans
+    // Only the targeted product shows the highlight ring + owns the scroll ref.
+    const highlightProduct: ProductType = wantsIndividual ? individualProduct : "bundle"
+
+    const renderRow = (plans: PlanSet, product: ProductType) => {
+        const tierForRow = highlightProduct === product ? highlightedTier : null
+        return (
+            <div className="grid md:grid-cols-3 gap-8 items-start max-w-7xl mx-auto">
+                {TIER_ROW.map(({ id, isPopular, isDark }) => (
+                    <div key={id} ref={tierForRow === id ? highlightRef : null}>
+                        <PricingPlanCard
+                            plan={plans[id]}
+                            user={user}
+                            isYearly={isYearly}
+                            planId={id}
+                            product={product}
+                            currentPlanId={currentPlanId}
+                            isPopular={isPopular}
+                            isDark={isDark}
+                            isHighlighted={tierForRow === id}
+                        />
+                    </div>
+                ))}
+            </div>
+        )
+    }
 
     return (
         <div className="py-24 md:py-32 bg-background">
@@ -113,81 +149,62 @@ export function PricingGrid({ user, currentPlanId }: PricingGridProps) {
                         <span className="italic">Upgrade when you outgrow it.</span>
                     </h1>
                     <p className="text-lg text-muted-foreground max-w-2xl mx-auto font-light leading-relaxed">
-                        Email aliases, end-to-end encrypted file drops, and confidential forms. No trials, upsell popups... Free is designed to be usable forever.
+                        One plan for everything: email aliases, end-to-end encrypted file drops, and confidential forms. No trials, no upsell popups — Free is designed to be usable forever.
                     </p>
                 </div>
-
-                {/* Product Selector */}
-                <Tabs value={product} onValueChange={(v) => handleProductChange(v as ProductType)} className="mb-12">
-                    <TabsList className="grid w-full max-w-2xl mx-auto grid-cols-4 h-auto p-1.5 bg-secondary/50 rounded-2xl">
-                        {(Object.keys(PRODUCT_CONFIG) as ProductType[]).map((key) => {
-                            const config = PRODUCT_CONFIG[key]
-                            const Icon = config.icon
-                            return (
-                                <TabsTrigger
-                                    key={key}
-                                    value={key}
-                                    className="flex items-center gap-2 py-3 px-4 rounded-xl data-[state=active]:bg-background data-[state=active]:shadow-sm transition-all"
-                                >
-                                    <Icon className="h-4 w-4" />
-                                    <span className="font-medium">{config.name}</span>
-                                </TabsTrigger>
-                            )
-                        })}
-                    </TabsList>
-                </Tabs>
-
-                {/* Product Description */}
-                <p className="text-center text-muted-foreground mb-8 font-light">
-                    {currentConfig.description}
-                </p>
 
                 {/* Billing Toggle */}
                 <div className="flex justify-center mb-12">
                     <PricingToggle isYearly={isYearly} onToggle={setIsYearly} />
                 </div>
 
-                <div className="grid md:grid-cols-3 gap-8 items-start mb-24 max-w-7xl mx-auto">
-                    {/* Free Plan */}
-                    <div ref={highlightedTier === "free" ? highlightRef : null}>
-                        <PricingPlanCard
-                            plan={plans.free}
-                            user={user}
-                            isYearly={isYearly}
-                            planId="free"
-                            product={product}
-                            currentPlanId={currentPlanId}
-                            isHighlighted={highlightedTier === "free"}
-                        />
+                {/* Bundle — the headline offer */}
+                <div className="mb-10">
+                    {renderRow(BUNDLE_PLANS, "bundle")}
+                </div>
+
+                {/* Individual products — quiet secondary path */}
+                <div ref={individualRef} className="mb-24 max-w-7xl mx-auto">
+                    <div className="flex justify-center">
+                        <button
+                            type="button"
+                            onClick={() => setShowIndividual((v) => !v)}
+                            aria-expanded={showIndividual}
+                            className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-secondary/30 px-5 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground hover:border-primary/20"
+                        >
+                            Only need one product? Compare Alias, Drop &amp; Form plans
+                            <ChevronDown className={`h-4 w-4 transition-transform ${showIndividual ? "rotate-180" : ""}`} />
+                        </button>
                     </div>
 
-                    {/* Plus Plan */}
-                    <div ref={highlightedTier === "plus" ? highlightRef : null}>
-                        <PricingPlanCard
-                            plan={plans.plus}
-                            user={user}
-                            isYearly={isYearly}
-                            planId="plus"
-                            product={product}
-                            currentPlanId={currentPlanId}
-                            isPopular
-                            isHighlighted={highlightedTier === "plus"}
-                        />
-                    </div>
+                    {showIndividual && (
+                        <div className="mt-10 space-y-8">
+                            <Tabs value={individualProduct} onValueChange={(v) => handleIndividualChange(v as IndividualProduct)}>
+                                <TabsList className="grid w-full max-w-md mx-auto grid-cols-3 h-auto p-1.5 bg-secondary/50 rounded-2xl">
+                                    {(Object.keys(INDIVIDUAL_CONFIG) as IndividualProduct[]).map((key) => {
+                                        const config = INDIVIDUAL_CONFIG[key]
+                                        const Icon = config.icon
+                                        return (
+                                            <TabsTrigger
+                                                key={key}
+                                                value={key}
+                                                className="flex items-center gap-2 py-3 px-4 rounded-xl data-[state=active]:bg-background data-[state=active]:shadow-sm transition-all"
+                                            >
+                                                <Icon className="h-4 w-4" />
+                                                <span className="font-medium">{config.name}</span>
+                                            </TabsTrigger>
+                                        )
+                                    })}
+                                </TabsList>
+                            </Tabs>
 
-                    {/* Pro Plan */}
-                    <div ref={highlightedTier === "pro" ? highlightRef : null}>
-                        <PricingPlanCard
-                            plan={plans.pro}
-                            user={user}
-                            isYearly={isYearly}
-                            planId="pro"
-                            product={product}
-                            currentPlanId={currentPlanId}
-                            isDark
-                            isHighlighted={highlightedTier === "pro"}
-                        />
-                    </div>
+                            <p className="text-center text-muted-foreground font-light">
+                                {INDIVIDUAL_CONFIG[individualProduct].description}
+                            </p>
+
+                            {renderRow(INDIVIDUAL_CONFIG[individualProduct].plans, individualProduct)}
+                        </div>
+                    )}
                 </div>
 
                 {/* Privacy trust row */}

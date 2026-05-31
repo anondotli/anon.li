@@ -22,7 +22,7 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { ChevronLeft, ChevronRight, ExternalLink, FileBox, Mail, Search } from "lucide-react"
-import { formatDate, getReportStatusInfo, getReasonLabel } from "@/lib/admin/format"
+import { formatDate, getReportStatusInfo, getReasonLabel } from "@/lib/format"
 
 interface Report {
     id: string

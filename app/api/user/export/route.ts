@@ -34,6 +34,7 @@ export async function GET() {
                 storageUsed: true,
                 storageLimit: true,
                 createdAt: true,
+                referralPlusUntil: true,
                 subscriptions: {
                     where: { status: { in: ["active", "trialing"] } },
                     select: {

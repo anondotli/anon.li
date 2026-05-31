@@ -4,6 +4,7 @@
  */
 
 import { apiError, apiList, apiSuccess, ErrorCodes, zodErrorToDetails } from "@/lib/api-response"
+import { checkVaultIdentity, vaultIdentityErrorResponse } from "@/lib/vault/identity"
 import { z } from "zod"
 import { withPolicy } from "@/lib/route-policy"
 import { FormService } from "@/lib/services/form"
@@ -98,15 +99,14 @@ export const POST = withPolicy(
             where: { userId: ctx.userId },
             select: { id: true, vaultGeneration: true },
         })
-        if (!security) {
-            return apiError("Vault security is not configured", ErrorCodes.NOT_FOUND, ctx.requestId, 404)
-        }
-        if (security.id !== validation.data.vaultId) {
-            return apiError("Vault identity mismatch", ErrorCodes.CONFLICT, ctx.requestId, 409)
-        }
-        if (security.vaultGeneration !== validation.data.vaultGeneration) {
-            return apiError("Vault generation mismatch", ErrorCodes.CONFLICT, ctx.requestId, 409)
-        }
+        const identityError = vaultIdentityErrorResponse(
+            checkVaultIdentity(security, {
+                vaultId: validation.data.vaultId,
+                vaultGeneration: validation.data.vaultGeneration,
+            }),
+            ctx.requestId
+        )
+        if (identityError) return identityError
 
         try {
             const { vaultId: _vaultId, ...input } = validation.data

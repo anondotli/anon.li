@@ -5,7 +5,7 @@ import { Upload } from "lucide-react";
 import { toast } from "sonner";
 import { useFileDrop } from "@/hooks/use-file-drop";
 import { useDropUpload } from "@/hooks/use-drop-upload";
-import { formatBytes } from "@/lib/utils";
+import { formatBytes } from "@/lib/format";
 import type { UpgradeRequiredDetails } from "@/lib/api-error-utils";
 
 import { Button } from "@/components/ui/button";
@@ -190,6 +190,7 @@ export function FileUploader({ onUploadComplete, userTier, maxStorage, usedStora
           expiresAt={dropMeta?.expiresAt ? new Date(dropMeta.expiresAt) : undefined}
           maxDownloads={dropMeta?.maxDownloads}
           onReset={reset}
+          isGuest={guest}
         />
         {upgradeDialog}
       </>

@@ -28,6 +28,7 @@ export const GET = withPolicy(
             name: string | null
             storageUsed: bigint
             createdAt: Date
+            referralPlusUntil: Date | null
             subscriptions: SubscriptionLike[]
             _count: { aliases: number; drops: number; domains: number; recipients: number }
         } | null
@@ -45,6 +46,7 @@ export const GET = withPolicy(
                     name: true,
                     storageUsed: true,
                     createdAt: true,
+                    referralPlusUntil: true,
                     subscriptions: {
                         where: { status: { in: ["active", "trialing"] } },
                         select: {

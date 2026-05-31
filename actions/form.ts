@@ -7,6 +7,8 @@ import { createLogger } from "@/lib/logger"
 import { type ActionState, runSecureAction } from "@/lib/safe-action"
 import { FormService } from "@/lib/services/form"
 import { createFormSchema, updateFormSchema, FormId, SubmissionId } from "@/lib/validations/form"
+import { assertVaultIdentity } from "@/lib/vault/identity"
+import { evaluateBan } from "@/lib/data/user-bans"
 import {
     FormOwnerKeyConflictError,
 } from "@/lib/vault/form-owner-keys"
@@ -44,24 +46,14 @@ export type CreateFormActionResult = {
 // Actions
 // ============================================================================
 
-async function assertVaultIdentity(userId: string, vaultId: string, vaultGeneration: number) {
-    const security = await prisma.userSecurity.findUnique({
-        where: { userId },
-        select: { id: true, vaultGeneration: true },
-    })
-    if (!security) throw new Error("Vault security is not configured")
-    if (security.id !== vaultId) throw new Error("Vault identity mismatch")
-    if (security.vaultGeneration !== vaultGeneration) throw new Error("Vault generation mismatch")
-}
-
 async function canCreateForm(userId: string): Promise<{ allowed: true } | { allowed: false; error: string }> {
     const user = await prisma.user.findUnique({
         where: { id: userId },
         select: { banned: true, banFileUpload: true, banReason: true },
     })
     if (!user) return { allowed: false, error: "Unauthorized" }
-    if (user.banned) return { allowed: false, error: user.banReason || "Account suspended" }
-    if (user.banFileUpload) return { allowed: false, error: "File uploads are disabled for this account" }
+    const ban = evaluateBan(user, "upload")
+    if (ban) return { allowed: false, error: ban.reason }
     return { allowed: true }
 }
 

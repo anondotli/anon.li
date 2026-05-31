@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react"
 import { Button } from "@/components/ui/button"
 import { createCheckoutSession } from "@/actions/create-checkout-session"
+import { createSubscriptionChangeSession } from "@/actions/create-portal-session"
 import { toast } from "sonner"
 import { User } from "@/types/auth"
 import Link from "next/link"
@@ -65,6 +66,42 @@ export function PricingAction({ user, planId, isYearly, className, promoCode, cu
     }
 
     if (tier === "plus" || tier === "pro") {
+        // Existing paid subscribers can't open a second checkout (the server rejects
+        // it), so route plan changes through Stripe's portal update flow instead of
+        // erroring. New subscribers fall through to the checkout path below.
+        const hasActivePaidSub = Boolean(currentPlanId)
+
+        if (hasActivePaidSub) {
+            const handleChange = () => {
+                analytics.upgradeClicked(product, tier)
+                startTransition(async () => {
+                    try {
+                        const result = await createSubscriptionChangeSession({
+                            product: product as "bundle" | "alias" | "drop" | "form",
+                            tier: tier as "plus" | "pro",
+                            frequency: isYearly ? "yearly" : "monthly",
+                        })
+                        if (result?.status === "error") {
+                            toast.error(result.message)
+                        }
+                    } catch {
+                        // Success path redirects server-side.
+                    }
+                })
+            }
+
+            return (
+                <Button
+                    onClick={handleChange}
+                    disabled={isPending}
+                    size="lg"
+                    className={className}
+                >
+                    {isPending ? "Loading..." : `Switch to ${displayName}`}
+                </Button>
+            )
+        }
+
         const handleUpgrade = () => {
             analytics.upgradeClicked(product, tier)
 

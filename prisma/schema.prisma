@@ -63,6 +63,20 @@ model User {
   // Transactional emails (billing, auth, abuse) ignore this flag.
   dripUnsubscribed Boolean @default(false) @map("drip_unsubscribed")
 
+  // Referrals
+  // referralCode is generated lazily on first visit to the invite UI.
+  // referredByUserId is set once, when a referred user is verified + claims.
+  // referralPlusUntil grants complimentary Plus and is deliberately kept OUT of
+  // the Subscription table so it never collides with Stripe/crypto reconciliation
+  // or "is this a paying customer?" checks (checkout guard, billing portal, etc.).
+  referralCode      String?   @unique @map("referral_code")
+  referredByUserId  String?   @map("referred_by_user_id")
+  referredBy        User?     @relation("UserReferrals", fields: [referredByUserId], references: [id], onDelete: SetNull)
+  referrals         User[]    @relation("UserReferrals")
+  referralPlusUntil DateTime? @map("referral_plus_until")
+  referralClaimedAt DateTime? @map("referral_claimed_at")
+
+  @@index([referredByUserId])
   @@map("users")
 }
 
