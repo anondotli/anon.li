@@ -24,7 +24,7 @@ vi.mock("@/lib/services/api-key", () => ({
 }))
 
 vi.mock("@/lib/data/api-key", () => ({
-    getApiKeysByUserId: vi.fn(),
+    getApiKeys: vi.fn(),
 }))
 
 vi.mock("@/lib/csrf", () => ({
@@ -82,6 +82,10 @@ describe("API key management API", () => {
 
         expect(response.status).toBe(201)
         expect(validateCsrf).toHaveBeenCalledWith(request)
-        expect(createWithMetadata).toHaveBeenCalledWith("user-123", "CI", undefined)
+        expect(createWithMetadata).toHaveBeenCalledWith(
+            { userId: "user-123", organizationId: null, role: null },
+            "CI",
+            undefined,
+        )
     })
 })

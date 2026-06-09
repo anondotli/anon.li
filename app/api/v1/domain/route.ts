@@ -15,7 +15,8 @@ import {
     zodErrorToDetails,
 } from "@/lib/api-response"
 import { prisma } from "@/lib/prisma"
-import { withPolicy } from "@/lib/route-policy"
+import { withPolicy, scopeFromContext } from "@/lib/route-policy"
+import { ownerWhere } from "@/lib/ownership"
 import { DomainService } from "@/lib/services/domain"
 
 export const dynamic = "force-dynamic"
@@ -63,7 +64,7 @@ export const GET = withPolicy(
         }
 
         const domains = await prisma.domain.findMany({
-            where: { userId: ctx.userId },
+            where: ownerWhere(scopeFromContext(ctx)),
             orderBy: { createdAt: "desc" },
         })
 
@@ -95,7 +96,7 @@ export const POST = withPolicy(
             )
         }
 
-        const domain = await DomainService.createDomain(ctx.userId, validation.data.domain.toLowerCase())
+        const domain = await DomainService.createDomain(scopeFromContext(ctx), validation.data.domain.toLowerCase())
         return apiSuccessWithStatus(toApiFormat(domain), ctx.requestId, 201)
     },
 )

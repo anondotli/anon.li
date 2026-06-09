@@ -11,6 +11,7 @@ function mockSubscription(overrides: Partial<Subscription> = {}): Subscription {
     return {
         id: 'sub-1',
         userId: 'user-1',
+        organizationId: null,
         provider: 'stripe',
         providerSubscriptionId: 'sub_123',
         providerCustomerId: 'cus_123',

@@ -5,7 +5,7 @@
  */
 
 import { apiError, apiSuccess, ErrorCodes } from "@/lib/api-response"
-import { withPolicy } from "@/lib/route-policy"
+import { withPolicy, scopeFromContext } from "@/lib/route-policy"
 import { DomainService } from "@/lib/services/domain"
 
 export const dynamic = "force-dynamic"
@@ -26,7 +26,7 @@ export const POST = withPolicy<RouteParams>(
         }
 
         const { id } = await routeContext!.params
-        const domain = await DomainService.regenerateDkim(ctx.userId, id)
+        const domain = await DomainService.regenerateDkim(scopeFromContext(ctx), id)
         const cleanKey = domain.dkimPublicKey
             ?.replace(/-----BEGIN PUBLIC KEY-----/g, "")
             .replace(/-----END PUBLIC KEY-----/g, "")

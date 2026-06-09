@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache"
 import { AliasService } from "@/lib/services/alias"
-import { runSecureAction, type ActionState } from "@/lib/safe-action"
+import { runScopedAction, type ActionState } from "@/lib/safe-action"
 import { createAliasSchema, updateAliasEncryptedMetadataSchema, updateAliasSchema } from "@/lib/validations/alias"
 
 export async function createAliasAction(data: {
@@ -11,12 +11,12 @@ export async function createAliasAction(data: {
   format?: "RANDOM" | "CUSTOM"
   recipientId?: string
 }): Promise<ActionState<{ alias: { id: string; email: string } }>> {
-  return runSecureAction({
+  return runScopedAction({
     schema: createAliasSchema,
     data,
     rateLimitKey: "aliasCreate",
-  }, async (validated, userId) => {
-    const alias = await AliasService.createAlias(userId, {
+  }, async (validated, scope) => {
+    const alias = await AliasService.createAlias(scope, {
       localPart: validated.localPart ?? undefined,
       domain: validated.domain,
       format: validated.format,
@@ -28,15 +28,15 @@ export async function createAliasAction(data: {
 }
 
 export async function toggleAliasAction(id: string): Promise<ActionState> {
-  return runSecureAction({ rateLimitKey: "recipientOps" }, async (_, userId) => {
-    await AliasService.toggleAlias(userId, id)
+  return runScopedAction({ rateLimitKey: "recipientOps" }, async (_, scope) => {
+    await AliasService.toggleAlias(scope, id)
     revalidatePath("/dashboard/alias")
   })
 }
 
 export async function deleteAliasAction(id: string): Promise<ActionState> {
-  return runSecureAction({ rateLimitKey: "recipientOps" }, async (_, userId) => {
-    await AliasService.deleteAlias(userId, id)
+  return runScopedAction({ rateLimitKey: "recipientOps" }, async (_, scope) => {
+    await AliasService.deleteAlias(scope, id)
     revalidatePath("/dashboard/alias")
   })
 }
@@ -45,12 +45,12 @@ export async function updateAliasAction(
   id: string,
   data: { recipientId?: string }
 ): Promise<ActionState> {
-  return runSecureAction({
+  return runScopedAction({
     schema: updateAliasSchema,
     data,
     rateLimitKey: "recipientOps",
-  }, async (validated, userId) => {
-    await AliasService.updateAlias(userId, id, validated)
+  }, async (validated, scope) => {
+    await AliasService.updateAlias(scope, id, validated)
     revalidatePath("/dashboard/alias")
   })
 }
@@ -64,12 +64,12 @@ export async function updateAliasEncryptedMetadataAction(
     clearLegacyNote?: boolean
   }
 ): Promise<ActionState> {
-  return runSecureAction({
+  return runScopedAction({
     schema: updateAliasEncryptedMetadataSchema,
     data,
     rateLimitKey: "recipientOps",
-  }, async (validated, userId) => {
-    await AliasService.updateAlias(userId, id, validated)
+  }, async (validated, scope) => {
+    await AliasService.updateAlias(scope, id, validated)
     revalidatePath("/dashboard/alias")
   })
 }

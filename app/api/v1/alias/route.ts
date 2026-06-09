@@ -11,7 +11,7 @@
 import { z } from "zod"
 
 import { apiError, apiList, apiSuccessWithStatus, ErrorCodes, zodErrorToDetails } from "@/lib/api-response"
-import { withPolicy } from "@/lib/route-policy"
+import { withPolicy, scopeFromContext } from "@/lib/route-policy"
 import { AliasService } from "@/lib/services/alias"
 import {
     aliasCreateMetadataError,
@@ -53,7 +53,7 @@ export const GET = withPolicy(
             return apiError("Unauthorized", ErrorCodes.UNAUTHORIZED, ctx.requestId, 401)
         }
 
-        const aliases = await AliasService.getAliases(ctx.userId)
+        const aliases = await AliasService.getAliases(scopeFromContext(ctx))
         const data = aliases.map((alias) => toAddyFormat({
             id: alias.id,
             email: alias.email,
@@ -107,7 +107,7 @@ export const POST = withPolicy(
                 )
             }
 
-            const alias = await AliasService.createAlias(ctx.userId, {
+            const alias = await AliasService.createAlias(scopeFromContext(ctx), {
                 domain: validation.data.domain,
                 format: "RANDOM",
                 recipientEmail: validation.data.recipient_email,
@@ -137,7 +137,7 @@ export const POST = withPolicy(
         }
 
         const internalFormat = formatMap[validation.data.format] || "RANDOM"
-        const alias = await AliasService.createAlias(ctx.userId, {
+        const alias = await AliasService.createAlias(scopeFromContext(ctx), {
             localPart: internalFormat === "CUSTOM" ? validation.data.local_part : undefined,
             domain: validation.data.domain,
             format: internalFormat,

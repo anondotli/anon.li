@@ -5,7 +5,7 @@
  */
 
 import { apiError, apiSuccess, ErrorCodes } from "@/lib/api-response"
-import { withPolicy } from "@/lib/route-policy"
+import { withPolicy, scopeFromContext } from "@/lib/route-policy"
 import { DomainService } from "@/lib/services/domain"
 
 export const dynamic = "force-dynamic"
@@ -26,7 +26,7 @@ export const POST = withPolicy<RouteParams>(
         }
 
         const { id } = await routeContext!.params
-        const verification = await DomainService.verifyDomain(ctx.userId, id)
+        const verification = await DomainService.verifyDomain(scopeFromContext(ctx), id)
 
         return apiSuccess({
             verified: verification.verified,

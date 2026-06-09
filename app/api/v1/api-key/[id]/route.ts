@@ -5,8 +5,7 @@
  */
 
 import { apiError, apiSuccess, ErrorCodes } from "@/lib/api-response"
-import { getApiKeyById } from "@/lib/data/api-key"
-import { withPolicy } from "@/lib/route-policy"
+import { withPolicy, scopeFromContext } from "@/lib/route-policy"
 import { ApiKeyService } from "@/lib/services/api-key"
 
 export const dynamic = "force-dynamic"
@@ -27,12 +26,9 @@ export const DELETE = withPolicy<RouteParams>(
         }
 
         const { id } = await routeContext!.params
-        const keyToDelete = await getApiKeyById(id)
-        if (!keyToDelete || keyToDelete.userId !== ctx.userId) {
-            return apiError("API key not found", ErrorCodes.NOT_FOUND, ctx.requestId, 404)
-        }
-
-        await ApiKeyService.delete(ctx.userId, id)
+        // ApiKeyService.delete performs the cross-tenant ownership check and
+        // throws NotFoundError (→ 404) when the key is outside the caller's scope.
+        await ApiKeyService.delete(scopeFromContext(ctx), id)
         return apiSuccess({ deleted: true }, ctx.requestId)
     },
 )

@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache"
 import { DomainService } from "@/lib/services/domain"
 import { rateLimit, getClientIp } from "@/lib/rate-limit"
-import { runSecureAction, type ActionState } from "@/lib/safe-action"
+import { runScopedAction, type ActionState } from "@/lib/safe-action"
 
 interface VerifyResult {
     verified: boolean
@@ -22,20 +22,20 @@ export async function addDomainAction(domain: string): Promise<ActionState> {
         return { error: "Too many requests. Please try again later." }
     }
 
-    return runSecureAction(
+    return runScopedAction(
         { rateLimitKey: "domainOps" },
-        async (_data, userId) => {
-            await DomainService.createDomain(userId, domain)
+        async (_data, scope) => {
+            await DomainService.createDomain(scope, domain)
             revalidatePath("/dashboard/alias/domains")
         }
     )
 }
 
 export async function verifyDomainAction(domainId: string): Promise<ActionState<VerifyResult>> {
-    return runSecureAction<void, VerifyResult>(
+    return runScopedAction<void, VerifyResult>(
         { rateLimitKey: "domainOps" },
-        async (_data, userId) => {
-            const result = await DomainService.verifyDomain(userId, domainId)
+        async (_data, scope) => {
+            const result = await DomainService.verifyDomain(scope, domainId)
             revalidatePath("/dashboard/alias/domains")
             return result
         }
@@ -43,20 +43,20 @@ export async function verifyDomainAction(domainId: string): Promise<ActionState<
 }
 
 export async function regenerateDkimAction(domainId: string): Promise<ActionState> {
-    return runSecureAction(
+    return runScopedAction(
         { rateLimitKey: "domainOps" },
-        async (_data, userId) => {
-            await DomainService.regenerateDkim(userId, domainId)
+        async (_data, scope) => {
+            await DomainService.regenerateDkim(scope, domainId)
             revalidatePath("/dashboard/alias/domains")
         }
     )
 }
 
 export async function deleteDomainAction(domainId: string): Promise<ActionState> {
-    return runSecureAction(
+    return runScopedAction(
         { rateLimitKey: "domainOps" },
-        async (_data, userId) => {
-            await DomainService.deleteDomain(userId, domainId)
+        async (_data, scope) => {
+            await DomainService.deleteDomain(scope, domainId)
             revalidatePath("/dashboard/alias/domains")
         }
     )

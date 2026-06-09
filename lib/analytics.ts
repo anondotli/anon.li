@@ -60,4 +60,8 @@ export const analytics = {
     /** Auth: login started (magic link sent or social redirect initiated) */
     loginStarted: (method: string) =>
         trackEvent("login_started", { method }),
+
+    /** Referral: invite link copied from the dashboard banner */
+    referralLinkCopied: (source: string) =>
+        trackEvent("referral_link_copied", { source }),
 }

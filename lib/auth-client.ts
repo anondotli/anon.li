@@ -1,5 +1,6 @@
 import { createAuthClient } from "better-auth/react"
-import { magicLinkClient, twoFactorClient } from "better-auth/client/plugins"
+import { magicLinkClient, twoFactorClient, organizationClient } from "better-auth/client/plugins"
+import { ac, roles } from "@/lib/auth-permissions"
 
 export const authClient = createAuthClient({
     plugins: [
@@ -8,6 +9,11 @@ export const authClient = createAuthClient({
             onTwoFactorRedirect: () => {
                 window.location.href = "/2fa"
             },
+        }),
+        organizationClient({
+            ac,
+            roles,
+            teams: { enabled: true },
         }),
     ],
 })

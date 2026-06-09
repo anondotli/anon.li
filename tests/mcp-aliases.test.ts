@@ -2,6 +2,7 @@
  * @vitest-environment node
  */
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { personalScope } from "@/lib/ownership"
 
 const getAliases = vi.fn()
 const createAlias = vi.fn()
@@ -133,7 +134,7 @@ describe("MCP alias tools", () => {
             { quota: "alias", checkBan: "alias", rateLimit: "aliasCreate" },
             expect.any(Function),
         )
-        expect(createAlias).toHaveBeenCalledWith("user-1", {
+        expect(createAlias).toHaveBeenCalledWith(personalScope("user-1"), {
             domain: "anon.li",
             format: "CUSTOM",
             localPart: "custom",
@@ -154,7 +155,7 @@ describe("MCP alias tools", () => {
         const { registerAliasTools } = await import("@/lib/mcp/tools/aliases")
         registerAliasTools(server as never, session)
         await server.tools.get("create_alias")!.handler({ domain: "anon.li", format: "random" })
-        expect(createAlias).toHaveBeenCalledWith("user-1", expect.objectContaining({
+        expect(createAlias).toHaveBeenCalledWith(personalScope("user-1"), expect.objectContaining({
             format: "RANDOM",
             localPart: undefined,
         }))
@@ -171,8 +172,8 @@ describe("MCP alias tools", () => {
         const out = (await server.tools.get("toggle_alias")!.handler({ id: "old@anon.li" })) as {
             structuredContent: { active: boolean }
         }
-        expect(resolveAlias).toHaveBeenCalledWith("old@anon.li", "user-1")
-        expect(toggleAlias).toHaveBeenCalledWith("user-1", "a4")
+        expect(resolveAlias).toHaveBeenCalledWith("old@anon.li", personalScope("user-1"))
+        expect(toggleAlias).toHaveBeenCalledWith(personalScope("user-1"), "a4")
         expect(out.structuredContent.active).toBe(false)
     })
 
@@ -198,7 +199,7 @@ describe("MCP alias tools", () => {
         const out = (await server.tools.get("delete_alias")!.handler({ id: "a5" })) as {
             structuredContent: { deleted: boolean }
         }
-        expect(deleteAlias).toHaveBeenCalledWith("user-1", "a5")
+        expect(deleteAlias).toHaveBeenCalledWith(personalScope("user-1"), "a5")
         expect(out.structuredContent.deleted).toBe(true)
     })
 

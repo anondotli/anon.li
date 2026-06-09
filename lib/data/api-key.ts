@@ -1,8 +1,9 @@
 import { prisma } from "@/lib/prisma"
+import { ownerWhere, type OwnerScope } from "@/lib/ownership"
 
-export async function getApiKeysByUserId(userId: string) {
+export async function getApiKeys(scope: OwnerScope) {
     return await prisma.apiKey.findMany({
-        where: { userId },
+        where: ownerWhere(scope),
         orderBy: { createdAt: "desc" },
         select: {
             id: true,
@@ -17,6 +18,7 @@ export async function getApiKeysByUserId(userId: string) {
 
 export async function createApiKeyRecord(data: {
     userId: string
+    organizationId: string | null
     keyHash: string
     keyPrefix: string
     label: string | null
@@ -40,6 +42,7 @@ export async function getApiKeyById(id: string) {
         select: {
             id: true,
             userId: true,
+            organizationId: true,
         },
     })
 }

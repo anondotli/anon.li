@@ -2,6 +2,7 @@ import crypto from "crypto"
 import { createApiKeyRecord, deleteApiKeyById, getApiKeyById } from "@/lib/data/api-key"
 import { getUserById } from "@/lib/data/user"
 import { NotFoundError } from "@/lib/api-error-utils"
+import { assertCanAccess, type OwnerScope } from "@/lib/ownership"
 
 export class ApiKeyService {
 
@@ -9,13 +10,13 @@ export class ApiKeyService {
         return crypto.createHash("sha256").update(key).digest("hex")
     }
 
-    static async create(userId: string, label: string) {
-        const apiKey = await this.createWithMetadata(userId, label)
+    static async create(scope: OwnerScope, label: string) {
+        const apiKey = await this.createWithMetadata(scope, label)
         return apiKey.key
     }
 
-    static async createWithMetadata(userId: string, label: string, expiresAt?: Date) {
-        const user = await getUserById(userId)
+    static async createWithMetadata(scope: OwnerScope, label: string, expiresAt?: Date) {
+        const user = await getUserById(scope.userId)
         if (!user) throw new NotFoundError("User not found")
 
         const normalizedLabel = label.trim() || "My API Key"
@@ -27,8 +28,10 @@ export class ApiKeyService {
         const keyHash = this.hashKey(key)
         const keyPrefix = key.slice(0, 11)
 
+        // Key belongs to the active org when one is in context, else the user.
         const apiKey = await createApiKeyRecord({
-            userId,
+            userId: scope.userId,
+            organizationId: scope.organizationId,
             keyHash,
             keyPrefix,
             label: normalizedLabel,
@@ -45,11 +48,13 @@ export class ApiKeyService {
         }
     }
 
-    static async delete(userId: string, keyId: string) {
+    static async delete(scope: OwnerScope, keyId: string) {
         const apiKey = await getApiKeyById(keyId)
-        if (!apiKey || apiKey.userId !== userId) {
+        if (!apiKey) {
             throw new NotFoundError("API key not found")
         }
+        // Cross-tenant guard: the key must be within the caller's scope.
+        assertCanAccess(apiKey, scope)
         await deleteApiKeyById(keyId)
     }
 }

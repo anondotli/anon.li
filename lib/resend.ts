@@ -279,6 +279,37 @@ export async function sendMagicLinkEmail(email: string, url: string, host: strin
     }
 }
 
+export async function sendOrganizationInvitationEmail(
+    email: string,
+    url: string,
+    organizationName: string,
+    inviterName: string,
+) {
+    try {
+        const resend = getResendClient()
+        const { OrganizationInvitationEmail } = await import("@/components/email/organization-invitation")
+
+        const { data, error } = await resend.emails.send({
+            from: "anon.li <hi@anon.li>",
+            to: email,
+            // organizationName / inviterName are user-controlled — sanitize the subject.
+            subject: sanitizeEmailSubject(`${inviterName} invited you to join ${organizationName} on anon.li`),
+            text: `${inviterName} invited you to join ${organizationName} on anon.li.\nAccept the invitation: ${url}\n\n`,
+            react: React.createElement(OrganizationInvitationEmail, { url, organizationName, inviterName }),
+        })
+
+        if (error) {
+            logger.error("Failed to send organization invitation email", error)
+            throw error
+        }
+
+        return { success: true, data }
+    } catch (error) {
+        logger.error("Failed to send organization invitation email", error)
+        throw error
+    }
+}
+
 interface SendEmailProps {
     to: string;
     subject: string;

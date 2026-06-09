@@ -1,5 +1,6 @@
 import { apiError, ErrorCodes } from "@/lib/api-response"
 import { getAliasByEmail, getAliasById } from "@/lib/data/alias"
+import { isWithinScope, type OwnerScope } from "@/lib/ownership"
 
 interface AliasRecipientInfo {
     id: string
@@ -80,10 +81,10 @@ export function aliasPlaintextMetadataError(requestId: string) {
 /**
  * Resolve an alias identifier that can be either a UUID or an email address.
  */
-export async function resolveAlias(identifier: string, userId: string) {
+export async function resolveAlias(identifier: string, scope: OwnerScope) {
     if (identifier.includes("@")) {
         const alias = await getAliasByEmail(identifier)
-        return alias?.userId === userId ? alias : null
+        return alias && isWithinScope(alias, scope) ? alias : null
     }
-    return getAliasById(identifier, userId)
+    return getAliasById(identifier, scope)
 }

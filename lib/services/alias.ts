@@ -5,9 +5,10 @@ import { getPlanLimits, getEffectiveTier } from "@/lib/limits"
 import { createLogger } from "@/lib/logger"
 import {
     getAliasById,
-    getAliasesByUserId,
+    getAliases as dbGetAliases,
     deleteAliasById as dbDeleteAlias,
 } from "@/lib/data/alias"
+import { ownerWhere, type OwnerScope } from "@/lib/ownership"
 import { getUserById, type UserWithSubscriptions } from "@/lib/data/user"
 import { getDomainsByUserId } from "@/lib/data/domain"
 import { getRecipientById, getDefaultRecipientByUserId, getRecipientByUserIdAndEmail } from "@/lib/data/recipient"
@@ -79,11 +80,11 @@ const createAliasSchema = z.object({
 
 export class AliasService {
 
-    static async getAliases(userId: string) {
-        return await getAliasesByUserId(userId)
+    static async getAliases(scope: OwnerScope) {
+        return await dbGetAliases(scope)
     }
 
-    static async createAlias(userId: string, data: {
+    static async createAlias(scope: OwnerScope, data: {
         localPart?: string, domain: string, format?: "RANDOM" | "CUSTOM",
         recipientId?: string, recipientEmail?: string, recipientIds?: string[],
         encryptedLabel?: string | null, encryptedNote?: string | null
@@ -97,18 +98,19 @@ export class AliasService {
         const { domain, format } = result.data
         let { localPart } = result.data
 
-        const user = await this._validateUserAccess(userId)
+        const user = await this._validateUserAccess(scope.userId)
 
         // Resolve recipients: prefer recipientIds array, fall back to single recipientId/recipientEmail
+        // TODO(track-d): in org scope, resolve org-owned recipients (shared team recipients).
         const recipients = await this._resolveRecipients(
-            userId, user.email || "", data.recipientIds, data.recipientId, data.recipientEmail
+            scope.userId, user.email || "", data.recipientIds, data.recipientId, data.recipientEmail
         )
 
         if (recipients.length === 0) {
             throw new ValidationError("No valid recipient available. Please add a recipient first.")
         }
 
-        const aliases = await getAliasesByUserId(userId)
+        const aliases = await dbGetAliases(scope)
         localPart = await this._generateOrValidateAlias(user, aliases, domain, format, localPart)
 
         if (!localPart) throw new ValidationError("Failed to generate alias")
@@ -124,9 +126,10 @@ export class AliasService {
                 throw new ConflictError("Alias already taken on this domain")
             }
 
-            // Re-check limits inside the transaction
+            // Re-check limits inside the transaction (counted within the owner scope).
+            // TODO(track-c): org-scope limit *values* should derive from the org plan.
             const currentCount = await tx.alias.count({
-                where: { userId: user.id, format },
+                where: { ...ownerWhere(scope), format },
             })
             const { random: randomLimit, custom: customLimit } = getPlanLimits(user)
             const limit = format === "CUSTOM" ? customLimit : randomLimit
@@ -152,6 +155,7 @@ export class AliasService {
                     localPart,
                     domain,
                     userId: user.id,
+                    organizationId: scope.organizationId,
                     // Legacy field: set to primary recipient for backward compat
                     recipientId: recipients[0]!.id,
                     format: format,
@@ -335,9 +339,9 @@ export class AliasService {
         }
     }
 
-    static async toggleAlias(userId: string, aliasId: string) {
-        const alias = await getAliasById(aliasId, userId)
-        if (!alias || alias.userId !== userId) {
+    static async toggleAlias(scope: OwnerScope, aliasId: string) {
+        const alias = await getAliasById(aliasId, scope)
+        if (!alias) {
             throw new NotFoundError("Alias not found")
         }
 
@@ -347,17 +351,17 @@ export class AliasService {
         })
     }
 
-    static async deleteAlias(userId: string, aliasId: string) {
-        const alias = await getAliasById(aliasId, userId)
-        if (!alias || alias.userId !== userId) {
+    static async deleteAlias(scope: OwnerScope, aliasId: string) {
+        const alias = await getAliasById(aliasId, scope)
+        if (!alias) {
             throw new NotFoundError("Alias not found")
         }
 
-        return await dbDeleteAlias(aliasId, userId)
+        return await dbDeleteAlias(aliasId, scope)
     }
 
     static async updateAlias(
-        userId: string,
+        scope: OwnerScope,
         aliasId: string,
         data: {
             encryptedLabel?: string | null; encryptedNote?: string | null;
@@ -366,14 +370,14 @@ export class AliasService {
             recipientIds?: string[];
         }
     ) {
-        const alias = await getAliasById(aliasId, userId)
-        if (!alias || alias.userId !== userId) {
+        const alias = await getAliasById(aliasId, scope)
+        if (!alias) {
             throw new NotFoundError("Alias not found")
         }
 
         // If updating recipients (array), replace the full list
         if (data.recipientIds !== undefined) {
-            const recipients = await this._validateRecipientIds(userId, data.recipientIds)
+            const recipients = await this._validateRecipientIds(scope.userId, data.recipientIds)
             if (recipients.length === 0) {
                 throw new ValidationError("At least one valid recipient is required")
             }
@@ -406,7 +410,7 @@ export class AliasService {
 
         // Single recipient update (backward compat)
         if (data.recipientId !== undefined || data.recipientEmail !== undefined) {
-            const { recipient } = await this._validateRecipient(userId, data.recipientId, undefined, data.recipientEmail)
+            const { recipient } = await this._validateRecipient(scope.userId, data.recipientId, undefined, data.recipientEmail)
             if (!recipient) {
                 throw new ValidationError("Invalid recipient")
             }

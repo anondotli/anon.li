@@ -1,14 +1,16 @@
 import { betterAuth } from "better-auth"
 import { prismaAdapter } from "better-auth/adapters/prisma"
-import { twoFactor, magicLink, mcp, captcha } from "better-auth/plugins"
+import { twoFactor, magicLink, mcp, captcha, organization } from "better-auth/plugins"
 import { APIError } from "@better-auth/core/error"
 import { prisma } from "@/lib/prisma"
 import {
     sendAccountVerificationEmail,
     sendMagicLinkEmail,
+    sendOrganizationInvitationEmail,
     sendPasswordResetEmail,
     sendWelcomeEmail,
 } from "@/lib/resend"
+import { ac, roles } from "@/lib/auth-permissions"
 import { rateLimit } from "@/lib/rate-limit"
 import { getVaultSchemaState } from "@/lib/vault/schema"
 import { MCP_DEFAULT_SCOPE, MCP_OAUTH_SCOPES } from "@/lib/mcp/oauth-metadata"
@@ -106,6 +108,17 @@ export const auth = betterAuth({
                 allowDynamicClientRegistration: true,
                 consentPage: "/oauth/consent",
                 scopes: [...MCP_OAUTH_SCOPES],
+            },
+        }),
+        organization({
+            ac,
+            roles,
+            creatorRole: "owner",
+            teams: { enabled: true },
+            sendInvitationEmail: async (data) => {
+                const url = `${process.env.NEXT_PUBLIC_APP_URL}/accept-invitation/${data.id}`
+                const inviterName = data.inviter.user.name || data.inviter.user.email
+                await sendOrganizationInvitationEmail(data.email, url, data.organization.name, inviterName)
             },
         }),
     ],

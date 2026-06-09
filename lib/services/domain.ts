@@ -8,6 +8,7 @@ import { getPlanLimits } from "@/lib/limits"
 import { generateDkimKeys } from "@/lib/dkim"
 import { createLogger } from "@/lib/logger"
 import { ValidationError, NotFoundError, ForbiddenError } from "@/lib/api-error-utils"
+import { ownerWhere, assertCanAccess, type OwnerScope } from "@/lib/ownership"
 import { encryptField } from "@/lib/field-encryption"
 
 const logger = createLogger("DomainService")
@@ -35,7 +36,7 @@ const domainSchema = z.object({
 
 export class DomainService {
 
-    static async createDomain(userId: string, domain: string) {
+    static async createDomain(scope: OwnerScope, domain: string) {
         // Validate domain format
         const result = domainSchema.safeParse({ domain })
         if (!result.success) {
@@ -48,11 +49,11 @@ export class DomainService {
             throw new ValidationError("This domain is reserved and cannot be added")
         }
 
-        // Check plan limits
+        // Check plan limits.
+        // TODO(track-c): in org scope, the domain limit value should derive from the org plan.
         const user = await prisma.user.findUnique({
-            where: { id: userId },
+            where: { id: scope.userId },
             include: {
-                domains: true,
                 subscriptions: {
                     where: { status: { in: ["active", "trialing"] } },
                     select: {
@@ -72,7 +73,8 @@ export class DomainService {
         const { domains: domainsLimit } = getPlanLimits(user)
 
         // Early-exit optimization (authoritative check is inside the transaction)
-        if (user.domains.length >= domainsLimit) {
+        const currentDomainCount = await prisma.domain.count({ where: ownerWhere(scope) })
+        if (currentDomainCount >= domainsLimit) {
             const message = domainsLimit === 0
                 ? "Custom domains are available on Plus and Pro plans."
                 : `Domain limit reached (${domainsLimit}). Upgrade to increase.`
@@ -85,7 +87,7 @@ export class DomainService {
 
         // Serializable transaction: re-check count and create atomically
         const newDomain = await prisma.$transaction(async (tx) => {
-            const currentCount = await tx.domain.count({ where: { userId } })
+            const currentCount = await tx.domain.count({ where: ownerWhere(scope) })
             if (currentCount >= domainsLimit) {
                 const message = domainsLimit === 0
                     ? "Custom domains are available on Plus and Pro plans."
@@ -99,7 +101,8 @@ export class DomainService {
             return tx.domain.create({
                 data: {
                     domain,
-                    userId,
+                    userId: scope.userId,
+                    organizationId: scope.organizationId,
                     verificationToken,
                     dkimPrivateKey: encryptedPrivateKey,
                     dkimPublicKey: dkimKeys.publicKey,
@@ -109,11 +112,11 @@ export class DomainService {
             })
         }, { isolationLevel: "Serializable" })
 
-        logger.info("Domain created", { userId, domain })
+        logger.info("Domain created", { userId: scope.userId, domain })
         return newDomain
     }
 
-    static async verifyDomain(userId: string, domainId: string) {
+    static async verifyDomain(scope: OwnerScope, domainId: string) {
         const domain = await prisma.domain.findUnique({
             where: { id: domainId }
         })
@@ -122,9 +125,8 @@ export class DomainService {
             throw new NotFoundError("Domain not found")
         }
 
-        if (domain.userId !== userId) {
-            throw new ForbiddenError("You don't have permission to verify this domain")
-        }
+        // Cross-tenant guard: 404 out-of-scope domains rather than revealing them.
+        assertCanAccess(domain, scope)
 
         try {
             // 1. MX Verification
@@ -197,7 +199,7 @@ export class DomainService {
                 ] : [])
             ])
 
-            logger.info("Domain verification completed", { userId, domainId, verified })
+            logger.info("Domain verification completed", { userId: scope.userId, domainId, verified })
 
             return {
                 verified,
@@ -214,7 +216,7 @@ export class DomainService {
         }
     }
 
-    static async regenerateDkim(userId: string, domainId: string) {
+    static async regenerateDkim(scope: OwnerScope, domainId: string) {
         const domain = await prisma.domain.findUnique({
             where: { id: domainId }
         })
@@ -223,9 +225,7 @@ export class DomainService {
             throw new NotFoundError("Domain not found")
         }
 
-        if (domain.userId !== userId) {
-            throw new ForbiddenError("You don't have permission to modify this domain")
-        }
+        assertCanAccess(domain, scope)
 
         const keys = await generateDkimKeys()
         const encryptedPrivateKey = process.env.DKIM_ENCRYPTION_KEY
@@ -242,7 +242,7 @@ export class DomainService {
             }
         })
 
-        logger.info("DKIM keys regenerated", { userId, domainId })
+        logger.info("DKIM keys regenerated", { userId: scope.userId, domainId })
 
         return {
             id: updatedDomain.id,
@@ -253,7 +253,7 @@ export class DomainService {
         }
     }
 
-    static async deleteDomain(userId: string, domainId: string) {
+    static async deleteDomain(scope: OwnerScope, domainId: string) {
         const domain = await prisma.domain.findUnique({
             where: { id: domainId }
         })
@@ -262,16 +262,14 @@ export class DomainService {
             throw new NotFoundError("Domain not found")
         }
 
-        if (domain.userId !== userId) {
-            throw new ForbiddenError("You don't have permission to delete this domain")
-        }
+        assertCanAccess(domain, scope)
 
-        // Delete domain and associated aliases atomically
+        // Delete domain and associated aliases atomically, within the owner scope.
         await prisma.$transaction([
             prisma.alias.deleteMany({
                 where: {
                     domain: domain.domain,
-                    userId
+                    ...ownerWhere(scope)
                 }
             }),
             prisma.domain.delete({
@@ -279,6 +277,6 @@ export class DomainService {
             })
         ])
 
-        logger.info("Domain deleted", { userId, domainId, domain: domain.domain })
+        logger.info("Domain deleted", { userId: scope.userId, domainId, domain: domain.domain })
     }
 }

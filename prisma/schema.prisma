@@ -30,11 +30,17 @@ model User {
   subscriptions     Subscription[]
   deletionRequest   DeletionRequest?
   oauthApplications OauthApplication[]
-  twoFactorEnabled  Boolean            @default(false)
-  twoFactor         TwoFactor?
+
+  // Organizations (B2B multi-tenancy)
+  memberships     Member[]
+  sentInvitations Invitation[] @relation("SentInvitations")
+  teamMemberships TeamMember[]
+
+  twoFactorEnabled Boolean    @default(false)
+  twoFactor        TwoFactor?
   // Quotas & Limits
-  storageUsed       BigInt             @default(0)
-  storageLimit      BigInt             @default(5368709120) // 5GB default for free users
+  storageUsed      BigInt     @default(0)
+  storageLimit     BigInt     @default(5368709120) // 5GB default for free users
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -135,6 +141,9 @@ model Alias {
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
   // Forwarding Configuration — legacy single-recipient (kept for migration)
   recipientId String?
   recipient   Recipient? @relation(fields: [recipientId], references: [id], onDelete: SetNull)
@@ -155,6 +164,7 @@ model Alias {
   @@index([userId, legacyLabel], map: "aliases_userId_label_idx")
   @@index([recipientId])
   @@index([scheduledForRemovalAt])
+  @@index([organizationId])
   @@map("aliases")
 }
 
@@ -177,6 +187,9 @@ model Recipient {
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
   // Legacy direct relation (kept for migration)
   aliases Alias[]
 
@@ -192,6 +205,7 @@ model Recipient {
   @@index([userId])
   @@index([verificationToken])
   @@index([scheduledForRemovalAt])
+  @@index([organizationId])
   @@map("recipients")
 }
 
@@ -237,6 +251,9 @@ model Domain {
   userId String?
   user   User?   @relation(fields: [userId], references: [id])
 
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
   scheduledForRemovalAt DateTime? @map("scheduled_for_removal_at")
 
   createdAt DateTime @default(now())
@@ -245,6 +262,7 @@ model Domain {
   @@unique([domain])
   @@index([userId])
   @@index([scheduledForRemovalAt])
+  @@index([organizationId])
   @@map("domains")
 }
 
@@ -257,12 +275,16 @@ model ApiKey {
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
   createdAt  DateTime  @default(now())
   lastUsedAt DateTime? @map("last_used_at")
   expiresAt  DateTime? @map("expires_at")
 
   @@index([userId])
   @@index([expiresAt])
+  @@index([organizationId])
   @@map("api_keys")
 }
 
@@ -297,6 +319,10 @@ model Session {
   updatedAt         DateTime @updatedAt
   twoFactorVerified Boolean  @default(false)
   user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Active organization context (managed by the better-auth organization plugin)
+  activeOrganizationId String?
+  activeTeamId         String?
 
   @@index([userId])
   @@map("sessions")
@@ -393,6 +419,9 @@ model Drop {
   userId         String?
   user           User?           @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -402,6 +431,7 @@ model Drop {
   @@index([deletedAt])
   @@index([uploadComplete])
   @@index([maxDownloads])
+  @@index([organizationId])
   @@map("drops")
 }
 
@@ -458,6 +488,9 @@ model Form {
   userId String
   user   User   @relation("UserForms", fields: [userId], references: [id], onDelete: Cascade)
 
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
   // Authoring (plaintext — these are public to anyone with the form link)
   title       String
   description String? @db.Text
@@ -467,16 +500,16 @@ model Form {
   publicKey String
 
   // Behavior
-  active         Boolean   @default(true)
-  disabledByUser Boolean   @default(false)
-  customKey         Boolean @default(false) // password-protect viewing/submitting
+  active            Boolean   @default(true)
+  disabledByUser    Boolean   @default(false)
+  customKey         Boolean   @default(false) // password-protect viewing/submitting
   salt              String?
   customKeyData     String?
   customKeyIv       String?
-  customKeyVerifier String? @map("custom_key_verifier")
-  maxSubmissions Int?
-  closesAt       DateTime?
-  hideBranding   Boolean   @default(false) // Pro only
+  customKeyVerifier String?   @map("custom_key_verifier")
+  maxSubmissions    Int?
+  closesAt          DateTime?
+  hideBranding      Boolean   @default(false) // Pro only
 
   // File uploads
   allowFileUploads    Boolean @default(false)
@@ -507,6 +540,7 @@ model Form {
   @@index([userId, deletedAt, createdAt])
   @@index([closesAt])
   @@index([notifyAliasId])
+  @@index([organizationId])
   @@map("forms")
 }
 
@@ -634,6 +668,9 @@ model Subscription {
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
   // Payment provider
   provider               String // "stripe" | "crypto" | "manual"
   providerSubscriptionId String? @unique @map("provider_subscription_id")
@@ -656,6 +693,7 @@ model Subscription {
   @@index([userId])
   @@index([status])
   @@index([providerCustomerId])
+  @@index([organizationId])
   @@map("subscriptions")
 }
 
@@ -715,6 +753,103 @@ model AuditLog {
   @@index([targetId])
   @@index([createdAt])
   @@map("audit_logs")
+}
+
+// ─── Organizations (B2B multi-tenancy) ──────────────────────────────────────
+// Managed by better-auth's organization plugin (v1.6.14). Field names/types
+// match the plugin's expected schema; columns stay camelCase like the other
+// better-auth tables (sessions/accounts). Org-owned resources carry a nullable
+// organizationId — a null organizationId means the resource is personal.
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  logo      String?
+  metadata  String?  @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Org-wide security policy (enforced via lib/access-policy.ts)
+  enforce2FA          Boolean @default(false)
+  ssoOnly             Boolean @default(false)
+  allowedEmailDomains String? // CSV of email domains for SSO/JIT domain-claim
+
+  // Plugin relations
+  members     Member[]
+  invitations Invitation[]
+  teams       Team[]
+
+  // Org-owned resources
+  aliases       Alias[]
+  recipients    Recipient[]
+  domains       Domain[]
+  drops         Drop[]
+  forms         Form[]
+  apiKeys       ApiKey[]
+  subscriptions Subscription[]
+
+  @@map("organizations")
+}
+
+model Member {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role           String       @default("member") // owner | admin | member (see lib/auth-permissions.ts)
+  createdAt      DateTime     @default(now())
+
+  @@unique([organizationId, userId])
+  @@index([organizationId])
+  @@index([userId])
+  @@map("members")
+}
+
+model Invitation {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  email          String
+  role           String?
+  teamId         String?
+  status         String       @default("pending") // pending | accepted | rejected | canceled
+  inviterId      String
+  inviter        User         @relation("SentInvitations", fields: [inviterId], references: [id], onDelete: Cascade)
+  expiresAt      DateTime
+  createdAt      DateTime     @default(now())
+
+  @@index([organizationId])
+  @@index([email])
+  @@map("invitations")
+}
+
+model Team {
+  id             String       @id @default(cuid())
+  name           String
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime?    @updatedAt
+
+  members TeamMember[]
+
+  @@index([organizationId])
+  @@map("teams")
+}
+
+model TeamMember {
+  id        String   @id @default(cuid())
+  teamId    String
+  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([teamId, userId])
+  @@index([teamId])
+  @@index([userId])
+  @@map("team_members")
 }
 
 // OAuth 2.0 / OIDC tables consumed by better-auth's MCP plugin.

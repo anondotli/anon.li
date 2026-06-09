@@ -8,6 +8,7 @@ interface AuthUserState {
     twoFactorEnabled: boolean
     subscriptions: SubscriptionLike[]
     referralPlusUntil: Date | null
+    memberships: { organizationId: string; role: string }[]
 }
 
 interface AuthApiKeyRecord {
@@ -35,6 +36,9 @@ export async function getAuthUserState(userId: string): Promise<AuthUserState | 
             twoFactorEnabled: true,
             referralPlusUntil: true,
             subscriptions: ACTIVE_SUBSCRIPTION_SELECT,
+            memberships: {
+                select: { organizationId: true, role: true },
+            },
             deletionRequest: {
                 select: { id: true },
             },

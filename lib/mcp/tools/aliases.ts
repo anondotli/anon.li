@@ -3,6 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { AliasService } from "@/lib/services/alias"
 import { resolveAlias, toAddyFormat } from "@/app/api/v1/alias/_utils"
 import { invokeTool, toolResult } from "@/lib/mcp/invoke"
+import { personalScope } from "@/lib/ownership"
 import type { McpSession } from "@/lib/mcp/types"
 
 export function registerAliasTools(server: McpServer, session: McpSession) {
@@ -15,7 +16,7 @@ export function registerAliasTools(server: McpServer, session: McpSession) {
             inputSchema: {},
         },
         async () => invokeTool(session, { quota: "alias", rateLimit: "api" }, async (user) => {
-            const aliases = await AliasService.getAliases(user.id)
+            const aliases = await AliasService.getAliases(personalScope(user.id))
             return toolResult({
                 total: aliases.length,
                 aliases: aliases.map((a) => ({
@@ -57,7 +58,7 @@ export function registerAliasTools(server: McpServer, session: McpSession) {
             checkBan: "alias",
             rateLimit: "aliasCreate",
         }, async (user) => {
-            const alias = await AliasService.createAlias(user.id, {
+            const alias = await AliasService.createAlias(personalScope(user.id), {
                 domain: args.domain,
                 format: args.format === "custom" ? "CUSTOM" : "RANDOM",
                 localPart: args.format === "custom" ? args.local_part : undefined,
@@ -84,11 +85,11 @@ export function registerAliasTools(server: McpServer, session: McpSession) {
             },
         },
         async ({ id }) => invokeTool(session, { quota: "alias", rateLimit: "api" }, async (user) => {
-            const existing = await resolveAlias(id, user.id)
+            const existing = await resolveAlias(id, personalScope(user.id))
             if (!existing) {
                 return { content: [{ type: "text" as const, text: "Alias not found" }], isError: true }
             }
-            const updated = await AliasService.toggleAlias(user.id, existing.id)
+            const updated = await AliasService.toggleAlias(personalScope(user.id), existing.id)
             return toolResult({
                 id: updated.id,
                 email: updated.email,
@@ -107,11 +108,11 @@ export function registerAliasTools(server: McpServer, session: McpSession) {
             },
         },
         async ({ id }) => invokeTool(session, { quota: "alias", rateLimit: "api" }, async (user) => {
-            const existing = await resolveAlias(id, user.id)
+            const existing = await resolveAlias(id, personalScope(user.id))
             if (!existing) {
                 return { content: [{ type: "text" as const, text: "Alias not found" }], isError: true }
             }
-            await AliasService.deleteAlias(user.id, existing.id)
+            await AliasService.deleteAlias(personalScope(user.id), existing.id)
             return toolResult({ deleted: true, id: existing.id, email: existing.email })
         }),
     )

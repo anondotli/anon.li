@@ -7,7 +7,8 @@
 
 import { apiError, apiSuccess, ErrorCodes } from "@/lib/api-response"
 import { prisma } from "@/lib/prisma"
-import { withPolicy } from "@/lib/route-policy"
+import { withPolicy, scopeFromContext } from "@/lib/route-policy"
+import { isWithinScope } from "@/lib/ownership"
 import { DomainService } from "@/lib/services/domain"
 
 export const dynamic = "force-dynamic"
@@ -81,7 +82,7 @@ export const GET = withPolicy<RouteParams>(
 
         const { id } = await routeContext!.params
         const domain = await prisma.domain.findUnique({ where: { id } })
-        if (!domain || domain.userId !== ctx.userId) {
+        if (!domain || !isWithinScope(domain, scopeFromContext(ctx))) {
             return apiError("Domain not found", ErrorCodes.NOT_FOUND, ctx.requestId, 404)
         }
 
@@ -101,7 +102,7 @@ export const DELETE = withPolicy<RouteParams>(
         }
 
         const { id } = await routeContext!.params
-        await DomainService.deleteDomain(ctx.userId, id)
+        await DomainService.deleteDomain(scopeFromContext(ctx), id)
         return apiSuccess({ deleted: true }, ctx.requestId)
     },
 )

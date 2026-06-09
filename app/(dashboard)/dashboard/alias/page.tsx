@@ -11,6 +11,8 @@ import { Button } from "@/components/ui/button"
 import Link from "next/link"
 import { FeaturePromptGrid } from "@/components/dashboard"
 import { DASHBOARD_FEATURE_PROMPTS } from "@/config/features"
+import { InviteBanner } from "@/components/referral/invite-banner"
+import { getReferralStats, REFERRAL_REWARD_DAYS } from "@/lib/services/referral"
 
 export default async function DashboardPage() {
     const session = await auth()
@@ -97,6 +99,11 @@ export default async function DashboardPage() {
 
     const allDomains = [...sharedDomains, ...domains]
 
+    // Referral stats double as code provisioning: getReferralStats lazily creates
+    // and persists the user's code, so simply landing here mints a shareable link.
+    const referral = await getReferralStats(user.id)
+    const referralLink = `${process.env.NEXT_PUBLIC_APP_URL ?? ""}/?ref=${referral.code}`
+
     return (
         <div className="flex flex-col gap-8">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-border/40 pb-6">
@@ -114,6 +121,13 @@ export default async function DashboardPage() {
                     <CreateAliasDialog domains={allDomains} recipients={recipients} />
                 </div>
             </div>
+
+            <InviteBanner
+                link={referralLink}
+                successfulReferrals={referral.successfulReferrals}
+                plusUntil={referral.plusUntil ? referral.plusUntil.toISOString() : null}
+                rewardDays={REFERRAL_REWARD_DAYS}
+            />
 
             <div className="grid gap-4 md:grid-cols-2">
                 <div className="border rounded-xl p-4 space-y-3">

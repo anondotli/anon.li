@@ -4,6 +4,7 @@ import { PATCH } from '@/app/api/v1/alias/[id]/route'
 import { AliasService } from '@/lib/services/alias'
 import { validateApiKey, hasExplicitApiKey } from '@/lib/api-auth'
 import { getAliasById } from '@/lib/data/alias'
+import { personalScope } from '@/lib/ownership'
 
 // Mock dependencies
 vi.mock('@/lib/services/alias', () => ({
@@ -166,7 +167,7 @@ describe('POST /api/v1/alias Validation', () => {
 
       const res = await PATCH(req, { params: Promise.resolve({ id: 'alias1' }) })
       expect(res.status).toBe(200)
-      expect(AliasService.updateAlias).toHaveBeenCalledWith('user1', 'alias1', {
+      expect(AliasService.updateAlias).toHaveBeenCalledWith(personalScope('user1'), 'alias1', {
         encryptedLabel,
         clearLegacyLabel: true,
       })

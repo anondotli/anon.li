@@ -40,6 +40,8 @@ import {
     ErrorCodes,
 } from "@/lib/api-response"
 import { ForbiddenError } from "@/lib/api-error-utils"
+import { meetsMinRole, orgScope, personalScope, type OrgRole, type OwnerScope } from "@/lib/ownership"
+import { requiresTwoFactorChallenge } from "@/lib/access-policy"
 import { createLogger } from "@/lib/logger"
 
 const logger = createLogger("RoutePolicy")
@@ -61,6 +63,10 @@ interface RoutePolicy {
     checkBan?: boolean | "upload" | "alias"
     /** Monthly API quota bucket consumed by API-key requests only */
     apiQuota?: ApiQuotaType
+    /** Require/allow active organization context (session auth). "required" rejects personal-context calls. */
+    organization?: "required" | "optional"
+    /** Minimum org role required (implies organization: "required"). */
+    minOrgRole?: OrgRole
 }
 
 // ─── Request context passed to handlers ─────────────────────────────────────
@@ -77,6 +83,10 @@ interface PolicyContext {
     } | null
     /** API key ID if authenticated via API key */
     apiKeyId?: string
+    /** Active organization id (session auth only; null for API keys until org-scoped keys land). */
+    organizationId: string | null
+    /** Acting user's role in the active org, or null. */
+    orgRole: OrgRole | null
     /** Rate limit headers to include in the response */
     rateLimitHeaders: Headers | null
 }
@@ -127,6 +137,8 @@ export function withPolicy<TRouteContext = void>(policy: RoutePolicy, handler: P
             let userId: string | null = null
             let user: PolicyContext["user"] = null
             let apiKeyId: string | undefined
+            let organizationId: string | null = null
+            let orgRole: OrgRole | null = null
             let rateLimitHeaders: Headers | null = null
 
             // ── Authentication ──────────────────────────────────────────
@@ -152,7 +164,7 @@ export function withPolicy<TRouteContext = void>(policy: RoutePolicy, handler: P
                 if (!session?.user?.id) {
                     return apiError("Unauthorized", ErrorCodes.UNAUTHORIZED, requestId, 401)
                 }
-                if (require2FA && session.user.twoFactorEnabled && !session.twoFactorVerified) {
+                if (require2FA && requiresTwoFactorChallenge(session)) {
                     return apiError("Two-factor authentication required", ErrorCodes.UNAUTHORIZED, requestId, 401)
                 }
                 if (policy.requireCsrf) {
@@ -164,6 +176,8 @@ export function withPolicy<TRouteContext = void>(policy: RoutePolicy, handler: P
                 }
                 userId = session.user.id
                 user = dbUser
+                organizationId = session.activeOrganizationId
+                orgRole = session.activeOrgRole
             } else if (policy.auth === "api_key_or_session" || policy.auth === "optional_api_key_or_session") {
                 // Try API key first
                 const apiKeyResult = await validateApiKey(request, policy.apiQuota)
@@ -192,6 +206,8 @@ export function withPolicy<TRouteContext = void>(policy: RoutePolicy, handler: P
                                 userId,
                                 user,
                                 apiKeyId,
+                                organizationId,
+                                orgRole,
                                 rateLimitHeaders,
                             }
 
@@ -203,7 +219,7 @@ export function withPolicy<TRouteContext = void>(policy: RoutePolicy, handler: P
                         }
                         return apiError("Unauthorized", ErrorCodes.UNAUTHORIZED, requestId, 401)
                     }
-                    if (require2FA && session.user.twoFactorEnabled && !session.twoFactorVerified) {
+                    if (require2FA && requiresTwoFactorChallenge(session)) {
                         return apiError("Two-factor authentication required", ErrorCodes.UNAUTHORIZED, requestId, 401)
                     }
                     if (policy.requireCsrf) {
@@ -215,9 +231,20 @@ export function withPolicy<TRouteContext = void>(policy: RoutePolicy, handler: P
                     }
                     userId = session.user.id
                     user = dbUser
+                    organizationId = session.activeOrganizationId
+                    orgRole = session.activeOrgRole
                 }
             }
             // auth === "none": userId remains null
+
+            // ── Organization context enforcement ────────────────────────
+
+            if (policy.organization === "required" && !organizationId) {
+                return apiError("No active organization", ErrorCodes.FORBIDDEN, requestId, 403)
+            }
+            if (policy.minOrgRole && !meetsMinRole(orgRole, policy.minOrgRole)) {
+                return apiError("Insufficient organization role", ErrorCodes.FORBIDDEN, requestId, 403)
+            }
 
             // ── Ban checks ──────────────────────────────────────────────
 
@@ -242,6 +269,8 @@ export function withPolicy<TRouteContext = void>(policy: RoutePolicy, handler: P
                 userId,
                 user,
                 apiKeyId,
+                organizationId,
+                orgRole,
                 rateLimitHeaders,
             }, routeContext)
             if (rateLimited) {
@@ -256,6 +285,8 @@ export function withPolicy<TRouteContext = void>(policy: RoutePolicy, handler: P
                 userId,
                 user,
                 apiKeyId,
+                organizationId,
+                orgRole,
                 rateLimitHeaders,
             }
 
@@ -269,4 +300,18 @@ export function withPolicy<TRouteContext = void>(policy: RoutePolicy, handler: P
             return apiErrorFromUnknown(error, requestId)
         }
     }
+}
+
+/**
+ * Build an OwnerScope from a resolved PolicyContext, for use inside route
+ * handlers (after confirming ctx.userId is non-null). API-key callers currently
+ * carry no org context (org-scoped keys land in a later track) → personal scope.
+ */
+export function scopeFromContext(ctx: PolicyContext): OwnerScope {
+    if (!ctx.userId) {
+        throw new ForbiddenError("Authentication required")
+    }
+    return ctx.organizationId && ctx.orgRole
+        ? orgScope(ctx.userId, ctx.organizationId, ctx.orgRole)
+        : personalScope(ctx.userId)
 }

@@ -12,7 +12,7 @@ import { z } from "zod"
 
 import { getAliasById } from "@/lib/data/alias"
 import { apiError, apiSuccess, ErrorCodes, zodErrorToDetails } from "@/lib/api-response"
-import { withPolicy } from "@/lib/route-policy"
+import { withPolicy, scopeFromContext } from "@/lib/route-policy"
 import { AliasService } from "@/lib/services/alias"
 import { encryptedAliasMetadataSchema } from "@/lib/validations/alias"
 import {
@@ -53,7 +53,7 @@ export const GET = withPolicy<RouteParams>(
         }
 
         const { id } = await routeContext!.params
-        const alias = await resolveAlias(id, ctx.userId)
+        const alias = await resolveAlias(id, scopeFromContext(ctx))
 
         if (!alias) {
             return apiError("Alias not found", ErrorCodes.NOT_FOUND, ctx.requestId, 404)
@@ -101,7 +101,8 @@ export const PATCH = withPolicy<RouteParams>(
             return aliasPlaintextMetadataError(ctx.requestId)
         }
 
-        const existing = await resolveAlias(id, ctx.userId)
+        const scope = scopeFromContext(ctx)
+        const existing = await resolveAlias(id, scope)
         if (!existing) {
             return apiError("Alias not found", ErrorCodes.NOT_FOUND, ctx.requestId, 404)
         }
@@ -117,7 +118,7 @@ export const PATCH = withPolicy<RouteParams>(
         } = validation.data
 
         if (active !== undefined && active !== existing.active) {
-            await AliasService.toggleAlias(ctx.userId, aliasId)
+            await AliasService.toggleAlias(scope, aliasId)
         }
 
         const updateData: {
@@ -147,10 +148,10 @@ export const PATCH = withPolicy<RouteParams>(
             updateData.recipientEmail = recipient_email
         }
         if (Object.keys(updateData).length > 0) {
-            await AliasService.updateAlias(ctx.userId, aliasId, updateData)
+            await AliasService.updateAlias(scope, aliasId, updateData)
         }
 
-        const alias = await getAliasById(aliasId, ctx.userId)
+        const alias = await getAliasById(aliasId, scope)
         if (!alias) {
             return apiError("Alias not found", ErrorCodes.NOT_FOUND, ctx.requestId, 404)
         }
@@ -180,12 +181,12 @@ export const DELETE = withPolicy<RouteParams>(
         }
 
         const { id } = await routeContext!.params
-        const alias = await resolveAlias(id, ctx.userId)
+        const alias = await resolveAlias(id, scopeFromContext(ctx))
         if (!alias) {
             return apiError("Alias not found", ErrorCodes.NOT_FOUND, ctx.requestId, 404)
         }
 
-        await AliasService.deleteAlias(ctx.userId, alias.id)
+        await AliasService.deleteAlias(scopeFromContext(ctx), alias.id)
         return apiSuccess({ deleted: true }, ctx.requestId)
     },
 )

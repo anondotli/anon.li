@@ -14,8 +14,8 @@ import {
     ErrorCodes,
     zodErrorToDetails,
 } from "@/lib/api-response"
-import { getApiKeysByUserId } from "@/lib/data/api-key"
-import { withPolicy } from "@/lib/route-policy"
+import { getApiKeys } from "@/lib/data/api-key"
+import { withPolicy, scopeFromContext } from "@/lib/route-policy"
 import { ApiKeyService } from "@/lib/services/api-key"
 
 export const dynamic = "force-dynamic"
@@ -35,7 +35,7 @@ export const GET = withPolicy(
             return apiError("Session authentication required", ErrorCodes.UNAUTHORIZED, ctx.requestId, 401)
         }
 
-        const apiKeys = await getApiKeysByUserId(ctx.userId)
+        const apiKeys = await getApiKeys(scopeFromContext(ctx))
         return apiList(apiKeys.map((key) => ({
             id: key.id,
             key_prefix: key.keyPrefix,
@@ -79,7 +79,7 @@ export const POST = withPolicy(
             : undefined
 
         const apiKey = await ApiKeyService.createWithMetadata(
-            ctx.userId,
+            scopeFromContext(ctx),
             validation.data.label || "My API Key",
             expiresAt,
         )

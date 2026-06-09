@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache"
 import { ApiKeyService } from "@/lib/services/api-key"
-import { runSecureAction, type ActionState } from "@/lib/safe-action"
+import { runScopedAction, type ActionState } from "@/lib/safe-action"
 import { z } from "zod"
 
 const createApiKeySchema = z.object({
@@ -12,10 +12,10 @@ const createApiKeySchema = z.object({
 export async function createApiKeyAction(formData: FormData): Promise<ActionState<{ key: string }>> {
     const label = formData.get("label") || "My API Key"
 
-    return runSecureAction(
+    return runScopedAction(
         { schema: createApiKeySchema, data: { label }, rateLimitKey: "apiKey" },
-        async (data, userId) => {
-            const key = await ApiKeyService.create(userId, data.label)
+        async (data, scope) => {
+            const key = await ApiKeyService.create(scope, data.label)
             revalidatePath("/dashboard/api-keys")
             return { key }
         }
@@ -23,10 +23,10 @@ export async function createApiKeyAction(formData: FormData): Promise<ActionStat
 }
 
 export async function deleteApiKeyAction(id: string): Promise<ActionState> {
-    return runSecureAction(
+    return runScopedAction(
         { rateLimitKey: "apiKey" },
-        async (_data, userId) => {
-            await ApiKeyService.delete(userId, id)
+        async (_data, scope) => {
+            await ApiKeyService.delete(scope, id)
             revalidatePath("/dashboard/api-keys")
             revalidatePath("/dashboard/settings")
         }
