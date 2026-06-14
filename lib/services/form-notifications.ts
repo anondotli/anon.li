@@ -22,7 +22,9 @@ export async function notifyFormSubmission(formId: string, submissionId: string)
         if (!form) return
 
         const notifyOnSubmission = form.notifyEmailFallback || form.notifyAliasId !== null
-        const recipient = notifyOnSubmission ? form.user.email : null
+        // form.user is null for an org form whose creator was deleted (userId
+        // SetNull); there's no personal fallback inbox in that case.
+        const recipient = notifyOnSubmission ? (form.user?.email ?? null) : null
         if (!recipient) return
 
         const { FormSubmissionNotificationEmail } = await import("@/components/email/form-submission")

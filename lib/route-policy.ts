@@ -41,10 +41,16 @@ import {
 } from "@/lib/api-response"
 import { ForbiddenError } from "@/lib/api-error-utils"
 import { meetsMinRole, orgScope, personalScope, type OrgRole, type OwnerScope } from "@/lib/ownership"
-import { requiresTwoFactorChallenge } from "@/lib/access-policy"
+import { requiresTwoFactorChallenge, orgRequiresTwoFactorSetup } from "@/lib/access-policy"
 import { createLogger } from "@/lib/logger"
 
 const logger = createLogger("RoutePolicy")
+
+// Org-owned API keys act on their org's resources at LEAST privilege: they get
+// org scope (so reads/writes are org-scoped) with the "member" role — enough for
+// resource CRUD (ownerWhere is role-agnostic) but unable to satisfy any
+// minRole-gated org operation. Broaden later via an explicit per-key scope.
+const ORG_API_KEY_ROLE: OrgRole = "member"
 
 // ─── Policy definition ─────────────────────────────────────────────────────
 
@@ -83,7 +89,7 @@ interface PolicyContext {
     } | null
     /** API key ID if authenticated via API key */
     apiKeyId?: string
-    /** Active organization id (session auth only; null for API keys until org-scoped keys land). */
+    /** Active organization id — from the session's active org, or an org-owned API key. */
     organizationId: string | null
     /** Acting user's role in the active org, or null. */
     orgRole: OrgRole | null
@@ -159,6 +165,10 @@ export function withPolicy<TRouteContext = void>(policy: RoutePolicy, handler: P
                 user = result.user
                 apiKeyId = result.apiKeyId
                 rateLimitHeaders = createRateLimitHeaders(result.rateLimit)
+                if (result.organizationId) {
+                    organizationId = result.organizationId
+                    orgRole = ORG_API_KEY_ROLE
+                }
             } else if (policy.auth === "session") {
                 const session = await auth()
                 if (!session?.user?.id) {
@@ -166,6 +176,9 @@ export function withPolicy<TRouteContext = void>(policy: RoutePolicy, handler: P
                 }
                 if (require2FA && requiresTwoFactorChallenge(session)) {
                     return apiError("Two-factor authentication required", ErrorCodes.UNAUTHORIZED, requestId, 401)
+                }
+                if (orgRequiresTwoFactorSetup(session)) {
+                    return apiError("Your team requires two-factor authentication. Enable it in your security settings.", ErrorCodes.FORBIDDEN, requestId, 403)
                 }
                 if (policy.requireCsrf) {
                     validateCsrf(request)
@@ -193,6 +206,10 @@ export function withPolicy<TRouteContext = void>(policy: RoutePolicy, handler: P
                     user = apiKeyResult.user
                     apiKeyId = apiKeyResult.apiKeyId
                     rateLimitHeaders = createRateLimitHeaders(apiKeyResult.rateLimit)
+                    if (apiKeyResult.organizationId) {
+                        organizationId = apiKeyResult.organizationId
+                        orgRole = ORG_API_KEY_ROLE
+                    }
                 } else if (hasExplicitApiKey(request)) {
                     return apiError("Unauthorized", ErrorCodes.UNAUTHORIZED, requestId, 401)
                 } else {
@@ -221,6 +238,9 @@ export function withPolicy<TRouteContext = void>(policy: RoutePolicy, handler: P
                     }
                     if (require2FA && requiresTwoFactorChallenge(session)) {
                         return apiError("Two-factor authentication required", ErrorCodes.UNAUTHORIZED, requestId, 401)
+                    }
+                    if (orgRequiresTwoFactorSetup(session)) {
+                        return apiError("Your team requires two-factor authentication. Enable it in your security settings.", ErrorCodes.FORBIDDEN, requestId, 403)
                     }
                     if (policy.requireCsrf) {
                         validateCsrf(request)
@@ -304,8 +324,8 @@ export function withPolicy<TRouteContext = void>(policy: RoutePolicy, handler: P
 
 /**
  * Build an OwnerScope from a resolved PolicyContext, for use inside route
- * handlers (after confirming ctx.userId is non-null). API-key callers currently
- * carry no org context (org-scoped keys land in a later track) → personal scope.
+ * handlers (after confirming ctx.userId is non-null). Org context comes from
+ * either the session's active org or an org-owned API key; else personal scope.
  */
 export function scopeFromContext(ctx: PolicyContext): OwnerScope {
     if (!ctx.userId) {

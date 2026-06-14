@@ -5,6 +5,10 @@ import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { getEffectiveTier, getDropLimits } from "@/lib/limits";
 import { prisma } from "@/lib/prisma";
+import { scopeFromSession } from "@/lib/auth-session";
+import { isOrgSubscribed } from "@/lib/data/auth";
+import { ownerWhere } from "@/lib/ownership";
+import { TeamWorkspaceLocked } from "@/components/dashboard/team/team-workspace-locked";
 import type { DropData, StorageData } from "@/actions/drop";
 import { AlertTriangle } from "lucide-react";
 import { FeaturePromptGrid } from "@/components/dashboard";
@@ -15,6 +19,26 @@ export default async function DropDashboardPage() {
 
   if (!session?.user) {
     redirect("/login");
+  }
+
+  // Scope drops to the active context: personal = the user's own drops; org =
+  // the team's shared drops. Purchase-first Teams: an unsubscribed team is a
+  // zero-capacity workspace, so gate creation behind a subscribe CTA.
+  const scope = scopeFromSession(session);
+  if (scope.organizationId && !(await isOrgSubscribed(scope.organizationId))) {
+    return (
+      <div className="space-y-8">
+        <div className="flex items-center justify-between border-b border-border/40 pb-6">
+          <div className="space-y-1">
+            <h1 className="text-3xl font-medium tracking-tight font-serif">Drop</h1>
+            <p className="text-muted-foreground font-light">
+              Create and manage your drops with end-to-end encryption
+            </p>
+          </div>
+        </div>
+        <TeamWorkspaceLocked resource="drops" />
+      </div>
+    );
   }
 
   // Get user with storage info
@@ -42,7 +66,7 @@ export default async function DropDashboardPage() {
   // Fetch drops with files in a single query
   const drops = (await prisma.drop.findMany({
     where: {
-      userId: session.user.id,
+      ...ownerWhere(scope),
       uploadComplete: true,
       deletedAt: null,
     },

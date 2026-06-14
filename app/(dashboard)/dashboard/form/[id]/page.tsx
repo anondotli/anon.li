@@ -1,5 +1,6 @@
 import { redirect, notFound } from "next/navigation"
 import { auth } from "@/auth"
+import { scopeFromSession } from "@/lib/auth-session"
 import { FormService } from "@/lib/services/form"
 import { NotFoundError, ForbiddenError } from "@/lib/api-error-utils"
 import { FormSchemaDoc } from "@/lib/form-schema"
@@ -18,8 +19,8 @@ export default async function FormDetailPage({ params }: PageProps) {
     let submissions: Awaited<ReturnType<typeof FormService.listSubmissions>>
 
     try {
-        form = await FormService.getFormForOwner(id, session.user.id)
-        submissions = await FormService.listSubmissions(id, session.user.id, { limit: 50 })
+        form = await FormService.getFormForOwner(id, scopeFromSession(session))
+        submissions = await FormService.listSubmissions(id, scopeFromSession(session), { limit: 50 })
     } catch (error) {
         if (error instanceof NotFoundError) notFound()
         if (error instanceof ForbiddenError) notFound()

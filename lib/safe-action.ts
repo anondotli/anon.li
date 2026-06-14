@@ -2,9 +2,9 @@ import { auth } from "@/auth"
 import { getAuthUserState } from "@/lib/data/auth"
 import { rateLimit, rateLimiters } from "@/lib/rate-limit"
 import { logError } from "@/lib/logger"
-import { UpgradeRequiredError, type UpgradeRequiredDetails } from "@/lib/api-error-utils"
+import { UpgradeRequiredError, ValidationError, type UpgradeRequiredDetails } from "@/lib/api-error-utils"
 import { personalScope, orgScope, meetsMinRole, type OwnerScope, type OrgRole } from "@/lib/ownership"
-import { requiresTwoFactorChallenge } from "@/lib/access-policy"
+import { requiresTwoFactorChallenge, orgRequiresTwoFactorSetup } from "@/lib/access-policy"
 import { z } from "zod"
 
 export type ActionState<D = unknown> = {
@@ -112,6 +112,10 @@ export async function runSecureAction<T = void, R = unknown>(
         upgrade: error.details,
       }
     }
+    // ValidationError carries a user-facing "bad request" message by design.
+    if (error instanceof ValidationError) {
+      return { error: error.message }
+    }
     logError("SecureAction", "Operation failed", error)
     return { error: "Operation failed" }
   }
@@ -156,6 +160,13 @@ export async function runScopedAction<T = void, R = unknown>(
     return { error: "Account suspended" }
   }
 
+  // Org-wide 2FA enforcement: if the active org requires 2FA and the user hasn't
+  // enrolled it at all, block here (the enrolled-but-unverified case is already
+  // covered by requiresTwoFactorChallenge above).
+  if (orgRequiresTwoFactorSetup(session)) {
+    return { error: "Your team requires two-factor authentication. Enable it in your security settings to continue." }
+  }
+
   // Build the owner scope from the active organization context on the session.
   const scope: OwnerScope =
     session.activeOrganizationId && session.activeOrgRole
@@ -190,6 +201,10 @@ export async function runScopedAction<T = void, R = unknown>(
         code: error.code,
         upgrade: error.details,
       }
+    }
+    // ValidationError carries a user-facing "bad request" message by design.
+    if (error instanceof ValidationError) {
+      return { error: error.message }
     }
     logError("ScopedAction", "Operation failed", error)
     return { error: "Operation failed" }

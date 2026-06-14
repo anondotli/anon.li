@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { checkRateLimit, getClientIp, rateLimiters } from "@/lib/rate-limit"
 
 export async function GET(req: Request) {
+    const ip = await getClientIp()
+    const limited = await checkRateLimit(rateLimiters.reportStatus, `report-status:${ip}`)
+    if (limited) return limited
+
     const { searchParams } = new URL(req.url)
     const token = searchParams.get("token")
 

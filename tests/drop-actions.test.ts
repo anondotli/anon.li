@@ -2,6 +2,7 @@
  * @vitest-environment node
  */
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { personalScope } from "@/lib/ownership"
 
 const auth = vi.fn()
 const rateLimit = vi.fn()
@@ -101,7 +102,7 @@ describe("createDropAction", () => {
             vaultGeneration: 3,
         })
 
-        expect(createDrop).toHaveBeenCalledWith("user-123", expect.objectContaining({
+        expect(createDrop).toHaveBeenCalledWith(personalScope("user-123"), expect.objectContaining({
             iv: "1234567890123456",
             fileCount: 1,
         }))

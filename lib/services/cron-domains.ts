@@ -3,9 +3,41 @@ import util from "util";
 import { prisma } from "@/lib/prisma";
 import { createLogger } from "@/lib/logger";
 import { sendDomainDeletedEmail, sendDomainUnverifiedEmail } from "@/lib/resend";
+import { getOrgAdminEmails } from "@/lib/data/organization";
 
 const logger = createLogger("CronDomains");
 const resolveTxt = util.promisify(dns.resolveTxt);
+
+/**
+ * Resolve who to notify about a domain event and send to each.
+ * Org domains → the org's owners/admins (the creator may have left, and
+ * `Domain.userId` is SET NULL on user deletion, so org notices must come from
+ * membership — not the row's `user`). Personal domains → the owning user.
+ * Returns the number of sends that failed (for the cron's error tally).
+ */
+async function notifyDomainOwners(
+    domain: { domain: string; organizationId: string | null; user?: { email: string | null } | null },
+    send: (email: string, domainName: string) => Promise<unknown>,
+): Promise<number> {
+    const recipients = domain.organizationId
+        ? await getOrgAdminEmails(domain.organizationId)
+        : domain.user?.email
+            ? [domain.user.email]
+            : [];
+
+    let failures = 0;
+    await Promise.allSettled(
+        recipients.map(async (email) => {
+            try {
+                await send(email, domain.domain);
+            } catch (error) {
+                failures++;
+                logger.error("Error sending domain notification", error, { domain: domain.domain });
+            }
+        }),
+    );
+    return failures;
+}
 
 export async function handleDomainsCron() {
     const cleanupResults = await cleanupStaleDomains();
@@ -23,7 +55,7 @@ export async function cleanupStaleDomains() {
             createdAt: { lt: threshold },
         },
         include: { user: true },
-    }) as unknown as Array<{ id: string; domain: string; user: { id: string; email: string | null } }>;
+    }) as unknown as Array<{ id: string; domain: string; organizationId: string | null; user: { id: string; email: string | null } | null }>;
 
     if (staleDomains.length === 0) return results;
 
@@ -40,20 +72,10 @@ export async function cleanupStaleDomains() {
         return results;
     }
 
-    const emailPromises = staleDomains
-        .filter((domain) => domain.user?.email)
-        .map(async (domain) => {
-            try {
-                if (domain.user?.email) {
-                    await sendDomainDeletedEmail(domain.user.email, domain.domain);
-                }
-            } catch (error) {
-                logger.error("Error sending deletion email", error, { domain: domain.domain });
-                results.errors++;
-            }
-        });
-
-    await Promise.allSettled(emailPromises);
+    const failureCounts = await Promise.all(
+        staleDomains.map((domain) => notifyDomainOwners(domain, sendDomainDeletedEmail)),
+    );
+    results.errors += failureCounts.reduce((sum, count) => sum + count, 0);
 
     return results;
 }
@@ -82,9 +104,7 @@ async function reverifyActiveDomains() {
                 });
                 results.revoked++;
 
-                if (domain.user?.email) {
-                    await sendDomainUnverifiedEmail(domain.user.email, domain.domain);
-                }
+                results.errors += await notifyDomainOwners(domain, sendDomainUnverifiedEmail);
             }
         } catch (error) {
             logger.error("Error re-verifying domain", error, { domain: domain.domain });

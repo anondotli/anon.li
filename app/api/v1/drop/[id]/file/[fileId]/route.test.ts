@@ -41,6 +41,7 @@ vi.mock("@/lib/services/drop-storage", () => ({
 vi.mock("@/lib/storage", () => ({
     getPresignedDownloadUrl: vi.fn(),
     abortMultipartUpload: vi.fn(),
+    LIMITED_DROP_PRESIGNED_URL_EXPIRES: 120,
 }))
 
 vi.mock("@/lib/rate-limit", () => ({
@@ -111,6 +112,78 @@ describe("GET /api/v1/drop/[id]/file/[fileId]", () => {
         )
 
         expect(DropService.incrementDownloadCount).toHaveBeenCalledWith("drop-123")
+        expect(response.status).toBe(302)
+    })
+
+    it("counts a Range request on a download-limited drop (no Range bypass)", async () => {
+        const { prisma } = await import("@/lib/prisma")
+        const { DropService } = await import("@/lib/services/drop")
+        const { getPresignedDownloadUrl } = await import("@/lib/storage")
+        const { GET } = await import("./route")
+
+        ;(prisma.dropFile.findUnique as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+            id: "file-123",
+            storageKey: "d/fi/file-123",
+            drop: {
+                id: "drop-123",
+                expiresAt: null,
+                maxDownloads: 3,
+                downloads: 0,
+                deletedAt: null,
+                disabled: false,
+                uploadComplete: true,
+                takenDown: false,
+                customKey: false,
+            },
+        })
+        ;(DropService.incrementDownloadCount as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(true)
+        ;(getPresignedDownloadUrl as unknown as ReturnType<typeof vi.fn>).mockResolvedValue("https://r2.example/file")
+
+        // `Range: bytes=1-` previously skipped the counter while the redirect still
+        // handed out a full-object URL — a maxDownloads bypass. It must now count.
+        const response = await GET(
+            new NextRequest("http://localhost/api/v1/drop/drop-123/file/file-123", {
+                headers: { Range: "bytes=1-" },
+            }),
+            { params: Promise.resolve({ id: "drop-123", fileId: "file-123" }) }
+        )
+
+        expect(DropService.incrementDownloadCount).toHaveBeenCalledWith("drop-123")
+        expect(response.status).toBe(302)
+    })
+
+    it("does not count a resumed-range request on an unlimited drop", async () => {
+        const { prisma } = await import("@/lib/prisma")
+        const { DropService } = await import("@/lib/services/drop")
+        const { getPresignedDownloadUrl } = await import("@/lib/storage")
+        const { GET } = await import("./route")
+
+        ;(prisma.dropFile.findUnique as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+            id: "file-123",
+            storageKey: "d/fi/file-123",
+            drop: {
+                id: "drop-123",
+                expiresAt: null,
+                maxDownloads: null,
+                downloads: 0,
+                deletedAt: null,
+                disabled: false,
+                uploadComplete: true,
+                takenDown: false,
+                customKey: false,
+            },
+        })
+        ;(getPresignedDownloadUrl as unknown as ReturnType<typeof vi.fn>).mockResolvedValue("https://r2.example/file")
+
+        const response = await GET(
+            new NextRequest("http://localhost/api/v1/drop/drop-123/file/file-123", {
+                headers: { Range: "bytes=1-" },
+            }),
+            { params: Promise.resolve({ id: "drop-123", fileId: "file-123" }) }
+        )
+
+        // Unlimited drop: count is just a stat, so a resumed transfer must not double-count.
+        expect(DropService.incrementDownloadCount).not.toHaveBeenCalled()
         expect(response.status).toBe(302)
     })
 })

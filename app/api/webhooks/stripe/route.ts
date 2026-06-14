@@ -292,6 +292,22 @@ async function handleInvoicePaymentSucceeded(invoice: Stripe.Invoice) {
 }
 
 /** Revoke access and begin downgrade flow if payment fails and subscription is no longer active. */
+/**
+ * Resolve the org that owns a subscription, preferring our canonical column over
+ * live Stripe metadata (metadata can be absent on renewals/out-of-band events;
+ * upsertStripeSubscription runs before these branches and persists the org link).
+ * Without this, a metadata-less org cancellation would be mis-handled as a
+ * PERSONAL downgrade against the billing user.
+ */
+async function resolveSubscriptionOrgId(subscription: Stripe.Subscription): Promise<string | null> {
+    if (subscription.metadata?.organizationId) return subscription.metadata.organizationId
+    const local = await prisma.subscription.findUnique({
+        where: { providerSubscriptionId: subscription.id },
+        select: { organizationId: true },
+    })
+    return local?.organizationId ?? null
+}
+
 async function handleInvoicePaymentFailed(invoice: Stripe.Invoice) {
     const subscriptionId = typeof invoice.subscription === 'string' ? invoice.subscription : (invoice.subscription as Stripe.Subscription)?.id
     if (!subscriptionId) return
@@ -313,19 +329,26 @@ async function handleInvoicePaymentFailed(invoice: Stripe.Invoice) {
             const expiryDate = new Date()
             expiryDate.setDate(expiryDate.getDate() + SUBSCRIPTION_GRACE_PERIOD_DAYS)
 
-            // Only update drops that don't already have an expiry (unlimited drops)
-            await prisma.drop.updateMany({
-                where: {
-                    userId: user.id,
-                    expiresAt: null,
-                    deletedAt: null,
-                },
-                data: {
-                    expiresAt: expiryDate,
-                },
-            })
+            const organizationId = await resolveSubscriptionOrgId(subscription)
+            if (organizationId) {
+                const { handleOrgSubscriptionLoss } = await import("@/lib/services/org-billing")
+                await handleOrgSubscriptionLoss(organizationId, expiryDate)
+            } else {
+                // Only update drops that don't already have an expiry (unlimited drops)
+                await prisma.drop.updateMany({
+                    where: {
+                        userId: user.id,
+                        organizationId: null,
+                        expiresAt: null,
+                        deletedAt: null,
+                    },
+                    data: {
+                        expiresAt: expiryDate,
+                    },
+                })
 
-            await handleDowngradeNotification(user.id, user.email, expiryDate)
+                await handleDowngradeNotification(user.id, user.email, expiryDate)
+            }
         }
     }
 }
@@ -373,8 +396,16 @@ async function handleCustomerSubscriptionUpdated(subscription: Stripe.Subscripti
 
         // Record downgrade if subscription became inactive
         if (!isActive) {
-            const { BillingDowngradeService } = await import("@/lib/services/billing-downgrade")
-            await BillingDowngradeService.recordDowngrade(userForUpsert.id)
+            const organizationId = await resolveSubscriptionOrgId(subscription)
+            if (organizationId) {
+                const expiryDate = new Date()
+                expiryDate.setDate(expiryDate.getDate() + SUBSCRIPTION_GRACE_PERIOD_DAYS)
+                const { handleOrgSubscriptionLoss } = await import("@/lib/services/org-billing")
+                await handleOrgSubscriptionLoss(organizationId, expiryDate)
+            } else {
+                const { BillingDowngradeService } = await import("@/lib/services/billing-downgrade")
+                await BillingDowngradeService.recordDowngrade(userForUpsert.id)
+            }
         }
     }
 }
@@ -392,10 +423,20 @@ async function handleCustomerSubscriptionDeleted(subscription: Stripe.Subscripti
         // Write to canonical Subscription table (required - transient failures will retry via Stripe)
         await upsertStripeSubscription(user.id, subscription)
 
+        // Org subscription: downgrade the ORG (grace on org drops, notify all
+        // org admins), not the billing user's personal account.
+        const organizationId = await resolveSubscriptionOrgId(subscription)
+        if (organizationId) {
+            const { handleOrgSubscriptionLoss } = await import("@/lib/services/org-billing")
+            await handleOrgSubscriptionLoss(organizationId, expiryDate)
+            return
+        }
+
         // Set grace period expiry on all unlimited drops (Pro feature)
         await prisma.drop.updateMany({
             where: {
                 userId: user.id,
+                organizationId: null,
                 expiresAt: null, // Only drops with unlimited expiry
                 deletedAt: null,
             },

@@ -58,8 +58,9 @@ export interface AliasDetails {
     emailsReceived: number
     emailsBlocked: number
     createdAt: Date
-    // Alias detail query does not surface banFileUpload.
-    user: Omit<ModerationUser, "banFileUpload">
+    // Alias detail query does not surface banFileUpload. Null when the alias is
+    // org-owned and its creating user was deleted (userId SetNull).
+    user: Omit<ModerationUser, "banFileUpload"> | null
 }
 
 export interface FormDetails {

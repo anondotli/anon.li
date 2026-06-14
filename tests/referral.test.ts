@@ -160,7 +160,7 @@ describe("claimReferral", () => {
         expect(result).toEqual({ status: "claimed", rewardDays: REFERRAL_REWARD_DAYS })
 
         // Attribution is a single user.update; the two Plus grants go through the
-        // atomic $executeRaw path (one per party), each for the 30-day reward.
+        // atomic $executeRaw path (one per party), each for the reward window.
         expect(txUpdate).toHaveBeenCalledTimes(1)
         expect(txUpdate).toHaveBeenCalledWith(expect.objectContaining({
             where: { id: "referee" },

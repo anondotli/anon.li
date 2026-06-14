@@ -1,6 +1,7 @@
 "use server"
 
 import { auth } from "@/auth"
+import { prisma } from "@/lib/prisma"
 import { getUserBillingState } from "@/lib/data/user"
 import { stripe } from "@/lib/stripe"
 import { isRedirectError } from "next/dist/client/components/redirect-error"
@@ -122,22 +123,35 @@ export async function createSubscriptionChangeSession(params: {
     let url: string | null = null
 
     try {
-        const subs = await stripe.subscriptions.list({
-            customer: billing.stripeCustomerId,
-            status: "active",
-            limit: 1,
+        // Target ONLY the user's personal subscription. The owner's org Business
+        // subscription shares the same Stripe customer, so a blind "first active
+        // sub" lookup could rewrite the org sub to quantity:1 and collapse its
+        // seats. Resolve the personal sub from our canonical table (organizationId
+        // null) and act on exactly that Stripe subscription.
+        const personalSub = await prisma.subscription.findFirst({
+            where: {
+                userId: guard.userId,
+                provider: "stripe",
+                organizationId: null,
+                status: { in: ["active", "trialing"] },
+                providerSubscriptionId: { not: null },
+            },
+            select: { providerSubscriptionId: true },
+            orderBy: { createdAt: "desc" },
         })
-        const sub = subs.data[0]
-        const item = sub?.items.data[0]
 
         let flowData: Stripe.BillingPortal.SessionCreateParams.FlowData | undefined
-        if (sub && item) {
-            flowData = {
-                type: "subscription_update_confirm",
-                subscription_update_confirm: {
-                    subscription: sub.id,
-                    items: [{ id: item.id, price: targetPriceId, quantity: 1 }],
-                },
+        if (personalSub?.providerSubscriptionId) {
+            const sub = await stripe.subscriptions.retrieve(personalSub.providerSubscriptionId)
+            const item = sub.items.data[0]
+            if (item) {
+                flowData = {
+                    type: "subscription_update_confirm",
+                    subscription_update_confirm: {
+                        subscription: sub.id,
+                        items: [{ id: item.id, price: targetPriceId, quantity: 1 }],
+                    },
+                }
             }
         }
 

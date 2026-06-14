@@ -1,4 +1,10 @@
 import { auth } from "@/auth"
+import { scopeFromSession } from "@/lib/auth-session"
+import { isOrgSubscribed } from "@/lib/data/auth"
+import { TeamWorkspaceLocked } from "@/components/dashboard/team/team-workspace-locked"
+import { ownerWhere } from "@/lib/ownership"
+import { countAliasesByFormat } from "@/lib/data/alias"
+import { getDomains } from "@/lib/data/domain"
 import { prisma } from "@/lib/prisma"
 import { redirect } from "next/navigation"
 
@@ -35,25 +41,53 @@ export default async function DashboardPage() {
 
     if (!user) redirect("/login")
 
+    // Purchase-first Teams: an unsubscribed team is a zero-capacity workspace.
+    const scope = scopeFromSession(session)
+    if (scope.organizationId && !(await isOrgSubscribed(scope.organizationId))) {
+        return (
+            <div className="flex flex-col gap-8">
+                <div className="flex flex-col gap-4 border-b border-border/40 pb-6 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="space-y-1">
+                        <h2 className="text-3xl font-medium tracking-tight font-serif">Aliases</h2>
+                        <p className="text-muted-foreground font-light">Manage your private email aliases.</p>
+                    </div>
+                </div>
+                <TeamWorkspaceLocked resource="aliases" />
+            </div>
+        )
+    }
+
     // Ensure user has a default recipient
     await RecipientService.ensureDefaultRecipient(user.id, user.email!)
 
-    // Fetch verified recipients
-    const recipients = await RecipientService.getVerifiedRecipients(user.id)
+    // Fetch verified recipients (org recipients when a team is active)
+    const recipients = await RecipientService.getVerifiedRecipients(scope)
 
-    const aliases = await prisma.alias.findMany({
-        where: { userId: user.id },
-        orderBy: { createdAt: "desc" },
-        include: {
-            recipient: {
-                select: {
-                    id: true,
-                    email: true,
-                    pgpPublicKey: true,
+    // Safety bound: the AliasList client component filters/sorts/decrypts the
+    // full set in the browser, so it expects all aliases — but Pro accounts have
+    // unlimited random aliases, so we cap the server fetch to avoid an unbounded
+    // query/payload. Usage counts come from a DB aggregate below, so the bars
+    // stay accurate even when the rendered list is capped. (True scale would
+    // call for server-side pagination + search; unreachable at current volume.)
+    const ALIAS_RENDER_CAP = 1000
+    const [aliasRows, aliasCounts] = await Promise.all([
+        prisma.alias.findMany({
+            where: ownerWhere(scope),
+            orderBy: { createdAt: "desc" },
+            take: ALIAS_RENDER_CAP,
+            include: {
+                recipient: {
+                    select: {
+                        id: true,
+                        email: true,
+                        pgpPublicKey: true,
+                    }
                 }
             }
-        }
-    }) as unknown as Array<{
+        }),
+        countAliasesByFormat(scope),
+    ])
+    const aliases = aliasRows as unknown as Array<{
         id: string
         email: string
         format: string
@@ -71,8 +105,8 @@ export default async function DashboardPage() {
         recipient: { id: string; email: string; pgpPublicKey: string | null } | null
     }>
 
-    const customCount = aliases.filter((a) => a.format === "CUSTOM").length
-    const randomCount = aliases.filter((a) => a.format === "RANDOM").length
+    const customCount = aliasCounts.custom
+    const randomCount = aliasCounts.random
 
     const { random: randomLimit, custom: customLimit } = getDisplayPlanLimits(user)
 
@@ -80,13 +114,15 @@ export default async function DashboardPage() {
     const randomPercent = randomLimit === -1 ? 0 : Math.min((randomCount / randomLimit) * 100, 100)
     const customPercent = customLimit === -1 ? 0 : Math.min((customCount / customLimit) * 100, 100)
 
-    // Fetch custom domains for the current user only
+    // Fetch custom domains for the active scope (org domains when a team is
+    // active) so members can create aliases on the team's verified domains.
     let domains: { id: string, domain: string, verified: boolean }[] = []
     try {
-        domains = await prisma.domain.findMany({
-            where: { userId: user.id },
-            select: { id: true, domain: true, verified: true }
-        })
+        domains = (await getDomains(scope)).map((d) => ({
+            id: d.id,
+            domain: d.domain,
+            verified: d.verified,
+        }))
     } catch {
         // Non-critical: domains list enhances the alias form but isn't required.
         // Fall through with empty domains array; user can still create aliases on anon.li.

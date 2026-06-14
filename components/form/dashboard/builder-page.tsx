@@ -35,6 +35,7 @@ import { useVault } from "@/components/vault/vault-provider"
 import { UpgradeRequiredDialog } from "@/components/upgrade/upgrade-required-dialog"
 import { generateFormKeypair } from "@/lib/crypto/asymmetric"
 import { wrapVaultPayload, base64UrlToArrayBuffer } from "@/lib/vault/crypto"
+import { authClient } from "@/lib/auth-client"
 import { FormSchemaDoc, EMPTY_FORM_SCHEMA, serializeSchema } from "@/lib/form-schema"
 import type {
     FormSchemaDoc as FormSchemaDocType,
@@ -92,6 +93,10 @@ export function FormBuilderPage({
 }: FormBuilderPageProps) {
     const router = useRouter()
     const vault = useVault()
+    // In a team context the form is org-owned: its private key is wrapped to the
+    // shared org vault key so every member can decrypt submissions.
+    const { data: activeOrg } = authClient.useActiveOrganization()
+    const organizationId = activeOrg?.id ?? null
     const isEdit = mode === "edit"
     const initialSchema = initialForm?.schema ?? EMPTY_FORM_SCHEMA
 
@@ -252,7 +257,20 @@ export function FormBuilderPage({
 
             const keypair = await generateFormKeypair()
             const privateKeyBytes = base64UrlToArrayBuffer(keypair.privateKey)
-            const wrappedPrivateKey = await wrapVaultPayload(privateKeyBytes, vaultKey)
+
+            let wrappedPrivateKey: string
+            let orgKeyGeneration: number | undefined
+            if (organizationId) {
+                const handle = await vault.getOrgVaultKeyHandle(organizationId)
+                if (!handle) {
+                    toast.error("You don't have access to this team's encryption key yet. Ask a team admin to grant access.")
+                    return
+                }
+                wrappedPrivateKey = await wrapVaultPayload(privateKeyBytes, handle.key)
+                orgKeyGeneration = handle.generation
+            } else {
+                wrappedPrivateKey = await wrapVaultPayload(privateKeyBytes, vaultKey)
+            }
 
             const result = await createFormAction({
                 ...input.data,
@@ -265,6 +283,7 @@ export function FormBuilderPage({
                 wrappedPrivateKey,
                 vaultGeneration: vault.vaultGeneration,
                 vaultId: vault.vaultId,
+                ...(orgKeyGeneration ? { orgKeyGeneration } : {}),
             })
 
             if (result.error) {

@@ -2,6 +2,7 @@ import { cache } from "react"
 import { auth } from "@/lib/auth"
 import { getAuthUserState } from "@/lib/data/auth"
 import { isOrgRole, type OrgRole } from "@/lib/auth-permissions"
+import { orgScope, personalScope, type OwnerScope } from "@/lib/ownership"
 import { headers } from "next/headers"
 
 interface AppSession {
@@ -17,6 +18,8 @@ interface AppSession {
     // Active organization context (B2B). Null = personal context.
     activeOrganizationId: string | null
     activeOrgRole: OrgRole | null
+    /** The active org's enforce2FA policy (false in personal context). */
+    activeOrgEnforce2FA: boolean
 }
 
 async function getSessionInternal(): Promise<AppSession | null> {
@@ -60,7 +63,19 @@ async function getSessionInternal(): Promise<AppSession | null> {
         twoFactorVerified: result.session.twoFactorVerified ?? false,
         activeOrganizationId,
         activeOrgRole,
+        activeOrgEnforce2FA: activeMembership?.enforce2FA ?? false,
     }
 }
 
 export const getSession = cache(getSessionInternal)
+
+/**
+ * Build an OwnerScope from an AppSession — for server components / pages that
+ * have the session in hand (the route/action layers use scopeFromContext /
+ * runScopedAction instead).
+ */
+export function scopeFromSession(session: AppSession): OwnerScope {
+    return session.activeOrganizationId && session.activeOrgRole
+        ? orgScope(session.user.id, session.activeOrganizationId, session.activeOrgRole)
+        : personalScope(session.user.id)
+}

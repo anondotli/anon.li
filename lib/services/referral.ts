@@ -8,7 +8,7 @@ import { createLogger } from "@/lib/logger"
 const logger = createLogger("Referral")
 
 /** Free Plus days granted to BOTH parties per successful referral. */
-export const REFERRAL_REWARD_DAYS = 30
+export const REFERRAL_REWARD_DAYS = 7
 /** A referral can only be claimed within this window after the account is created. */
 const REFERRAL_CLAIM_WINDOW_DAYS = 30
 /** Unambiguous alphabet (no 0/O/1/I) for human-shareable codes. */
@@ -152,6 +152,9 @@ export interface ReferralStats {
     code: string
     successfulReferrals: number
     plusUntil: Date | null
+    /** Whether plusUntil is still in the future. Computed here so React render
+     *  paths don't have to call the impure Date.now() themselves. */
+    plusActive: boolean
 }
 
 /** Stats for the invite UI: the user's code, how many friends they've converted,
@@ -162,9 +165,11 @@ export async function getReferralStats(userId: string): Promise<ReferralStats> {
         prisma.user.count({ where: { referredByUserId: userId } }),
         prisma.user.findUnique({ where: { id: userId }, select: { referralPlusUntil: true } }),
     ])
+    const plusUntil = user?.referralPlusUntil ?? null
     return {
         code,
         successfulReferrals,
-        plusUntil: user?.referralPlusUntil ?? null,
+        plusUntil,
+        plusActive: plusUntil ? plusUntil.getTime() > Date.now() : false,
     }
 }

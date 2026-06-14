@@ -8,12 +8,16 @@ interface AuthUserState {
     twoFactorEnabled: boolean
     subscriptions: SubscriptionLike[]
     referralPlusUntil: Date | null
-    memberships: { organizationId: string; role: string }[]
+    memberships: { organizationId: string; role: string; enforce2FA: boolean }[]
 }
 
 interface AuthApiKeyRecord {
     id: string
     user: Pick<AuthUserState, "id" | "banned" | "subscriptions" | "referralPlusUntil">
+    // Org-owned keys (organizationId set) meter quota against the org and resolve
+    // tier from the org's subscriptions (Track G). null = personal key.
+    organizationId: string | null
+    organizationSubscriptions: SubscriptionLike[] | null
 }
 
 const ACTIVE_SUBSCRIPTION_SELECT = {
@@ -24,6 +28,35 @@ const ACTIVE_SUBSCRIPTION_SELECT = {
         tier: true,
         currentPeriodEnd: true,
     },
+}
+
+/**
+ * Active subscriptions owned by an organization. Used to derive ORG-scope
+ * resource limits from the org's own plan (e.g. Business), independent of any
+ * single member's personal plan. Returns a UserSub-shaped context (no personal
+ * referral perk) so getPlanLimits/getDropLimits/etc. yield the org's allowances.
+ */
+export async function getOrgLimitContext(organizationId: string): Promise<{ subscriptions: SubscriptionLike[]; referralPlusUntil: null }> {
+    const subscriptions = await prisma.subscription.findMany({
+        where: { organizationId, status: { in: ["active", "trialing"] } },
+        select: ACTIVE_SUBSCRIPTION_SELECT.select,
+    })
+    return { subscriptions, referralPlusUntil: null }
+}
+
+/**
+ * Whether an org has an active Business subscription. Purchase-first Teams: an
+ * unsubscribed org is a zero-capacity workspace, so the dashboard create pages
+ * use this to show a "subscribe to unlock" state. Keyed on the SAME active-sub
+ * query as getOrgLimitContext, so the UI gate and the server enforcement
+ * (assertOrgPlanActive) agree exactly.
+ */
+export async function isOrgSubscribed(organizationId: string): Promise<boolean> {
+    const sub = await prisma.subscription.findFirst({
+        where: { organizationId, status: { in: ["active", "trialing"] } },
+        select: { id: true },
+    })
+    return Boolean(sub)
 }
 
 export async function getAuthUserState(userId: string): Promise<AuthUserState | null> {
@@ -37,7 +70,13 @@ export async function getAuthUserState(userId: string): Promise<AuthUserState | 
             referralPlusUntil: true,
             subscriptions: ACTIVE_SUBSCRIPTION_SELECT,
             memberships: {
-                select: { organizationId: true, role: true },
+                select: {
+                    organizationId: true,
+                    role: true,
+                    // Org-wide 2FA enforcement policy, surfaced on the session so
+                    // org-scoped gates can require 2FA (lib/access-policy.ts).
+                    organization: { select: { enforce2FA: true } },
+                },
             },
             deletionRequest: {
                 select: { id: true },
@@ -49,7 +88,32 @@ export async function getAuthUserState(userId: string): Promise<AuthUserState | 
         return null
     }
 
-    const { deletionRequest: _deletionRequest, ...authUser } = user
+    const { deletionRequest: _deletionRequest, memberships, ...rest } = user
+    const authUser: AuthUserState = {
+        ...rest,
+        // Flatten the org's enforce2FA onto each membership.
+        memberships: memberships.map((m) => ({
+            organizationId: m.organizationId,
+            role: m.role,
+            enforce2FA: m.organization?.enforce2FA ?? false,
+        })),
+    }
+
+    // Seat-based entitlements: a member inherits the active subscriptions of the
+    // orgs they belong to (e.g. a team's Business plan). One extra query, and
+    // only when the user is actually in an org.
+    const orgIds = authUser.memberships.map((m) => m.organizationId)
+    if (orgIds.length > 0) {
+        const orgSubscriptions = await prisma.subscription.findMany({
+            where: {
+                organizationId: { in: orgIds },
+                status: { in: ["active", "trialing"] },
+            },
+            select: ACTIVE_SUBSCRIPTION_SELECT.select,
+        })
+        authUser.subscriptions = [...authUser.subscriptions, ...orgSubscriptions]
+    }
+
     return authUser
 }
 
@@ -59,6 +123,8 @@ export async function getAuthApiKeyRecord(keyHash: string): Promise<(AuthApiKeyR
         select: {
             id: true,
             expiresAt: true,
+            organizationId: true,
+            organization: { select: { subscriptions: ACTIVE_SUBSCRIPTION_SELECT } },
             user: {
                 select: {
                     id: true,
@@ -79,7 +145,10 @@ export async function getAuthApiKeyRecord(keyHash: string): Promise<(AuthApiKeyR
 
     const { deletionRequest: _deletionRequest, ...user } = apiKey.user
     return {
-        ...apiKey,
+        id: apiKey.id,
+        expiresAt: apiKey.expiresAt,
+        organizationId: apiKey.organizationId,
+        organizationSubscriptions: apiKey.organization?.subscriptions ?? null,
         user,
     }
 }

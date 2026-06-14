@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma"
 import { BillingToast } from "./billing-toast"
 import { BillingContent } from "./billing-content"
 import { getUserSubscriptionPlan } from "@/lib/subscription"
+import { getReferralStats, REFERRAL_REWARD_DAYS } from "@/lib/services/referral"
 
 export default async function BillingPage() {
     const session = await auth()
@@ -31,6 +32,8 @@ export default async function BillingPage() {
         ? new Date(subscriptionPlan.stripeCurrentPeriodEnd)
         : undefined
 
+    const referral = await getReferralStats(session.user.id)
+
     return (
         <>
             <BillingToast />
@@ -40,6 +43,12 @@ export default async function BillingPage() {
                 currentPeriodEnd={currentPeriodEnd}
                 paymentMethod={user.paymentMethod}
                 product={subscriptionPlan.product}
+                referral={{
+                    successfulReferrals: referral.successfulReferrals,
+                    plusUntil: referral.plusUntil ? referral.plusUntil.toISOString() : null,
+                    plusActive: referral.plusActive,
+                    rewardDays: REFERRAL_REWARD_DAYS,
+                }}
             />
         </>
     )

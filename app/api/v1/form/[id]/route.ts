@@ -7,7 +7,7 @@
 import { NextResponse } from "next/server"
 
 import { apiError, apiSuccess, ErrorCodes, generateRequestId, zodErrorToDetails } from "@/lib/api-response"
-import { withPolicy } from "@/lib/route-policy"
+import { withPolicy, scopeFromContext } from "@/lib/route-policy"
 import { FormService } from "@/lib/services/form"
 import { updateFormSchema } from "@/lib/validations/form"
 import { getClientIp, rateLimit } from "@/lib/rate-limit"
@@ -65,7 +65,7 @@ export const DELETE = withPolicy<RouteParams>(
     },
     async (ctx, routeContext) => {
         const { id } = await routeContext!.params
-        await FormService.deleteForm(id, ctx.userId!)
+        await FormService.deleteForm(id, scopeFromContext(ctx))
         return apiSuccess({ deleted: true, id }, ctx.requestId)
     },
 )
@@ -85,7 +85,7 @@ const updateHandler = withPolicy<RouteParams>(
             return apiError("Validation failed", ErrorCodes.VALIDATION_ERROR, ctx.requestId, 400, zodErrorToDetails(parsed.error))
         }
         try {
-            const updated = await FormService.updateForm(id, ctx.userId!, parsed.data)
+            const updated = await FormService.updateForm(id, scopeFromContext(ctx), parsed.data)
             return apiSuccess({
                 id: updated.id,
                 updated_at: updated.updatedAt.toISOString(),
@@ -108,7 +108,7 @@ const toggleHandler = withPolicy<RouteParams>(
     },
     async (ctx, routeContext) => {
         const { id } = await routeContext!.params
-        const disabled = await FormService.toggleForm(id, ctx.userId!)
+        const disabled = await FormService.toggleForm(id, scopeFromContext(ctx))
         return apiSuccess({ disabled }, ctx.requestId)
     },
 )

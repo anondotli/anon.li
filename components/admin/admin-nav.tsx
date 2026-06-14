@@ -18,6 +18,7 @@ import {
     Settings,
     ScrollText,
     CreditCard,
+    Gift,
     Trash2,
     HardDrive,
     ChevronDown,
@@ -43,13 +44,8 @@ const navGroups: NavGroup[] = [
         defaultOpen: true,
         items: [
             { title: "Dashboard", href: "/admin", icon: LayoutDashboard },
-        ]
-    },
-    {
-        title: "USERS",
-        defaultOpen: true,
-        items: [
             { title: "All Users", href: "/admin/users", icon: Users },
+            { title: "Referrals", href: "/admin/referrals", icon: Gift },
         ]
     },
     {
@@ -62,16 +58,10 @@ const navGroups: NavGroup[] = [
         ]
     },
     {
-        title: "DROP SERVICE",
+        title: "OTHER SERVICE",
         defaultOpen: true,
         items: [
             { title: "Drops", href: "/admin/drops", icon: FileBox },
-        ]
-    },
-    {
-        title: "FORM SERVICE",
-        defaultOpen: true,
-        items: [
             { title: "Forms", href: "/admin/forms", icon: ClipboardList },
         ]
     },

@@ -1,4 +1,7 @@
 import { auth } from "@/auth"
+import { scopeFromSession } from "@/lib/auth-session"
+import { isOrgSubscribed } from "@/lib/data/auth"
+import { TeamWorkspaceLocked } from "@/components/dashboard/team/team-workspace-locked"
 import { redirect } from "next/navigation"
 import { RecipientService } from "@/lib/services/recipient"
 import { getRecipientLimit } from "@/lib/limits"
@@ -33,11 +36,33 @@ export default async function RecipientsPage() {
 
     if (!user) redirect("/login")
 
+    // Purchase-first Teams: an unsubscribed team is a zero-capacity workspace.
+    const scope = scopeFromSession(session)
+    if (scope.organizationId && !(await isOrgSubscribed(scope.organizationId))) {
+        return (
+            <div className="flex flex-col gap-8">
+                <div className="flex flex-col gap-4 border-b border-border/40 pb-6">
+                    <div className="space-y-1">
+                        <div className="flex items-center gap-3">
+                            <Button variant="ghost" size="icon" asChild className="h-8 w-8">
+                                <Link href="/dashboard/alias">
+                                    <ArrowLeft className="h-4 w-4" />
+                                </Link>
+                            </Button>
+                            <h2 className="text-2xl font-medium tracking-tight font-serif sm:text-3xl">Recipients</h2>
+                        </div>
+                    </div>
+                </div>
+                <TeamWorkspaceLocked resource="recipients" />
+            </div>
+        )
+    }
+
     // Ensure user has a default recipient
     await RecipientService.ensureDefaultRecipient(user.id, user.email!)
 
     // Fetch recipients
-    const recipients = await RecipientService.getRecipients(user.id)
+    const recipients = await RecipientService.getRecipients(scope)
     const recipientLimit = getRecipientLimit(user)
     const recipientCount = recipients.length
     const recipientPercent = recipientLimit === -1 ? 0 : Math.min((recipientCount / recipientLimit) * 100, 100)

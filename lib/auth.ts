@@ -1,6 +1,7 @@
 import { betterAuth } from "better-auth"
 import { prismaAdapter } from "better-auth/adapters/prisma"
 import { twoFactor, magicLink, mcp, captcha, organization } from "better-auth/plugins"
+import { createAuthMiddleware } from "better-auth/api"
 import { APIError } from "@better-auth/core/error"
 import { prisma } from "@/lib/prisma"
 import {
@@ -11,12 +12,36 @@ import {
     sendWelcomeEmail,
 } from "@/lib/resend"
 import { ac, roles } from "@/lib/auth-permissions"
+import {
+    recordInvitationSent,
+    recordMemberAdded,
+    recordMemberRemoved,
+    recordMemberRoleChanged,
+} from "@/lib/services/audit"
+import { getOrgSeatLimit } from "@/lib/org-seats"
+import { validateOrganizationName } from "@/lib/validations/organization"
 import { rateLimit } from "@/lib/rate-limit"
 import { getVaultSchemaState } from "@/lib/vault/schema"
 import { MCP_DEFAULT_SCOPE, MCP_OAUTH_SCOPES } from "@/lib/mcp/oauth-metadata"
 
 const ACCOUNT_DELETION_PENDING_MESSAGE = "Account deletion is already in progress for this user."
 const turnstileEnabled = Boolean(process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY)
+
+/**
+ * The user who PERFORMED the current request, for org member-lifecycle audit
+ * attribution (better-auth's member hooks expose only the affected member, not
+ * the actor). Resolved from the acting session. Dynamic import breaks the
+ * auth ⇄ auth-session module cycle. Returns null if it can't be resolved.
+ */
+async function resolveActorId(): Promise<string | null> {
+    try {
+        const { auth: getAppSession } = await import("@/auth")
+        const session = await getAppSession()
+        return session?.user?.id ?? null
+    } catch {
+        return null
+    }
+}
 
 async function hasDeletionRequest(userId: string): Promise<boolean> {
     const request = await prisma.deletionRequest.findUnique({
@@ -114,11 +139,87 @@ export const auth = betterAuth({
             ac,
             roles,
             creatorRole: "owner",
-            teams: { enabled: true },
+            // Seat enforcement: a member can't be added beyond the org's paid seats.
+            membershipLimit: (_user, org) => getOrgSeatLimit(org.id),
             sendInvitationEmail: async (data) => {
                 const url = `${process.env.NEXT_PUBLIC_APP_URL}/accept-invitation/${data.id}`
                 const inviterName = data.inviter.user.name || data.inviter.user.email
                 await sendOrganizationInvitationEmail(data.email, url, data.organization.name, inviterName)
+            },
+            // Populate the org audit trail for member lifecycle events. These run
+            // server-side so they can't be bypassed by direct authClient calls.
+            // The acting admin is resolved from the session (resolveActorId), with
+            // the affected member as the target; on self-accept actor == target.
+            organizationHooks: {
+                // Validate team names server-side (they're rendered into invitation
+                // emails — reject auto-linkable/control-char phishing payloads).
+                beforeCreateOrganization: async ({ organization }) => {
+                    const result = validateOrganizationName(organization.name)
+                    if (result.error || !result.name) {
+                        throw APIError.from("BAD_REQUEST", { message: result.error ?? "Invalid team name", code: "INVALID_ORG_NAME" })
+                    }
+                    return { data: { ...organization, name: result.name } }
+                },
+                beforeUpdateOrganization: async ({ organization }) => {
+                    if (organization.name !== undefined) {
+                        const result = validateOrganizationName(organization.name)
+                        if (result.error || !result.name) {
+                            throw APIError.from("BAD_REQUEST", { message: result.error ?? "Invalid team name", code: "INVALID_ORG_NAME" })
+                        }
+                        return { data: { ...organization, name: result.name } }
+                    }
+                },
+                afterAddMember: async ({ member, organization }) => {
+                    const actorId = (await resolveActorId()) ?? member.userId
+                    recordMemberAdded({ actorId, targetUserId: member.userId, organizationId: organization.id, role: member.role })
+                },
+                afterRemoveMember: async ({ member, organization }) => {
+                    const actorId = (await resolveActorId()) ?? member.userId
+                    recordMemberRemoved({ actorId, targetUserId: member.userId, organizationId: organization.id, role: member.role })
+                    // Revoke the removed member's grant to the org vault key so the
+                    // owner-key endpoints stop serving it to them (soft revocation),
+                    // and persistently flag that a key rotation is recommended (full
+                    // forward secrecy needs an admin to rotate, since the removed
+                    // member could have cached the key). The team page reads
+                    // keyRotationRecommendedAt to show the banner across refreshes;
+                    // a successful rotation clears it.
+                    void prisma.organizationMemberKey
+                        .deleteMany({ where: { organizationId: organization.id, userId: member.userId } })
+                        .catch(() => {})
+                    void prisma.organization
+                        .update({ where: { id: organization.id }, data: { keyRotationRecommendedAt: new Date() } })
+                        .catch(() => {})
+                },
+                afterUpdateMemberRole: async ({ member, previousRole, organization }) => {
+                    const actorId = (await resolveActorId()) ?? member.userId
+                    recordMemberRoleChanged({
+                        actorId,
+                        targetUserId: member.userId,
+                        organizationId: organization.id,
+                        from: previousRole,
+                        to: member.role,
+                    })
+                },
+                afterCreateInvitation: async ({ invitation, inviter, organization }) => {
+                    recordInvitationSent({
+                        inviterId: inviter.id,
+                        organizationId: organization.id,
+                        email: invitation.email,
+                        role: invitation.role,
+                    })
+                },
+                beforeDeleteOrganization: async ({ organization }) => {
+                    // Erase org-owned Drop blobs from R2 BEFORE the delete cascade
+                    // removes the drop rows (afterDelete would lose the storage
+                    // keys). Best-effort: failed keys are tracked as orphaned files
+                    // for cron retry — never block org deletion on storage.
+                    try {
+                        const { eraseOrgDrops } = await import("@/lib/services/erasure")
+                        await eraseOrgDrops(organization.id)
+                    } catch {
+                        // Swallow; deletion proceeds, cron reaps any orphaned blobs.
+                    }
+                },
             },
         }),
     ],
@@ -184,6 +285,46 @@ export const auth = betterAuth({
                 },
             },
         },
+    },
+
+    hooks: {
+        // Brute-force protection applied to every entry into better-auth, including
+        // direct HTTP requests to the [...all] handler AND in-process auth.api.*
+        // calls (both dispatch through this before-hook). better-auth's built-in
+        // limiter is disabled (rateLimit.enabled = false) and the Turnstile captcha
+        // only covers /sign-in/magic-link, so these endpoints would otherwise be
+        // unthrottled password / one-time-code oracles.
+        before: createAuthMiddleware(async (ctx) => {
+            const tooManyRequests = (code: string) =>
+                APIError.from("TOO_MANY_REQUESTS", {
+                    message: "Too many attempts. Please try again later.",
+                    code,
+                })
+
+            // Credential sign-in: throttle by client IP and by submitted email
+            // (mirrors the sign-up guard in databaseHooks.user.create).
+            if (ctx.path === "/sign-in/email") {
+                if (await rateLimit("signIn")) {
+                    throw tooManyRequests("SIGN_IN_RATE_LIMITED")
+                }
+                const rawEmail = (ctx.body as { email?: unknown } | undefined)?.email
+                if (typeof rawEmail === "string" && rawEmail.length > 0) {
+                    if (await rateLimit("signIn", `email:${rawEmail.toLowerCase()}`)) {
+                        throw tooManyRequests("SIGN_IN_RATE_LIMITED")
+                    }
+                }
+                return
+            }
+
+            // 2FA verification: a per-IP ceiling that an attacker cannot reset by
+            // rotating the pending-2FA cookie. Covers the direct REST endpoints and
+            // the server-action path (actions/two-factor.ts calls auth.api.verifyTOTP).
+            if (ctx.path === "/two-factor/verify-totp" || ctx.path === "/two-factor/verify-backup-code") {
+                if (await rateLimit("twoFactorVerifyIp")) {
+                    throw tooManyRequests("TWO_FACTOR_RATE_LIMITED")
+                }
+            }
+        }),
     },
 
     advanced: {

@@ -133,24 +133,32 @@ export class AdminService {
             }
         })
 
-        const { violations: newViolations, banned: shouldBan } = await AdminService._applyViolationStrike(form.user.id)
+        // form.user is null for an org-owned form whose creating user was deleted
+        // (userId SetNull). There's no individual to strike or notify in that case.
+        let newViolations = 0
+        let shouldBan = false
+        if (form.user) {
+            const strike = await AdminService._applyViolationStrike(form.user.id)
+            newViolations = strike.violations
+            shouldBan = strike.banned
 
-        if (form.user.email) {
-            try {
-                await getResend().emails.send({
-                    from: SYSTEM_EMAIL_FROM,
-                    to: form.user.email,
-                    subject: "Content Takedown Notice",
-                    react: FormTakedownEmail({
-                        formId,
-                        formTitle: form.title,
-                        reason,
-                        strikeCount: newViolations,
-                        isBanned: shouldBan
+            if (form.user.email) {
+                try {
+                    await getResend().emails.send({
+                        from: SYSTEM_EMAIL_FROM,
+                        to: form.user.email,
+                        subject: "Content Takedown Notice",
+                        react: FormTakedownEmail({
+                            formId,
+                            formTitle: form.title,
+                            reason,
+                            strikeCount: newViolations,
+                            isBanned: shouldBan
+                        })
                     })
-                })
-            } catch (error) {
-                logger.error("Failed to send form takedown email", error)
+                } catch (error) {
+                    logger.error("Failed to send form takedown email", error)
+                }
             }
         }
 
@@ -211,7 +219,12 @@ export class AdminService {
             data: { active: false }
         })
 
-        // Atomically increment violations on the user
+        // Atomically increment violations on the user. alias.userId is null for an
+        // org-owned alias whose creating user was deleted (userId SetNull) — no
+        // individual to strike in that case.
+        if (!alias.userId) {
+            return { violations: 0, banned: false }
+        }
         return AdminService._applyViolationStrike(alias.userId)
     }
 

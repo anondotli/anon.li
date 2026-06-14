@@ -56,7 +56,7 @@ describe("UnlockPrompt", () => {
         const { UnlockPrompt } = await import("@/components/vault/unlock-prompt")
         const { container } = render(<UnlockPrompt />)
 
-        const indicator = container.querySelector('[data-state="error"]')
+        const indicator = container.querySelector('[data-tone="error"]')
         const trustBrowserSwitch = screen.getByRole("switch", { name: "Trust this browser" })
 
         expect(indicator).toBeTruthy()
@@ -75,7 +75,7 @@ describe("UnlockPrompt", () => {
         const { UnlockPrompt } = await import("@/components/vault/unlock-prompt")
         const { container } = render(<UnlockPrompt />)
 
-        const indicator = container.querySelector('[data-state="success"]')
+        const indicator = container.querySelector('[data-tone="success"]')
         const button = screen.getByRole("button", { name: "Unlocked" }) as HTMLButtonElement
 
         expect(indicator).toBeTruthy()

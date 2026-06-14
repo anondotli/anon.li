@@ -1,12 +1,15 @@
 import { Prisma } from "@prisma/client"
+import type { OwnerKeyOrgBinding } from "@/lib/vault/drop-owner-keys"
+
+export type { OwnerKeyOrgBinding } from "@/lib/vault/drop-owner-keys"
 
 type FormOwnerKeyUpdateManyArgs = {
     where: { formId: string; userId: string }
-    data: { wrappedKey: string; vaultGeneration: number }
+    data: { wrappedKey: string; vaultGeneration: number; organizationId?: string | null; orgKeyGeneration?: number | null }
 }
 
 type FormOwnerKeyCreateArgs = {
-    data: { userId: string; formId: string; wrappedKey: string; vaultGeneration: number }
+    data: { userId: string; formId: string; wrappedKey: string; vaultGeneration: number; organizationId?: string | null; orgKeyGeneration?: number | null }
 }
 
 type FormOwnerKeyFindUniqueArgs = {
@@ -35,10 +38,15 @@ export async function persistOwnedFormKey(
     formId: string,
     wrappedKey: string,
     vaultGeneration: number,
+    org?: OwnerKeyOrgBinding,
 ): Promise<void> {
+    const orgData = org
+        ? { organizationId: org.organizationId, orgKeyGeneration: org.orgKeyGeneration }
+        : {}
+
     const updated = await client.formOwnerKey.updateMany({
         where: { formId, userId },
-        data: { wrappedKey, vaultGeneration },
+        data: { wrappedKey, vaultGeneration, ...orgData },
     })
 
     if (updated.count > 0) {
@@ -52,6 +60,7 @@ export async function persistOwnedFormKey(
                 formId,
                 wrappedKey,
                 vaultGeneration,
+                ...orgData,
             },
         })
         return

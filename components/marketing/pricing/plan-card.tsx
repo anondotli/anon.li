@@ -2,12 +2,46 @@
 
 import { useMemo, useState } from "react"
 import { ChevronDown } from "lucide-react"
+import { cva } from "class-variance-authority"
 import { PricingAction } from "@/components/marketing/pricing/action"
+import { CardRibbon } from "@/components/marketing/pricing/card-ribbon"
 import { FeatureItem } from "@/components/marketing/feature-item"
 import { Button } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
 import Link from "next/link"
 import { type PlanDefinition } from "@/config/plans"
 import { User } from "@/types/auth"
+
+type PlanTone = "default" | "popular" | "dark"
+
+const planCard = cva(
+    "rounded-[2rem] p-8 flex flex-col gap-6 transition-all duration-300 hover:shadow-xl hover:shadow-primary/5 relative overflow-hidden",
+    {
+        variants: {
+            tone: {
+                default: "bg-card border border-border/50",
+                popular: "bg-card border border-primary/20",
+                dark: "bg-secondary",
+            },
+            highlighted: {
+                true: "ring-2 ring-primary ring-offset-4 ring-offset-background",
+                false: "",
+            },
+        },
+        defaultVariants: { tone: "default", highlighted: false },
+    },
+)
+
+const planButton = cva("w-full rounded-full h-10 text-sm font-medium", {
+    variants: {
+        tone: {
+            default: "",
+            popular: "bg-primary text-primary-foreground hover:bg-primary/90 shadow-md shadow-primary/10",
+            dark: "bg-secondary-foreground/10 hover:bg-secondary-foreground/20 text-secondary-foreground transition-all relative z-10",
+        },
+    },
+    defaultVariants: { tone: "default" },
+})
 
 // How many feature rows each section previews before the rest collapse behind
 // the toggle. Bundle cards have several sections, so they preview fewer per
@@ -54,33 +88,17 @@ export function PricingPlanCard({
         ? Math.round((1 - plan.price.yearly / (plan.price.monthly * 12)) * 100)
         : 0
 
-    const cardClassName = `rounded-[2rem] p-8 flex flex-col gap-6 transition-all duration-300 hover:shadow-xl hover:shadow-primary/5 relative overflow-hidden ${
-        isHighlighted ? "ring-2 ring-primary ring-offset-4 ring-offset-background" : ""
-    } ${
-        isDark
-            ? "bg-secondary"
-            : isPopular
-                ? "bg-card border border-primary/20"
-                : "bg-card border border-border/50"
-    }`
-
-    const buttonClassName = `w-full rounded-full h-10 text-sm font-medium ${
-        isPopular
-            ? "bg-primary text-primary-foreground hover:bg-primary/90 shadow-md shadow-primary/10"
-            : isDark
-                ? "bg-secondary-foreground/10 hover:bg-secondary-foreground/20 text-secondary-foreground transition-all relative z-10"
-                : ""
-    }`
-
-    const dividerClassName = `h-px w-full my-2 ${isPopular ? "bg-primary/10" : "bg-border/50"}`
+    // Card and button resolve tone with different precedence: a dark card still
+    // wants the popular CTA styling when both apply.
+    const cardTone: PlanTone = isDark ? "dark" : isPopular ? "popular" : "default"
+    const buttonTone: PlanTone = isPopular ? "popular" : isDark ? "dark" : "default"
+    const cardClassName = planCard({ tone: cardTone, highlighted: isHighlighted })
+    const buttonClassName = planButton({ tone: buttonTone })
+    const dividerClassName = cn("h-px w-full my-2", isPopular ? "bg-primary/10" : "bg-border/50")
 
     return (
         <div className={cardClassName}>
-            {isPopular && (
-                <div className="absolute top-0 right-0 bg-primary/10 text-primary text-xs font-medium px-3 py-1 rounded-bl-xl">
-                    Popular
-                </div>
-            )}
+            {isPopular && <CardRibbon label="Popular" />}
             <div className={`space-y-4 ${isDark ? "relative z-10" : ""}`}>
                 <h3 className="text-xl font-medium font-serif">{plan.name}</h3>
                 <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -91,10 +109,10 @@ export function PricingPlanCard({
                         )}
                     </div>
                     {!isFree && isYearly && (
-                        <span className="rounded-full bg-secondary/70 px-3 py-1 text-xs font-medium text-muted-foreground">
+                        <span className="rounded-full mt-3 bg-secondary/70 px-3 py-1 text-xs font-medium text-muted-foreground">
                             Billed ${yearlyPrice}/year
                             {yearlySavingsPct > 0 && (
-                                <span className="ml-1 text-green-600 dark:text-green-500">· save {yearlySavingsPct}%</span>
+                                <span className="ml-1 text-success">· save {yearlySavingsPct}%</span>
                             )}
                         </span>
                     )}
@@ -120,7 +138,7 @@ export function PricingPlanCard({
                         onClick={() => onSubscribe(fullPlanId)}
                         className={buttonClassName}
                     >
-                        {user ? `Upgrade to ${plan.name.split(' ').pop()}` : "Get Started"}
+                        {user ? `Upgrade to ${plan.name}` : "Get Started"}
                     </Button>
                 )
             ) : (

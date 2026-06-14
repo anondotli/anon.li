@@ -5,7 +5,7 @@
  */
 
 import { apiError, apiSuccess, ErrorCodes } from "@/lib/api-response"
-import { withPolicy } from "@/lib/route-policy"
+import { withPolicy, scopeFromContext } from "@/lib/route-policy"
 import { RecipientService } from "@/lib/services/recipient"
 
 export const dynamic = "force-dynamic"
@@ -26,7 +26,7 @@ export const POST = withPolicy<RouteParams>(
         }
 
         const { id } = await routeContext!.params
-        await RecipientService.resendVerification(ctx.userId, id)
+        await RecipientService.resendVerification(scopeFromContext(ctx), id)
         return apiSuccess({ sent: true }, ctx.requestId)
     },
 )

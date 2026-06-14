@@ -13,6 +13,7 @@ import { prisma } from "@/lib/prisma"
 import { customAlphabet } from "nanoid"
 import crypto from "node:crypto"
 import { createLogger } from "@/lib/logger"
+import { ownerWhere, assertCanAccess, assertCanManage, personalScope, type OwnerScope } from "@/lib/ownership"
 import { Prisma } from "@prisma/client"
 import type { Form, FormSubmission, FormOwnerKey } from "@prisma/client"
 import {
@@ -22,13 +23,14 @@ import {
     UpgradeRequiredError,
 } from "@/lib/api-error-utils"
 import { getFormLimitsAsync } from "@/lib/limits"
-import { getEffectiveTiers } from "@/lib/entitlements"
 import { PLAN_ENTITLEMENTS } from "@/config/plans"
 import { AUTH_TAG_SIZE, DAY_MS } from "@/lib/constants"
 import { FormSchemaDoc, type FormSchemaDoc as FormSchemaDocType } from "@/lib/form-schema"
 import { hashUploadToken } from "@/lib/services/drop-upload-token"
 import { validateAttachmentManifestAgainstSchema } from "@/lib/services/form-upload"
-import { persistOwnedFormKey } from "@/lib/vault/form-owner-keys"
+import { persistOwnedFormKey, type OwnerKeyOrgBinding } from "@/lib/vault/form-owner-keys"
+import { getOrgKeyGeneration } from "@/lib/vault/org-access"
+import { getFormOwnerEntitlements } from "@/lib/services/form-entitlements"
 
 const generateFormId = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", 12)
 const generateSubmissionId = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", 14)
@@ -48,6 +50,9 @@ interface CreateFormInput {
     publicKey: string
     wrappedPrivateKey: string
     vaultGeneration: number
+    // Org context: the wrappedPrivateKey is wrapped to the org vault key (shared
+    // with the team) at this generation, instead of the creator's personal vault.
+    orgKeyGeneration?: number
     allowFileUploads?: boolean
     maxFileSizeOverride?: number | null
     maxSubmissions?: number | null
@@ -129,14 +134,26 @@ interface SubmissionDetail extends SubmissionListItem {
 }
 
 export class FormService {
-    static async createForm(userId: string, input: CreateFormInput) {
+    static async createForm(scope: OwnerScope, input: CreateFormInput) {
         const schema = FormSchemaDoc.parse(input.schema)
         const schemaHasFileUploads = schema.fields.some((field) => field.type === "file")
 
-        const limits = await getFormLimitsAsync(userId)
-        const tiers = await getEffectiveTiers(userId)
+        // Org forms derive limits/tier from the org plan; personal from the user.
+        const { limits, tiers, subscribed } = await getFormOwnerEntitlements({
+            userId: scope.userId,
+            organizationId: scope.organizationId,
+        })
 
-        const existing = await prisma.form.count({ where: { userId, deletedAt: null } })
+        // Purchase-first Teams: an unsubscribed org is a zero-capacity workspace.
+        if (scope.organizationId && !subscribed) {
+            throw new UpgradeRequiredError(
+                "Your team needs a Business subscription to create team forms. " +
+                    "Subscribe from the Team page, or switch to your personal account to manage your own.",
+                { scope: "form_forms", currentTier: "free", suggestedTier: "pro" },
+            )
+        }
+
+        const existing = await prisma.form.count({ where: { ...ownerWhere(scope), deletedAt: null } })
         if (limits.forms !== -1 && existing >= limits.forms) {
             throw new UpgradeRequiredError(
                 `Your plan allows ${limits.forms} forms. Upgrade to create more.`,
@@ -180,11 +197,23 @@ export class FormService {
 
         const formId = generateFormId()
 
+        // Org-owned forms: resolve the org key generation SERVER-side (don't trust
+        // client input) — a readable wrap must be to the org's current key.
+        let orgBinding: OwnerKeyOrgBinding | undefined
+        if (scope.organizationId) {
+            const orgKeyGeneration = await getOrgKeyGeneration(scope.organizationId)
+            if (orgKeyGeneration < 1) {
+                throw new ValidationError("Team encryption key is not set up yet")
+            }
+            orgBinding = { organizationId: scope.organizationId, orgKeyGeneration }
+        }
+
         const form = await prisma.$transaction(async (tx) => {
             const created = await tx.form.create({
                 data: {
                     id: formId,
-                    userId,
+                    userId: scope.userId,
+                    organizationId: scope.organizationId,
                     title: input.title,
                     description: input.description ?? null,
                     schemaJson: JSON.stringify(schema),
@@ -203,21 +232,31 @@ export class FormService {
                 },
             })
 
-            await persistOwnedFormKey(tx, userId, formId, input.wrappedPrivateKey, input.vaultGeneration)
+            // Org-owned forms wrap the private key to the shared org vault key so
+            // every granted member can decrypt submissions; personal forms keep
+            // the per-user wrap.
+            await persistOwnedFormKey(
+                tx,
+                scope.userId,
+                formId,
+                input.wrappedPrivateKey,
+                input.vaultGeneration,
+                orgBinding,
+            )
 
             return created
         })
 
-        logger.info("Form created", { formId: form.id, userId, tier: tiers.form })
+        logger.info("Form created", { formId: form.id, userId: scope.userId, tier: tiers.form })
         return form
     }
 
     static async listForms(
-        userId: string,
+        scope: OwnerScope,
         options: { limit?: number; offset?: number; includeDeleted?: boolean } = {},
     ): Promise<{ forms: FormListItem[]; total: number }> {
         const { limit = 25, offset = 0, includeDeleted = false } = options
-        const where: Prisma.FormWhereInput = { userId }
+        const where: Prisma.FormWhereInput = { ...ownerWhere(scope) }
         if (!includeDeleted) where.deletedAt = null
 
         const [forms, total] = await Promise.all([
@@ -251,13 +290,13 @@ export class FormService {
         }
     }
 
-    static async getFormForOwner(formId: string, userId: string) {
+    static async getFormForOwner(formId: string, scope: OwnerScope) {
         const form = await prisma.form.findUnique({
             where: { id: formId },
             include: { ownerKey: true },
         })
         if (!form || form.deletedAt) throw new NotFoundError("Form not found")
-        if (form.userId !== userId) throw new ForbiddenError("Unauthorized")
+        assertCanAccess(form, scope)
         return form as Form & { ownerKey: FormOwnerKey | null }
     }
 
@@ -276,7 +315,8 @@ export class FormService {
 
         // Re-resolve owner entitlements at render so a downgrade (Pro → Plus/Free)
         // forces branding back on, even if Form.hideBranding is still true in DB.
-        const ownerLimits = await getFormLimitsAsync(form.userId)
+        // Org forms resolve from the org plan, not the (possibly departed) creator.
+        const { limits: ownerLimits } = await getFormOwnerEntitlements({ userId: form.userId, organizationId: form.organizationId })
         const effectiveHideBranding = form.hideBranding && ownerLimits.removeBranding
 
         return {
@@ -297,15 +337,12 @@ export class FormService {
         }
     }
 
-    static async updateForm(formId: string, userId: string, input: UpdateFormInput) {
+    static async updateForm(formId: string, scope: OwnerScope, input: UpdateFormInput) {
         const form = await prisma.form.findUnique({ where: { id: formId } })
         if (!form || form.deletedAt) throw new NotFoundError("Form not found")
-        if (form.userId !== userId) throw new ForbiddenError("Unauthorized")
+        assertCanAccess(form, scope)
 
-        const [limits, tiers] = await Promise.all([
-            getFormLimitsAsync(userId),
-            getEffectiveTiers(userId),
-        ])
+        const { limits, tiers } = await getFormOwnerEntitlements({ userId: scope.userId, organizationId: scope.organizationId })
 
         if (input.hideBranding === true && !limits.removeBranding) {
             throw new UpgradeRequiredError("Branding removal requires Pro.", {
@@ -369,10 +406,11 @@ export class FormService {
         return updated
     }
 
-    static async toggleForm(formId: string, userId: string): Promise<boolean> {
+    static async toggleForm(formId: string, scope: OwnerScope): Promise<boolean> {
         const form = await prisma.form.findUnique({ where: { id: formId } })
         if (!form || form.deletedAt) throw new NotFoundError("Form not found")
-        if (form.userId !== userId) throw new ForbiddenError("Unauthorized")
+        // Disabling a shared org form affects the team → admin+ in org context.
+        assertCanManage(form, scope)
 
         const next = !form.disabledByUser
         await prisma.form.update({
@@ -382,7 +420,7 @@ export class FormService {
         return next
     }
 
-    static async deleteForm(formId: string, userId: string): Promise<void> {
+    static async deleteForm(formId: string, scope: OwnerScope): Promise<void> {
         const form = await prisma.form.findUnique({
             where: { id: formId },
             include: {
@@ -390,15 +428,19 @@ export class FormService {
             },
         })
         if (!form || form.deletedAt) throw new NotFoundError("Form not found")
-        if (form.userId !== userId) throw new ForbiddenError("Unauthorized")
+        // Deleting a shared org form + its submissions is destructive → admin+.
+        assertCanManage(form, scope)
 
         // Import lazily to break potential circular deps with DropService
         const { DropService } = await import("@/lib/services/drop")
 
         for (const sub of form.submissions) {
-            if (sub.attachedDropId) {
+            if (sub.attachedDropId && form.userId) {
                 try {
-                    await DropService.deleteDrop(sub.attachedDropId, userId)
+                    // Attached drops are owned by the form creator (personal scope).
+                    // Skipped when userId is null (org form, creator deleted): the
+                    // drop is reaped by orphan/expiry cleanup instead.
+                    await DropService.deleteDrop(sub.attachedDropId, personalScope(form.userId))
                 } catch (err) {
                     logger.warn("Failed to delete attached drop for submission", {
                         submissionId: sub.id,
@@ -472,10 +514,7 @@ export class FormService {
         }
         assertCustomKeyProof(form, payload.customKeyProof)
 
-        const [ownerLimits, ownerTiers] = await Promise.all([
-            getFormLimitsAsync(form.userId),
-            getEffectiveTiers(form.userId),
-        ])
+        const { limits: ownerLimits, tiers: ownerTiers } = await getFormOwnerEntitlements({ userId: form.userId, organizationId: form.organizationId })
         await FormService.enforceMonthlyCap(form, ownerLimits, ownerTiers.form)
 
         if (payload.attachedDropId && !form.allowFileUploads) {
@@ -623,13 +662,13 @@ export class FormService {
 
     static async listSubmissions(
         formId: string,
-        userId: string,
+        scope: OwnerScope,
         options: { limit?: number; offset?: number; unreadOnly?: boolean } = {},
     ): Promise<{ submissions: SubmissionListItem[]; total: number }> {
         const { limit = 25, offset = 0, unreadOnly = false } = options
         const form = await prisma.form.findUnique({ where: { id: formId } })
         if (!form || form.deletedAt) throw new NotFoundError("Form not found")
-        if (form.userId !== userId) throw new ForbiddenError("Unauthorized")
+        assertCanAccess(form, scope)
 
         const where: Prisma.FormSubmissionWhereInput = { formId }
         if (unreadOnly) where.readAt = null
@@ -663,15 +702,15 @@ export class FormService {
 
     static async getSubmission(
         submissionId: string,
-        userId: string,
+        scope: OwnerScope,
         options: { markRead?: boolean } = {},
     ): Promise<SubmissionDetail> {
         const sub = await prisma.formSubmission.findUnique({
             where: { id: submissionId },
-            include: { form: { select: { userId: true, deletedAt: true } } },
+            include: { form: { select: { userId: true, organizationId: true, deletedAt: true } } },
         })
         if (!sub || sub.form.deletedAt) throw new NotFoundError("Submission not found")
-        if (sub.form.userId !== userId) throw new ForbiddenError("Unauthorized")
+        assertCanAccess(sub.form, scope)
 
         if (options.markRead && !sub.readAt) {
             await prisma.formSubmission.update({
@@ -692,18 +731,21 @@ export class FormService {
         }
     }
 
-    static async deleteSubmission(submissionId: string, userId: string): Promise<void> {
+    static async deleteSubmission(submissionId: string, scope: OwnerScope): Promise<void> {
         const sub = await prisma.formSubmission.findUnique({
             where: { id: submissionId },
-            include: { form: { select: { userId: true } } },
+            include: { form: { select: { userId: true, organizationId: true } } },
         })
         if (!sub) throw new NotFoundError("Submission not found")
-        if (sub.form.userId !== userId) throw new ForbiddenError("Unauthorized")
+        // Deleting org submission data is destructive → admin+ in org context.
+        assertCanManage(sub.form, scope)
 
-        if (sub.attachedDropId) {
+        if (sub.attachedDropId && sub.form.userId) {
             const { DropService } = await import("@/lib/services/drop")
             try {
-                await DropService.deleteDrop(sub.attachedDropId, userId)
+                // Attached drop is owned by the form creator (personal scope).
+                // Skipped when userId is null (org form, creator deleted).
+                await DropService.deleteDrop(sub.attachedDropId, personalScope(sub.form.userId))
             } catch (err) {
                 logger.warn("Failed to delete attached drop", { dropId: sub.attachedDropId, error: err })
             }
@@ -712,18 +754,19 @@ export class FormService {
         await prisma.formSubmission.delete({ where: { id: submissionId } })
     }
 
-    static async getOwnerKeyRecord(formId: string, userId: string) {
+    static async getOwnerKeyRecord(formId: string, scope: OwnerScope) {
         const form = await prisma.form.findUnique({
             where: { id: formId },
             include: { ownerKey: true },
         })
         if (!form || form.deletedAt) throw new NotFoundError("Form not found")
-        if (form.userId !== userId) throw new ForbiddenError("Unauthorized")
+        assertCanAccess(form, scope)
         return form.ownerKey
     }
 
     static async countActiveForms(userId: string) {
-        return prisma.form.count({ where: { userId, deletedAt: null } })
+        // Personal forms only — org forms count against the org, not the user.
+        return prisma.form.count({ where: { userId, organizationId: null, deletedAt: null } })
     }
 
     static async countRecentSubmissionsForOwner(userId: string, windowDays = 30): Promise<number> {
@@ -733,6 +776,7 @@ export class FormService {
                 createdAt: { gte: since },
                 form: {
                     userId,
+                    organizationId: null,
                     deletedAt: null,
                 },
             },

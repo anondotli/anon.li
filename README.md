@@ -1,5 +1,5 @@
 <p align="center">
-  <a href="https://anon.li/?ref=codeberg" target="_blank">
+  <a href="https://anon.li/?ref=github" target="_blank">
     <img src="public/og-image.png" alt="anon.li - Click to watch our YouTube Introduction" width="600" />
   </a>
 </p>
@@ -13,7 +13,7 @@
 <p align="center">
   <a href="https://www.gnu.org/licenses/agpl-3.0"><img src="https://img.shields.io/badge/License-AGPL_v3-blue.svg" alt="License: AGPL v3" /></a>
   <a href="https://status.anon.li"><img src="https://img.shields.io/badge/uptime-99.9%25-brightgreen.svg" alt="Uptime" /></a>
-  <a href="https://codeberg.org/anonli/anon.li"><img src="https://img.shields.io/badge/source-Codeberg-blue" alt="Source on Codeberg" /></a>
+  <a href="https://github.com/anondotli/anon.li"><img src="https://img.shields.io/badge/source-GitHub-blue" alt="Source on GitHub" /></a>
 </p>
 
 ---
@@ -59,7 +59,7 @@ Whether you prefer spinning up containers or running things natively, you can ge
 Installation requires [Bun](https://bun.sh) \>= 1.0, PostgreSQL, and Redis.
 
 ```bash
-git clone https://codeberg.org/anonli/anon.li.git
+git clone https://github.com/anondotli/anon.li.git
 cd anon.li
 bun install
 cp .env.example .env
@@ -112,7 +112,7 @@ anon.li Drop uploads and downloads blob data directly between the browser and R2
   - **Live site**: [anon.li](https://anon.li)
   - **Security architecture**: [anon.li/security](https://anon.li/security)
   - **API docs**: [anon.li/docs/api](https://anon.li/docs/api)
-  - **Source code**: [codeberg.org/anonli/anon.li](https://codeberg.org/anonli/anon.li)
+  - **Source code**: [github.com/anondotli/anon.li](https://github.com/anondotli/anon.li)
   - **Report vulnerabilities**: [security@anon.li](mailto:security@anon.li)
 
 -----
@@ -121,4 +121,4 @@ anon.li Drop uploads and downloads blob data directly between the browser and R2
 
 Jurisdiction: Liechtenstein · [Privacy Policy](https://anon.li/privacy) · [Terms](https://anon.li/terms) · [AUP](https://anon.li/docs/legal/aup) · [DMCA](https://anon.li/docs/legal/dmca)
 
-**[GNU Affero General Public License v3.0](https://codeberg.org/anonli/anon.li/src/branch/main/LICENSE)** - Copyright © 2026 anon.li.
+**[GNU Affero General Public License v3.0](https://github.com/anondotli/anon.li/blob/main/LICENSE)** - Copyright © 2026 anon.li.

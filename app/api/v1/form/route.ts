@@ -6,7 +6,7 @@
 import { apiError, apiList, apiSuccess, ErrorCodes, zodErrorToDetails } from "@/lib/api-response"
 import { checkVaultIdentity, vaultIdentityErrorResponse } from "@/lib/vault/identity"
 import { z } from "zod"
-import { withPolicy } from "@/lib/route-policy"
+import { withPolicy, scopeFromContext } from "@/lib/route-policy"
 import { FormService } from "@/lib/services/form"
 import { createFormSchema, listFormsQuerySchema } from "@/lib/validations/form"
 import { getFormLimitsAsync } from "@/lib/limits"
@@ -45,7 +45,7 @@ export const GET = withPolicy(
         }
 
         const [result, limits] = await Promise.all([
-            FormService.listForms(ctx.userId, parsed.data),
+            FormService.listForms(scopeFromContext(ctx), parsed.data),
             getFormLimitsAsync(ctx.userId),
         ])
 
@@ -111,7 +111,7 @@ export const POST = withPolicy(
         try {
             const { vaultId: _vaultId, ...input } = validation.data
             void _vaultId
-            const form = await FormService.createForm(ctx.userId, input)
+            const form = await FormService.createForm(scopeFromContext(ctx), input)
             return apiSuccess({
                 id: form.id,
                 title: form.title,

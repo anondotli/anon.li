@@ -16,10 +16,47 @@ const logger = createLogger("DeletionService")
 
 export class DeletionService {
     /**
+     * Organizations where this user is the SOLE owner. Deleting such a user would
+     * orphan the org (and its shared resources/billing) with no one able to manage
+     * it — so account deletion must be blocked until ownership is transferred or
+     * the team is deleted. better-auth already blocks the equivalent member-side
+     * paths (leave / remove / demote the last owner); this covers OUR account-
+     * deletion flow, which better-auth doesn't see.
+     */
+    static async findSoleOwnerOrganizations(userId: string): Promise<{ id: string; name: string }[]> {
+        const memberships = await prisma.member.findMany({
+            where: { userId },
+            select: { organizationId: true, role: true },
+        })
+        const ownerOrgIds = memberships
+            .filter((m) => m.role.split(",").includes("owner"))
+            .map((m) => m.organizationId)
+        if (ownerOrgIds.length === 0) return []
+
+        const orgs = await prisma.organization.findMany({
+            where: { id: { in: ownerOrgIds } },
+            select: { id: true, name: true, members: { select: { role: true } } },
+        })
+        return orgs
+            .filter((org) => org.members.filter((m) => m.role.split(",").includes("owner")).length <= 1)
+            .map((org) => ({ id: org.id, name: org.name }))
+    }
+
+    /**
      * Request account deletion. Creates a DeletionRequest in "pending" state to
      * block new access, erases active resources, then hard-deletes the user.
      */
     static async requestDeletion(userId: string): Promise<string> {
+        // Guard: never orphan an org by deleting its sole owner (defense-in-depth
+        // for all callers, incl. admin force-delete; the user-facing action
+        // pre-checks this to surface a friendlier message).
+        const soleOwnerOrgs = await this.findSoleOwnerOrganizations(userId)
+        if (soleOwnerOrgs.length > 0) {
+            throw new Error(
+                `Cannot delete account: sole owner of ${soleOwnerOrgs.map((o) => o.name).join(", ")}. Transfer ownership or delete the team first.`,
+            )
+        }
+
         // Revoke all sessions immediately
         await prisma.session.deleteMany({ where: { userId } })
 
@@ -69,9 +106,14 @@ export class DeletionService {
         try {
             const vaultSchema = await getVaultSchemaState()
 
+            // All resource deletions below are scoped to PERSONAL rows
+            // (organizationId: null). Org-owned resources the user created belong
+            // to the org, not the user — their FK userId is SetNull on user
+            // deletion so they persist under the organization.
+
             // Step 1: Delete aliases
             if (!request.aliasesDeleted) {
-                await prisma.alias.deleteMany({ where: { userId } })
+                await prisma.alias.deleteMany({ where: { userId, organizationId: null } })
                 await prisma.deletionRequest.update({
                     where: { id: requestId },
                     data: { aliasesDeleted: true },
@@ -80,7 +122,7 @@ export class DeletionService {
 
             // Step 2: Delete domains
             if (!request.domainsDeleted) {
-                await prisma.domain.deleteMany({ where: { userId } })
+                await prisma.domain.deleteMany({ where: { userId, organizationId: null } })
                 await prisma.deletionRequest.update({
                     where: { id: requestId },
                     data: { domainsDeleted: true },
@@ -92,7 +134,7 @@ export class DeletionService {
             // remain owned by the user and get cleaned up by the storage and
             // drop steps below.)
             if (!request.formsDeleted) {
-                await prisma.form.deleteMany({ where: { userId } })
+                await prisma.form.deleteMany({ where: { userId, organizationId: null } })
                 await prisma.deletionRequest.update({
                     where: { id: requestId },
                     data: { formsDeleted: true },
@@ -116,7 +158,7 @@ export class DeletionService {
 
             // Step 5: Delete drops (DB records)
             if (!request.dropsDeleted) {
-                await prisma.drop.deleteMany({ where: { userId } })
+                await prisma.drop.deleteMany({ where: { userId, organizationId: null } })
                 await prisma.deletionRequest.update({
                     where: { id: requestId },
                     data: { dropsDeleted: true },
@@ -138,7 +180,10 @@ export class DeletionService {
             ]
 
             if (vaultSchema.dropOwnerKeys) {
-                authCleanupOperations.push(prisma.dropOwnerKey.deleteMany({ where: { userId } }))
+                // Personal owner keys only: an org owner key is the sole copy of
+                // the key sealed to the org vault key (shared with the team) and
+                // must survive — its userId is SetNull on user deletion.
+                authCleanupOperations.push(prisma.dropOwnerKey.deleteMany({ where: { userId, organizationId: null } }))
             }
 
             if (vaultSchema.userSecurity) {
@@ -147,10 +192,11 @@ export class DeletionService {
 
             await prisma.$transaction(authCleanupOperations)
 
-            // Delete other resources
+            // Delete other resources (personal only — org-owned rows belong to
+            // the org and are retained via FK SetNull).
             await prisma.apiKey.deleteMany({ where: { userId } })
-            await prisma.recipient.deleteMany({ where: { userId } })
-            await prisma.subscription.deleteMany({ where: { userId } })
+            await prisma.recipient.deleteMany({ where: { userId, organizationId: null } })
+            await prisma.subscription.deleteMany({ where: { userId, organizationId: null } })
 
             // Active systems are now wiped; the caller can immediately hard-delete
             // the user row once this marker is written.

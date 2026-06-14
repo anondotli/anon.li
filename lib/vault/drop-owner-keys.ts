@@ -1,12 +1,19 @@
 import { Prisma } from "@prisma/client"
 
+/**
+ * Org shared-E2EE: when set, the wrappedKey is wrapped to the ORG vault key
+ * (not the creator's personal vault key) and any member who can recover the org
+ * vault key can open the resource. `null`/absent = a personal owner key.
+ */
+export type OwnerKeyOrgBinding = { organizationId: string; orgKeyGeneration: number }
+
 type DropOwnerKeyUpdateManyArgs = {
     where: { dropId: string; userId: string }
-    data: { wrappedKey: string; vaultGeneration: number }
+    data: { wrappedKey: string; vaultGeneration: number; organizationId?: string | null; orgKeyGeneration?: number | null }
 }
 
 type DropOwnerKeyCreateArgs = {
-    data: { userId: string; dropId: string; wrappedKey: string; vaultGeneration: number }
+    data: { userId: string; dropId: string; wrappedKey: string; vaultGeneration: number; organizationId?: string | null; orgKeyGeneration?: number | null }
 }
 
 type DropOwnerKeyFindUniqueArgs = {
@@ -35,10 +42,15 @@ export async function persistOwnedDropKey(
     dropId: string,
     wrappedKey: string,
     vaultGeneration: number,
+    org?: OwnerKeyOrgBinding,
 ): Promise<void> {
+    const orgData = org
+        ? { organizationId: org.organizationId, orgKeyGeneration: org.orgKeyGeneration }
+        : {}
+
     const updated = await client.dropOwnerKey.updateMany({
         where: { dropId, userId },
-        data: { wrappedKey, vaultGeneration },
+        data: { wrappedKey, vaultGeneration, ...orgData },
     })
 
     if (updated.count > 0) {
@@ -52,6 +64,7 @@ export async function persistOwnedDropKey(
                 dropId,
                 wrappedKey,
                 vaultGeneration,
+                ...orgData,
             },
         })
         return

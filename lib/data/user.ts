@@ -202,10 +202,11 @@ export async function getCryptoRenewalReminderUsers(now: Date, windowEnd: Date) 
     // Within the grace window (DAY_MS) treat the period end as still valid.
     const cutoff = now.getTime();
     return subs
-        .filter((s) => s.currentPeriodEnd && s.currentPeriodEnd.getTime() + DAY_MS > cutoff)
+        // Skip subs whose buyer was deleted (userId SET NULL): no one to remind.
+        .filter((s) => s.user && s.currentPeriodEnd && s.currentPeriodEnd.getTime() + DAY_MS > cutoff)
         .map((s) => ({
-            id: s.user.id,
-            email: s.user.email,
+            id: s.user!.id,
+            email: s.user!.email,
             product: s.product,
             tier: s.tier,
             currentPeriodEnd: s.currentPeriodEnd,

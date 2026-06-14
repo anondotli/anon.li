@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { validateCronAuth } from "@/lib/cron-auth";
 import { createLogger } from "@/lib/logger";
+import { withCronLock } from "@/lib/cron-lock";
 import { handleBillingCron } from "@/lib/services/cron-billing";
 import { handleCryptoRecoveryCron } from "@/lib/services/cron-crypto-recovery";
 import { handleDomainsCron } from "@/lib/services/cron-domains";
@@ -13,6 +14,18 @@ async function handleCron(req: NextRequest) {
         return new NextResponse("Unauthorized", { status: 401 });
     }
 
+    // Redis-backed lock: prevents overlapping runs (a double-fired Vercel cron
+    // or a manual trigger racing the scheduled run) from double-processing the
+    // billing and crypto-recovery tasks. 15-minute TTL is the crash-safety net;
+    // normal runs release the lock in the finally block. Matches the cleanup cron.
+    const result = await withCronLock("daily", 15 * 60, () => runDaily());
+    if (result === null) {
+        return NextResponse.json({ success: true, skipped: "lock-held" });
+    }
+    return result;
+}
+
+async function runDaily(): Promise<NextResponse> {
     const results: Record<string, unknown> = {};
 
     // --- Domains ---

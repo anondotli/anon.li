@@ -52,6 +52,7 @@ export async function createDrop(
         wrappedKey: string;
         vaultId: string;
         vaultGeneration: number;
+        orgKeyGeneration?: number;
     },
     signal?: AbortSignal
 ): Promise<{ dropId: string; expiresAt: string | null }> {

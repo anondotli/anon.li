@@ -35,3 +35,8 @@ export const wrappedVaultKeySchema = base64UrlSchema({ min: 32, max: 2048 })
 export const wrappedDropKeySchema = base64UrlSchema({ min: 16, max: 2048 })
 export const wrappedFormKeySchema = base64UrlSchema({ min: 16, max: 2048 })
 export const vaultGenerationSchema = z.number().int().positive()
+// Org shared-E2EE identity keypair (ORG-E2EE-DESIGN.md §3a). Public key is a raw
+// uncompressed P-256 point (65 bytes → ~88 base64url chars); wrapped private key
+// is a vault-wrapped PKCS#8 payload (a few hundred bytes).
+export const identityPublicKeySchema = base64UrlSchema({ min: 80, max: 256 })
+export const wrappedIdentityPrivateKeySchema = base64UrlSchema({ min: 100, max: 2048 })

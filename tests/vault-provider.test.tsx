@@ -25,7 +25,11 @@ const sha256Base64Url = vi.fn()
 const unwrapVaultKey = vi.fn()
 const unwrapVaultManagedKey = vi.fn()
 const wrapVaultManagedKey = vi.fn()
+const useSession = vi.fn<() => { data: { session: { expiresAt: Date } } | null }>(() => ({ data: null }))
 let syncCallback: ((message: unknown) => void) | null = null
+
+/** A session expiry far enough out that the auto-lock never fires in a test. */
+const farFutureSession = () => ({ data: { session: { expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) } } })
 
 async function flushPromises() {
     await Promise.resolve()
@@ -57,6 +61,10 @@ vi.mock("@/lib/vault/sync", () => ({
     createVaultTabId: () => createVaultTabId(),
     subscribeToVaultSync: (callback: unknown) => subscribeToVaultSync(callback),
     broadcastVaultMessage: (message: unknown) => callBroadcastVaultMessage(message),
+}))
+
+vi.mock("@/lib/auth-client", () => ({
+    authClient: { useSession: () => useSession() },
 }))
 
 vi.mock("@/lib/vault/crypto", () => ({
@@ -92,6 +100,8 @@ describe("VaultProvider", () => {
         unwrapVaultKey.mockReset()
         unwrapVaultManagedKey.mockReset()
         wrapVaultManagedKey.mockReset()
+        useSession.mockReset()
+        useSession.mockImplementation(farFutureSession)
 
         getVaultStorageSupport.mockReturnValue({
             cryptoSubtle: true,
@@ -349,11 +359,14 @@ describe("VaultProvider", () => {
         expect(clearVaultRuntime).toHaveBeenCalled()
     })
 
-    it("auto-locks after prolonged inactivity", async () => {
+    it("auto-locks when the login session expires", async () => {
         getVaultRuntime.mockReturnValue({
             key: {} as CryptoKey,
             vaultGeneration: 3,
             vaultId: "vault-123",
+        })
+        useSession.mockReturnValue({
+            data: { session: { expiresAt: new Date(Date.now() + 5 * 60 * 1000) } },
         })
 
         const { VaultProvider, useVault } = await import("@/components/vault/vault-provider")
@@ -370,8 +383,16 @@ describe("VaultProvider", () => {
 
         expect(screen.getByText("unlocked")).toBeTruthy()
 
+        // Still unlocked while the session is valid.
         await act(async () => {
-            vi.advanceTimersByTime(31 * 60 * 1000)
+            vi.advanceTimersByTime(4 * 60 * 1000)
+            await Promise.resolve()
+        })
+        expect(screen.getByText("unlocked")).toBeTruthy()
+
+        // Past the session expiry → vault locks.
+        await act(async () => {
+            vi.advanceTimersByTime(2 * 60 * 1000)
             await Promise.resolve()
         })
 
@@ -380,6 +401,38 @@ describe("VaultProvider", () => {
         expect(broadcastVaultMessage).toHaveBeenCalledWith(expect.objectContaining({
             type: "VAULT_LOCKED",
         }))
+    })
+
+    it("stays unlocked through inactivity while the session is still valid", async () => {
+        getVaultRuntime.mockReturnValue({
+            key: {} as CryptoKey,
+            vaultGeneration: 3,
+            vaultId: "vault-123",
+        })
+        // Default mock = far-future session expiry.
+
+        const { VaultProvider, useVault } = await import("@/components/vault/vault-provider")
+        function Probe() {
+            const { status } = useVault()
+            return <div>{status}</div>
+        }
+
+        render(
+            <VaultProvider>
+                <Probe />
+            </VaultProvider>,
+        )
+
+        expect(screen.getByText("unlocked")).toBeTruthy()
+
+        // Well past the old 30-minute idle window — no longer locks on idle.
+        await act(async () => {
+            vi.advanceTimersByTime(2 * 60 * 60 * 1000)
+            await Promise.resolve()
+        })
+
+        expect(screen.getByText("unlocked")).toBeTruthy()
+        expect(clearVaultRuntime).not.toHaveBeenCalled()
     })
 
     it("unlocks after a sync message from another tab when trusted-browser data is available", async () => {

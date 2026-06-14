@@ -18,6 +18,7 @@ function mockSubscription(overrides: Partial<Subscription> = {}): Subscription {
         providerPriceId: MOCK_BUNDLE_PLUS_MONTHLY,
         product: 'bundle',
         tier: 'plus',
+        seats: 1,
         status: 'active',
         currentPeriodStart: null,
         currentPeriodEnd: new Date(),

@@ -12,7 +12,7 @@ import { checkVaultIdentity, vaultIdentityErrorResponse } from "@/lib/vault/iden
 import { getDropLimits } from "@/lib/limits"
 import { prisma } from "@/lib/prisma"
 import { getClientIp } from "@/lib/rate-limit"
-import { withPolicy } from "@/lib/route-policy"
+import { withPolicy, scopeFromContext } from "@/lib/route-policy"
 import { DropService, type DropListItem } from "@/lib/services/drop"
 import { issueUploadToken } from "@/lib/services/drop-upload-token"
 import { getTurnstileError } from "@/lib/turnstile"
@@ -73,7 +73,7 @@ export const GET = withPolicy(
         const offset = Math.max(parseInt(url.searchParams.get("offset") || "0", 10) || 0, 0)
 
         const [result, user] = await Promise.all([
-            DropService.listDrops(ctx.userId, { limit, offset }),
+            DropService.listDrops(scopeFromContext(ctx), { limit, offset }),
             prisma.user.findUnique({
                 where: { id: ctx.userId },
                 select: {
@@ -168,7 +168,7 @@ export const POST = withPolicy(
             if (identityError) return identityError
         }
 
-        const result = await DropService.createDrop(ctx.userId, dropInput)
+        const result = await DropService.createDrop(ctx.userId ? scopeFromContext(ctx) : null, dropInput)
 
         if (ownerKey && ctx.userId) {
             try {

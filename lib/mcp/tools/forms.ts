@@ -2,6 +2,7 @@ import { z } from "zod"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { FormService } from "@/lib/services/form"
 import { invokeTool, toolResult } from "@/lib/mcp/invoke"
+import { personalScope } from "@/lib/ownership"
 import type { McpSession } from "@/lib/mcp/types"
 
 export function registerFormTools(server: McpServer, session: McpSession) {
@@ -17,7 +18,7 @@ export function registerFormTools(server: McpServer, session: McpSession) {
             },
         },
         async ({ limit, offset }) => invokeTool(session, { quota: "form", rateLimit: "formList" }, async (user) => {
-            const { forms, total } = await FormService.listForms(user.id, { limit, offset })
+            const { forms, total } = await FormService.listForms(personalScope(user.id), { limit, offset })
             return toolResult({
                 total,
                 forms: forms.map((f) => ({
@@ -50,7 +51,7 @@ export function registerFormTools(server: McpServer, session: McpSession) {
             },
         },
         async ({ id }) => invokeTool(session, { quota: "form", rateLimit: "formOps" }, async (user) => {
-            const disabled = await FormService.toggleForm(id, user.id)
+            const disabled = await FormService.toggleForm(id, personalScope(user.id))
             return toolResult({ id, disabled })
         }),
     )
@@ -65,7 +66,7 @@ export function registerFormTools(server: McpServer, session: McpSession) {
             },
         },
         async ({ id }) => invokeTool(session, { quota: "form", rateLimit: "formOps" }, async (user) => {
-            await FormService.deleteForm(id, user.id)
+            await FormService.deleteForm(id, personalScope(user.id))
             return toolResult({ deleted: true, id })
         }),
     )

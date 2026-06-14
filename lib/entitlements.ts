@@ -27,12 +27,25 @@ function higherTier(a: "free" | PaidTier, b: "free" | PaidTier): "free" | PaidTi
 /**
  * Resolve a user's effective tiers across alias, drop, and form products.
  */
-export async function getEffectiveTiers(userId: string): Promise<EffectiveTiers> {
+export async function getEffectiveTiers(userId: string | null): Promise<EffectiveTiers> {
+    // A null userId means an org-owned resource whose creating user was deleted
+    // (userId SetNull). There is no individual owner to derive entitlements from,
+    // so fall back to free tier here; org-plan entitlements for such resources
+    // are resolved via the org scope, not this per-user helper.
+    if (!userId) {
+        return { alias: "free", drop: "free", form: "free" }
+    }
+
     const [subscriptions, user] = await Promise.all([
         prisma.subscription.findMany({
             where: {
-                userId,
                 status: { in: ["active", "trialing"] },
+                // Personal subs OR subs owned by any org the user is a member of
+                // (seat-based inheritance): a member inherits the org's plan.
+                OR: [
+                    { userId },
+                    { organization: { members: { some: { userId } } } },
+                ],
             },
             select: {
                 product: true,
@@ -60,13 +73,14 @@ export async function getEffectiveTiers(userId: string): Promise<EffectiveTiers>
         if (tier !== "plus" && tier !== "pro") continue
 
         const product = sub.product as Product
-        if (product === "bundle" || product === "alias") {
+        // bundle and business both grant their tier across every product.
+        if (product === "bundle" || product === "business" || product === "alias") {
             aliasTier = higherTier(aliasTier, tier)
         }
-        if (product === "bundle" || product === "drop") {
+        if (product === "bundle" || product === "business" || product === "drop") {
             dropTier = higherTier(dropTier, tier)
         }
-        if (product === "bundle" || product === "form") {
+        if (product === "bundle" || product === "business" || product === "form") {
             formTier = higherTier(formTier, tier)
         }
     }

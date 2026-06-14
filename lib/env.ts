@@ -73,6 +73,10 @@ const serverEnvSchema = z.object({
     STRIPE_FORM_PRO_MONTHLY_PRICE_ID: z.string().optional(),
     STRIPE_FORM_PRO_YEARLY_PRICE_ID: z.string().optional(),
 
+    // Business (Teams) — per-seat
+    STRIPE_BUSINESS_MONTHLY_PRICE_ID: z.string().optional(),
+    STRIPE_BUSINESS_YEARLY_PRICE_ID: z.string().optional(),
+
     // DKIM key file path (alternative to database-stored keys)
     DKIM_KEY_PATH: z.string().optional(),
 

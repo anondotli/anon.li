@@ -107,3 +107,26 @@ export function assertCanAccess(
 export function meetsMinRole(role: OrgRole | null, minRole: OrgRole): boolean {
     return role !== null && ROLE_RANK[role] >= ROLE_RANK[minRole]
 }
+
+/**
+ * Assert tenancy (like assertCanAccess) AND, when acting in an ORGANIZATION
+ * context, a minimum role. In PERSONAL context the role gate is skipped — a user
+ * owns their own resources outright. This is the org-RBAC gate for destructive /
+ * management operations (delete, disable) where a plain `member` must not act on
+ * shared org resources, but a personal user always can on their own.
+ *
+ * Throws NotFoundError when out of scope (don't leak existence), ForbiddenError
+ * when in scope but the org role is insufficient. Default minRole is `admin`.
+ */
+export function assertCanManage(
+    resource: Ownable,
+    scope: OwnerScope,
+    minRole: OrgRole = "admin",
+): void {
+    if (!isWithinScope(resource, scope)) {
+        throw new NotFoundError()
+    }
+    if (isOrgScope(scope) && ROLE_RANK[scope.role] < ROLE_RANK[minRole]) {
+        throw new ForbiddenError("Insufficient organization role")
+    }
+}

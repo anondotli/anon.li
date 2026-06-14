@@ -4,6 +4,8 @@ import { prisma } from "@/lib/prisma"
 import { redirect } from "next/navigation"
 import { AddDomainDialog, DomainItem } from "@/components/domain"
 import { getPlanLimits } from "@/lib/limits"
+import { scopeFromSession } from "@/lib/auth-session"
+import { getDomains } from "@/lib/data/domain"
 import { Progress } from "@/components/ui/progress"
 import { AlertTriangle, Globe } from "lucide-react"
 import Link from "next/link"
@@ -28,10 +30,12 @@ export default async function DomainsPage() {
 
     if (!user) redirect("/login")
 
-    const domains = await prisma.domain.findMany({
-        where: { userId: user.id },
-        orderBy: { createdAt: "desc" },
-    }) as unknown as Array<{
+    // Org-aware: in a team context this lists the org's domains (shared across
+    // members), not just the current user's personal domains.
+    const scope = scopeFromSession(session)
+    const domains = (await getDomains(scope)).sort(
+        (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
+    ) as unknown as Array<{
         id: string
         domain: string
         verified: boolean

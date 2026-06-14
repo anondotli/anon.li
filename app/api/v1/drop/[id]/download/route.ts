@@ -8,7 +8,7 @@ import { NextResponse } from "next/server"
 import { getClientIp } from "@/lib/rate-limit"
 import { withPolicy } from "@/lib/route-policy"
 import { DropService } from "@/lib/services/drop"
-import { getPresignedDownloadUrl } from "@/lib/storage"
+import { getPresignedDownloadUrl, LIMITED_DROP_PRESIGNED_URL_EXPIRES } from "@/lib/storage"
 import { prisma } from "@/lib/prisma"
 
 interface RouteParams {
@@ -50,9 +50,13 @@ export const POST = withPolicy<RouteParams>(
             await DropService.incrementDownloadCount(dropId)
         }
 
+        // Limited drops get short-lived URLs so the issued batch can't be replayed
+        // long after the count was spent (the byte transfer happens at R2, which
+        // we can't count). Unlimited drops keep the default TTL.
+        const expiresIn = drop.maxDownloads ? LIMITED_DROP_PRESIGNED_URL_EXPIRES : undefined
         const downloadUrls: Record<string, string> = {}
         for (const file of drop.files) {
-            downloadUrls[file.id] = await getPresignedDownloadUrl(file.storageKey)
+            downloadUrls[file.id] = await getPresignedDownloadUrl(file.storageKey, expiresIn)
         }
 
         return NextResponse.json({ success: true, downloadUrls })

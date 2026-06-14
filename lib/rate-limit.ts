@@ -47,6 +47,11 @@ export const rateLimiters = {
   fileUploadAuth: createLimiter("ratelimit:file:upload:auth", 500, "1 h"),
   aliasCreate: createLimiter("ratelimit:alias:create", 60, "1 h"),
   auth: createLimiter("ratelimit:auth", 10, "15 m"),
+  // Credential sign-in brute-force guard. better-auth's built-in limiter is
+  // disabled (we use Upstash) and the Turnstile captcha only covers magic-link,
+  // so /sign-in/email would otherwise be an unthrottled password oracle. Keyed
+  // by client IP and by submitted email (see hooks.before in lib/auth.ts).
+  signIn: createLimiter("ratelimit:signin", 10, "15 m"),
   apiKey: createLimiter("ratelimit:apikey", 30, "1 h"),
   api: createLimiter("ratelimit:api", 100, "1 m"),
   download: createLimiter("ratelimit:download", 200, "1 h"),
@@ -56,11 +61,24 @@ export const rateLimiters = {
   chunkUpload: createLimiter("ratelimit:chunk:upload", 500, "1 m"),
   loginRegister: createLimiter("ratelimit:login:register", 10, "60 s"),
   twoFactorVerify: createLimiter("ratelimit:2fa:verify", 10, "15 m"),
+  // Per-IP ceiling for the 2FA verify endpoints, applied in the global before
+  // hook (lib/auth.ts). The pending-login limiter must NOT be keyed on the
+  // pending-2FA cookie (attacker-rotatable → resets the bucket); IP is the
+  // brute-force-relevant signal. Set generously so shared office/carrier IPs
+  // aren't blocked, while a single-IP grind of a 6-digit TOTP stays infeasible.
+  twoFactorVerifyIp: createLimiter("ratelimit:2fa:verify:ip", 30, "15 m"),
   reportAbuse: createLimiter("ratelimit:report:abuse", 5, "1 h"),
   reportAbusePerResource: createLimiter("ratelimit:report:abuse:resource", 10, "24 h"),
+  // Public, unauthenticated report-status lookup (GET ?token=...). Throttle per
+  // IP so the endpoint can't be hammered as a token-existence oracle.
+  reportStatus: createLimiter("ratelimit:report:status", 30, "1 m"),
   domainCreate: createLimiter("ratelimit:domain:create", 10, "1 h"),
   recipientOps: createLimiter("ratelimit:recipient:ops", 60, "1 h"),
   emailResend: createLimiter("ratelimit:email:resend", 10, "1 h"),
+  // Org invitations send email to arbitrary addresses with inviter-chosen
+  // content — keyed by inviter user id so one account can't spam inboxes.
+  orgInvite: createLimiter("ratelimit:org:invite", 20, "1 h"),
+  orgCreate: createLimiter("ratelimit:org:create", 10, "1 h"),
   pgpOps: createLimiter("ratelimit:pgp:ops", 30, "1 h"),
   domainOps: createLimiter("ratelimit:domain:ops", 30, "1 h"),
   userExport: createLimiter("ratelimit:user:export", 5, "1 h"),
@@ -97,6 +115,24 @@ export const rateLimiters = {
 };
 
 export type RateLimitKey = keyof typeof rateLimiters
+
+/**
+ * Auth-critical limiters that must FAIL CLOSED when Redis is unreachable.
+ * For general traffic, failing open on a Redis outage is the right call (don't
+ * self-DoS). But for sign-in, 2FA, sign-up, and password reset, failing open
+ * removes the ONLY brute-force protection (better-auth's built-in limiter is
+ * disabled), so a Redis outage would expose every account to unlimited guessing.
+ * For these, an outage should deny rather than wave attackers through.
+ */
+const FAIL_CLOSED_LIMITERS: ReadonlySet<RateLimitKey> = new Set([
+  "auth",
+  "signIn",
+  "loginRegister",
+  "twoFactorVerify",
+  "twoFactorVerifyIp",
+  "passwordReset",
+  "passwordResetEmail",
+])
 
 /**
  * Get client IP address from request headers.
@@ -136,7 +172,8 @@ export async function getClientIp(): Promise<string> {
  */
 export async function checkRateLimit(
   limiter: Ratelimit | null,
-  identifier: string
+  identifier: string,
+  failClosed = false
 ): Promise<NextResponse | null> {
   // If rate limiting is not configured, allow request
   if (!limiter) {
@@ -167,9 +204,22 @@ export async function checkRateLimit(
 
     return null;
   } catch (error) {
-    // If Redis is unreachable, allow the request but log the failure.
-    // Rejecting all traffic because Redis is down would be a self-inflicted DoS.
-    logger.error("Rate limit check failed (Redis may be down)", { identifier, error });
+    logger.error("Rate limit check failed (Redis may be down)", { identifier, failClosed, error });
+
+    // Auth-critical limiters fail closed: if we can't verify the limit, deny
+    // rather than expose accounts to unlimited brute force during an outage.
+    if (failClosed) {
+      return NextResponse.json(
+        {
+          error: "Service temporarily unavailable",
+          message: "We couldn't verify this request right now. Please try again shortly.",
+        },
+        { status: 503, headers: { "Retry-After": "30" } }
+      );
+    }
+
+    // For everything else, allow the request: rejecting all traffic because
+    // Redis is down would be a self-inflicted DoS.
     return null;
   }
 }
@@ -184,5 +234,5 @@ export async function rateLimit(
 ): Promise<NextResponse | null> {
   const limiter = rateLimiters[type];
   const id = identifier || (await getClientIp());
-  return checkRateLimit(limiter, id);
+  return checkRateLimit(limiter, id, FAIL_CLOSED_LIMITERS.has(type));
 }

@@ -9,6 +9,8 @@ import {
     wrapVaultManagedKey,
 } from "@/lib/vault/crypto"
 import { persistTrustedBrowser, readVaultApiData } from "@/lib/vault/client"
+import { ensureIdentityKeypair } from "@/lib/vault/identity-keys-client"
+import { clearOrgVaultKeyCache, getOrgKeyAccessState, getOrgVaultKey } from "@/lib/vault/org-vault-client"
 import { getVaultRuntime, setVaultRuntime, clearVaultRuntime } from "@/lib/vault/runtime"
 import { getVaultStorageSupport } from "@/lib/vault/storage-support"
 import {
@@ -17,12 +19,13 @@ import {
     readCapsule,
 } from "@/lib/vault/trusted-browser"
 import { broadcastVaultMessage, createVaultTabId, subscribeToVaultSync, type VaultSyncMessage } from "@/lib/vault/sync"
+import { authClient } from "@/lib/auth-client"
 
 type VaultStatus = "locked" | "unlocking" | "unlocked" | "error"
 
-/** Auto-lock after 30 minutes of inactivity */
-const AUTO_LOCK_TIMEOUT_MS = 30 * 60 * 1000
 const TRUSTED_BROWSER_BOOTSTRAP_TIMEOUT_MS = 5_000
+/** setTimeout delays above this overflow its signed 32-bit range and fire immediately. */
+const MAX_TIMEOUT_MS = 2_147_483_647
 
 class TimeoutError extends Error {
     constructor(message: string) {
@@ -63,6 +66,20 @@ interface VaultContextValue {
     lock: () => void
     wrapDropKey: (rawKey: ArrayBuffer) => Promise<string>
     unwrapDropKey: (wrappedKey: string) => Promise<CryptoKey>
+    /**
+     * Wrap a resource key to a team's shared org vault key (org shared-E2EE), so
+     * every granted member can open it. Returns the wrapped key + the org key
+     * generation it was wrapped with. Throws if the caller isn't granted yet.
+     */
+    wrapDropKeyForOrg: (rawKey: ArrayBuffer, organizationId: string) => Promise<{ wrappedKey: string; orgKeyGeneration: number }>
+    /** Unwrap a key that was wrapped to a team's org vault key (Drop). */
+    unwrapOrgManagedKey: (wrappedKey: string, organizationId: string) => Promise<CryptoKey>
+    /**
+     * Recover the raw org vault key handle for a team (or null if the caller
+     * isn't granted yet). Used for Form owner keys, which wrap an arbitrary
+     * payload (the form private key) with wrapVaultPayload rather than AES-KW.
+     */
+    getOrgVaultKeyHandle: (organizationId: string) => Promise<{ key: CryptoKey; generation: number } | null>
     getVaultKey: () => CryptoKey | null
 }
 
@@ -90,6 +107,13 @@ export function VaultProvider({
         unwrapDropKey: async () => {
             throw new Error("Vault features are unavailable until the database migration is applied.")
         },
+        wrapDropKeyForOrg: async () => {
+            throw new Error("Vault features are unavailable until the database migration is applied.")
+        },
+        unwrapOrgManagedKey: async () => {
+            throw new Error("Vault features are unavailable until the database migration is applied.")
+        },
+        getOrgVaultKeyHandle: async () => null,
         getVaultKey: () => null,
     }), [])
 
@@ -110,8 +134,16 @@ function EnabledVaultProvider({ children }: { children: React.ReactNode }) {
     const [vaultId, setVaultId] = React.useState<string | null>(() => getVaultRuntime().vaultId)
     const [tabId] = React.useState(createVaultTabId)
     const statusRef = React.useRef(status)
-    const lastActivityRef = React.useRef(0)
     const lockRef = React.useRef(() => {})
+
+    // Live login session — its expiry drives the vault auto-lock below.
+    const { data: sessionData } = authClient.useSession()
+    const sessionExpiresAtMs = React.useMemo(() => {
+        const raw = sessionData?.session?.expiresAt
+        if (!raw) return null
+        const ms = new Date(raw).getTime()
+        return Number.isNaN(ms) ? null : ms
+    }, [sessionData?.session?.expiresAt])
 
     React.useEffect(() => {
         statusRef.current = status
@@ -143,10 +175,18 @@ function EnabledVaultProvider({ children }: { children: React.ReactNode }) {
         } catch {
             // Unlock should not fail if cross-tab sync is unavailable.
         }
+
+        // Best-effort: ensure the org shared-E2EE identity keypair exists for
+        // this generation (ORG-E2EE-DESIGN.md §9). Fire-and-forget + fail-open —
+        // an async call can't throw synchronously here, and the .catch swallows
+        // any rejection, so this can never block or delay unlock. Harmless no-op
+        // for the B2C majority (just populates an otherwise-unused keypair).
+        void ensureIdentityKeypair(vaultKey, nextVaultGeneration, nextVaultId).catch(() => {})
     }, [tabId])
 
     const setLockedState = React.useCallback(() => {
         clearVaultRuntime()
+        clearOrgVaultKeyCache()
         setVaultGeneration(null)
         setVaultId(null)
         setStatus("locked")
@@ -285,10 +325,18 @@ function EnabledVaultProvider({ children }: { children: React.ReactNode }) {
             if (message.type === "VAULT_ROTATED") {
                 void clearTrustedBrowserState()
                 clearVaultRuntime()
+                clearOrgVaultKeyCache()
                 setVaultGeneration(message.vaultGeneration)
                 setVaultId(message.vaultId)
                 setStatus("locked")
                 setError(null)
+                return
+            }
+
+            if (message.type === "VAULT_ORG_ROTATED") {
+                // Another tab rotated a team key; drop our cached org vault key for
+                // that org so the next read fetches the new grant/generation.
+                clearOrgVaultKeyCache(message.organizationId)
                 return
             }
 
@@ -316,56 +364,41 @@ function EnabledVaultProvider({ children }: { children: React.ReactNode }) {
         })
     }, [attemptTrustedBrowserUnlock, tabId])
 
-    // Auto-lock after inactivity
+    // Auto-lock when the login session expires.
+    //
+    // The vault previously auto-locked after a fixed idle window. Per product
+    // decision it now stays unlocked for the life of the login session and
+    // locks only once that session expires (alongside the existing explicit
+    // lock / sign-out / rotation paths). Expiry is re-read from the live
+    // session on every render, so a server-side session refresh (sliding
+    // expiry) pushes the auto-lock time out with it.
 
     React.useEffect(() => {
         if (status !== "unlocked") return
+        if (sessionExpiresAtMs == null) return
 
-        lastActivityRef.current = Date.now()
-
-        const onActivity = () => {
-            lastActivityRef.current = Date.now()
-        }
-
-        const activityEvents = ["keydown", "mousemove", "scroll", "touchstart", "click"] as const
-        for (const event of activityEvents) {
-            window.addEventListener(event, onActivity, { passive: true })
-        }
-
-        const interval = window.setInterval(() => {
+        const maybeLock = () => {
             if (statusRef.current !== "unlocked") return
-            if (Date.now() - lastActivityRef.current >= AUTO_LOCK_TIMEOUT_MS) {
+            if (Date.now() >= sessionExpiresAtMs) {
                 lockRef.current()
             }
-        }, 60_000)
-
-        const onVisibilityChange = () => {
-            if (document.visibilityState !== "hidden") return
-            if (statusRef.current !== "unlocked") return
-
-            // When the tab becomes hidden, schedule a lock check.
-            // If the tab is still hidden after the timeout, lock on next visibility change.
-            const hiddenAt = Date.now()
-            const checkOnVisible = () => {
-                if (document.visibilityState === "visible") {
-                    document.removeEventListener("visibilitychange", checkOnVisible)
-                    if (Date.now() - hiddenAt >= AUTO_LOCK_TIMEOUT_MS) {
-                        lockRef.current()
-                    }
-                }
-            }
-            document.addEventListener("visibilitychange", checkOnVisible)
         }
-        document.addEventListener("visibilitychange", onVisibilityChange)
+
+        // The session may already be expired when restoring from a trusted
+        // browser, so check immediately as well as on a schedule.
+        maybeLock()
+
+        // Fire precisely at expiry; the slow interval is a safety net in case
+        // the exact timer is throttled or the tab was suspended past expiry.
+        const remaining = Math.min(Math.max(0, sessionExpiresAtMs - Date.now()), MAX_TIMEOUT_MS)
+        const expiryTimer = window.setTimeout(maybeLock, remaining)
+        const interval = window.setInterval(maybeLock, 60_000)
 
         return () => {
-            for (const event of activityEvents) {
-                window.removeEventListener(event, onActivity)
-            }
+            window.clearTimeout(expiryTimer)
             window.clearInterval(interval)
-            document.removeEventListener("visibilitychange", onVisibilityChange)
         }
-    }, [status])
+    }, [status, sessionExpiresAtMs])
 
     const unlockWithPassword = React.useCallback(async (password: string, options?: UnlockOptions) => {
         setStatus("unlocking")
@@ -437,6 +470,43 @@ function EnabledVaultProvider({ children }: { children: React.ReactNode }) {
         return unwrapVaultManagedKey(wrappedKey, vaultKey)
     }, [])
 
+    const wrapDropKeyForOrg = React.useCallback(async (rawKey: ArrayBuffer, organizationId: string) => {
+        const vaultKey = getVaultRuntime().key
+        if (!vaultKey) {
+            throw new Error("Vault is locked")
+        }
+        const handle = await getOrgVaultKey(organizationId, vaultKey)
+        if (!handle) {
+            const state = await getOrgKeyAccessState(organizationId, vaultKey)
+            throw new Error(
+                state === "no-identity"
+                    ? "Your encryption identity isn't set up yet. Unlock your vault and try again in a moment."
+                    : "You don't have access to this team's encryption key yet. Ask a team admin to grant access.",
+            )
+        }
+        return { wrappedKey: await wrapVaultManagedKey(rawKey, handle.key), orgKeyGeneration: handle.generation }
+    }, [])
+
+    const unwrapOrgManagedKey = React.useCallback(async (wrappedKey: string, organizationId: string) => {
+        const vaultKey = getVaultRuntime().key
+        if (!vaultKey) {
+            throw new Error("Vault is locked")
+        }
+        const handle = await getOrgVaultKey(organizationId, vaultKey)
+        if (!handle) {
+            throw new Error("You don't have access to this team's encryption key yet. Ask a team admin to grant access.")
+        }
+        return unwrapVaultManagedKey(wrappedKey, handle.key)
+    }, [])
+
+    const getOrgVaultKeyHandle = React.useCallback(async (organizationId: string) => {
+        const vaultKey = getVaultRuntime().key
+        if (!vaultKey) {
+            throw new Error("Vault is locked")
+        }
+        return getOrgVaultKey(organizationId, vaultKey)
+    }, [])
+
     const value = React.useMemo<VaultContextValue>(() => ({
         status,
         error,
@@ -446,8 +516,11 @@ function EnabledVaultProvider({ children }: { children: React.ReactNode }) {
         lock,
         wrapDropKey,
         unwrapDropKey,
+        wrapDropKeyForOrg,
+        unwrapOrgManagedKey,
+        getOrgVaultKeyHandle,
         getVaultKey: () => getVaultRuntime().key,
-    }), [error, lock, status, unlockWithPassword, unwrapDropKey, vaultGeneration, vaultId, wrapDropKey])
+    }), [error, lock, status, unlockWithPassword, unwrapDropKey, vaultGeneration, vaultId, wrapDropKey, wrapDropKeyForOrg, unwrapOrgManagedKey, getOrgVaultKeyHandle])
 
     return (
         <VaultContext.Provider value={value}>

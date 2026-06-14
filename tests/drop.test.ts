@@ -7,6 +7,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { DropService } from "@/lib/services/drop";
 import { prisma } from "@/lib/prisma";
 import * as storage from "@/lib/storage";
+import { personalScope } from "@/lib/ownership";
 
 // Mock dependencies
 vi.mock("@/lib/prisma", () => ({
@@ -78,7 +79,7 @@ describe("DropService.completeFileUpload", () => {
             chunks: [
                 { chunkIndex: 0, etag: "etag-1", completed: true },
             ],
-            drop: { userId, id: "drop-123" },
+            drop: { userId, organizationId: null, id: "drop-123" },
         });
 
         // Mock storage metadata
@@ -87,7 +88,7 @@ describe("DropService.completeFileUpload", () => {
             contentType: "application/octet-stream",
         });
 
-        await DropService.completeFileUpload(fileId, userId);
+        await DropService.completeFileUpload(fileId, personalScope(userId));
 
         expect(storage.completeMultipartUpload).toHaveBeenCalled();
         expect(storage.getObjectMetadata).toHaveBeenCalled();
@@ -112,7 +113,7 @@ describe("DropService.completeFileUpload", () => {
             chunks: [
                 { chunkIndex: 0, etag: "etag-1", completed: true },
             ],
-            drop: { userId, id: "drop-123" },
+            drop: { userId, organizationId: null, id: "drop-123" },
         });
 
         // Mock storage metadata
@@ -121,7 +122,7 @@ describe("DropService.completeFileUpload", () => {
             contentType: "application/octet-stream",
         });
 
-        await expect(DropService.completeFileUpload(fileId, userId))
+        await expect(DropService.completeFileUpload(fileId, personalScope(userId)))
             .rejects.toThrow("File size mismatch");
 
         expect(storage.completeMultipartUpload).toHaveBeenCalled();
@@ -140,13 +141,14 @@ describe("DropService.finishDrop", () => {
         (prisma.drop.findUnique as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
             id: "drop-123",
             userId: "user-123",
+            organizationId: null,
             files: [{ id: "owned-file" }],
         });
 
         await expect(DropService.finishDrop(
             "drop-123",
             [{ fileId: "foreign-file", chunks: [{ chunkIndex: 0, etag: "etag-1" }] }],
-            "user-123"
+            personalScope("user-123")
         )).rejects.toThrow("File not found");
 
         expect(prisma.$transaction).not.toHaveBeenCalled();

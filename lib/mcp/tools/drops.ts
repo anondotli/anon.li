@@ -2,6 +2,7 @@ import { z } from "zod"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { DropService } from "@/lib/services/drop"
 import { invokeTool, toolResult } from "@/lib/mcp/invoke"
+import { personalScope } from "@/lib/ownership"
 import type { McpSession } from "@/lib/mcp/types"
 
 export function registerDropTools(server: McpServer, session: McpSession) {
@@ -17,7 +18,7 @@ export function registerDropTools(server: McpServer, session: McpSession) {
             },
         },
         async ({ limit, offset }) => invokeTool(session, { quota: "drop", rateLimit: "dropList" }, async (user) => {
-            const { drops, total } = await DropService.listDrops(user.id, { limit, offset })
+            const { drops, total } = await DropService.listDrops(personalScope(user.id), { limit, offset })
             return toolResult({
                 total,
                 drops: drops.map((d) => ({
@@ -46,7 +47,7 @@ export function registerDropTools(server: McpServer, session: McpSession) {
             },
         },
         async ({ id }) => invokeTool(session, { quota: "drop", rateLimit: "dropOps" }, async (user) => {
-            const disabled = await DropService.toggleDrop(id, user.id)
+            const disabled = await DropService.toggleDrop(id, personalScope(user.id))
             return toolResult({ id, disabled })
         }),
     )
@@ -61,7 +62,7 @@ export function registerDropTools(server: McpServer, session: McpSession) {
             },
         },
         async ({ id }) => invokeTool(session, { quota: "drop", rateLimit: "dropOps" }, async (user) => {
-            await DropService.deleteDrop(id, user.id)
+            await DropService.deleteDrop(id, personalScope(user.id))
             return toolResult({ deleted: true, id })
         }),
     )

@@ -7,8 +7,9 @@
 
 import { prisma } from "@/lib/prisma"
 import { createLogger } from "@/lib/logger"
+import { personalScope } from "@/lib/ownership"
 import { PLAN_ENTITLEMENTS } from "@/config/plans"
-import { getEffectiveTiers } from "@/lib/entitlements"
+import { getFormOwnerEntitlements } from "@/lib/services/form-entitlements"
 import type { Prisma } from "@prisma/client"
 
 const logger = createLogger("FormCleanupService")
@@ -26,7 +27,8 @@ type SubmissionCleanupCandidate = {
 
 type DeletedFormCleanupCandidate = {
     id: string
-    userId: string
+    // Nullable: org-owned forms whose creating user was deleted (userId SetNull).
+    userId: string | null
     deletedAt: Date | null
     submissions: { id: string; attachedDropId: string | null }[]
 }
@@ -97,27 +99,39 @@ export class FormCleanupService {
             const formIds = Array.from(new Set(candidates.map((c) => c.formId)))
             const forms = await prisma.form.findMany({
                 where: { id: { in: formIds } },
-                select: { id: true, userId: true },
+                select: { id: true, userId: true, organizationId: true },
             })
+            // Attached drops are owned by the form creator; used below to scope
+            // their deletion. Null (creator deleted) → skip the attached-drop delete.
             const ownerByFormId = new Map(forms.map((form) => [form.id, form.userId]))
 
-            // Resolve retention per unique user id
-            const userIds = Array.from(new Set(forms.map((form) => form.userId)))
-            const retentionByUser = new Map<string, number>()
-            for (const uid of userIds) {
+            // Resolve retention per OWNER (org or user), deduped. An org-owned
+            // form derives retention from the ORG plan — NOT the creator — so it
+            // is never purged at 0 days when the creator left/was deleted (userId
+            // NULL). Any resolution failure falls back to FREE retention, never 0,
+            // so a transient error can't destroy paid submissions.
+            const ownerKeyOf = (f: { userId: string | null; organizationId: string | null }) =>
+                f.organizationId ? `org:${f.organizationId}` : `user:${f.userId ?? "null"}`
+            const retentionByOwner = new Map<string, number>()
+            for (const form of forms) {
+                const key = ownerKeyOf(form)
+                if (retentionByOwner.has(key)) continue
                 try {
-                    const tiers = await getEffectiveTiers(uid)
-                    retentionByUser.set(uid, PLAN_ENTITLEMENTS.form[tiers.form].retentionDays)
+                    const { limits } = await getFormOwnerEntitlements({ userId: form.userId, organizationId: form.organizationId })
+                    retentionByOwner.set(key, limits.retentionDays)
                 } catch (e) {
-                    logger.warn("Failed to resolve tier for retention", { userId: uid, error: e })
-                    retentionByUser.set(uid, PLAN_ENTITLEMENTS.form.free.retentionDays)
+                    logger.warn("Failed to resolve retention for form owner", { ownerKey: key, error: e })
+                    retentionByOwner.set(key, PLAN_ENTITLEMENTS.form.free.retentionDays)
                 }
             }
+            const retentionByFormId = new Map(
+                forms.map((f) => [f.id, retentionByOwner.get(ownerKeyOf(f)) ?? PLAN_ENTITLEMENTS.form.free.retentionDays]),
+            )
 
             const now = Date.now()
             const expired = candidates.filter((c) => {
-                const ownerId = ownerByFormId.get(c.formId)
-                const retention = ownerId ? retentionByUser.get(ownerId) ?? PLAN_ENTITLEMENTS.form.free.retentionDays : 0
+                // Unknown form (shouldn't happen) → free retention, never 0.
+                const retention = retentionByFormId.get(c.formId) ?? PLAN_ENTITLEMENTS.form.free.retentionDays
                 return now - c.createdAt.getTime() >= retention * DAY_MS
             })
 
@@ -139,7 +153,7 @@ export class FormCleanupService {
                     }
                     if (sub.attachedDropId) {
                         try {
-                            await DropService.deleteDrop(sub.attachedDropId, ownerId)
+                            await DropService.deleteDrop(sub.attachedDropId, personalScope(ownerId))
                         } catch (e) {
                             logger.warn("Failed to delete attached drop during submission cleanup", {
                                 submissionId: sub.id,
@@ -219,9 +233,9 @@ export class FormCleanupService {
             for (const form of forms) {
                 try {
                     for (const sub of form.submissions) {
-                        if (sub.attachedDropId) {
+                        if (sub.attachedDropId && form.userId) {
                             try {
-                                await DropService.deleteDrop(sub.attachedDropId, form.userId)
+                                await DropService.deleteDrop(sub.attachedDropId, personalScope(form.userId))
                             } catch (e) {
                                 logger.warn("Failed to delete attached drop during form cleanup", {
                                     formId: form.id,

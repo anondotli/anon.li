@@ -1,7 +1,6 @@
 /**
  * @vitest-environment node
  */
-import { createHash } from "node:crypto"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const getSession = vi.fn()
@@ -95,9 +94,12 @@ describe("verifyTwoFactorLogin", () => {
         const { verifyTwoFactorLogin } = await import("@/actions/two-factor")
         const result = await verifyTwoFactorLogin("123456", "totp")
 
-        const pendingRateLimitId = `pending:${createHash("sha256").update("signed-pending-token").digest("base64url")}`
         expect(result).toEqual({ success: true, redirectTo: "/dashboard/alias" })
-        expect(rateLimit).toHaveBeenCalledWith("twoFactorVerify", pendingRateLimitId)
+        // The pending-login path must NOT key a rate limit on the pending-2FA
+        // cookie (attacker-rotatable → resets the bucket). The per-IP ceiling now
+        // lives in the global before-hook (lib/auth.ts), which fires on the
+        // verifyTOTP call — so the action itself does not call rateLimit here.
+        expect(rateLimit).not.toHaveBeenCalled()
         expect(verifyTOTP).toHaveBeenCalledWith({
             body: { code: "123456" },
             headers: expect.any(Headers),

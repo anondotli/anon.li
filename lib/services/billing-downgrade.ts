@@ -1,11 +1,16 @@
 /**
  * Billing Downgrade Service
  *
- * Handles graduated resource removal when a user's subscription ends.
+ * Handles graduated resource removal when a user's PERSONAL subscription ends.
  * Three phases (delays from `lib/constants` — currently 7 + 7 days):
  *   Phase 1 (day 0):  Record downgrade, send warning email
  *   Phase 2 (day 7):  Schedule excess resources for removal
  *   Phase 3 (day 14): Delete scheduled resources
+ *
+ * SCOPE: every resource query here is restricted to the user's PERSONAL
+ * resources (`organizationId: null`). Org-owned resources a member created
+ * belong to the org and are governed by the org's (seat-based) plan — a
+ * personal downgrade must never count, schedule, or delete them.
  */
 
 import { prisma } from "@/lib/prisma";
@@ -68,15 +73,15 @@ export class BillingDowngradeService {
                 data: { downgradedAt: null },
             }),
             prisma.alias.updateMany({
-                where: { userId, scheduledForRemovalAt: { not: null } },
+                where: { userId, organizationId: null, scheduledForRemovalAt: { not: null } },
                 data: { scheduledForRemovalAt: null },
             }),
             prisma.domain.updateMany({
-                where: { userId, scheduledForRemovalAt: { not: null } },
+                where: { userId, organizationId: null, scheduledForRemovalAt: { not: null } },
                 data: { scheduledForRemovalAt: null },
             }),
             prisma.recipient.updateMany({
-                where: { userId, scheduledForRemovalAt: { not: null } },
+                where: { userId, organizationId: null, scheduledForRemovalAt: { not: null } },
                 data: { scheduledForRemovalAt: null },
             }),
         ]);
@@ -102,10 +107,10 @@ export class BillingDowngradeService {
         excessRecipients: number;
     }> {
         const [randomCount, customCount, domainCount, recipientCount] = await Promise.all([
-            prisma.alias.count({ where: { userId, format: "RANDOM" } }),
-            prisma.alias.count({ where: { userId, format: "CUSTOM" } }),
-            prisma.domain.count({ where: { userId } }),
-            prisma.recipient.count({ where: { userId } }),
+            prisma.alias.count({ where: { userId, organizationId: null, format: "RANDOM" } }),
+            prisma.alias.count({ where: { userId, organizationId: null, format: "CUSTOM" } }),
+            prisma.domain.count({ where: { userId, organizationId: null } }),
+            prisma.recipient.count({ where: { userId, organizationId: null } }),
         ]);
 
         const freeLimits = ALIAS_LIMITS.free;
@@ -149,9 +154,9 @@ export class BillingDowngradeService {
 
         // Idempotency: skip if any resources already scheduled
         const [scheduledAliases, scheduledDomains, scheduledRecipients] = await Promise.all([
-            prisma.alias.count({ where: { userId, scheduledForRemovalAt: { not: null } } }),
-            prisma.domain.count({ where: { userId, scheduledForRemovalAt: { not: null } } }),
-            prisma.recipient.count({ where: { userId, scheduledForRemovalAt: { not: null } } }),
+            prisma.alias.count({ where: { userId, organizationId: null, scheduledForRemovalAt: { not: null } } }),
+            prisma.domain.count({ where: { userId, organizationId: null, scheduledForRemovalAt: { not: null } } }),
+            prisma.recipient.count({ where: { userId, organizationId: null, scheduledForRemovalAt: { not: null } } }),
         ]);
 
         if (scheduledAliases + scheduledDomains + scheduledRecipients > 0) {
@@ -164,11 +169,11 @@ export class BillingDowngradeService {
 
         // --- Read phase (outside transaction) ---
         const randomAliases = await prisma.alias.findMany({
-            where: { userId, format: "RANDOM" },
+            where: { userId, organizationId: null, format: "RANDOM" },
             select: { id: true },
         });
         const customAliases = await prisma.alias.findMany({
-            where: { userId, format: "CUSTOM" },
+            where: { userId, organizationId: null, format: "CUSTOM" },
             select: { id: true },
         });
 
@@ -183,13 +188,13 @@ export class BillingDowngradeService {
         ];
 
         const domainsToSchedule = await prisma.domain.findMany({
-            where: { userId },
+            where: { userId, organizationId: null },
             select: { id: true, domain: true },
         });
 
         const freeRecipientLimit = freeLimits.recipients;
         const recipients = await prisma.recipient.findMany({
-            where: { userId },
+            where: { userId, organizationId: null },
             select: { id: true, email: true, isDefault: true, createdAt: true },
             orderBy: { createdAt: "asc" },
         });
@@ -292,9 +297,9 @@ export class BillingDowngradeService {
                 subscriptions: { none: { status: { in: ["active", "trialing"] } } },
                 // Exclude users who already have resources scheduled
                 AND: [
-                    { aliases: { none: { scheduledForRemovalAt: { not: null } } } },
-                    { domains: { none: { scheduledForRemovalAt: { not: null } } } },
-                    { recipients: { none: { scheduledForRemovalAt: { not: null } } } },
+                    { aliases: { none: { scheduledForRemovalAt: { not: null }, organizationId: null } } },
+                    { domains: { none: { scheduledForRemovalAt: { not: null }, organizationId: null } } },
+                    { recipients: { none: { scheduledForRemovalAt: { not: null }, organizationId: null } } },
                 ],
             },
             select: { id: true },
@@ -361,7 +366,7 @@ export class BillingDowngradeService {
         if (storageUsed > maxStorage) {
             // Find drops ordered oldest first, delete until under quota
             const drops = await prisma.drop.findMany({
-                where: { userId, deletedAt: null },
+                where: { userId, organizationId: null, deletedAt: null },
                 include: { files: { select: { id: true, storageKey: true, size: true } } },
                 orderBy: { createdAt: "asc" },
             }) as DropWithStorageFiles[];
@@ -395,7 +400,7 @@ export class BillingDowngradeService {
             // Update storageUsed to reflect actual remaining storage
             if (dropsDeleted > 0) {
                 const remainingStorage = await prisma.dropFile.aggregate({
-                    where: { drop: { userId, deletedAt: null } },
+                    where: { drop: { userId, organizationId: null, deletedAt: null } },
                     _sum: { size: true },
                 });
                 await prisma.user.update({
@@ -406,18 +411,18 @@ export class BillingDowngradeService {
         }
 
         // --- Read phase (outside transaction) ---
-        const allRandomAliases = await prisma.alias.count({ where: { userId, format: "RANDOM" } });
-        const allCustomAliases = await prisma.alias.count({ where: { userId, format: "CUSTOM" } });
+        const allRandomAliases = await prisma.alias.count({ where: { userId, organizationId: null, format: "RANDOM" } });
+        const allCustomAliases = await prisma.alias.count({ where: { userId, organizationId: null, format: "CUSTOM" } });
 
         const currentRandomExcess = planLimits.random === -1 ? 0 : Math.max(0, allRandomAliases - planLimits.random);
         const currentCustomExcess = planLimits.custom === -1 ? 0 : Math.max(0, allCustomAliases - planLimits.custom);
 
         const scheduledRandomAliases = await prisma.alias.findMany({
-            where: { userId, format: "RANDOM", scheduledForRemovalAt: { not: null } },
+            where: { userId, organizationId: null, format: "RANDOM", scheduledForRemovalAt: { not: null } },
             select: { id: true },
         });
         const scheduledCustomAliases = await prisma.alias.findMany({
-            where: { userId, format: "CUSTOM", scheduledForRemovalAt: { not: null } },
+            where: { userId, organizationId: null, format: "CUSTOM", scheduledForRemovalAt: { not: null } },
             select: { id: true },
         });
 
@@ -430,11 +435,11 @@ export class BillingDowngradeService {
         ];
 
         const domainLimit = planLimits.domains;
-        const allDomains = await prisma.domain.count({ where: { userId } });
+        const allDomains = await prisma.domain.count({ where: { userId, organizationId: null } });
         const currentDomainExcess = Math.max(0, allDomains - domainLimit);
 
         const scheduledDomains = await prisma.domain.findMany({
-            where: { userId, scheduledForRemovalAt: { not: null } },
+            where: { userId, organizationId: null, scheduledForRemovalAt: { not: null } },
             select: { id: true },
         });
 
@@ -442,13 +447,13 @@ export class BillingDowngradeService {
         const domainSparedIds = scheduledDomains.slice(domainsToDelete.length).map((d) => d.id);
 
         const allRecipients = await prisma.recipient.findMany({
-            where: { userId },
+            where: { userId, organizationId: null },
             select: { id: true, isDefault: true },
         });
         const currentRecipientExcess = Math.max(0, allRecipients.length - recipientLimit);
 
         const scheduledRecipients = await prisma.recipient.findMany({
-            where: { userId, scheduledForRemovalAt: { not: null } },
+            where: { userId, organizationId: null, scheduledForRemovalAt: { not: null } },
             select: { id: true },
         });
 
@@ -543,28 +548,29 @@ export class BillingDowngradeService {
 
         // Find distinct users who have any resource scheduled for removal past the window
         const usersWithScheduledAliases = await prisma.alias.findMany({
-            where: { scheduledForRemovalAt: { not: null, lte: deletionCutoff } },
+            where: { scheduledForRemovalAt: { not: null, lte: deletionCutoff }, organizationId: null },
             select: { userId: true },
             distinct: ["userId"],
         });
 
         const usersWithScheduledDomains = await prisma.domain.findMany({
-            where: { scheduledForRemovalAt: { not: null, lte: deletionCutoff }, userId: { not: null } },
+            where: { scheduledForRemovalAt: { not: null, lte: deletionCutoff }, userId: { not: null }, organizationId: null },
             select: { userId: true },
             distinct: ["userId"],
         });
 
         const usersWithScheduledRecipients = await prisma.recipient.findMany({
-            where: { scheduledForRemovalAt: { not: null, lte: deletionCutoff } },
+            where: { scheduledForRemovalAt: { not: null, lte: deletionCutoff }, organizationId: null },
             select: { userId: true },
             distinct: ["userId"],
         });
 
-        // Deduplicate user IDs
+        // Deduplicate user IDs (null userId = org-owned row whose creator was
+        // deleted — no personal user to notify/reclaim against, so skip).
         const userIdSet = new Set<string>();
-        for (const r of usersWithScheduledAliases) userIdSet.add(r.userId);
+        for (const r of usersWithScheduledAliases) if (r.userId) userIdSet.add(r.userId);
         for (const r of usersWithScheduledDomains) if (r.userId) userIdSet.add(r.userId);
-        for (const r of usersWithScheduledRecipients) userIdSet.add(r.userId);
+        for (const r of usersWithScheduledRecipients) if (r.userId) userIdSet.add(r.userId);
 
         const userIds = Array.from(userIdSet).slice(0, 100);
 

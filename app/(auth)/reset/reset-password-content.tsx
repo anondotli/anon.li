@@ -6,14 +6,24 @@ import { useSearchParams } from "next/navigation"
 import { authClient } from "@/lib/auth-client"
 import { requestPasswordResetAction } from "@/actions/session"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
+import { IconInput } from "@/components/ui/icon-input"
 import { Label } from "@/components/ui/label"
 import { Turnstile } from "@/components/ui/turnstile"
 import { Icons } from "@/components/shared/icons"
-import { AlertTriangle, CheckCircle2, ArrowLeft } from "lucide-react"
+import { VaultAuthShell, type VaultAuthTone } from "@/components/vault/vault-auth-shell"
+import { VaultPasswordInput } from "@/components/vault/vault-password-input"
+import { AlertCircle, AlertTriangle, CheckCircle2, ArrowLeft, KeyRound, Mail } from "lucide-react"
 
 const turnstileSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY
+
+function ErrorBanner({ message }: { message: string }) {
+    return (
+        <div className="flex items-start gap-2 rounded-xl border border-destructive/20 bg-destructive/10 px-3.5 py-2.5 text-sm text-destructive duration-200 animate-in fade-in slide-in-from-top-1">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>{message}</span>
+        </div>
+    )
+}
 
 export function ResetPasswordContent() {
     const searchParams = useSearchParams()
@@ -118,209 +128,178 @@ export function ResetPasswordContent() {
         }
     }
 
+    const returnHome = (
+        <div className="mt-6 flex w-full items-center justify-center">
+            <Link
+                href="/"
+                className="inline-flex items-center gap-1.5 text-sm text-muted-foreground underline-offset-4 transition-colors hover:text-foreground hover:underline"
+            >
+                <ArrowLeft className="h-4 w-4" />
+                Return home
+            </Link>
+        </div>
+    )
+
+    // Resolve the screen's tone, emblem, and copy from the current state.
+    let tone: VaultAuthTone = "neutral"
+    let icon = <KeyRound className="h-6 w-6" />
+    let title = "Reset your password"
+    let description: React.ReactNode = "Enter your email and we will send you a secure reset link."
+    let body: React.ReactNode
+
     if (!token) {
-        return (
-            <div className="flex min-h-svh flex-col items-center justify-center px-4 py-24">
-                <div className="w-full max-w-md">
-                    <Card className="rounded-3xl border-border/50 shadow-sm">
-                        <CardHeader className="space-y-4 text-center">
-                            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10">
-                                {requestSent ? (
-                                    <CheckCircle2 className="h-6 w-6 text-green-500" />
-                                ) : (
-                                    <AlertTriangle className="h-6 w-6 text-amber-500" />
-                                )}
-                            </div>
-                            <div className="space-y-1">
-                                <CardTitle className="text-2xl font-serif">
-                                    {requestSent ? "Check your inbox" : "Reset your password"}
-                                </CardTitle>
-                                <CardDescription>
-                                    {requestSent
-                                        ? "We sent a secure reset link if this email exists."
-                                        : "Enter your email and we will send you a secure reset link."}
-                                </CardDescription>
-                            </div>
-                        </CardHeader>
-                        <CardContent>
-                            {!requestSent ? (
-                                <form onSubmit={onRequestReset} className="space-y-5">
-                                    <div className="space-y-2">
-                                        <Label htmlFor="email">Email address</Label>
-                                        <Input
-                                            id="email"
-                                            type="email"
-                                            value={email}
-                                            onChange={(event) => setEmail(event.target.value)}
-                                            autoComplete="email"
-                                            className="h-12 px-4 py-0 leading-none"
-                                            placeholder="joe.doe@anon.li"
-                                            disabled={isSubmitting}
-                                            required
-                                        />
-                                    </div>
-
-                                    {error && (
-                                        <div className="rounded-2xl border border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-                                            {error}
-                                        </div>
-                                    )}
-
-                                    {turnstileSiteKey && turnstileRequested && (
-                                        <Turnstile
-                                            key={turnstileRenderKey}
-                                            siteKey={turnstileSiteKey}
-                                            onVerify={handleTurnstileVerify}
-                                            onError={resetTurnstile}
-                                            onExpire={() => setTurnstileToken(null)}
-                                        />
-                                    )}
-
-                                    <Button
-                                        type="submit"
-                                        className="w-full"
-                                        disabled={isSubmitting || (!!turnstileSiteKey && turnstileRequested && !turnstileToken)}
-                                    >
-                                        {isSubmitting ? (
-                                            <>
-                                                <Icons.spinner className="mr-2 h-4 w-4 animate-spin" />
-                                                Sending...
-                                            </>
-                                        ) : (
-                                            "Send reset link"
-                                        )}
-                                    </Button>
-                                </form>
-                            ) : (
-                                <div className="space-y-4">
-                                    <div className="rounded-2xl border border-green-500/20 bg-green-500/5 p-4 text-sm text-muted-foreground">
-                                        Open the reset link from your inbox to choose a new vault password.
-                                    </div>
-                                    <Button asChild className="w-full">
-                                        <Link href="/login">Return to login</Link>
-                                    </Button>
-                                </div>
-                            )}
-
-                            <div className="mt-4 text-center text-sm text-muted-foreground">
-                                <Link href="/" className="inline-flex items-center gap-2 text-primary hover:underline">
-                                    <ArrowLeft className="h-4 w-4" />
-                                    Return home
-                                </Link>
-                            </div>
-                        </CardContent>
-                    </Card>
+        if (requestSent) {
+            tone = "success"
+            icon = <CheckCircle2 className="h-6 w-6" />
+            title = "Check your inbox"
+            description = "We sent a secure reset link if this email exists."
+            body = (
+                <div className="mt-7 w-full space-y-4">
+                    <div className="rounded-xl border border-success/20 bg-success/5 px-3.5 py-3 text-sm text-muted-foreground">
+                        Open the reset link from your inbox to choose a new vault password.
+                    </div>
+                    <Button asChild size="lg" className="h-12 w-full rounded-xl text-sm font-medium">
+                        <Link href="/login">Return to login</Link>
+                    </Button>
                 </div>
+            )
+        } else {
+            body = (
+                <form onSubmit={onRequestReset} className="mt-7 w-full space-y-4">
+                    <div className="space-y-2">
+                        <Label htmlFor="email" className="text-xs font-medium text-muted-foreground">
+                            Email address
+                        </Label>
+                        <IconInput
+                            icon={Mail}
+                            id="email"
+                            type="email"
+                            value={email}
+                            onChange={(event) => setEmail(event.target.value)}
+                            autoComplete="email"
+                            className="h-12 rounded-xl text-base transition-colors duration-200 md:text-sm"
+                            placeholder="joe.doe@anon.li"
+                            disabled={isSubmitting}
+                            required
+                        />
+                    </div>
+
+                    {error && <ErrorBanner message={error} />}
+
+                    {turnstileSiteKey && turnstileRequested && (
+                        <Turnstile
+                            key={turnstileRenderKey}
+                            siteKey={turnstileSiteKey}
+                            onVerify={handleTurnstileVerify}
+                            onError={resetTurnstile}
+                            onExpire={() => setTurnstileToken(null)}
+                        />
+                    )}
+
+                    <Button
+                        type="submit"
+                        size="lg"
+                        className="h-12 w-full rounded-xl text-sm font-medium"
+                        disabled={isSubmitting || (!!turnstileSiteKey && turnstileRequested && !turnstileToken)}
+                    >
+                        {isSubmitting ? (
+                            <>
+                                <Icons.spinner className="mr-2 h-4 w-4 animate-spin" />
+                                Sending…
+                            </>
+                        ) : (
+                            "Send reset link"
+                        )}
+                    </Button>
+                </form>
+            )
+        }
+    } else if (success) {
+        tone = "success"
+        icon = <CheckCircle2 className="h-6 w-6" />
+        title = "Password reset"
+        description = "Sign in again to rebuild your encrypted vault."
+        body = (
+            <div className="mt-7 w-full space-y-4">
+                <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-3.5 py-3 text-sm text-muted-foreground">
+                    Your password was reset successfully. All previous vault encryption data has been cleared — sign in
+                    to set up a new encrypted vault.
+                </div>
+                <Button asChild size="lg" className="h-12 w-full rounded-xl text-sm font-medium">
+                    <Link href="/login">Return to login</Link>
+                </Button>
             </div>
+        )
+    } else {
+        tone = "warning"
+        icon = <AlertTriangle className="h-6 w-6" />
+        description = "Choose a new password for your account."
+        body = (
+            <>
+                <div className="mt-7 flex w-full items-start gap-3 rounded-xl border border-warning/30 bg-warning/5 p-4 text-left">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+                    <div className="space-y-1 text-sm">
+                        <p className="font-medium text-warning">
+                            Your encrypted vault will be destroyed
+                        </p>
+                        <p className="text-muted-foreground">
+                            Resetting your password makes previously encrypted data permanently inaccessible. After
+                            signing back in, you will need to create a new vault.
+                        </p>
+                    </div>
+                </div>
+
+                <form onSubmit={onSubmit} className="mt-4 w-full space-y-4">
+                    <div className="space-y-2">
+                        <Label htmlFor="password" className="text-xs font-medium text-muted-foreground">
+                            New password
+                        </Label>
+                        <VaultPasswordInput
+                            id="password"
+                            value={password}
+                            onChange={(event) => setPassword(event.target.value)}
+                            autoComplete="new-password"
+                            placeholder="At least 12 characters"
+                            disabled={isSubmitting}
+                            required
+                        />
+                    </div>
+                    <div className="space-y-2">
+                        <Label htmlFor="confirmPassword" className="text-xs font-medium text-muted-foreground">
+                            Confirm password
+                        </Label>
+                        <VaultPasswordInput
+                            id="confirmPassword"
+                            value={confirmPassword}
+                            onChange={(event) => setConfirmPassword(event.target.value)}
+                            autoComplete="new-password"
+                            placeholder="Re-enter your password"
+                            disabled={isSubmitting}
+                            invalid={confirmPassword.length > 0 && password !== confirmPassword}
+                            required
+                        />
+                    </div>
+
+                    {error && <ErrorBanner message={error} />}
+
+                    <Button type="submit" size="lg" className="h-12 w-full rounded-xl text-sm font-medium" disabled={isSubmitting}>
+                        {isSubmitting ? (
+                            <>
+                                <Icons.spinner className="mr-2 h-4 w-4 animate-spin" />
+                                Saving…
+                            </>
+                        ) : (
+                            "Reset password"
+                        )}
+                    </Button>
+                </form>
+            </>
         )
     }
 
     return (
-        <div className="flex min-h-svh flex-col items-center justify-center px-4 py-24">
-            <div className="w-full max-w-md">
-                <Card className="rounded-3xl border-border/50 shadow-sm">
-                    <CardHeader className="space-y-4 text-center">
-                        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10">
-                            {success ? (
-                                <CheckCircle2 className="h-6 w-6 text-green-500" />
-                            ) : (
-                                <AlertTriangle className="h-6 w-6 text-amber-500" />
-                            )}
-                        </div>
-                        <div className="space-y-1">
-                            <CardTitle className="text-2xl font-serif">
-                                {success ? "Password reset" : "Reset your password"}
-                            </CardTitle>
-                            <CardDescription>
-                                {success
-                                    ? "Sign in again to rebuild your encrypted vault."
-                                    : "Choose a new password for your account."}
-                            </CardDescription>
-                        </div>
-                    </CardHeader>
-                    <CardContent>
-                        {!success ? (
-                            <>
-                                <div className="mb-5 flex items-start gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/5 p-4">
-                                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
-                                    <div className="space-y-1 text-sm">
-                                        <p className="font-medium text-amber-600 dark:text-amber-400">
-                                            Your encrypted vault will be destroyed
-                                        </p>
-                                        <p className="text-muted-foreground">
-                                            Resetting your password makes previously encrypted data permanently inaccessible. After signing back in, you will need to create a new vault.
-                                        </p>
-                                    </div>
-                                </div>
-
-                                <form onSubmit={onSubmit} className="space-y-5">
-                                    <div className="space-y-2">
-                                        <Label htmlFor="password">New password</Label>
-                                        <Input
-                                            id="password"
-                                            type="password"
-                                            value={password}
-                                            onChange={(event) => setPassword(event.target.value)}
-                                            autoComplete="new-password"
-                                            className="h-12 px-4 py-0 leading-none"
-                                            placeholder="****************"
-                                            disabled={isSubmitting}
-                                            required
-                                        />
-                                    </div>
-                                    <div className="space-y-2">
-                                        <Label htmlFor="confirmPassword">Confirm password</Label>
-                                        <Input
-                                            id="confirmPassword"
-                                            type="password"
-                                            value={confirmPassword}
-                                            onChange={(event) => setConfirmPassword(event.target.value)}
-                                            autoComplete="new-password"
-                                            className="h-12 px-4 py-0 leading-none"
-                                            placeholder="****************"
-                                            disabled={isSubmitting}
-                                            required
-                                        />
-                                    </div>
-
-                                    {error && (
-                                        <div className="rounded-2xl border border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-                                            {error}
-                                        </div>
-                                    )}
-
-                                    <Button type="submit" className="w-full" disabled={isSubmitting}>
-                                        {isSubmitting ? (
-                                            <>
-                                                <Icons.spinner className="mr-2 h-4 w-4 animate-spin" />
-                                                Saving...
-                                            </>
-                                        ) : (
-                                            "Reset password"
-                                        )}
-                                    </Button>
-                                </form>
-                            </>
-                        ) : (
-                            <div className="space-y-4">
-                                <div className="rounded-2xl border border-green-500/20 bg-green-500/5 p-4 text-sm text-muted-foreground">
-                                    Your password was reset successfully. All previous vault encryption data has been cleared — sign in to set up a new encrypted vault.
-                                </div>
-                                <Button asChild className="w-full">
-                                    <Link href="/login">Return to login</Link>
-                                </Button>
-                            </div>
-                        )}
-
-                        <div className="mt-4 text-center text-sm text-muted-foreground">
-                            <Link href="/" className="inline-flex items-center gap-2 text-primary hover:underline">
-                                <ArrowLeft className="h-4 w-4" />
-                                Return home
-                            </Link>
-                        </div>
-                    </CardContent>
-                </Card>
-            </div>
-        </div>
+        <VaultAuthShell tone={tone} pulse={isSubmitting} icon={icon} title={title} description={description} below={returnHome}>
+            {body}
+        </VaultAuthShell>
     )
 }

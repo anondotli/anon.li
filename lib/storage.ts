@@ -150,6 +150,15 @@ function getR2DownloadPresignClient(): S3Client {
 const PRESIGNED_URL_EXPIRES = 3600; // 1 hour
 
 /**
+ * Short presigned-URL lifetime for download-limited drops ("burn after N").
+ * The actual byte transfer happens at R2, which we can't count, so a long-lived
+ * URL would let one issued download be replayed indefinitely within the window
+ * and remain valid after the limit is reached. A tight TTL bounds that replay
+ * to roughly a single transfer while still allowing slow connections to finish.
+ */
+export const LIMITED_DROP_PRESIGNED_URL_EXPIRES = 120; // 2 minutes
+
+/**
  * Initiate a multipart upload for a file
  */
 export async function initiateMultipartUpload(

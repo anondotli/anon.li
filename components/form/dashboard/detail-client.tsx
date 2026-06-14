@@ -47,6 +47,27 @@ import { toggleFormAction, deleteFormAction, deleteSubmissionAction } from "@/ac
 import { useVault } from "@/components/vault/vault-provider"
 import { fetchWrappedFormKey } from "@/lib/vault/form-keys-client"
 import { unwrapVaultPayload, arrayBufferToBase64Url } from "@/lib/vault/crypto"
+
+/**
+ * Recover the form private-key bytes from its wrapped owner key. Org-owned forms
+ * are wrapped to the team's shared org vault key (so any member can decrypt);
+ * personal forms use the user's own vault key.
+ */
+async function recoverFormPrivateKeyBytes(
+    vault: ReturnType<typeof useVault>,
+    wrapped: { wrappedKey: string; organizationId?: string | null },
+): Promise<ArrayBuffer> {
+    if (wrapped.organizationId) {
+        const handle = await vault.getOrgVaultKeyHandle(wrapped.organizationId)
+        if (!handle) {
+            throw new Error("You don't have access to this team's encryption key yet. Ask a team admin to grant access.")
+        }
+        return unwrapVaultPayload(wrapped.wrappedKey, handle.key)
+    }
+    const vaultKey = vault.getVaultKey()
+    if (!vaultKey) throw new Error("Vault is locked")
+    return unwrapVaultPayload(wrapped.wrappedKey, vaultKey)
+}
 import { decryptFromSubmission } from "@/lib/crypto/asymmetric"
 import { formatFormAnswerLabel } from "@/lib/form-field-utils"
 import { cn } from "@/lib/utils"
@@ -471,10 +492,8 @@ function SubmissionViewer({
                     "Vault key for this form is missing. Did you unlock the vault?",
                 )
             }
-            const vaultKey = vault.getVaultKey()
-            if (!vaultKey) throw new Error("Vault is locked")
 
-            const privKeyBytes = await unwrapVaultPayload(wrapped.wrappedKey, vaultKey)
+            const privKeyBytes = await recoverFormPrivateKeyBytes(vault, wrapped)
             const plaintext = await decryptFromSubmission(arrayBufferToBase64Url(privKeyBytes), {
                 ephemeralPubKey: detail.ephemeral_pub_key,
                 iv: detail.iv,
@@ -751,11 +770,9 @@ function ExportMenu({
         setBusy(format)
         const toastId = toast.loading(`Preparing export of ${total} submissions…`)
         try {
-            const vaultKey = vault.getVaultKey()
-            if (!vaultKey) throw new Error("Unlock your vault to export submissions")
             const wrapped = await fetchWrappedFormKey(form.id)
             if (!wrapped) throw new Error("Form key is missing")
-            const privKeyBytes = await unwrapVaultPayload(wrapped.wrappedKey, vaultKey)
+            const privKeyBytes = await recoverFormPrivateKeyBytes(vault, wrapped)
             const privateKey = arrayBufferToBase64Url(privKeyBytes)
 
             const allSubmissions = await fetchAllSubmissions(form.id, (loaded, listTotal) => {

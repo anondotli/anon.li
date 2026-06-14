@@ -4,10 +4,17 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
-import { Mail, Globe, Settings, CreditCard, FileUp, BarChart3, ClipboardList } from "lucide-react"
+import { Mail, Globe, Settings, CreditCard, FileUp, BarChart3, ClipboardList, Users } from "lucide-react"
+import { authClient } from "@/lib/auth-client"
 
 export function DashboardNav({ className, ...props }: React.HTMLAttributes<HTMLElement>) {
     const pathname = usePathname()
+    // Only surface "Team" while a team context is actually selected — the page
+    // shows the *active* org's console, so in personal context (even for org
+    // members) the link would dead-end on the "no team selected" state.
+    // Selecting a team via the header org-switcher makes it appear.
+    const { data: activeOrg } = authClient.useActiveOrganization()
+    const teamSelected = Boolean(activeOrg)
 
     const mainItems = [
         { href: "/dashboard/alias", title: "Aliases", icon: <Mail className="mr-2 h-4 w-4" /> },
@@ -16,6 +23,7 @@ export function DashboardNav({ className, ...props }: React.HTMLAttributes<HTMLE
     ]
 
     const manageItems = [
+        ...(teamSelected ? [{ href: "/dashboard/team", title: "Team", icon: <Users className="mr-2 h-4 w-4" /> }] : []),
         { href: "/dashboard/domains", title: "Domains", icon: <Globe className="mr-2 h-4 w-4" /> },
         { href: "/dashboard/usage", title: "Usage", icon: <BarChart3 className="mr-2 h-4 w-4" /> },
         { href: "/dashboard/billing", title: "Billing", icon: <CreditCard className="mr-2 h-4 w-4" /> },

@@ -15,7 +15,7 @@ import { withPolicy } from "@/lib/route-policy"
 import { DropService } from "@/lib/services/drop"
 import { decrementStorageUsed } from "@/lib/services/drop-storage"
 import { resolveTokenUploadAccess } from "@/lib/services/form-upload"
-import { getPresignedDownloadUrl, abortMultipartUpload } from "@/lib/storage"
+import { getPresignedDownloadUrl, abortMultipartUpload, LIMITED_DROP_PRESIGNED_URL_EXPIRES } from "@/lib/storage"
 import { getClientIp } from "@/lib/rate-limit"
 
 interface RouteParams {
@@ -77,16 +77,30 @@ export const GET = withPolicy<RouteParams>(
         }
 
         const rangeHeader = request.headers.get("Range")
-        const isNewDownload = !rangeHeader || rangeHeader === "bytes=0-"
+        const isResumeRange = Boolean(rangeHeader) && rangeHeader !== "bytes=0-"
 
-        if (isNewDownload) {
+        // For download-limited drops, every issuance of a working presigned URL
+        // must consume a download. The Range header we receive is NOT forwarded to
+        // R2 (we redirect to a full-object presigned URL), so gating the counter on
+        // its absence would let a client send `Range: bytes=1-` to fetch the whole
+        // file without incrementing — defeating the limit. For unlimited drops the
+        // count is only a stat, so we keep the resume-friendly behavior there and
+        // avoid double-counting a resumed transfer.
+        const shouldCount = file.drop.maxDownloads ? true : !isResumeRange
+
+        if (shouldCount) {
             const counted = await DropService.incrementDownloadCount(dropId)
             if (!counted) {
                 return new NextResponse("Download limit reached.", { status: 404 })
             }
         }
 
-        const presignedUrl = await getPresignedDownloadUrl(file.storageKey)
+        // Limited drops get a short-lived URL so an issued download can't be
+        // replayed long after the count was spent (see the constant's docs).
+        const presignedUrl = await getPresignedDownloadUrl(
+            file.storageKey,
+            file.drop.maxDownloads ? LIMITED_DROP_PRESIGNED_URL_EXPIRES : undefined,
+        )
         return NextResponse.redirect(presignedUrl, {
             status: 302,
             headers: {

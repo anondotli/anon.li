@@ -32,9 +32,9 @@ model User {
   oauthApplications OauthApplication[]
 
   // Organizations (B2B multi-tenancy)
-  memberships     Member[]
-  sentInvitations Invitation[] @relation("SentInvitations")
-  teamMemberships TeamMember[]
+  memberships            Member[]
+  sentInvitations        Invitation[]            @relation("SentInvitations")
+  organizationMemberKeys OrganizationMemberKey[]
 
   twoFactorEnabled Boolean    @default(false)
   twoFactor        TwoFactor?
@@ -87,34 +87,49 @@ model User {
 }
 
 model UserSecurity {
-  id                      String   @id @default(cuid())
-  userId                  String   @unique
-  user                    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  authSalt                String
-  vaultSalt               String
-  passwordWrappedVaultKey String   @map("password_wrapped_vault_key")
-  kdfVersion              Int      @default(1) @map("kdf_version")
-  vaultGeneration         Int      @default(1) @map("vault_generation")
-  passwordSetAt           DateTime @default(now()) @map("password_set_at")
-  migrationState          String   @default("complete") @map("migration_state")
-  createdAt               DateTime @default(now())
-  updatedAt               DateTime @updatedAt
+  id                        String   @id @default(cuid())
+  userId                    String   @unique
+  user                      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  authSalt                  String
+  vaultSalt                 String
+  passwordWrappedVaultKey   String   @map("password_wrapped_vault_key")
+  kdfVersion                Int      @default(1) @map("kdf_version")
+  vaultGeneration           Int      @default(1) @map("vault_generation")
+  passwordSetAt             DateTime @default(now()) @map("password_set_at")
+  migrationState            String   @default("complete") @map("migration_state")
+  // Org shared-E2EE identity keypair (see lib/vault/ORG-E2EE-DESIGN.md §3a):
+  // public key plaintext; private key wrapped to the vault key; generation = the
+  // vaultGeneration at wrap time, so a stale wrap after rotation is detectable.
+  identityPublicKey         String?  @map("identity_public_key")
+  wrappedIdentityPrivateKey String?  @map("wrapped_identity_private_key")
+  identityKeyGeneration     Int?     @map("identity_key_generation")
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
 
   @@map("user_security")
 }
 
 model DropOwnerKey {
-  id              String   @id @default(cuid())
-  userId          String
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  dropId          String   @unique
-  drop            Drop     @relation(fields: [dropId], references: [id], onDelete: Cascade)
-  wrappedKey      String   @map("wrapped_key")
-  vaultGeneration Int      @map("vault_generation")
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id               String   @id @default(cuid())
+  // Nullable + SetNull: for an ORG-owned owner key (organizationId set), the
+  // wrappedKey is sealed to the org vault key and is the ONLY copy — it must
+  // survive the creating user's deletion or the org drop becomes undecryptable.
+  userId           String?
+  user             User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  dropId           String   @unique
+  drop             Drop     @relation(fields: [dropId], references: [id], onDelete: Cascade)
+  wrappedKey       String   @map("wrapped_key")
+  vaultGeneration  Int      @map("vault_generation")
+  // Org shared-E2EE: when organizationId is set, wrappedKey is wrapped to the org
+  // vault key (not one user's vault key); orgKeyGeneration tracks the org key
+  // generation to detect stale wraps after rotation (ORG-E2EE-DESIGN.md §4).
+  organizationId   String?  @map("organization_id")
+  orgKeyGeneration Int?     @map("org_key_generation")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
   @@index([userId])
+  @@index([organizationId])
   @@map("drop_owner_keys")
 }
 
@@ -138,8 +153,11 @@ model Alias {
   emailsBlocked  Int       @default(0)
   lastEmailAt    DateTime?
 
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Nullable + SetNull so deleting the creating user does NOT cascade-delete an
+  // org-owned alias (owned by organizationId). A null userId on an org row means
+  // "creator account was deleted"; the org still owns it.
+  userId String?
+  user   User?  @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   organizationId String?
   organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -184,8 +202,10 @@ model Recipient {
   pgpFingerprint String?
   pgpKeyName     String?
 
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Nullable + SetNull so deleting the creating user keeps an org-owned recipient
+  // (owned by organizationId) instead of cascade-deleting it.
+  userId String?
+  user   User?  @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   organizationId String?
   organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -201,7 +221,13 @@ model Recipient {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([userId, email])
+  // Scope-aware uniqueness: an email is unique within an owner scope. Personal
+  // recipients (organizationId = null) and org recipients are separate spaces,
+  // so the same user can forward to the same address both personally and in an
+  // org. NULLS DISTINCT means personal dupes aren't DB-enforced here — that
+  // invariant is upheld at the app layer (serializable scope check in
+  // RecipientService.addRecipient).
+  @@unique([userId, organizationId, email])
   @@index([userId])
   @@index([verificationToken])
   @@index([scheduledForRemovalAt])
@@ -249,7 +275,10 @@ model Domain {
   catchAllRecipientId String? @map("catch_all_recipient_id")
 
   userId String?
-  user   User?   @relation(fields: [userId], references: [id])
+  // SetNull (not Cascade): org-owned domains also carry the creating member's
+  // userId, so deleting that member must keep the org's domain — only the
+  // personal owner link is cleared. Matches the existing FK; explicit for clarity.
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   organizationId String?
   organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -322,7 +351,6 @@ model Session {
 
   // Active organization context (managed by the better-auth organization plugin)
   activeOrganizationId String?
-  activeTeamId         String?
 
   @@index([userId])
   @@map("sessions")
@@ -417,7 +445,10 @@ model Drop {
   ownerKey       DropOwnerKey?
   formSubmission FormSubmission? @relation("FormSubmissionDrop")
   userId         String?
-  user           User?           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // SetNull (not Cascade) so deleting the creating user keeps an org-owned drop
+  // (owned by organizationId). Personal drops have organizationId null and are
+  // reaped by the explicit, org-scoped deletion in lib/services/deletion.ts.
+  user           User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   organizationId String?
   organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -485,8 +516,10 @@ model UploadChunk {
 model Form {
   id String @id // 12-char alphanumeric public id
 
-  userId String
-  user   User   @relation("UserForms", fields: [userId], references: [id], onDelete: Cascade)
+  // Nullable + SetNull so deleting the creating user keeps an org-owned form
+  // (owned by organizationId) instead of cascade-deleting it and its submissions.
+  userId String?
+  user   User?  @relation("UserForms", fields: [userId], references: [id], onDelete: SetNull)
 
   organizationId String?
   organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -546,17 +579,26 @@ model Form {
 
 // Mirror of DropOwnerKey: vault-wrapped X25519 private key.
 model FormOwnerKey {
-  id              String   @id @default(cuid())
-  userId          String
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  formId          String   @unique
-  form            Form     @relation(fields: [formId], references: [id], onDelete: Cascade)
-  wrappedKey      String   @map("wrapped_key") @db.Text
-  vaultGeneration Int      @map("vault_generation")
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id               String   @id @default(cuid())
+  // Nullable + SetNull: an org-owned owner key (organizationId set) is the only
+  // copy of the form key sealed to the org vault key — it must survive the
+  // creating user's deletion or the org form's submissions become undecryptable.
+  userId           String?
+  user             User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  formId           String   @unique
+  form             Form     @relation(fields: [formId], references: [id], onDelete: Cascade)
+  wrappedKey       String   @map("wrapped_key") @db.Text
+  vaultGeneration  Int      @map("vault_generation")
+  // Org shared-E2EE: when organizationId is set, wrappedKey is wrapped to the org
+  // vault key (not one user's vault key); orgKeyGeneration tracks the org key
+  // generation to detect stale wraps after rotation (ORG-E2EE-DESIGN.md §4).
+  organizationId   String?  @map("organization_id")
+  orgKeyGeneration Int?     @map("org_key_generation")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
   @@index([userId])
+  @@index([organizationId])
   @@map("form_owner_keys")
 }
 
@@ -664,9 +706,14 @@ model CryptoPayment {
 }
 
 model Subscription {
-  id     String @id @default(cuid())
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id String @id @default(cuid())
+
+  // Nullable + SetNull so deleting the buyer's account does NOT cascade-delete an
+  // org-owned Business subscription (it belongs to the org, not the user). The
+  // org link is the source of truth for org subs; userId is the buyer/billing
+  // contact and may be null after the buyer's account is deleted.
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   organizationId String?
   organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -678,8 +725,9 @@ model Subscription {
   providerPriceId        String? @map("provider_price_id")
 
   // Plan details
-  product String // "bundle" | "alias" | "drop" | "form"
+  product String // "bundle" | "alias" | "drop" | "form" | "business"
   tier    String // "plus" | "pro"
+  seats   Int    @default(1) // per-seat quantity (org/business subscriptions)
 
   // Status & billing period
   status             String // "active" | "trialing" | "past_due" | "canceled" | "expired"
@@ -700,7 +748,10 @@ model Subscription {
 model DeletionRequest {
   id     String @id @default(cuid())
   userId String @unique
-  user   User   @relation(fields: [userId], references: [id])
+  // Restrict: the deletion flow removes this row before deleting the user row
+  // (see lib/services/deletion.ts), so the user can't be hard-deleted while a
+  // request is still mid-process. Matches the existing FK; explicit for clarity.
+  user   User   @relation(fields: [userId], references: [id], onDelete: Restrict)
 
   status String // "pending" | "active_systems_deleted"
 
@@ -740,17 +791,21 @@ model OrphanedFile {
 }
 
 model AuditLog {
-  id        String   @id @default(cuid())
-  action    String // e.g. "api_key.create", "drop.takedown", "user.ban", "admin.login"
-  actorId   String // User who performed the action
-  targetId  String? // Affected resource ID (user, alias, drop, etc.)
-  metadata  String?  @db.Text // JSON-encoded extra context
-  ip        String?
-  createdAt DateTime @default(now())
+  id             String   @id @default(cuid())
+  action         String // e.g. "api_key.create", "drop.takedown", "user.ban", "admin.login"
+  actorId        String // User who performed the action
+  targetId       String? // Affected resource ID (user, alias, drop, etc.)
+  // Set for org-scoped events (org.member.add, org.vault.grant, …) so org admins
+  // can view their own org's audit trail without seeing the platform-wide log.
+  organizationId String?  @map("organization_id")
+  metadata       String?  @db.Text // JSON-encoded extra context
+  ip             String?
+  createdAt      DateTime @default(now())
 
   @@index([actorId])
   @@index([action])
   @@index([targetId])
+  @@index([organizationId, createdAt])
   @@index([createdAt])
   @@map("audit_logs")
 }
@@ -770,14 +825,21 @@ model Organization {
   updatedAt DateTime @updatedAt
 
   // Org-wide security policy (enforced via lib/access-policy.ts)
-  enforce2FA          Boolean @default(false)
-  ssoOnly             Boolean @default(false)
-  allowedEmailDomains String? // CSV of email domains for SSO/JIT domain-claim
+  enforce2FA Boolean @default(false)
+
+  // Shared-team E2EE coordination (ORG-E2EE-DESIGN.md). `orgKeyGeneration` is the
+  // authoritative org vault key generation: 0 = unseeded, bumped to 1 on seed and
+  // +1 on each rotation. Seed/rotate use a conditional update on this column as a
+  // single-winner lock; "stale member key" = OrganizationMemberKey.orgKeyGeneration
+  // < this. `keyRotationRecommendedAt` is set when a member is removed (soft
+  // revocation) and cleared on rotation, so the team-page banner survives refresh.
+  orgKeyGeneration         Int       @default(0) @map("org_key_generation")
+  keyRotationRecommendedAt DateTime? @map("key_rotation_recommended_at")
 
   // Plugin relations
   members     Member[]
   invitations Invitation[]
-  teams       Team[]
+  memberKeys  OrganizationMemberKey[]
 
   // Org-owned resources
   aliases       Alias[]
@@ -789,6 +851,26 @@ model Organization {
   subscriptions Subscription[]
 
   @@map("organizations")
+}
+
+/// Org shared-E2EE: the org vault key, wrapped to each member's identity public
+/// key (ORG-E2EE-DESIGN.md §3b). One row per (org, member); never stores the
+/// plaintext org vault key. Cascades on org or user deletion.
+model OrganizationMemberKey {
+  id                 String       @id @default(cuid())
+  organizationId     String
+  organization       Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId             String
+  user               User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  wrappedOrgVaultKey String       @map("wrapped_org_vault_key") @db.Text
+  orgKeyGeneration   Int          @default(1) @map("org_key_generation")
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  @@unique([organizationId, userId])
+  @@index([organizationId])
+  @@index([userId])
+  @@map("organization_member_keys")
 }
 
 model Member {
@@ -812,7 +894,6 @@ model Invitation {
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   email          String
   role           String?
-  teamId         String?
   status         String       @default("pending") // pending | accepted | rejected | canceled
   inviterId      String
   inviter        User         @relation("SentInvitations", fields: [inviterId], references: [id], onDelete: Cascade)
@@ -822,34 +903,6 @@ model Invitation {
   @@index([organizationId])
   @@index([email])
   @@map("invitations")
-}
-
-model Team {
-  id             String       @id @default(cuid())
-  name           String
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime?    @updatedAt
-
-  members TeamMember[]
-
-  @@index([organizationId])
-  @@map("teams")
-}
-
-model TeamMember {
-  id        String   @id @default(cuid())
-  teamId    String
-  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  createdAt DateTime @default(now())
-
-  @@unique([teamId, userId])
-  @@index([teamId])
-  @@index([userId])
-  @@map("team_members")
 }
 
 // OAuth 2.0 / OIDC tables consumed by better-auth's MCP plugin.

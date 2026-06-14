@@ -4,13 +4,15 @@ import { prisma } from "@/lib/prisma"
 import { createLogger } from "@/lib/logger"
 import { getPlanFromPriceId } from "@/config/plans"
 import type { Prisma } from "@prisma/client"
+import { audit } from "@/lib/services/audit"
 
 const logger = createLogger("SubscriptionSync")
 
 /**
  * Map Stripe subscription status to our Subscription table status.
+ * Exported for unit testing — billing access hinges on this mapping being right.
  */
-function mapStripeStatus(stripeStatus: Stripe.Subscription.Status): string {
+export function mapStripeStatus(stripeStatus: Stripe.Subscription.Status): string {
     switch (stripeStatus) {
         case "active":
             return "active"
@@ -62,32 +64,63 @@ export async function upsertStripeSubscription(
         ? new Date(item.current_period_end * 1000)
         : (subscription.current_period_end ? new Date(subscription.current_period_end * 1000) : null)
 
+    // Resolve the owning org and seat count, preferring the canonical local row
+    // over transient Stripe metadata (metadata can be missing on renewals or
+    // out-of-band subs — trusting it alone would mis-handle org cancellations and
+    // could shrink a multi-seat org to 1 seat).
+    const existing = await prisma.subscription.findUnique({
+        where: { providerSubscriptionId: subscription.id },
+        select: { seats: true, organizationId: true },
+    })
+    const organizationId = subscription.metadata?.organizationId || existing?.organizationId || null
+    // Default to the PRIOR seat count (never silently shrink to 1) when Stripe
+    // omits the item quantity on a webhook payload.
+    const seats = item?.quantity ?? existing?.seats ?? 1
+    // For org subs, the prior seat count lets us audit real seat changes.
+    const priorSeats = organizationId ? existing?.seats ?? null : null
+
     await prisma.subscription.upsert({
         where: { providerSubscriptionId: subscription.id },
         create: {
             userId,
+            organizationId,
             provider: "stripe",
             providerSubscriptionId: subscription.id,
             providerCustomerId: customerId,
             providerPriceId: priceId,
             product: plan.product,
             tier: plan.tier,
+            seats,
             status: mapStripeStatus(subscription.status),
             currentPeriodStart: periodStart,
             currentPeriodEnd: periodEnd,
             cancelAtPeriodEnd: subscription.cancel_at_period_end,
         },
         update: {
+            // Never un-link an org on update; always propagate seat changes.
+            ...(organizationId ? { organizationId } : {}),
             providerCustomerId: customerId,
             providerPriceId: priceId,
             product: plan.product,
             tier: plan.tier,
+            seats,
             status: mapStripeStatus(subscription.status),
             currentPeriodStart: periodStart,
             currentPeriodEnd: periodEnd,
             cancelAtPeriodEnd: subscription.cancel_at_period_end,
         },
     })
+
+    // Audit real seat changes on an org subscription (fire-and-forget).
+    if (organizationId && priorSeats !== null && priorSeats !== seats) {
+        void audit({
+            action: "org.billing.seats_change",
+            actorId: userId,
+            targetId: subscription.id,
+            organizationId,
+            metadata: { from: priorSeats, to: seats },
+        })
+    }
 
     return true
 }
@@ -174,10 +207,13 @@ export async function createCryptoSubscription(
 ): Promise<void> {
     const syntheticSubId = `crypto_${orderId}`
 
-    // Expire other active subscriptions (not this one)
+    // Expire other active PERSONAL subscriptions (not this one). Scoped to
+    // organizationId: null so a user buying a personal crypto plan can't expire
+    // their org's Business subscription (which carries their userId as the buyer).
     await tx.subscription.updateMany({
         where: {
             userId,
+            organizationId: null,
             status: "active",
             providerSubscriptionId: { not: syntheticSubId },
         },

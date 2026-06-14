@@ -78,6 +78,16 @@ type AdminUserListRow = {
     _count: { aliases: number; drops: number; recipients: number; domains: number; apiKeys: number }
 }
 
+type AdminReferralRow = {
+    id: string
+    email: string
+    name: string | null
+    referralClaimedAt: Date | null
+    referralPlusUntil: Date | null
+    createdAt: Date
+    referredBy: { id: string; email: string; name: string | null } | null
+}
+
 type AdminDropListRow = {
     id: string
     uploadComplete: boolean
@@ -1510,6 +1520,62 @@ export async function getAdminBilling(searchParams: SearchParams) {
         search,
         status,
         provider,
+        ...getPageMetadata(total, page),
+    }
+}
+
+export async function getAdminReferrals(searchParams: SearchParams) {
+    const search = sanitizeSearch(getStringParam(searchParams, "search"))
+    const page = parsePage(getStringParam(searchParams, "page"))
+
+    // A successful referral is a user who has been attributed to a referrer.
+    const where: Prisma.UserWhereInput = {
+        referredByUserId: { not: null },
+        ...(search && {
+            OR: [
+                { email: { contains: search, mode: "insensitive" } },
+                { name: { contains: search, mode: "insensitive" } },
+                { referredBy: { email: { contains: search, mode: "insensitive" } } },
+            ],
+        }),
+    }
+
+    const now = new Date()
+
+    const [referrals, total, totalReferrals, activePlus, distinctReferrers] = await Promise.all([
+        prismaPayload<Promise<AdminReferralRow[]>>(prisma.user.findMany({
+            where,
+            select: {
+                id: true,
+                email: true,
+                name: true,
+                referralClaimedAt: true,
+                referralPlusUntil: true,
+                createdAt: true,
+                referredBy: { select: { id: true, email: true, name: true } },
+            },
+            orderBy: { referralClaimedAt: "desc" },
+            skip: (page - 1) * ADMIN_PAGE_SIZE,
+            take: ADMIN_PAGE_SIZE,
+        })),
+        prisma.user.count({ where }),
+        prisma.user.count({ where: { referredByUserId: { not: null } } }),
+        prisma.user.count({ where: { referralPlusUntil: { gt: now } } }),
+        prisma.user.groupBy({
+            by: ["referredByUserId"],
+            where: { referredByUserId: { not: null } },
+        }),
+    ])
+
+    return {
+        referrals,
+        total,
+        search,
+        stats: {
+            totalReferrals,
+            totalReferrers: distinctReferrers.length,
+            activePlus,
+        },
         ...getPageMetadata(total, page),
     }
 }

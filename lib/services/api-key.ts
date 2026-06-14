@@ -2,7 +2,7 @@ import crypto from "crypto"
 import { createApiKeyRecord, deleteApiKeyById, getApiKeyById } from "@/lib/data/api-key"
 import { getUserById } from "@/lib/data/user"
 import { NotFoundError } from "@/lib/api-error-utils"
-import { assertCanAccess, type OwnerScope } from "@/lib/ownership"
+import { assertCanManage, type OwnerScope } from "@/lib/ownership"
 
 export class ApiKeyService {
 
@@ -53,8 +53,8 @@ export class ApiKeyService {
         if (!apiKey) {
             throw new NotFoundError("API key not found")
         }
-        // Cross-tenant guard: the key must be within the caller's scope.
-        assertCanAccess(apiKey, scope)
+        // Cross-tenant guard + org RBAC: revoking an org key is admin+.
+        assertCanManage(apiKey, scope)
         await deleteApiKeyById(keyId)
     }
 }

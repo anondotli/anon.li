@@ -1,5 +1,6 @@
 import { auth } from "@/auth"
 import { DashboardNav, UserNav, DashboardBranding, DashboardMobileNav } from "@/components/dashboard"
+import { OrgSwitcher } from "@/components/dashboard/org-switcher"
 import { FileDropProvider } from "@/components/drop/provider"
 import { VaultProvider } from "@/components/vault/vault-provider"
 import { VaultGate } from "@/components/vault/vault-gate"
@@ -59,6 +60,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
                     <DashboardMobileNav />
                     <DashboardBranding />
                     <div className="flex flex-1 items-center justify-end space-x-2">
+                        <OrgSwitcher />
                         <UserNav user={session.user} />
                     </div>
                 </div>

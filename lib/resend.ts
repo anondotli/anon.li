@@ -1,6 +1,6 @@
 import React from "react"
 import { Resend } from "resend"
-import { sanitizeEmailSubject, sanitizeDomain, sanitizeFilename } from "@/lib/utils"
+import { sanitizeEmailSubject, sanitizeEmailUserContent, sanitizeDomain, sanitizeFilename } from "@/lib/utils"
 import { createLogger } from "@/lib/logger"
 import { unsubscribeUrl as buildUnsubscribeUrl } from "@/lib/email-unsubscribe"
 
@@ -289,13 +289,22 @@ export async function sendOrganizationInvitationEmail(
         const resend = getResendClient()
         const { OrganizationInvitationEmail } = await import("@/components/email/organization-invitation")
 
+        // organizationName / inviterName are user-controlled content in an email
+        // the inviter sends to an arbitrary address: defang them so mail clients
+        // can't auto-link a domain-shaped name ("anon.li") into a phishing link.
+        const safeOrgName = sanitizeEmailUserContent(organizationName)
+        const safeInviterName = sanitizeEmailUserContent(inviterName)
+
         const { data, error } = await resend.emails.send({
             from: "anon.li <hi@anon.li>",
             to: email,
-            // organizationName / inviterName are user-controlled — sanitize the subject.
-            subject: sanitizeEmailSubject(`${inviterName} invited you to join ${organizationName} on anon.li`),
-            text: `${inviterName} invited you to join ${organizationName} on anon.li.\nAccept the invitation: ${url}\n\n`,
-            react: React.createElement(OrganizationInvitationEmail, { url, organizationName, inviterName }),
+            subject: sanitizeEmailSubject(`${safeInviterName} invited you to join ${safeOrgName} on anon.li`),
+            text: `${safeInviterName} invited you to join ${safeOrgName} on anon.li.\nAccept the invitation: ${url}\n\n`,
+            react: React.createElement(OrganizationInvitationEmail, {
+                url,
+                organizationName: safeOrgName,
+                inviterName: safeInviterName,
+            }),
         })
 
         if (error) {

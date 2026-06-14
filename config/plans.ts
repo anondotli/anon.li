@@ -11,7 +11,11 @@
  * - Bundle: Best value for users who need both
  */
 
-export type Product = "bundle" | "alias" | "drop" | "form";
+// "business" is the unified, per-seat Teams plan: it grants Pro-level
+// entitlements across alias + drop + form (resolved like "bundle"), but is
+// owned by an Organization and billed per seat. See lib/limits.ts /
+// lib/entitlements.ts for how it flows into tier resolution.
+export type Product = "bundle" | "alias" | "drop" | "form" | "business";
 export type PaidTier = "plus" | "pro";
 export type Tier = "guest" | "free" | PaidTier;
 
@@ -495,6 +499,49 @@ export const FORM_PLANS: Record<"free" | "plus" | "pro", PlanDefinition> = {
     }),
 };
 
+// ─── Business (Teams) — unified, per-seat ──────────────────────────────────
+// Per-seat price. Adjust to taste; the org is billed price × seats.
+export const BUSINESS_SEAT_PRICE = { monthly: 11.99, yearly: 119.89 } as const;
+
+// Business always resolves to Pro-level entitlements across every product.
+export const BUSINESS_TIER: PaidTier = "pro";
+
+export const BUSINESS_PLAN: PlanDefinition = {
+    id: "business",
+    name: "Business",
+    description: "Per-seat plan for teams who need shared, private collaboration.",
+    price: BUSINESS_SEAT_PRICE,
+    priceIds: {
+        monthly: process.env.STRIPE_BUSINESS_MONTHLY_PRICE_ID!,
+        yearly: process.env.STRIPE_BUSINESS_YEARLY_PRICE_ID!,
+    },
+    features: [
+        "Everything in Pro — for every seat",
+        "Shared team aliases & custom domains",
+        "Shared encrypted Drops & Forms",
+        "Member management & role-based access",
+        "Centralized, per-seat billing",
+    ],
+    missingFeatures: [],
+};
+
+// Enterprise is sales-led (manual provider / custom contract) — no fixed Stripe
+// price. Surfaced on the pricing page as a "Contact sales" tier.
+export const ENTERPRISE_PLAN: Pick<PlanDefinition, "id" | "name" | "description" | "features" | "missingFeatures"> = {
+    id: "enterprise",
+    name: "Enterprise",
+    description: "Volume pricing, org-wide security policy, audit logs, and a DPA for larger teams.",
+    features: [
+        "Everything in Business",
+        "Volume seat pricing & invoicing",
+        "Org-wide enforced two-factor authentication",
+        "Audit logs & org data export",
+        "Custom contract & DPA",
+        "Priority support",
+    ],
+    missingFeatures: [],
+};
+
 // ─── Price ID → plan resolution ────────────────────────────────────────────
 
 const ALL_PLAN_DEFS: { plans: Record<string, PlanDefinition>; product: Product }[] = [
@@ -502,6 +549,9 @@ const ALL_PLAN_DEFS: { plans: Record<string, PlanDefinition>; product: Product }
     { plans: ALIAS_PLANS, product: "alias" },
     { plans: DROP_PLANS, product: "drop" },
     { plans: FORM_PLANS, product: "form" },
+    // Business is a single plan; expose it under its resolved tier so a Stripe
+    // business price id maps to { product: "business", tier: "pro" }.
+    { plans: { [BUSINESS_TIER]: BUSINESS_PLAN }, product: "business" },
 ];
 
 export function getPlanFromPriceId(priceId: string): { product: Product; tier: Tier } | null {

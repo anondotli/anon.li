@@ -1,7 +1,10 @@
 import { redirect } from "next/navigation"
 import Link from "next/link"
 import { auth } from "@/auth"
+import { scopeFromSession } from "@/lib/auth-session"
+import { isOrgSubscribed } from "@/lib/data/auth"
 import { Button } from "@/components/ui/button"
+import { TeamWorkspaceLocked } from "@/components/dashboard/team/team-workspace-locked"
 import { FormService } from "@/lib/services/form"
 import { getEffectiveTiers } from "@/lib/entitlements"
 import { getFormLimitsAsync } from "@/lib/limits"
@@ -18,8 +21,26 @@ export default async function FormDashboardPage() {
     const session = await auth()
     if (!session?.user?.id) redirect("/login")
 
+    // Purchase-first Teams: an unsubscribed team is a zero-capacity workspace.
+    const scope = scopeFromSession(session)
+    if (scope.organizationId && !(await isOrgSubscribed(scope.organizationId))) {
+        return (
+            <div className="flex flex-col gap-8">
+                <div className="flex flex-col gap-4 border-b border-border/40 pb-6 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="space-y-1">
+                        <h1 className="text-3xl font-medium tracking-tight font-serif">Forms</h1>
+                        <p className="text-muted-foreground font-light">
+                            Build end-to-end encrypted forms and manage responses.
+                        </p>
+                    </div>
+                </div>
+                <TeamWorkspaceLocked resource="forms" />
+            </div>
+        )
+    }
+
     const [list, tiers, limits, recentSubmissions] = await Promise.all([
-        FormService.listForms(session.user.id, { limit: 100 }),
+        FormService.listForms(scope, { limit: 100 }),
         getEffectiveTiers(session.user.id),
         getFormLimitsAsync(session.user.id),
         FormService.countRecentSubmissionsForOwner(session.user.id),

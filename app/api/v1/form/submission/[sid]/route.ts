@@ -4,7 +4,7 @@
  */
 
 import { apiError, apiSuccess, ErrorCodes } from "@/lib/api-response"
-import { withPolicy } from "@/lib/route-policy"
+import { withPolicy, scopeFromContext } from "@/lib/route-policy"
 import { FormService } from "@/lib/services/form"
 import { NotFoundError, ForbiddenError } from "@/lib/api-error-utils"
 
@@ -23,7 +23,7 @@ export const GET = withPolicy<RouteParams>(
         const url = new URL(ctx.request.url)
         const markRead = url.searchParams.get("markRead") !== "false"
         try {
-            const submission = await FormService.getSubmission(sid, ctx.userId!, { markRead })
+            const submission = await FormService.getSubmission(sid, scopeFromContext(ctx), { markRead })
             return apiSuccess({
                 id: submission.id,
                 ephemeral_pub_key: submission.ephemeralPubKey,
@@ -55,7 +55,7 @@ export const DELETE = withPolicy<RouteParams>(
     async (ctx, routeContext) => {
         const { sid } = await routeContext!.params
         try {
-            await FormService.deleteSubmission(sid, ctx.userId!)
+            await FormService.deleteSubmission(sid, scopeFromContext(ctx))
             return apiSuccess({ deleted: true, id: sid }, ctx.requestId)
         } catch (error) {
             if (error instanceof NotFoundError) {

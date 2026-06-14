@@ -1,17 +1,19 @@
 
 import { z } from "zod"
 import { randomBytes } from "crypto"
-import { getPlanLimits, getEffectiveTier } from "@/lib/limits"
+import { getPlanLimits, getEffectiveTier, assertOrgPlanActive } from "@/lib/limits"
 import { createLogger } from "@/lib/logger"
 import {
     getAliasById,
     getAliases as dbGetAliases,
+    countAliases as dbCountAliases,
     deleteAliasById as dbDeleteAlias,
 } from "@/lib/data/alias"
-import { ownerWhere, type OwnerScope } from "@/lib/ownership"
+import { ownerWhere, assertCanManage, type OwnerScope } from "@/lib/ownership"
 import { getUserById, type UserWithSubscriptions } from "@/lib/data/user"
-import { getDomainsByUserId } from "@/lib/data/domain"
-import { getRecipientById, getDefaultRecipientByUserId, getRecipientByUserIdAndEmail } from "@/lib/data/recipient"
+import { getOrgLimitContext } from "@/lib/data/auth"
+import { getDomains } from "@/lib/data/domain"
+import { getRecipientById, getDefaultRecipient, getRecipientByScopeAndEmail } from "@/lib/data/recipient"
 import { prisma } from "@/lib/prisma"
 import type { Alias, Recipient } from "@prisma/client"
 import { ValidationError, NotFoundError, ForbiddenError, ConflictError, UpgradeRequiredError } from "@/lib/api-error-utils"
@@ -80,8 +82,12 @@ const createAliasSchema = z.object({
 
 export class AliasService {
 
-    static async getAliases(scope: OwnerScope) {
-        return await dbGetAliases(scope)
+    static async getAliases(scope: OwnerScope, options?: { limit?: number; offset?: number }) {
+        return await dbGetAliases(scope, options)
+    }
+
+    static async countAliases(scope: OwnerScope) {
+        return await dbCountAliases(scope)
     }
 
     static async createAlias(scope: OwnerScope, data: {
@@ -100,10 +106,20 @@ export class AliasService {
 
         const user = await this._validateUserAccess(scope.userId)
 
+        // Limit values derive from the OWNING plan: in org scope from the org's
+        // own subscription (Business), not the creating member's personal plan;
+        // usage counts are already pooled across the org via ownerWhere(scope).
+        const limitContext = scope.organizationId
+            ? await getOrgLimitContext(scope.organizationId)
+            : user
+
+        // Purchase-first Teams: an unsubscribed org is a zero-capacity workspace.
+        if (scope.organizationId) assertOrgPlanActive(limitContext, "aliases", "alias_random")
+
         // Resolve recipients: prefer recipientIds array, fall back to single recipientId/recipientEmail
         // TODO(track-d): in org scope, resolve org-owned recipients (shared team recipients).
         const recipients = await this._resolveRecipients(
-            scope.userId, user.email || "", data.recipientIds, data.recipientId, data.recipientEmail
+            scope, user.email || "", data.recipientIds, data.recipientId, data.recipientEmail
         )
 
         if (recipients.length === 0) {
@@ -115,7 +131,7 @@ export class AliasService {
 
         if (!localPart) throw new ValidationError("Failed to generate alias")
 
-        await this._validateDomainAccess(user, domain)
+        await this._validateDomainAccess(scope, domain)
 
         const email = `${localPart}@${domain}`
 
@@ -131,10 +147,10 @@ export class AliasService {
             const currentCount = await tx.alias.count({
                 where: { ...ownerWhere(scope), format },
             })
-            const { random: randomLimit, custom: customLimit } = getPlanLimits(user)
+            const { random: randomLimit, custom: customLimit } = getPlanLimits(limitContext)
             const limit = format === "CUSTOM" ? customLimit : randomLimit
             if (limit !== -1 && currentCount >= limit) {
-                const currentTier = getEffectiveTier(user)
+                const currentTier = getEffectiveTier(limitContext)
                 throw new UpgradeRequiredError(
                     format === "CUSTOM"
                         ? `Custom alias limit reached (${limit}). Upgrade to add more.`
@@ -178,10 +194,10 @@ export class AliasService {
         }, { isolationLevel: "Serializable" })
     }
 
-    private static async _validateRecipient(userId: string, recipientId?: string, _fallbackEmail?: string, recipientEmail?: string) {
-        // If recipientEmail is provided, resolve to a recipient by email
+    private static async _validateRecipient(scope: OwnerScope, recipientId?: string, _fallbackEmail?: string, recipientEmail?: string) {
+        // If recipientEmail is provided, resolve to a recipient by email within scope
         if (recipientEmail) {
-            const recipient = await getRecipientByUserIdAndEmail(userId, recipientEmail)
+            const recipient = await getRecipientByScopeAndEmail(scope, recipientEmail)
             if (!recipient) {
                 throw new NotFoundError("Recipient not found")
             }
@@ -191,13 +207,10 @@ export class AliasService {
             return { recipient, recipientEmail: recipient.email }
         }
 
-        // If recipientId is provided, validate it belongs to this user and is verified
+        // If recipientId is provided, validate it is within scope and verified
         if (recipientId) {
-            const recipient = await getRecipientById(recipientId, userId)
+            const recipient = await getRecipientById(recipientId, scope)
             if (!recipient) {
-                throw new NotFoundError("Recipient not found")
-            }
-            if (recipient.userId !== userId) {
                 throw new NotFoundError("Recipient not found")
             }
             if (!recipient.verified) {
@@ -207,7 +220,7 @@ export class AliasService {
         }
 
         // If no recipientId, try to use the default recipient
-        const defaultRecipient = await getDefaultRecipientByUserId(userId)
+        const defaultRecipient = await getDefaultRecipient(scope)
         if (defaultRecipient) {
             return { recipient: defaultRecipient, recipientEmail: defaultRecipient.email }
         }
@@ -228,18 +241,19 @@ export class AliasService {
         return user
     }
 
-    private static async _validateDomainAccess(user: UserWithSubscriptions, domain: string) {
+    private static async _validateDomainAccess(scope: OwnerScope, domain: string) {
         // anon.li is the main shared domain - always allowed
         if (domain === "anon.li") {
             return
         }
 
-        // For custom domains, check user ownership and verification
-        const userDomains = await getDomainsByUserId(user.id)
-        const ownedDomain = userDomains.find((d) => d.domain === domain)
+        // For custom domains, check ownership (personal or org) and verification.
+        // Org members can use any domain the org has verified (Track D).
+        const scopedDomains = await getDomains(scope)
+        const ownedDomain = scopedDomains.find((d) => d.domain === domain)
 
         if (!ownedDomain) {
-            throw new ForbiddenError("Domain not associated with your account")
+            throw new ForbiddenError("Domain not associated with this account")
         }
         if (!ownedDomain.verified) {
             throw new ValidationError("Domain not verified")
@@ -344,6 +358,8 @@ export class AliasService {
         if (!alias) {
             throw new NotFoundError("Alias not found")
         }
+        // Toggling a shared org alias's forwarding affects the team → admin+.
+        assertCanManage(alias, scope)
 
         return await prisma.alias.update({
             where: { id: aliasId },
@@ -356,6 +372,8 @@ export class AliasService {
         if (!alias) {
             throw new NotFoundError("Alias not found")
         }
+        // Deleting a shared org alias is destructive for the team → admin+.
+        assertCanManage(alias, scope)
 
         return await dbDeleteAlias(aliasId, scope)
     }
@@ -377,7 +395,7 @@ export class AliasService {
 
         // If updating recipients (array), replace the full list
         if (data.recipientIds !== undefined) {
-            const recipients = await this._validateRecipientIds(scope.userId, data.recipientIds)
+            const recipients = await this._validateRecipientIds(scope, data.recipientIds)
             if (recipients.length === 0) {
                 throw new ValidationError("At least one valid recipient is required")
             }
@@ -410,7 +428,7 @@ export class AliasService {
 
         // Single recipient update (backward compat)
         if (data.recipientId !== undefined || data.recipientEmail !== undefined) {
-            const { recipient } = await this._validateRecipient(scope.userId, data.recipientId, undefined, data.recipientEmail)
+            const { recipient } = await this._validateRecipient(scope, data.recipientId, undefined, data.recipientEmail)
             if (!recipient) {
                 throw new ValidationError("Invalid recipient")
             }
@@ -495,7 +513,7 @@ export class AliasService {
      * Priority: recipientIds array > single recipientId/email > default recipient.
      */
     private static async _resolveRecipients(
-        userId: string,
+        scope: OwnerScope,
         fallbackEmail: string,
         recipientIds?: string[],
         recipientId?: string,
@@ -503,24 +521,24 @@ export class AliasService {
     ): Promise<Recipient[]> {
         // Multi-recipient path
         if (recipientIds && recipientIds.length > 0) {
-            return this._validateRecipientIds(userId, recipientIds)
+            return this._validateRecipientIds(scope, recipientIds)
         }
 
         // Single-recipient path (backward compat)
-        const { recipient } = await this._validateRecipient(userId, recipientId, fallbackEmail, recipientEmail)
+        const { recipient } = await this._validateRecipient(scope, recipientId, fallbackEmail, recipientEmail)
         return recipient ? [recipient] : []
     }
 
     /**
      * Validate an array of recipient IDs: all must belong to the user and be verified.
      */
-    private static async _validateRecipientIds(userId: string, recipientIds: string[]): Promise<Recipient[]> {
+    private static async _validateRecipientIds(scope: OwnerScope, recipientIds: string[]): Promise<Recipient[]> {
         if (recipientIds.length === 0) {
             throw new ValidationError("At least one recipient is required")
         }
 
-        // Enforce max recipients per alias based on plan
-        const user = await getUserById(userId)
+        // Enforce max recipients per alias based on plan (per-user; TODO(track-c) org plan)
+        const user = await getUserById(scope.userId)
         if (!user) throw new NotFoundError("User not found")
         const { recipientsPerAlias } = getPlanLimits(user)
         if (recipientsPerAlias !== undefined && recipientIds.length > recipientsPerAlias) {
@@ -540,7 +558,7 @@ export class AliasService {
         const recipients = await prisma.recipient.findMany({
             where: {
                 id: { in: recipientIds },
-                userId,
+                ...ownerWhere(scope),
             },
         })
 

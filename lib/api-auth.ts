@@ -2,7 +2,7 @@ import { auth } from "@/auth"
 import { getAuthApiKeyRecord, getAuthUserState, touchApiKeyLastUsed } from "@/lib/data/auth"
 import { checkApiQuota, type ApiQuotaType, type RateLimitResult } from "@/lib/api-rate-limit"
 import { ApiKeyService } from "@/lib/services/api-key"
-import type { SubscriptionLike } from "@/lib/limits"
+import type { SubscriptionLike, UserSub } from "@/lib/limits"
 
 /**
  * SafeUser contains only the fields needed by API consumers.
@@ -17,6 +17,8 @@ interface ApiKeyValidationResult {
     user: SafeUser
     apiKeyId: string
     rateLimit: RateLimitResult
+    /** Set when the key is org-owned — lets routes resolve org scope (Track G). */
+    organizationId: string | null
 }
 
 /**
@@ -54,8 +56,15 @@ export async function validateApiKey(req: Request, quotaType?: ApiQuotaType): Pr
         return null
     }
 
+    // Org-owned keys pool their monthly quota by org and resolve tier from the
+    // org's subscriptions; personal keys meter per user (unchanged behavior).
+    const quotaSubjectId = apiKey.organizationId ?? apiKey.user.id
+    const quotaSubject: UserSub = apiKey.organizationId
+        ? { subscriptions: apiKey.organizationSubscriptions, referralPlusUntil: null }
+        : apiKey.user
+
     const rateLimit: RateLimitResult = quotaType
-        ? await checkApiQuota(apiKey.user.id, apiKey.user, quotaType)
+        ? await checkApiQuota(quotaSubjectId, quotaSubject, quotaType)
         : { success: true, limit: -1, remaining: -1, reset: new Date() }
 
     // Track last usage (fire-and-forget to avoid latency) after authentication,
@@ -66,6 +75,7 @@ export async function validateApiKey(req: Request, quotaType?: ApiQuotaType): Pr
         user: apiKey.user,
         apiKeyId: apiKey.id,
         rateLimit,
+        organizationId: apiKey.organizationId,
     }
 }
 

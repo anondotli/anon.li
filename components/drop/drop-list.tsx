@@ -72,7 +72,7 @@ interface DropListProps {
 }
 
 export function DropList({ initialDrops, storage, onDropsChange }: DropListProps) {
-  const { unwrapDropKey } = useVault();
+  const { unwrapDropKey, unwrapOrgManagedKey } = useVault();
   const [drops, setDrops] = useState<DropItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [deleteItem, setDeleteItem] = useState<DropItem | null>(null);
@@ -92,7 +92,11 @@ export function DropList({ initialDrops, storage, onDropsChange }: DropListProps
         }
 
         try {
-          const key = await unwrapDropKey(wrappedKey.wrappedKey);
+          // Org-owned drops are wrapped to the team's shared org vault key; the
+          // creator's personal vault key can't open them, so route by ownership.
+          const key = wrappedKey.organizationId
+            ? await unwrapOrgManagedKey(wrappedKey.wrappedKey, wrappedKey.organizationId)
+            : await unwrapDropKey(wrappedKey.wrappedKey);
           const keyString = await exportKeyBase64Url(key);
           return [drop.id, { key, keyString }] as const;
         } catch {
@@ -102,7 +106,7 @@ export function DropList({ initialDrops, storage, onDropsChange }: DropListProps
     );
 
     return new Map<string, ResolvedDropKeyMaterial>(resolvedKeys);
-  }, [unwrapDropKey]);
+  }, [unwrapDropKey, unwrapOrgManagedKey]);
 
   const decryptDrops = useCallback(async (dropsToDecrypt: DropData[]) => {
     setLoading(true);

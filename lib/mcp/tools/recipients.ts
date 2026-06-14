@@ -2,6 +2,7 @@ import { z } from "zod"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { RecipientService } from "@/lib/services/recipient"
 import { invokeTool, toolResult } from "@/lib/mcp/invoke"
+import { personalScope } from "@/lib/ownership"
 import type { McpSession } from "@/lib/mcp/types"
 
 export function registerRecipientTools(server: McpServer, session: McpSession) {
@@ -13,7 +14,7 @@ export function registerRecipientTools(server: McpServer, session: McpSession) {
             inputSchema: {},
         },
         async () => invokeTool(session, { rateLimit: "recipientOps" }, async (user) => {
-            const recipients = await RecipientService.getRecipients(user.id)
+            const recipients = await RecipientService.getRecipients(personalScope(user.id))
             return toolResult({
                 total: recipients.length,
                 recipients: recipients.map((r) => ({
@@ -38,7 +39,7 @@ export function registerRecipientTools(server: McpServer, session: McpSession) {
             },
         },
         async ({ email }) => invokeTool(session, { rateLimit: "recipientOps" }, async (user) => {
-            const recipient = await RecipientService.addRecipient(user.id, email)
+            const recipient = await RecipientService.addRecipient(personalScope(user.id), email)
             return toolResult({
                 id: recipient.id,
                 email: recipient.email,

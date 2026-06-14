@@ -9,6 +9,7 @@ import {
 import { getVaultSession } from "@/lib/vault/server"
 import { getVaultSchemaState, VAULT_SCHEMA_UNAVAILABLE_MESSAGE } from "@/lib/vault/schema"
 import { enforceVaultRequestGuards } from "@/lib/vault/http"
+import { getMemberOrgIds, isOrgMember } from "@/lib/vault/org-access"
 import {
     vaultGenerationSchema,
     vaultIdSchema,
@@ -62,10 +63,20 @@ export async function GET(request: Request) {
                     formId: true,
                     wrappedKey: true,
                     vaultGeneration: true,
+                    organizationId: true,
+                    orgKeyGeneration: true,
                 },
             })
 
-            if (!formKey || formKey.userId !== session.user.id) {
+            // Personal keys: only the owning user. Org keys (wrapped to the org
+            // vault key): any member of that org.
+            const canRead = formKey
+                ? formKey.organizationId
+                    ? await isOrgMember(session.user.id, formKey.organizationId)
+                    : formKey.userId === session.user.id
+                : false
+
+            if (!formKey || !canRead) {
                 logVaultWarn(ROUTE_NAME, "Form key not found for user", {
                     requestId,
                     userId: session.user.id,
@@ -77,13 +88,22 @@ export async function GET(request: Request) {
             return withNoStore(apiSuccess(formKey, requestId))
         }
 
+        // List: personal keys plus every org key for orgs the user belongs to.
+        const orgIds = await getMemberOrgIds(session.user.id)
         const formKeys = await prisma.formOwnerKey.findMany({
-            where: { userId: session.user.id },
+            where: {
+                OR: [
+                    { userId: session.user.id, organizationId: null },
+                    ...(orgIds.length ? [{ organizationId: { in: orgIds } }] : []),
+                ],
+            },
             orderBy: { updatedAt: "desc" },
             select: {
                 formId: true,
                 wrappedKey: true,
                 vaultGeneration: true,
+                organizationId: true,
+                orgKeyGeneration: true,
             },
         })
 

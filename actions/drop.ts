@@ -3,13 +3,13 @@
 import { revalidatePath } from "next/cache"
 import { DropService } from "@/lib/services/drop"
 import { rateLimit, getClientIp } from "@/lib/rate-limit"
-import { getChunkPresignedUrls, getPresignedDownloadUrl } from "@/lib/storage"
+import { getChunkPresignedUrls, getPresignedDownloadUrl, LIMITED_DROP_PRESIGNED_URL_EXPIRES } from "@/lib/storage"
 import { prisma } from "@/lib/prisma"
 import type { DropMetadata } from "@/lib/drop.client"
 import { getPublicDropMetadata } from "@/lib/drop-metadata"
 import { z } from "zod"
 import { createLogger } from "@/lib/logger"
-import { type ActionState, runSecureAction } from "@/lib/safe-action"
+import { type ActionState, runScopedAction } from "@/lib/safe-action"
 import { addFileActionSchema } from "@/lib/validations/drop"
 import { assertVaultIdentity } from "@/lib/vault/identity"
 import type { UpgradeRequiredDetails } from "@/lib/api-error-utils"
@@ -17,6 +17,7 @@ import {
     DropOwnerKeyConflictError,
     persistOwnedDropKey,
 } from "@/lib/vault/drop-owner-keys"
+import { getOrgKeyGeneration } from "@/lib/vault/org-access"
 import {
     vaultGenerationSchema,
     vaultIdSchema,
@@ -81,6 +82,11 @@ const createDropSchema = z.object({
     wrappedKey: wrappedDropKeySchema,
     vaultId: vaultIdSchema,
     vaultGeneration: vaultGenerationSchema,
+    // Present only for org-context drops: the wrappedKey is wrapped to the org
+    // vault key (not the creator's personal vault) at this generation, so any
+    // granted team member can open it. The trusted scope (not this field)
+    // decides org-ownership; this only records which org key generation was used.
+    orgKeyGeneration: z.number().int().positive().optional(),
 }).refine((data) => {
     if (data.customKey) {
         return !!data.salt && !!data.customKeyData && !!data.customKeyIv;
@@ -136,6 +142,26 @@ async function persistDropOwnerKey(userId: string, dropId: string, wrappedKey: s
     await persistOwnedDropKey(prisma, userId, dropId, wrappedKey, vaultGeneration)
 }
 
+// Org-context drops: the wrappedKey is wrapped to the ORG vault key (not the
+// creator's personal vault), so there is no personal vault identity to assert.
+// Ownership is anchored to the org via organizationId; any granted member can
+// later open it. We still record the creator (userId). The org key generation is
+// resolved SERVER-side (not trusted from the client): a readable wrap must be to
+// the current org key, so the recorded generation must be the org's current one.
+async function persistOrgDropOwnerKey(
+    userId: string,
+    dropId: string,
+    wrappedKey: string,
+    vaultGeneration: number,
+    organizationId: string,
+) {
+    const orgKeyGeneration = await getOrgKeyGeneration(organizationId)
+    if (orgKeyGeneration < 1) {
+        throw new Error("Team encryption key is not set up yet")
+    }
+    await persistOwnedDropKey(prisma, userId, dropId, wrappedKey, vaultGeneration, { organizationId, orgKeyGeneration })
+}
+
 // ============================================================================
 // Server Actions for Upload Flow
 // ============================================================================
@@ -147,20 +173,38 @@ async function persistDropOwnerKey(userId: string, dropId: string, wrappedKey: s
 export async function createDropAction(
     input: z.infer<typeof createDropSchema>
 ): Promise<CreateDropActionResult> {
-    const result = await runSecureAction(
+    const result = await runScopedAction(
         { schema: createDropSchema, data: input, rateLimitKey: "dropCreate" },
-        async (validated, userId): Promise<CreateDropActionResult> => {
-            const { wrappedKey, vaultId, vaultGeneration, ...dropInput } = validated
-            const result = await DropService.createDrop(userId, dropInput)
+        async (validated, scope): Promise<CreateDropActionResult> => {
+            // Owner key + rollback bind to the creating user. In org context the
+            // wrappedKey is wrapped to the org vault key (shared with the team);
+            // in personal context it is bound to the user's own vault.
+            const userId = scope.userId
+            // orgKeyGeneration is stripped from the client payload but ignored —
+            // the trusted server scope decides org-ownership and resolves the org
+            // key generation authoritatively (see persistOrgDropOwnerKey).
+            const { wrappedKey, vaultId, vaultGeneration, orgKeyGeneration: _ignoredOrgGen, ...dropInput } = validated
+
+            const result = await DropService.createDrop(scope, dropInput)
 
             try {
-                await persistDropOwnerKey(
-                    userId,
-                    result.dropId,
-                    wrappedKey,
-                    vaultId,
-                    vaultGeneration
-                )
+                if (scope.organizationId) {
+                    await persistOrgDropOwnerKey(
+                        userId,
+                        result.dropId,
+                        wrappedKey,
+                        vaultGeneration,
+                        scope.organizationId,
+                    )
+                } else {
+                    await persistDropOwnerKey(
+                        userId,
+                        result.dropId,
+                        wrappedKey,
+                        vaultId,
+                        vaultGeneration
+                    )
+                }
             } catch (keyError) {
                 if (keyError instanceof DropOwnerKeyConflictError) {
                     logger.warn("Drop owner key persistence rejected due to ownership conflict", {
@@ -202,10 +246,10 @@ export async function createDropAction(
 export async function addFileToDropAction(
     input: z.infer<typeof addFileSchema>
 ): Promise<AddFileActionResult> {
-    const result = await runSecureAction(
+    const result = await runScopedAction(
         { schema: addFileSchema, data: input, rateLimitKey: "fileUploadAuth" },
-        async (validated, userId): Promise<AddFileActionResult> => {
-            const result = await DropService.addFile(userId, validated)
+        async (validated, scope): Promise<AddFileActionResult> => {
+            const result = await DropService.addFile(scope, validated)
 
             // Generate presigned URLs for chunk uploads
             const partNumbers = Array.from(
@@ -237,12 +281,12 @@ export async function addFileToDropAction(
 export async function finishDropAction(
     input: z.infer<typeof finishDropSchema>
 ): Promise<FinishDropActionResult> {
-    const result = await runSecureAction(
+    const result = await runScopedAction(
         { schema: finishDropSchema, data: input, rateLimitKey: "dropOps" },
-        async (validated, userId): Promise<FinishDropActionResult> => {
+        async (validated, scope): Promise<FinishDropActionResult> => {
             const { dropId, files } = validated
 
-            await DropService.finishDrop(dropId, files, userId)
+            await DropService.finishDrop(dropId, files, scope)
 
             revalidatePath("/dashboard/drop")
             return { success: true }
@@ -258,8 +302,8 @@ export async function finishDropAction(
  * When disabled, the download link will not work.
  */
 export async function toggleDropAction(dropId: string): Promise<ActionState<{ disabled: boolean }>> {
-    return runSecureAction({ rateLimitKey: "dropOps" }, async (_, userId) => {
-        const disabled = await DropService.toggleDrop(dropId, userId)
+    return runScopedAction({ rateLimitKey: "dropOps" }, async (_, scope) => {
+        const disabled = await DropService.toggleDrop(dropId, scope)
         revalidatePath("/dashboard/drop")
         return { disabled }
     })
@@ -269,8 +313,8 @@ export async function toggleDropAction(dropId: string): Promise<ActionState<{ di
  * Deletes a drop and all its files permanently.
  */
 export async function deleteDropAction(dropId: string): Promise<ActionState> {
-    return runSecureAction({ rateLimitKey: "dropOps" }, async (_, userId) => {
-        await DropService.deleteDrop(dropId, userId)
+    return runScopedAction({ rateLimitKey: "dropOps" }, async (_, scope) => {
+        await DropService.deleteDrop(dropId, scope)
         revalidatePath("/dashboard/drop")
     })
 }
@@ -370,9 +414,13 @@ export async function recordDownloadAction(dropId: string): Promise<RecordDownlo
             return { error: "Download limit reached." }
         }
 
+        // Limited drops get short-lived URLs so an issued download can't be
+        // replayed long after the count was spent (the byte transfer happens at
+        // R2, which we can't count). Unlimited drops keep the default TTL.
+        const expiresIn = drop.maxDownloads ? LIMITED_DROP_PRESIGNED_URL_EXPIRES : undefined
         const downloadUrls: Record<string, string> = {}
         for (const file of drop.files) {
-            downloadUrls[file.id] = await getPresignedDownloadUrl(file.storageKey)
+            downloadUrls[file.id] = await getPresignedDownloadUrl(file.storageKey, expiresIn)
         }
 
         return { downloadUrls }

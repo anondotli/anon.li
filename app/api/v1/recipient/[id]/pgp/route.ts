@@ -8,7 +8,7 @@
 import { z } from "zod"
 
 import { apiError, apiSuccess, ErrorCodes, zodErrorToDetails } from "@/lib/api-response"
-import { withPolicy } from "@/lib/route-policy"
+import { withPolicy, scopeFromContext } from "@/lib/route-policy"
 import { RecipientService } from "@/lib/services/recipient"
 
 export const dynamic = "force-dynamic"
@@ -47,7 +47,7 @@ export const PUT = withPolicy<RouteParams>(
         }
 
         const recipient = await RecipientService.setPgpKey(
-            ctx.userId,
+            scopeFromContext(ctx),
             id,
             validation.data.public_key,
             validation.data.name,
@@ -73,7 +73,7 @@ export const DELETE = withPolicy<RouteParams>(
         }
 
         const { id } = await routeContext!.params
-        await RecipientService.removePgpKey(ctx.userId, id)
+        await RecipientService.removePgpKey(scopeFromContext(ctx), id)
         return apiSuccess({ removed: true }, ctx.requestId)
     },
 )

@@ -46,9 +46,9 @@ describe("auth access state", () => {
             isAdmin: true,
             banned: false,
             twoFactorEnabled: true,
-            stripeSubscriptionId: "sub_123",
-            stripePriceId: "price_123",
-            stripeCurrentPeriodEnd: null,
+            referralPlusUntil: null,
+            subscriptions: [],
+            memberships: [],
             deletionRequest: null,
         })
 
@@ -57,9 +57,9 @@ describe("auth access state", () => {
             isAdmin: true,
             banned: false,
             twoFactorEnabled: true,
-            stripeSubscriptionId: "sub_123",
-            stripePriceId: "price_123",
-            stripeCurrentPeriodEnd: null,
+            referralPlusUntil: null,
+            subscriptions: [],
+            memberships: [],
         })
     })
 

@@ -4,12 +4,14 @@ import crypto from "crypto"
 import dns from "dns"
 import util from "util"
 import { prisma } from "@/lib/prisma"
-import { getPlanLimits } from "@/lib/limits"
+import { getPlanLimits, assertOrgPlanActive } from "@/lib/limits"
+import { getOrgLimitContext } from "@/lib/data/auth"
 import { generateDkimKeys } from "@/lib/dkim"
 import { createLogger } from "@/lib/logger"
 import { ValidationError, NotFoundError, ForbiddenError } from "@/lib/api-error-utils"
-import { ownerWhere, assertCanAccess, type OwnerScope } from "@/lib/ownership"
+import { ownerWhere, assertCanAccess, assertCanManage, type OwnerScope } from "@/lib/ownership"
 import { encryptField } from "@/lib/field-encryption"
+import { audit } from "@/lib/services/audit"
 
 const logger = createLogger("DomainService")
 
@@ -49,8 +51,9 @@ export class DomainService {
             throw new ValidationError("This domain is reserved and cannot be added")
         }
 
-        // Check plan limits.
-        // TODO(track-c): in org scope, the domain limit value should derive from the org plan.
+        // Check plan limits. In org scope the limit derives from the org's own
+        // plan (Business), not the creating member's personal plan; the count is
+        // already pooled across the org via ownerWhere(scope).
         const user = await prisma.user.findUnique({
             where: { id: scope.userId },
             include: {
@@ -70,7 +73,14 @@ export class DomainService {
             throw new NotFoundError("User not found")
         }
 
-        const { domains: domainsLimit } = getPlanLimits(user)
+        const limitContext = scope.organizationId
+            ? await getOrgLimitContext(scope.organizationId)
+            : user
+
+        // Purchase-first Teams: an unsubscribed org is a zero-capacity workspace.
+        if (scope.organizationId) assertOrgPlanActive(limitContext, "custom domains", "alias_domains")
+
+        const { domains: domainsLimit } = getPlanLimits(limitContext)
 
         // Early-exit optimization (authoritative check is inside the transaction)
         const currentDomainCount = await prisma.domain.count({ where: ownerWhere(scope) })
@@ -201,6 +211,16 @@ export class DomainService {
 
             logger.info("Domain verification completed", { userId: scope.userId, domainId, verified })
 
+            if (verified && scope.organizationId) {
+                void audit({
+                    action: "org.domain.verify",
+                    actorId: scope.userId,
+                    targetId: domainId,
+                    organizationId: scope.organizationId,
+                    metadata: { domain: domain.domain },
+                })
+            }
+
             return {
                 verified,
                 ownershipVerified: hasOwnership,
@@ -262,7 +282,8 @@ export class DomainService {
             throw new NotFoundError("Domain not found")
         }
 
-        assertCanAccess(domain, scope)
+        // Deleting an org domain (and its aliases) is destructive → admin+ in org.
+        assertCanManage(domain, scope)
 
         // Delete domain and associated aliases atomically, within the owner scope.
         await prisma.$transaction([

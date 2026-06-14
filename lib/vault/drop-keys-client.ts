@@ -6,6 +6,10 @@ interface WrappedDropKeyRecord {
     dropId: string
     wrappedKey: string
     vaultGeneration: number
+    // Set when the key is wrapped to a team's org vault key (org shared-E2EE):
+    // the read path must unwrap with the org vault key, not the personal one.
+    organizationId?: string | null
+    orgKeyGeneration?: number | null
 }
 
 const DROP_KEYS_CACHE_TTL_MS = 5 * 60 * 1000

@@ -20,6 +20,7 @@ import { DROP_FEATURES, PLAN_ENTITLEMENTS } from "@/config/plans";
 import { extractStoredKeyMaterial } from "@/lib/vault/crypto";
 import { upsertCachedWrappedDropKey } from "@/lib/vault/drop-keys-client";
 import { useOptionalVault } from "@/components/vault/vault-provider";
+import { authClient } from "@/lib/auth-client";
 import { analytics } from "@/lib/analytics";
 
 type UploadPhase = "idle" | "encrypting" | "uploading" | "finalizing" | "complete" | "error";
@@ -71,6 +72,11 @@ export function useDropUpload({
     onUpgradeRequired,
 }: UseDropUploadProps = {}) {
     const vault = useOptionalVault()
+    // When a team is the active context, drops are owned by the org and their
+    // owner key is wrapped to the shared org vault key so every member can open
+    // them. Personal context (no active org) keeps the per-user wrap.
+    const { data: activeOrg } = authClient.useActiveOrganization()
+    const organizationId = activeOrg?.id ?? null
     const [files, setFiles] = useState<File[]>([]);
     const [progress, setProgress] = useState<UploadProgress | null>(null);
     const [shareUrl, setShareUrl] = useState<string | null>(null);
@@ -171,9 +177,18 @@ export function useDropUpload({
         try {
             const encryptionContext = await cryptoService.createEncryptionContext();
             const { keyString, dropIvString, key, dropIv } = encryptionContext;
-            const wrappedOwnerKey = guest
-                ? null
-                : await vault!.wrapDropKey(extractStoredKeyMaterial(keyString));
+            let wrappedOwnerKey: string | null = null;
+            let orgKeyGeneration: number | undefined;
+            if (!guest) {
+                const ownerKeyMaterial = extractStoredKeyMaterial(keyString);
+                if (organizationId) {
+                    const wrapped = await vault!.wrapDropKeyForOrg(ownerKeyMaterial, organizationId);
+                    wrappedOwnerKey = wrapped.wrappedKey;
+                    orgKeyGeneration = wrapped.orgKeyGeneration;
+                } else {
+                    wrappedOwnerKey = await vault!.wrapDropKey(ownerKeyMaterial);
+                }
+            }
 
             // Handle custom key protection
             let customKey = false;
@@ -232,6 +247,7 @@ export function useDropUpload({
                     wrappedKey: wrappedOwnerKey!,
                     vaultId: vault!.vaultId!,
                     vaultGeneration: vault!.vaultGeneration!,
+                    ...(orgKeyGeneration ? { orgKeyGeneration } : {}),
                 }, signal);
                 dropId = authResult.dropId;
                 expiresAt = authResult.expiresAt;
@@ -348,6 +364,7 @@ export function useDropUpload({
                     dropId,
                     wrappedKey: wrappedOwnerKey!,
                     vaultGeneration: vault!.vaultGeneration!,
+                    ...(organizationId ? { organizationId, orgKeyGeneration } : {}),
                 });
             }
 
@@ -407,7 +424,7 @@ export function useDropUpload({
         } finally {
             setAbortController(null);
         }
-    }, [files, features, guest, onComplete, onUpgradeRequired, vault]);
+    }, [files, features, guest, onComplete, onUpgradeRequired, vault, organizationId]);
 
     return {
         files,

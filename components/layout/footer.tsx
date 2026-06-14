@@ -31,6 +31,9 @@ export function SiteFooter() {
                                 <Link href="/form" className="hover:text-foreground transition-colors">Forms</Link>
                             </li>
                             <li>
+                                <Link href="/business" className="hover:text-foreground transition-colors">For Teams</Link>
+                            </li>
+                            <li>
                                 <Link href="/cli" className="hover:text-foreground transition-colors">CLI</Link>
                             </li>
                             <li>
@@ -59,6 +62,9 @@ export function SiteFooter() {
                                 <Link href="/security" className="hover:text-foreground transition-colors">Security</Link>
                             </li>
                             <li>
+                                <Link href="/sub-processors" className="hover:text-foreground transition-colors">Sub-processors</Link>
+                            </li>
+                            <li>
                                 <Link href="/blog" className="hover:text-foreground transition-colors">Blog</Link>
                             </li>
                             <li>
@@ -85,12 +91,12 @@ export function SiteFooter() {
                             </li>
                             <li>
                                 <a
-                                    href="https://codeberg.org/anonli/anon.li"
+                                    href="https://github.com/anondotli/anon.li"
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     className="hover:text-foreground transition-colors inline-flex items-center gap-1"
                                 >
-                                    Codeberg
+                                    GitHub
                                     <ExternalLink className="h-3 w-3" />
                                 </a>
                             </li>

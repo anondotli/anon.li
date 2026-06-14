@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache"
 import { z } from "zod"
 import { prisma } from "@/lib/prisma"
 import { createLogger } from "@/lib/logger"
-import { type ActionState, runSecureAction } from "@/lib/safe-action"
+import { type ActionState, runScopedAction } from "@/lib/safe-action"
 import { FormService } from "@/lib/services/form"
 import { createFormSchema, updateFormSchema, FormId, SubmissionId } from "@/lib/validations/form"
 import { assertVaultIdentity } from "@/lib/vault/identity"
@@ -27,6 +27,9 @@ const logger = createLogger("FormActions")
 const createFormActionSchema = createFormSchema.and(z.object({
     vaultId: vaultIdSchema,
     vaultGeneration: vaultGenerationSchema,
+    // Org-context forms: the wrappedPrivateKey is wrapped to the org vault key at
+    // this generation. The trusted scope (not this field) decides org-ownership.
+    orgKeyGeneration: z.number().int().positive().optional(),
 }))
 
 const updateFormActionSchema = updateFormSchema
@@ -60,18 +63,28 @@ async function canCreateForm(userId: string): Promise<{ allowed: true } | { allo
 export async function createFormAction(
     input: z.input<typeof createFormActionSchema>,
 ): Promise<CreateFormActionResult> {
-    const result = await runSecureAction(
+    const result = await runScopedAction(
         { schema: createFormActionSchema, data: input, rateLimitKey: "formCreate" },
-        async (validated, userId): Promise<CreateFormActionResult> => {
+        async (validated, scope): Promise<CreateFormActionResult> => {
+            const userId = scope.userId
             const { vaultId, ...formInput } = validated
 
             const permission = await canCreateForm(userId)
             if (!permission.allowed) return { error: permission.error, code: "FORBIDDEN" }
 
-            await assertVaultIdentity(userId, vaultId, formInput.vaultGeneration)
+            if (scope.organizationId) {
+                // Org form: the owner key is wrapped to the shared org vault key,
+                // so there is no personal vault identity to assert. Require the
+                // org key generation the client wrapped with.
+                if (!formInput.orgKeyGeneration) {
+                    return { error: "Missing team key generation for an organization form" }
+                }
+            } else {
+                await assertVaultIdentity(userId, vaultId, formInput.vaultGeneration)
+            }
 
             try {
-                const form = await FormService.createForm(userId, formInput)
+                const form = await FormService.createForm(scope, formInput)
                 revalidatePath("/dashboard/form")
                 return { formId: form.id }
             } catch (err) {
@@ -97,10 +110,10 @@ export async function updateFormAction(
     formId: string,
     input: z.infer<typeof updateFormActionSchema>,
 ): Promise<ActionState<{ id: string }>> {
-    return runSecureAction(
+    return runScopedAction(
         { schema: updateFormPayloadSchema, data: { id: formId, payload: input }, rateLimitKey: "formOps" },
-        async (validated, userId) => {
-            const updated = await FormService.updateForm(validated.id, userId, validated.payload)
+        async (validated, scope) => {
+            const updated = await FormService.updateForm(validated.id, scope, validated.payload)
             revalidatePath("/dashboard/form")
             revalidatePath(`/dashboard/form/${validated.id}`)
             return { id: updated.id }
@@ -112,10 +125,10 @@ const formIdActionSchema = z.object({ id: FormId })
 const submissionIdActionSchema = z.object({ id: SubmissionId })
 
 export async function toggleFormAction(formId: string): Promise<ActionState<{ disabled: boolean }>> {
-    return runSecureAction(
+    return runScopedAction(
         { schema: formIdActionSchema, data: { id: formId }, rateLimitKey: "formOps" },
-        async (validated, userId) => {
-            const disabled = await FormService.toggleForm(validated.id, userId)
+        async (validated, scope) => {
+            const disabled = await FormService.toggleForm(validated.id, scope)
             revalidatePath("/dashboard/form")
             revalidatePath(`/dashboard/form/${validated.id}`)
             return { disabled }
@@ -124,20 +137,20 @@ export async function toggleFormAction(formId: string): Promise<ActionState<{ di
 }
 
 export async function deleteFormAction(formId: string): Promise<ActionState> {
-    return runSecureAction(
+    return runScopedAction(
         { schema: formIdActionSchema, data: { id: formId }, rateLimitKey: "formOps" },
-        async (validated, userId) => {
-            await FormService.deleteForm(validated.id, userId)
+        async (validated, scope) => {
+            await FormService.deleteForm(validated.id, scope)
             revalidatePath("/dashboard/form")
         },
     )
 }
 
 export async function deleteSubmissionAction(submissionId: string): Promise<ActionState> {
-    return runSecureAction(
+    return runScopedAction(
         { schema: submissionIdActionSchema, data: { id: submissionId }, rateLimitKey: "formOps" },
-        async (validated, userId) => {
-            await FormService.deleteSubmission(validated.id, userId)
+        async (validated, scope) => {
+            await FormService.deleteSubmission(validated.id, scope)
             revalidatePath("/dashboard/form")
         },
     )

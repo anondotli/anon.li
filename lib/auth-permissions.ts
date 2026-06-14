@@ -2,55 +2,42 @@ import { createAccessControl } from "better-auth/plugins/access"
 import { adminAc, memberAc, ownerAc, defaultStatements } from "better-auth/plugins/organization/access"
 
 /**
- * Org RBAC for the B2B layer. This module is intentionally isomorphic so the
- * exact same access-control instance and role definitions are shared by the
- * better-auth server plugin (lib/auth.ts) and the client (lib/auth-client.ts).
+ * Org RBAC for the B2B layer (better-auth organization plugin). Isomorphic so the
+ * same access-control instance + roles are shared by the server plugin
+ * (lib/auth.ts) and the client (lib/auth-client.ts).
+ *
+ * Two distinct authorization surfaces:
+ *
+ *  1. better-auth's OWN endpoints (invite / remove member / change role /
+ *     update / delete organization) are gated by the built-in
+ *     organization/member/invitation statements below — these ARE enforced by
+ *     better-auth via hasPermission.
+ *
+ *  2. OUR owned resources (aliases, domains, recipients, drops, forms, api keys)
+ *     use a RANK-BASED model enforced in the service layer via
+ *     `assertCanManage` / `meetsMinRole` (lib/ownership.ts): in an organization
+ *     context, destructive/management ops (delete, disable) require admin+, while
+ *     create/read/update are allowed for members. Personal-context callers own
+ *     their resources outright and are never role-gated.
+ *
+ * We intentionally do NOT keep a parallel custom permission matrix here — the
+ * previous alias/domain/apikey/submission/billing/sso statements were never
+ * actually checked (no hasPermission call referenced them) and drifted from the
+ * real, enforced rule. SSO/SCIM is not implemented, so there is deliberately no
+ * `sso` statement or `ssoOnly` policy (removed to avoid implying an unshipped
+ * guarantee). `enforce2FA` IS enforced (lib/access-policy.ts).
  *
  * IMPORTANT: org roles (owner/admin/member) are orthogonal to the platform
  * `User.isAdmin` super-admin flag. `isAdmin` is anon.li staff; org roles govern
  * a customer's own organization. Do not conflate the two.
  */
-export const statement = {
-    ...defaultStatements,
-    // Custom B2B resource permissions (in addition to better-auth's built-in
-    // organization/member/invitation/team statements from defaultStatements).
-    alias: ["create", "read", "update", "delete"],
-    domain: ["create", "verify", "delete"],
-    apikey: ["create", "delete"],
-    submission: ["read"],
-    billing: ["read", "manage"],
-    sso: ["manage"],
-} as const
+export const statement = { ...defaultStatements } as const
 
 export const ac = createAccessControl(statement)
 
-/** Regular members: manage shared aliases and read form submissions. */
-export const member = ac.newRole({
-    ...memberAc.statements,
-    alias: ["create", "read", "update"],
-    submission: ["read"],
-})
-
-/** Org admins: full resource management + read-only billing. */
-export const admin = ac.newRole({
-    ...adminAc.statements,
-    alias: ["create", "read", "update", "delete"],
-    domain: ["create", "verify", "delete"],
-    apikey: ["create", "delete"],
-    submission: ["read"],
-    billing: ["read"],
-})
-
-/** Org owners: everything, including billing management and SSO configuration. */
-export const owner = ac.newRole({
-    ...ownerAc.statements,
-    alias: ["create", "read", "update", "delete"],
-    domain: ["create", "verify", "delete"],
-    apikey: ["create", "delete"],
-    submission: ["read"],
-    billing: ["read", "manage"],
-    sso: ["manage"],
-})
+export const member = ac.newRole({ ...memberAc.statements })
+export const admin = ac.newRole({ ...adminAc.statements })
+export const owner = ac.newRole({ ...ownerAc.statements })
 
 export const roles = { owner, admin, member }
 

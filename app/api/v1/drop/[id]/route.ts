@@ -13,7 +13,8 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import { getClientIp, rateLimit } from "@/lib/rate-limit"
-import { withPolicy } from "@/lib/route-policy"
+import { withPolicy, scopeFromContext } from "@/lib/route-policy"
+import { personalScope, type OwnerScope } from "@/lib/ownership"
 import { DropService } from "@/lib/services/drop"
 import { resolveTokenUploadAccess } from "@/lib/services/form-upload"
 import { getPublicDropMetadata } from "@/lib/drop-metadata"
@@ -70,7 +71,7 @@ export const DELETE = withPolicy<RouteParams>(
     async (ctx, routeContext) => {
         const { id: dropId } = await routeContext!.params
 
-        await DropService.deleteDrop(dropId, ctx.userId!)
+        await DropService.deleteDrop(dropId, scopeFromContext(ctx))
 
         return NextResponse.json({ success: true })
     },
@@ -93,7 +94,7 @@ const completeHandler = withPolicy<RouteParams>(
             return NextResponse.json({ error: "Invalid request body" }, { status: 400 })
         }
 
-        await DropService.completeDrop(dropId, ctx.userId!)
+        await DropService.completeDrop(dropId, scopeFromContext(ctx))
         return NextResponse.json({ success: true })
     },
 )
@@ -109,7 +110,8 @@ const finishHandler = withPolicy<RouteParams>(
     },
     async (ctx, routeContext) => {
         const { id: dropId } = await routeContext!.params
-        let effectiveUserId = ctx.userId
+        // Session caller → org-aware scope; token caller → the token owner's scope; guest → null.
+        let finishScope: OwnerScope | null = ctx.userId ? scopeFromContext(ctx) : null
         const hasUploadToken = Boolean(ctx.request.headers.get("x-upload-token"))
 
         if (hasUploadToken) {
@@ -117,7 +119,7 @@ const finishHandler = withPolicy<RouteParams>(
             if (!access) {
                 return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
             }
-            effectiveUserId = access.effectiveUserId
+            finishScope = access.effectiveUserId ? personalScope(access.effectiveUserId) : null
         } else if (!ctx.userId) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
         }
@@ -129,7 +131,7 @@ const finishHandler = withPolicy<RouteParams>(
             return NextResponse.json({ error: "Invalid request body" }, { status: 400 })
         }
 
-        await DropService.finishDrop(dropId, validation.data.files, effectiveUserId)
+        await DropService.finishDrop(dropId, validation.data.files, finishScope)
         return NextResponse.json({ success: true })
     },
 )
@@ -143,7 +145,7 @@ const toggleHandler = withPolicy<RouteParams>(
     },
     async (ctx, routeContext) => {
         const { id: dropId } = await routeContext!.params
-        const disabled = await DropService.toggleDrop(dropId, ctx.userId!)
+        const disabled = await DropService.toggleDrop(dropId, scopeFromContext(ctx))
 
         return NextResponse.json({ success: true, disabled })
     },

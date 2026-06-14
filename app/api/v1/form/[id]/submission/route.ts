@@ -3,7 +3,7 @@
  */
 
 import { apiError, apiList, ErrorCodes, zodErrorToDetails } from "@/lib/api-response"
-import { withPolicy } from "@/lib/route-policy"
+import { withPolicy, scopeFromContext } from "@/lib/route-policy"
 import { FormService } from "@/lib/services/form"
 import { listSubmissionsQuerySchema } from "@/lib/validations/form"
 
@@ -29,7 +29,7 @@ export const GET = withPolicy<RouteParams>(
             return apiError("Invalid query", ErrorCodes.VALIDATION_ERROR, ctx.requestId, 400, zodErrorToDetails(parsed.error))
         }
 
-        const result = await FormService.listSubmissions(id, ctx.userId!, parsed.data)
+        const result = await FormService.listSubmissions(id, scopeFromContext(ctx), parsed.data)
         const data = result.submissions.map((s) => ({
             id: s.id,
             created_at: s.createdAt.toISOString(),

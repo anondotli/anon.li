@@ -158,14 +158,17 @@ export async function exportKeyBase64Url(key: CryptoKey): Promise<string> {
 
 // Wrap an arbitrary-size payload (e.g. a PKCS#8 private key) under the vault
 // key using AES-GCM. Unlike `wrapVaultManagedKey`, this is not restricted to
-// AES key sizes and can carry any payload up to a few KB.
+// AES key sizes and can carry any payload up to a few KB. `aad` provides domain
+// separation and defaults to the Form owner-key context for wire back-compat;
+// callers wrapping other material (e.g. the org identity private key) MUST pass
+// their own stable AAD, and wrap/unwrap must use the same one.
 const FORM_KEY_IV_BYTES = 12
 const FORM_KEY_AAD = new TextEncoder().encode("anon.li:form-owner-key:v1")
 
-export async function wrapVaultPayload(data: BinaryLike, vaultKey: CryptoKey): Promise<string> {
+export async function wrapVaultPayload(data: BinaryLike, vaultKey: CryptoKey, aad: BinaryLike = FORM_KEY_AAD): Promise<string> {
     const iv = crypto.getRandomValues(new Uint8Array(FORM_KEY_IV_BYTES))
     const cipher = await crypto.subtle.encrypt(
-        { name: "AES-GCM", iv: toCryptoBufferSource(iv), additionalData: toCryptoBufferSource(FORM_KEY_AAD) },
+        { name: "AES-GCM", iv: toCryptoBufferSource(iv), additionalData: toCryptoBufferSource(aad) },
         vaultKey,
         toCryptoBufferSource(data),
     )
@@ -177,7 +180,7 @@ export async function wrapVaultPayload(data: BinaryLike, vaultKey: CryptoKey): P
     return arrayBufferToBase64Url(packed)
 }
 
-export async function unwrapVaultPayload(wrapped: string, vaultKey: CryptoKey): Promise<ArrayBuffer> {
+export async function unwrapVaultPayload(wrapped: string, vaultKey: CryptoKey, aad: BinaryLike = FORM_KEY_AAD): Promise<ArrayBuffer> {
     const packed = new Uint8Array(base64UrlToArrayBuffer(wrapped))
     if (packed.byteLength <= FORM_KEY_IV_BYTES) {
         throw new Error("Wrapped payload is too short")
@@ -185,7 +188,7 @@ export async function unwrapVaultPayload(wrapped: string, vaultKey: CryptoKey): 
     const iv = packed.slice(0, FORM_KEY_IV_BYTES)
     const cipher = packed.slice(FORM_KEY_IV_BYTES)
     return crypto.subtle.decrypt(
-        { name: "AES-GCM", iv: toCryptoBufferSource(iv), additionalData: toCryptoBufferSource(FORM_KEY_AAD) },
+        { name: "AES-GCM", iv: toCryptoBufferSource(iv), additionalData: toCryptoBufferSource(aad) },
         vaultKey,
         toCryptoBufferSource(cipher),
     )

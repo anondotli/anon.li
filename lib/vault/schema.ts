@@ -6,6 +6,7 @@ interface VaultSchemaState {
     userSecurity: boolean
     dropOwnerKeys: boolean
     formOwnerKeys: boolean
+    organizationMemberKeys: boolean
 }
 
 export const VAULT_SCHEMA_UNAVAILABLE_MESSAGE =
@@ -31,17 +32,20 @@ export async function getVaultSchemaState(): Promise<VaultSchemaState> {
         userSecurity: string | null
         dropOwnerKeys: string | null
         formOwnerKeys: string | null
+        organizationMemberKeys: string | null
     }>>`
         SELECT
             to_regclass('public.user_security')::text AS "userSecurity",
             to_regclass('public.drop_owner_keys')::text AS "dropOwnerKeys",
-            to_regclass('public.form_owner_keys')::text AS "formOwnerKeys"
+            to_regclass('public.form_owner_keys')::text AS "formOwnerKeys",
+            to_regclass('public.organization_member_keys')::text AS "organizationMemberKeys"
     `
 
     const state = {
         userSecurity: Boolean(row?.userSecurity),
         dropOwnerKeys: Boolean(row?.dropOwnerKeys),
         formOwnerKeys: Boolean(row?.formOwnerKeys),
+        organizationMemberKeys: Boolean(row?.organizationMemberKeys),
     }
 
     cachedVaultSchemaState = {

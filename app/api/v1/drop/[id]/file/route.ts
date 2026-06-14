@@ -6,7 +6,8 @@
 import { NextResponse } from "next/server"
 
 import { getClientIp, rateLimit } from "@/lib/rate-limit"
-import { withPolicy } from "@/lib/route-policy"
+import { withPolicy, scopeFromContext } from "@/lib/route-policy"
+import { personalScope, type OwnerScope } from "@/lib/ownership"
 import { DropService } from "@/lib/services/drop"
 import {
     getFormUploadQuotaOverride,
@@ -31,7 +32,8 @@ export const POST = withPolicy<RouteParams>(
     },
     async (ctx, routeContext) => {
         const { id: dropId } = await routeContext!.params
-        let effectiveUserId = ctx.userId
+        // Session caller → org-aware scope; token caller → the token owner's scope; guest → null.
+        let uploadScope: OwnerScope | null = ctx.userId ? scopeFromContext(ctx) : null
         let formId: string | null = null
         const hasUploadToken = Boolean(ctx.request.headers.get("x-upload-token"))
 
@@ -48,7 +50,7 @@ export const POST = withPolicy<RouteParams>(
             if (!access) {
                 return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
             }
-            effectiveUserId = access.effectiveUserId
+            uploadScope = access.effectiveUserId ? personalScope(access.effectiveUserId) : null
             formId = access.formId
         } else if (!ctx.userId) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -74,11 +76,11 @@ export const POST = withPolicy<RouteParams>(
 
         const { formFieldId: _formFieldId, ...dropFileInput } = validation.data
         const result = quotaOverride
-            ? await DropService.addFile(effectiveUserId, {
+            ? await DropService.addFile(uploadScope, {
                   dropId,
                   ...dropFileInput,
               }, { quotaOverride })
-            : await DropService.addFile(effectiveUserId, {
+            : await DropService.addFile(uploadScope, {
                   dropId,
                   ...dropFileInput,
               })

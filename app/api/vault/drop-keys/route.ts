@@ -9,6 +9,7 @@ import {
 import { getVaultSession } from "@/lib/vault/server"
 import { getVaultSchemaState, VAULT_SCHEMA_UNAVAILABLE_MESSAGE } from "@/lib/vault/schema"
 import { enforceVaultRequestGuards } from "@/lib/vault/http"
+import { getMemberOrgIds, isOrgMember } from "@/lib/vault/org-access"
 import {
     vaultGenerationSchema,
     vaultIdSchema,
@@ -62,10 +63,20 @@ export async function GET(request: Request) {
                     dropId: true,
                     wrappedKey: true,
                     vaultGeneration: true,
+                    organizationId: true,
+                    orgKeyGeneration: true,
                 },
             })
 
-            if (!dropKey || dropKey.userId !== session.user.id) {
+            // Personal keys: only the owning user. Org keys (organizationId set,
+            // wrapped to the org vault key): any member of that org.
+            const canRead = dropKey
+                ? dropKey.organizationId
+                    ? await isOrgMember(session.user.id, dropKey.organizationId)
+                    : dropKey.userId === session.user.id
+                : false
+
+            if (!dropKey || !canRead) {
                 logVaultWarn(ROUTE_NAME, "Drop key not found for user", {
                     requestId,
                     userId: session.user.id,
@@ -77,13 +88,24 @@ export async function GET(request: Request) {
             return withNoStore(apiSuccess(dropKey, requestId))
         }
 
+        // List: the user's personal keys plus every org key for orgs they belong
+        // to (so team-created drops are decryptable by all members).
+        const orgIds = await getMemberOrgIds(session.user.id)
+
         const dropKeys = await prisma.dropOwnerKey.findMany({
-            where: { userId: session.user.id },
+            where: {
+                OR: [
+                    { userId: session.user.id, organizationId: null },
+                    ...(orgIds.length ? [{ organizationId: { in: orgIds } }] : []),
+                ],
+            },
             orderBy: { updatedAt: "desc" },
             select: {
                 dropId: true,
                 wrappedKey: true,
                 vaultGeneration: true,
+                organizationId: true,
+                orgKeyGeneration: true,
             },
         })
 

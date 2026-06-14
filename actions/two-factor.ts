@@ -1,6 +1,5 @@
 "use server"
 
-import { createHash } from "node:crypto"
 import { auth } from "@/auth"
 import { auth as betterAuth } from "@/lib/auth"
 import { revalidatePath } from "next/cache"
@@ -38,15 +37,9 @@ type VerifyTwoFactorResponse = {
 const TWO_FACTOR_COOKIE_NAMES = ["better-auth.two_factor", "__Secure-better-auth.two_factor"] as const
 const SESSION_DATA_COOKIE_NAMES = ["better-auth.session_data", "__Secure-better-auth.session_data"] as const
 
-async function getPendingTwoFactorRateLimitId(): Promise<string | null> {
+async function hasPendingTwoFactorCookie(): Promise<boolean> {
     const cookieStore = await cookies()
-    const pendingCookie = TWO_FACTOR_COOKIE_NAMES
-        .map((name) => cookieStore.get(name)?.value)
-        .find((value): value is string => Boolean(value))
-
-    if (!pendingCookie) return null
-
-    return `pending:${createHash("sha256").update(pendingCookie).digest("base64url")}`
+    return TWO_FACTOR_COOKIE_NAMES.some((name) => Boolean(cookieStore.get(name)?.value))
 }
 
 async function clearSessionCacheCookie() {
@@ -237,19 +230,26 @@ export async function verifyTwoFactorLogin(
     const reqHeaders = await headers()
     const existingSession = await betterAuth.api.getSession({ headers: reqHeaders })
 
-    let rateLimitId: string | null
     if (existingSession?.session && existingSession.user) {
         const twoFactorEnabled = await TwoFactorService.isEnabled(existingSession.user.id)
         if (!twoFactorEnabled) return { error: "2FA is not enabled" }
-        rateLimitId = existingSession.user.id
-    } else {
-        rateLimitId = await getPendingTwoFactorRateLimitId()
-        if (!rateLimitId) return { error: "Not authenticated" }
-    }
 
-    const rateLimited = await rateLimit("twoFactorVerify", rateLimitId)
-    if (rateLimited) {
-        return { error: "Too many verification attempts. Please wait 15 minutes and try again." }
+        // Step-up re-verification for an already-authenticated session: a tight
+        // per-account ceiling. (The verifyTOTP/verifyBackupCode calls below also
+        // pass through the global per-IP before-hook in lib/auth.ts.)
+        const rateLimited = await rateLimit("twoFactorVerify", existingSession.user.id)
+        if (rateLimited) {
+            return { error: "Too many verification attempts. Please wait 15 minutes and try again." }
+        }
+    } else {
+        // Pending login (first factor passed, no full session yet). We require a
+        // pending-2FA cookie to be present, but deliberately do NOT key the rate
+        // limit on it — an attacker can mint a fresh cookie by re-triggering the
+        // challenge, which would reset a cookie-keyed bucket and defeat the
+        // brute-force ceiling. The per-IP ceiling is enforced in the global
+        // before-hook (lib/auth.ts, twoFactorVerifyIp), which fires on the
+        // auth.api.verifyTOTP / verifyBackupCode calls below.
+        if (!(await hasPendingTwoFactorCookie())) return { error: "Not authenticated" }
     }
 
     const sanitized = code.replace(/\s/g, "")

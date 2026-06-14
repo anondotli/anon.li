@@ -113,7 +113,10 @@ const SITE_URL = "https://anon.li"
 const PRODUCT_ORDER = ["bundle", "alias", "drop", "form"] as const
 const TIER_ORDER = ["free", "plus", "pro"] as const
 
-const PRODUCTS: Record<Product, ProductConfig> = {
+// Business is per-seat (different shape) and surfaced via the pricing grid /
+// BUSINESS_PLAN, not the free/plus/pro JSON-LD catalog — so this map only
+// covers the catalog products in PRODUCT_ORDER.
+const PRODUCTS: Record<(typeof PRODUCT_ORDER)[number], ProductConfig> = {
     bundle: {
         name: "Bundle",
         description: "Complete privacy suite with email aliases, encrypted file sharing, and forms.",

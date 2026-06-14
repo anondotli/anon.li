@@ -1,6 +1,5 @@
 import { AUTH_TAG_SIZE } from "@/lib/constants";
-import { getEffectiveTiers } from "@/lib/entitlements";
-import { getFormLimitsAsync } from "@/lib/limits";
+import { getFormOwnerEntitlements } from "@/lib/services/form-entitlements";
 import { prisma } from "@/lib/prisma";
 import { UpgradeRequiredError, ValidationError } from "@/lib/api-error-utils";
 import { FormSchemaDoc, type FormField } from "@/lib/form-schema";
@@ -17,7 +16,10 @@ type FileUploadInput = {
 
 export type TokenUploadAccess =
     | { mode: "guest"; effectiveUserId: null; formId: null }
-    | { mode: "form"; effectiveUserId: string; formId: string };
+    // effectiveUserId is the form owner for storage attribution; it is null when
+    // the form is org-owned and its creating user was deleted (userId SetNull) —
+    // consumers already skip per-user storage attribution when it's null.
+    | { mode: "form"; effectiveUserId: string | null; formId: string };
 
 export interface FormUploadQuotaOverride {
     maxFileSize: number;
@@ -121,17 +123,14 @@ export async function validateFormUploadManifest(
 ): Promise<void> {
     const form = await prisma.form.findUnique({
         where: { id: formId },
-        select: { userId: true, schemaJson: true, maxFileSizeOverride: true },
+        select: { userId: true, organizationId: true, schemaJson: true, maxFileSizeOverride: true },
     });
     if (!form) throw new ValidationError("Form not found");
 
     const fields = fileFieldsFromSchema(form.schemaJson);
     if (files.length === 0) throw new ValidationError("At least one file is required");
 
-    const [limits, tiers] = await Promise.all([
-        getFormLimitsAsync(form.userId),
-        getEffectiveTiers(form.userId),
-    ]);
+    const { limits, tiers } = await getFormOwnerEntitlements({ userId: form.userId, organizationId: form.organizationId });
     const cap = formFileCap(form, limits.maxSubmissionFileSize);
     if (cap <= 0) {
         throw new UpgradeRequiredError("File uploads require an upgrade.", {
@@ -170,13 +169,12 @@ export async function validateFormUploadManifest(
 export async function validateFormDropFile(formId: string, input: FileUploadInput): Promise<void> {
     const form = await prisma.form.findUnique({
         where: { id: formId },
-        select: { userId: true, schemaJson: true, maxFileSizeOverride: true },
+        select: { userId: true, organizationId: true, schemaJson: true, maxFileSizeOverride: true },
     });
     if (!form) throw new ValidationError("Form not found");
 
-    const [limits, tiers, existing] = await Promise.all([
-        getFormLimitsAsync(form.userId),
-        getEffectiveTiers(form.userId),
+    const [{ limits, tiers }, existing] = await Promise.all([
+        getFormOwnerEntitlements({ userId: form.userId, organizationId: form.organizationId }),
         prisma.dropFile.findMany({
             where: { dropId: input.dropId },
             select: { size: true, chunkCount: true },
@@ -221,14 +219,11 @@ export async function validateFormDropFile(formId: string, input: FileUploadInpu
 export async function getFormUploadQuotaOverride(formId: string): Promise<FormUploadQuotaOverride> {
     const form = await prisma.form.findUnique({
         where: { id: formId },
-        select: { userId: true, maxFileSizeOverride: true },
+        select: { userId: true, organizationId: true, maxFileSizeOverride: true },
     });
     if (!form) throw new ValidationError("Form not found");
 
-    const [limits, tiers] = await Promise.all([
-        getFormLimitsAsync(form.userId),
-        getEffectiveTiers(form.userId),
-    ]);
+    const { limits, tiers } = await getFormOwnerEntitlements({ userId: form.userId, organizationId: form.organizationId });
     const cap = formFileCap(form, limits.maxSubmissionFileSize);
     if (cap <= 0) {
         throw new UpgradeRequiredError("File uploads require an upgrade.", {

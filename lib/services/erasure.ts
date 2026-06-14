@@ -68,7 +68,46 @@ export async function eraseUserDrops(userId: string): Promise<{ totalFiles: numb
 
     while (true) {
         const drops = await prisma.drop.findMany({
-            where: { userId },
+            // Personal drops only: org-owned drops (organizationId set) belong to
+            // the team and must survive the member's account deletion.
+            where: { userId, organizationId: null },
+            select: { id: true },
+            take: PAGE_SIZE,
+            ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
+            orderBy: { id: "asc" },
+        })
+
+        if (drops.length === 0) break
+
+        for (const drop of drops) {
+            const failed = await eraseDropFiles(drop.id)
+            totalFiles++
+            failedKeysCount += failed.length
+        }
+
+        cursor = drops[drops.length - 1]!.id
+
+        if (drops.length < PAGE_SIZE) break
+    }
+
+    return { totalFiles, failedKeys: failedKeysCount }
+}
+
+/**
+ * Delete all storage files for all drops OWNED BY an organization. Call this
+ * BEFORE the organization row is deleted (the org-delete cascade removes the
+ * drop rows, after which their storage keys are unrecoverable). Mirrors
+ * eraseUserDrops but scoped to organizationId.
+ */
+export async function eraseOrgDrops(organizationId: string): Promise<{ totalFiles: number; failedKeys: number }> {
+    let cursor: string | undefined
+    let totalFiles = 0
+    let failedKeysCount = 0
+    const PAGE_SIZE = 50
+
+    while (true) {
+        const drops = await prisma.drop.findMany({
+            where: { organizationId },
             select: { id: true },
             take: PAGE_SIZE,
             ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),

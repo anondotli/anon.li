@@ -59,7 +59,7 @@ const anonSecuritySource = {
 }
 
 const anonSourceCode = {
-    source: "https://codeberg.org/anonli/anon.li",
+    source: "https://github.com/anondotli/anon.li",
     sourceLabel: "anon.li Source Code",
 }
 

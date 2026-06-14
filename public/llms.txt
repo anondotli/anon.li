@@ -64,4 +64,4 @@ Canonical machine-readable pricing is available at https://anon.li/pricing.json.
 
 ## Open Source
 
-- [Codeberg](https://codeberg.org/anonli/anon.li)
+- [GitHub](https://github.com/anondotli/anon.li)

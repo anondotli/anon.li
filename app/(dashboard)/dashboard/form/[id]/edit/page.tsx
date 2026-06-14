@@ -1,5 +1,6 @@
 import { redirect, notFound } from "next/navigation"
 import { auth } from "@/auth"
+import { scopeFromSession } from "@/lib/auth-session"
 import { FormBuilderPage } from "@/components/form/dashboard/builder-page"
 import { NotFoundError, ForbiddenError } from "@/lib/api-error-utils"
 import { FormSchemaDoc } from "@/lib/form-schema"
@@ -23,7 +24,7 @@ export default async function EditFormPage({ params }: PageProps) {
     let form: Awaited<ReturnType<typeof FormService.getFormForOwner>>
 
     try {
-        form = await FormService.getFormForOwner(id, session.user.id)
+        form = await FormService.getFormForOwner(id, scopeFromSession(session))
     } catch (error) {
         if (error instanceof NotFoundError) notFound()
         if (error instanceof ForbiddenError) notFound()

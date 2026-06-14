@@ -6,6 +6,8 @@ const mocks = vi.hoisted(() => ({
     deletionRequestFindMany: vi.fn(),
     deletionRequestUpsert: vi.fn(),
     deletionRequestDelete: vi.fn(),
+    memberFindMany: vi.fn(),
+    organizationFindMany: vi.fn(),
     userDelete: vi.fn(),
     aliasDeleteMany: vi.fn(),
     domainDeleteMany: vi.fn(),
@@ -33,6 +35,8 @@ vi.mock("@/lib/prisma", () => ({
             upsert: mocks.deletionRequestUpsert,
             delete: mocks.deletionRequestDelete,
         },
+        member: { findMany: mocks.memberFindMany },
+        organization: { findMany: mocks.organizationFindMany },
         user: { delete: mocks.userDelete },
         alias: { deleteMany: mocks.aliasDeleteMany },
         domain: { deleteMany: mocks.domainDeleteMany },
@@ -64,6 +68,9 @@ describe("DeletionService", () => {
     beforeEach(() => {
         vi.clearAllMocks()
 
+        // Default: the user owns no organizations (sole-owner guard passes).
+        mocks.memberFindMany.mockResolvedValue([])
+        mocks.organizationFindMany.mockResolvedValue([])
         mocks.eraseUserDrops.mockResolvedValue({ failedKeys: 0 })
         mocks.getVaultSchemaState.mockResolvedValue({
             dropOwnerKeys: true,
@@ -106,8 +113,16 @@ describe("DeletionService", () => {
 
         expect(mocks.accountDeleteMany).toHaveBeenCalledWith({ where: { userId: "user_123" } })
         expect(mocks.twoFactorDeleteMany).toHaveBeenCalledWith({ where: { userId: "user_123" } })
-        expect(mocks.dropOwnerKeyDeleteMany).toHaveBeenCalledWith({ where: { userId: "user_123" } })
         expect(mocks.userSecurityDeleteMany).toHaveBeenCalledWith({ where: { userId: "user_123" } })
+        // Personal-resource deletes are scoped to organizationId: null so a
+        // member's account deletion never deletes the org's shared resources.
+        expect(mocks.aliasDeleteMany).toHaveBeenCalledWith({ where: { userId: "user_123", organizationId: null } })
+        expect(mocks.domainDeleteMany).toHaveBeenCalledWith({ where: { userId: "user_123", organizationId: null } })
+        expect(mocks.formDeleteMany).toHaveBeenCalledWith({ where: { userId: "user_123", organizationId: null } })
+        expect(mocks.dropDeleteMany).toHaveBeenCalledWith({ where: { userId: "user_123", organizationId: null } })
+        expect(mocks.dropOwnerKeyDeleteMany).toHaveBeenCalledWith({ where: { userId: "user_123", organizationId: null } })
+        expect(mocks.recipientDeleteMany).toHaveBeenCalledWith({ where: { userId: "user_123", organizationId: null } })
+        expect(mocks.subscriptionDeleteMany).toHaveBeenCalledWith({ where: { userId: "user_123", organizationId: null } })
         expect(mocks.deletionRequestUpdate).toHaveBeenCalledWith({
             where: { id: "dr_123" },
             data: { status: "active_systems_deleted", completedAt: expect.any(Date) },

@@ -9,13 +9,16 @@ import { getVaultStorageSupport } from "@/lib/vault/storage-support"
 
 const CHANNEL_NAME = "anon-vault"
 
-const VAULT_SYNC_TYPES = ["VAULT_UNLOCKED", "VAULT_LOCKED", "VAULT_ROTATED", "SIGN_OUT"] as const
+const VAULT_SYNC_TYPES = ["VAULT_UNLOCKED", "VAULT_LOCKED", "VAULT_ROTATED", "VAULT_ORG_ROTATED", "SIGN_OUT"] as const
 type VaultSyncType = typeof VAULT_SYNC_TYPES[number]
 
 export type VaultSyncMessage =
     | { type: "VAULT_UNLOCKED"; vaultGeneration: number; vaultId: string; timestamp: number; source: string }
     | { type: "VAULT_LOCKED"; timestamp: number; source: string }
     | { type: "VAULT_ROTATED"; vaultGeneration: number; vaultId: string; timestamp: number; source: string }
+    // An org's shared-team vault key was rotated in another tab — receivers must
+    // drop their cached org vault key for that org so they re-fetch the new grant.
+    | { type: "VAULT_ORG_ROTATED"; organizationId: string; orgKeyGeneration: number; timestamp: number; source: string }
     | { type: "SIGN_OUT"; timestamp: number; source: string }
 
 export function createVaultTabId() {
@@ -73,6 +76,12 @@ function parseVaultSyncMessage(value: string | null): VaultSyncMessage | null {
 
         if (parsed.type === "VAULT_UNLOCKED" || parsed.type === "VAULT_ROTATED") {
             if (typeof parsed.vaultGeneration !== "number" || typeof parsed.vaultId !== "string") {
+                return null
+            }
+        }
+
+        if (parsed.type === "VAULT_ORG_ROTATED") {
+            if (typeof parsed.organizationId !== "string" || typeof parsed.orgKeyGeneration !== "number") {
                 return null
             }
         }

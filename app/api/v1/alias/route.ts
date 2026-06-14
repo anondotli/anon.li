@@ -53,7 +53,16 @@ export const GET = withPolicy(
             return apiError("Unauthorized", ErrorCodes.UNAUTHORIZED, ctx.requestId, 401)
         }
 
-        const aliases = await AliasService.getAliases(scopeFromContext(ctx))
+        const url = new URL(ctx.request.url)
+        const limit = Math.min(Math.max(parseInt(url.searchParams.get("limit") || "50", 10) || 50, 1), 100)
+        const offset = Math.max(parseInt(url.searchParams.get("offset") || "0", 10) || 0, 0)
+
+        const scope = scopeFromContext(ctx)
+        const [aliases, total] = await Promise.all([
+            AliasService.getAliases(scope, { limit, offset }),
+            AliasService.countAliases(scope),
+        ])
+
         const data = aliases.map((alias) => toAddyFormat({
             id: alias.id,
             email: alias.email,
@@ -64,7 +73,7 @@ export const GET = withPolicy(
             updatedAt: alias.updatedAt,
         }))
 
-        return apiList(data, ctx.requestId, { total: data.length, limit: data.length, offset: 0 })
+        return apiList(data, ctx.requestId, { total, limit, offset })
     },
 )
 

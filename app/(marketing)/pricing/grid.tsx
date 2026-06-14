@@ -8,6 +8,7 @@ import { BUNDLE_PLANS, ALIAS_PLANS, DROP_PLANS, FORM_PLANS, type PlanDefinition 
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { PricingFAQ } from "@/components/marketing/pricing/faq"
 import { PricingPlanCard } from "@/components/marketing/pricing/plan-card"
+import { PricingTeamsSection } from "@/components/marketing/pricing/teams-section"
 import { PricingTrustRow } from "@/components/marketing/pricing/trust-row"
 
 import { User } from "@/types/auth"
@@ -206,6 +207,9 @@ export function PricingGrid({ user, currentPlanId }: PricingGridProps) {
                         </div>
                     )}
                 </div>
+
+                {/* Teams & Enterprise */}
+                <PricingTeamsSection user={user} isYearly={isYearly} />
 
                 {/* Privacy trust row */}
                 <PricingTrustRow />

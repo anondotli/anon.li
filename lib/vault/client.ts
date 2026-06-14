@@ -17,7 +17,7 @@ import { broadcastVaultMessage } from "@/lib/vault/sync"
 
 const LOCAL_TRUST_TTL_MS = 30 * 24 * 60 * 60 * 1000
 
-class VaultApiError extends Error {
+export class VaultApiError extends Error {
     readonly code: string
 
     constructor(message: string, code: string) {

@@ -14,7 +14,7 @@ import {
     ErrorCodes,
     zodErrorToDetails,
 } from "@/lib/api-response"
-import { withPolicy } from "@/lib/route-policy"
+import { withPolicy, scopeFromContext } from "@/lib/route-policy"
 import { RecipientService } from "@/lib/services/recipient"
 
 export const dynamic = "force-dynamic"
@@ -55,7 +55,7 @@ export const GET = withPolicy(
             return apiError("Unauthorized", ErrorCodes.UNAUTHORIZED, ctx.requestId, 401)
         }
 
-        const recipients = await RecipientService.getRecipients(ctx.userId)
+        const recipients = await RecipientService.getRecipients(scopeFromContext(ctx))
         const data = recipients.map(toApiFormat)
         return apiList(data, ctx.requestId, { total: data.length, limit: data.length, offset: 0 })
     },
@@ -85,7 +85,7 @@ export const POST = withPolicy(
             )
         }
 
-        const recipient = await RecipientService.addRecipient(ctx.userId, validation.data.email)
+        const recipient = await RecipientService.addRecipient(scopeFromContext(ctx), validation.data.email)
         return apiSuccessWithStatus({
             id: recipient.id,
             email: recipient.email,

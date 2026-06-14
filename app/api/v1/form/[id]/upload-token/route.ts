@@ -12,6 +12,7 @@ import { apiError, apiSuccess, ErrorCodes, zodErrorToDetails } from "@/lib/api-r
 import { withPolicy } from "@/lib/route-policy"
 import { FormService } from "@/lib/services/form"
 import { DropService } from "@/lib/services/drop"
+import { personalScope } from "@/lib/ownership"
 import { issueUploadToken } from "@/lib/services/drop-upload-token"
 import { validateFormUploadManifest } from "@/lib/services/form-upload"
 import { prisma } from "@/lib/prisma"
@@ -94,7 +95,7 @@ export const POST = withPolicy<RouteParams>(
             await FormService.verifyCustomKeyProof(id, parsed.data.customKeyProof)
             await validateFormUploadManifest(id, parsed.data.files)
 
-            const result = await DropService.createDrop(owningUserId, {
+            const result = await DropService.createDrop(personalScope(owningUserId), {
                 iv: parsed.data.iv,
                 fileCount: parsed.data.files.length,
                 expiry: parsed.data.expiry ?? 1,

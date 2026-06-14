@@ -13,8 +13,10 @@ export default async function ApiKeysPage() {
     const session = await auth()
     if (!session?.user?.id) redirect("/login")
 
+    // Personal API keys only — org-owned keys (organizationId set) are managed in
+    // the team console, not intermixed with the user's personal keys here.
     const apiKeys = await prisma.apiKey.findMany({
-        where: { userId: session.user.id },
+        where: { userId: session.user.id, organizationId: null },
         orderBy: { createdAt: "desc" },
         select: {
             id: true,

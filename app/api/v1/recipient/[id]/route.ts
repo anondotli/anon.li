@@ -9,7 +9,7 @@
 import { z } from "zod"
 
 import { apiError, apiSuccess, ErrorCodes, zodErrorToDetails } from "@/lib/api-response"
-import { withPolicy } from "@/lib/route-policy"
+import { withPolicy, scopeFromContext } from "@/lib/route-policy"
 import { RecipientService } from "@/lib/services/recipient"
 
 export const dynamic = "force-dynamic"
@@ -55,7 +55,7 @@ export const GET = withPolicy<RouteParams>(
         }
 
         const { id } = await routeContext!.params
-        const recipient = await RecipientService.getRecipient(ctx.userId, id)
+        const recipient = await RecipientService.getRecipient(scopeFromContext(ctx), id)
         return apiSuccess(toApiFormat(recipient), ctx.requestId)
     },
 )
@@ -85,8 +85,8 @@ export const PATCH = withPolicy<RouteParams>(
         }
 
         const recipient = validation.data.is_default
-            ? await RecipientService.setAsDefault(ctx.userId, id)
-            : await RecipientService.getRecipient(ctx.userId, id)
+            ? await RecipientService.setAsDefault(scopeFromContext(ctx), id)
+            : await RecipientService.getRecipient(scopeFromContext(ctx), id)
 
         return apiSuccess(toApiFormat(recipient), ctx.requestId)
     },
@@ -104,7 +104,7 @@ export const DELETE = withPolicy<RouteParams>(
         }
 
         const { id } = await routeContext!.params
-        await RecipientService.deleteRecipient(ctx.userId, id)
+        await RecipientService.deleteRecipient(scopeFromContext(ctx), id)
         return apiSuccess({ deleted: true }, ctx.requestId)
     },
 )

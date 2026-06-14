@@ -11,6 +11,7 @@ import {
     type Product,
 } from "@/config/plans"
 import { DAY_MS } from "@/lib/constants"
+import { UpgradeRequiredError, type UpgradeRequiredDetails } from "@/lib/api-error-utils"
 
 type DropFeatures = typeof DROP_FEATURES[keyof typeof DROP_FEATURES];
 type DropLimits = {
@@ -53,7 +54,8 @@ function resolveTierForProduct(user: UserSub | null | undefined, product: Produc
     for (const sub of user?.subscriptions ?? []) {
         if (!isActive(sub)) continue
         if (sub.tier !== 'plus' && sub.tier !== 'pro') continue
-        if (sub.product !== 'bundle' && sub.product !== product) continue
+        // bundle and business both grant their tier across every product.
+        if (sub.product !== 'bundle' && sub.product !== 'business' && sub.product !== product) continue
         best = higherTier(best, sub.tier as PaidTier)
     }
     // Referral Plus tops up to at least Plus, never downgrading a paid Pro.
@@ -64,6 +66,28 @@ function resolveTierForProduct(user: UserSub | null | undefined, product: Produc
 export function getPlanLimits(user?: UserSub | null): AliasEntitlements {
     const tier = resolveTierForProduct(user, 'alias')
     return tier === 'free' ? ALIAS_LIMITS.free : ALIAS_LIMITS[tier]
+}
+
+/**
+ * Purchase-first Teams gate. An org with no active Business subscription is a
+ * zero-capacity workspace: members create and manage resources on their personal
+ * account until the team subscribes. Call this in the ORG branch of every
+ * resource-creation path (alias/recipient/domain/drop/form) before checking the
+ * numeric limit — getOrgLimitContext returns an empty `subscriptions` array for a
+ * free team, which is the exact "no active Business plan" signal.
+ */
+export function assertOrgPlanActive(
+    orgCtx: { subscriptions: unknown[] },
+    resourceLabel: string,
+    scope: UpgradeRequiredDetails["scope"],
+): void {
+    if (orgCtx.subscriptions.length === 0) {
+        throw new UpgradeRequiredError(
+            `Your team needs a Business subscription to create team ${resourceLabel}. ` +
+                `Subscribe from the Team page, or switch to your personal account to manage your own.`,
+            { scope, currentTier: "free", suggestedTier: "pro" },
+        )
+    }
 }
 
 /**
@@ -104,7 +128,7 @@ export function getDropLimits(user?: UserSub | null): DropLimits {
     }
 }
 
-export async function getFormLimitsAsync(userId: string): Promise<FormEntitlements> {
+export async function getFormLimitsAsync(userId: string | null): Promise<FormEntitlements> {
     const { getEffectiveTiers } = await import("@/lib/entitlements")
     const tiers = await getEffectiveTiers(userId)
     return PLAN_ENTITLEMENTS.form[tiers.form]
