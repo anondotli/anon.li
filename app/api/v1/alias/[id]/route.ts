@@ -52,7 +52,7 @@ export const GET = withPolicy<RouteParams>(
             return apiError("Unauthorized", ErrorCodes.UNAUTHORIZED, ctx.requestId, 401)
         }
 
-        const { id } = await routeContext!.params
+        const { id } = await routeContext.params
         const alias = await resolveAlias(id, scopeFromContext(ctx))
 
         if (!alias) {
@@ -83,7 +83,7 @@ export const PATCH = withPolicy<RouteParams>(
             return apiError("Unauthorized", ErrorCodes.UNAUTHORIZED, ctx.requestId, 401)
         }
 
-        const { id } = await routeContext!.params
+        const { id } = await routeContext.params
         const body = await ctx.request.json().catch(() => null)
         const validation = updateAliasSchema.safeParse(body)
 
@@ -180,7 +180,7 @@ export const DELETE = withPolicy<RouteParams>(
             return apiError("Unauthorized", ErrorCodes.UNAUTHORIZED, ctx.requestId, 401)
         }
 
-        const { id } = await routeContext!.params
+        const { id } = await routeContext.params
         const alias = await resolveAlias(id, scopeFromContext(ctx))
         if (!alias) {
             return apiError("Alias not found", ErrorCodes.NOT_FOUND, ctx.requestId, 404)

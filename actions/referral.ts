@@ -9,6 +9,11 @@ import { claimReferral, TERMINAL_CLAIM_STATUSES } from "@/lib/services/referral"
  * email-verified) user. Runs from the dashboard, which is the earliest point we
  * can be sure the referred account is real — this is what keeps unverified
  * sign-ups from farming referrer rewards.
+ *
+ * Intentionally not wrapped in runSecureAction: this is a best-effort,
+ * fire-on-load action that returns a "nothing to do" shape ({ claimed: false })
+ * rather than an error when there's no session/cookie, and must not be gated on
+ * 2FA verification.
  */
 export async function claimReferralFromCookie(): Promise<{ claimed: boolean; rewardDays: number; retry: boolean }> {
     const session = await auth()

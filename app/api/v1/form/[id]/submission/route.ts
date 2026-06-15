@@ -18,7 +18,7 @@ export const GET = withPolicy<RouteParams>(
         rateLimit: "formSubmissionRead",
     },
     async (ctx, routeContext) => {
-        const { id } = await routeContext!.params
+        const { id } = await routeContext.params
         const url = new URL(ctx.request.url)
         const parsed = listSubmissionsQuerySchema.safeParse({
             limit: url.searchParams.get("limit"),

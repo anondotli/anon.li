@@ -19,7 +19,7 @@ export const GET = withPolicy<RouteParams>(
         rateLimit: "formSubmissionRead",
     },
     async (ctx, routeContext) => {
-        const { sid } = await routeContext!.params
+        const { sid } = await routeContext.params
         const url = new URL(ctx.request.url)
         const markRead = url.searchParams.get("markRead") !== "false"
         try {
@@ -53,7 +53,7 @@ export const DELETE = withPolicy<RouteParams>(
         rateLimit: "formOps",
     },
     async (ctx, routeContext) => {
-        const { sid } = await routeContext!.params
+        const { sid } = await routeContext.params
         try {
             await FormService.deleteSubmission(sid, scopeFromContext(ctx))
             return apiSuccess({ deleted: true, id: sid }, ctx.requestId)

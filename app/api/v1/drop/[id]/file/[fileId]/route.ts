@@ -38,7 +38,7 @@ export const GET = withPolicy<RouteParams>(
         rateLimitIdentifier: async () => getClientIp(),
     },
     async (ctx, routeContext) => {
-        const { id: dropId, fileId } = await routeContext!.params
+        const { id: dropId, fileId } = await routeContext.params
         const request = ctx.request as NextRequest
 
         const file = await prisma.dropFile.findUnique({
@@ -120,7 +120,7 @@ export const DELETE = withPolicy<RouteParams>(
     },
     async (ctx, routeContext) => {
         try {
-            const { id: dropId, fileId } = await routeContext!.params
+            const { id: dropId, fileId } = await routeContext.params
             let effectiveUserId = ctx.userId
             const hasUploadToken = Boolean(ctx.request.headers.get("x-upload-token"))
 

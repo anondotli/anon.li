@@ -35,17 +35,17 @@ export async function GET(request: Request) {
         }
 
         const organizationId = new URL(request.url).searchParams.get("organizationId")
-        if (!idSchema.safeParse(organizationId).success) {
+        if (!organizationId || !idSchema.safeParse(organizationId).success) {
             return withNoStore(apiError("Invalid organizationId", ErrorCodes.VALIDATION_ERROR, requestId, 400))
         }
 
-        if (!(await isOrgManager(session.user.id, organizationId!))) {
+        if (!(await isOrgManager(session.user.id, organizationId))) {
             return withNoStore(apiError("Insufficient organization role", ErrorCodes.FORBIDDEN, requestId, 403))
         }
 
         const members = await prisma.member.findMany({
             where: {
-                organizationId: organizationId!,
+                organizationId: organizationId,
                 user: { security: { identityPublicKey: { not: null } } },
             },
             select: {

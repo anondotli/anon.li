@@ -25,7 +25,7 @@ export const POST = withPolicy<RouteParams>(
             return apiError("Unauthorized", ErrorCodes.UNAUTHORIZED, ctx.requestId, 401)
         }
 
-        const { id } = await routeContext!.params
+        const { id } = await routeContext.params
         await RecipientService.resendVerification(scopeFromContext(ctx), id)
         return apiSuccess({ sent: true }, ctx.requestId)
     },

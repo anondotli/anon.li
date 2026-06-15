@@ -49,22 +49,22 @@ export async function GET(request: Request) {
         }
 
         const organizationId = new URL(request.url).searchParams.get("organizationId")
-        if (!idSchema.safeParse(organizationId).success) {
+        if (!organizationId || !idSchema.safeParse(organizationId).success) {
             return withNoStore(apiError("Invalid organizationId", ErrorCodes.VALIDATION_ERROR, requestId, 400))
         }
 
         // Must be a member of the org to read your own key for it.
         const [membership, organization, memberKey] = await Promise.all([
             prisma.member.findUnique({
-                where: { organizationId_userId: { organizationId: organizationId!, userId: session.user.id } },
+                where: { organizationId_userId: { organizationId: organizationId, userId: session.user.id } },
                 select: { role: true },
             }),
             prisma.organization.findUnique({
-                where: { id: organizationId! },
+                where: { id: organizationId },
                 select: { orgKeyGeneration: true },
             }),
             prisma.organizationMemberKey.findUnique({
-                where: { organizationId_userId: { organizationId: organizationId!, userId: session.user.id } },
+                where: { organizationId_userId: { organizationId: organizationId, userId: session.user.id } },
                 select: { wrappedOrgVaultKey: true, orgKeyGeneration: true },
             }),
         ])

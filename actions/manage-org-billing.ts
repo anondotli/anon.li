@@ -5,6 +5,7 @@ import { stripe } from "@/lib/stripe"
 import { redirect } from "next/navigation"
 import { prisma } from "@/lib/prisma"
 import { runScopedAction, type ActionState } from "@/lib/safe-action"
+import { isOrgScope } from "@/lib/ownership"
 import { ValidationError } from "@/lib/api-error-utils"
 import { createLogger } from "@/lib/logger"
 
@@ -37,7 +38,8 @@ export async function createOrgPortalSession(): Promise<ActionState> {
     const result = await runScopedAction<void, string>(
         { rateLimitKey: "stripeOps", minRole: "owner" },
         async (_data, scope) => {
-            const organizationId = scope.organizationId as string
+            if (!isOrgScope(scope)) throw new Error("Organization context required")
+            const { organizationId } = scope
             const sub = await getActiveOrgStripeSub(organizationId)
             if (!sub?.providerCustomerId) {
                 throw new Error("No active team subscription to manage.")
@@ -67,7 +69,8 @@ export async function updateOrgSeats(input: z.infer<typeof updateSeatsSchema>): 
     return runScopedAction<z.infer<typeof updateSeatsSchema>, { seats: number }>(
         { schema: updateSeatsSchema, data: input, rateLimitKey: "stripeOps", minRole: "owner" },
         async (validated, scope) => {
-            const organizationId = scope.organizationId as string
+            if (!isOrgScope(scope)) throw new Error("Organization context required")
+            const { organizationId } = scope
 
             const memberCount = await prisma.member.count({ where: { organizationId } })
             const seats = Math.max(validated.seats, 1)

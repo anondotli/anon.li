@@ -25,7 +25,7 @@ export const POST = withPolicy<RouteParams>(
             return apiError("Unauthorized", ErrorCodes.UNAUTHORIZED, ctx.requestId, 401)
         }
 
-        const { id } = await routeContext!.params
+        const { id } = await routeContext.params
         const domain = await DomainService.regenerateDkim(scopeFromContext(ctx), id)
         const cleanKey = domain.dkimPublicKey
             ?.replace(/-----BEGIN PUBLIC KEY-----/g, "")

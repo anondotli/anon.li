@@ -942,7 +942,6 @@ export class DropService {
                     to: drop.user.email,
                     subject: "Your drop was accessed",
                     react: FileDownloadedEmail({
-                        fileName: "Your shared files",
                         downloadCount: drop.downloads,
                         downloadTime: new Date().toLocaleString(),
                     }),
@@ -998,8 +997,6 @@ export class DropService {
                     const { sendDownloadLimitReachedEmail } = await import("@/lib/resend");
                     await sendDownloadLimitReachedEmail(
                         drop.user.email,
-                        "Your shared files",
-                        drop.id,
                         drop.downloads
                     );
                 } catch (e) {

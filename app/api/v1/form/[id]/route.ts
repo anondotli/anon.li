@@ -24,7 +24,7 @@ const getHandler = withPolicy<RouteParams>(
         rateLimitIdentifier: async () => getClientIp(),
     },
     async (_ctx, routeContext) => {
-        const { id } = await routeContext!.params
+        const { id } = await routeContext.params
         const perIp = await rateLimit("formList", `${await getClientIp()}:${id}`)
         if (perIp) return perIp
 
@@ -64,7 +64,7 @@ export const DELETE = withPolicy<RouteParams>(
         rateLimit: "formOps",
     },
     async (ctx, routeContext) => {
-        const { id } = await routeContext!.params
+        const { id } = await routeContext.params
         await FormService.deleteForm(id, scopeFromContext(ctx))
         return apiSuccess({ deleted: true, id }, ctx.requestId)
     },
@@ -78,7 +78,7 @@ const updateHandler = withPolicy<RouteParams>(
         rateLimit: "formOps",
     },
     async (ctx, routeContext) => {
-        const { id } = await routeContext!.params
+        const { id } = await routeContext.params
         const body = await ctx.request.json().catch(() => null)
         const parsed = updateFormSchema.safeParse(body)
         if (!parsed.success) {
@@ -107,7 +107,7 @@ const toggleHandler = withPolicy<RouteParams>(
         rateLimit: "formOps",
     },
     async (ctx, routeContext) => {
-        const { id } = await routeContext!.params
+        const { id } = await routeContext.params
         const disabled = await FormService.toggleForm(id, scopeFromContext(ctx))
         return apiSuccess({ disabled }, ctx.requestId)
     },

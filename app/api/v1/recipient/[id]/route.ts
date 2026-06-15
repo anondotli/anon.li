@@ -54,7 +54,7 @@ export const GET = withPolicy<RouteParams>(
             return apiError("Unauthorized", ErrorCodes.UNAUTHORIZED, ctx.requestId, 401)
         }
 
-        const { id } = await routeContext!.params
+        const { id } = await routeContext.params
         const recipient = await RecipientService.getRecipient(scopeFromContext(ctx), id)
         return apiSuccess(toApiFormat(recipient), ctx.requestId)
     },
@@ -71,7 +71,7 @@ export const PATCH = withPolicy<RouteParams>(
             return apiError("Unauthorized", ErrorCodes.UNAUTHORIZED, ctx.requestId, 401)
         }
 
-        const { id } = await routeContext!.params
+        const { id } = await routeContext.params
         const body = await ctx.request.json().catch(() => null)
         const validation = updateRecipientSchema.safeParse(body)
         if (!validation.success) {
@@ -103,7 +103,7 @@ export const DELETE = withPolicy<RouteParams>(
             return apiError("Unauthorized", ErrorCodes.UNAUTHORIZED, ctx.requestId, 401)
         }
 
-        const { id } = await routeContext!.params
+        const { id } = await routeContext.params
         await RecipientService.deleteRecipient(scopeFromContext(ctx), id)
         return apiSuccess({ deleted: true }, ctx.requestId)
     },

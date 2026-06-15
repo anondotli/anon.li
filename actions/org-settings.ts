@@ -3,6 +3,7 @@
 import { z } from "zod"
 import { prisma } from "@/lib/prisma"
 import { runScopedAction, type ActionState } from "@/lib/safe-action"
+import { isOrgScope } from "@/lib/ownership"
 import { getAuthUserState } from "@/lib/data/auth"
 import { ValidationError } from "@/lib/api-error-utils"
 import { audit } from "@/lib/services/audit"
@@ -20,7 +21,9 @@ export async function setOrgEnforce2FA(input: z.infer<typeof schema>): Promise<A
     return runScopedAction<z.infer<typeof schema>, { enforce2FA: boolean }>(
         { schema, data: input, minRole: "owner" },
         async (validated, scope) => {
-            const organizationId = scope.organizationId as string
+            // minRole guarantees org context; narrow it so organizationId is a string.
+            if (!isOrgScope(scope)) throw new Error("Organization context required")
+            const { organizationId } = scope
 
             if (validated.enforce2FA) {
                 const me = await getAuthUserState(scope.userId)

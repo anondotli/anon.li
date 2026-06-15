@@ -31,7 +31,7 @@ export const POST = withPolicy<RouteParams>(
         rateLimitIdentifier: async (ctx) => ctx.userId ?? await getClientIp(),
     },
     async (ctx, routeContext) => {
-        const { id: dropId } = await routeContext!.params
+        const { id: dropId } = await routeContext.params
         // Session caller → org-aware scope; token caller → the token owner's scope; guest → null.
         let uploadScope: OwnerScope | null = ctx.userId ? scopeFromContext(ctx) : null
         let formId: string | null = null

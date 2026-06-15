@@ -3,6 +3,10 @@
 import { RecipientService } from "@/lib/services/recipient"
 import { getTurnstileError } from "@/lib/turnstile"
 
+// Unauthenticated by design: this backs the public recipient-verification email
+// link (token + Turnstile), so it cannot use the session-based safe-action
+// wrappers. The token itself is the credential.
+
 export type RecipientVerificationResult =
     | { status: "already-verified"; email: string }
     | { status: "success"; email: string }

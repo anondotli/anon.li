@@ -33,7 +33,7 @@ export const PUT = withPolicy<RouteParams>(
             return apiError("Unauthorized", ErrorCodes.UNAUTHORIZED, ctx.requestId, 401)
         }
 
-        const { id } = await routeContext!.params
+        const { id } = await routeContext.params
         const body = await ctx.request.json().catch(() => null)
         const validation = setPgpSchema.safeParse(body)
         if (!validation.success) {
@@ -72,7 +72,7 @@ export const DELETE = withPolicy<RouteParams>(
             return apiError("Unauthorized", ErrorCodes.UNAUTHORIZED, ctx.requestId, 401)
         }
 
-        const { id } = await routeContext!.params
+        const { id } = await routeContext.params
         await RecipientService.removePgpKey(scopeFromContext(ctx), id)
         return apiSuccess({ removed: true }, ctx.requestId)
     },

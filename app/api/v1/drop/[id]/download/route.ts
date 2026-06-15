@@ -22,7 +22,7 @@ export const POST = withPolicy<RouteParams>(
         rateLimitIdentifier: async () => getClientIp(),
     },
     async (_ctx, routeContext) => {
-        const { id: dropId } = await routeContext!.params
+        const { id: dropId } = await routeContext.params
 
         const drop = await prisma.drop.findUnique({
             where: { id: dropId },

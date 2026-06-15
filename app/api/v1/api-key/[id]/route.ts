@@ -25,7 +25,7 @@ export const DELETE = withPolicy<RouteParams>(
             return apiError("Session authentication required", ErrorCodes.UNAUTHORIZED, ctx.requestId, 401)
         }
 
-        const { id } = await routeContext!.params
+        const { id } = await routeContext.params
         // ApiKeyService.delete performs the cross-tenant ownership check and
         // throws NotFoundError (→ 404) when the key is outside the caller's scope.
         await ApiKeyService.delete(scopeFromContext(ctx), id)

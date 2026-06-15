@@ -23,7 +23,7 @@ export const POST = withPolicy<RouteParams>(
         rateLimitIdentifier: async (ctx) => ctx.userId ?? await getClientIp(),
     },
     async (ctx, routeContext) => {
-        const { id } = await routeContext!.params
+        const { id } = await routeContext.params
         const body = await ctx.request.json().catch(() => null)
         const parsed = submitFormSchema.safeParse(body)
         if (!parsed.success) {

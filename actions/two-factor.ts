@@ -10,6 +10,17 @@ import { prisma } from "@/lib/prisma"
 import { APIError } from "@better-auth/core/error"
 import { getVaultSchemaState } from "@/lib/vault/schema"
 
+/**
+ * These actions intentionally DO NOT use the runSecureAction/runScopedAction
+ * wrappers. The wrappers reject when a session has 2FA enabled but not yet
+ * verified (requiresTwoFactorChallenge) — which is exactly the state these
+ * actions exist to resolve: verifyTwoFactorLogin runs during the login
+ * challenge (often with no full session yet), and disable/regenerate run on an
+ * enabled-but-unverified session. They also need bespoke per-attempt rate
+ * limiting, better-auth error mapping, and custom result shapes. So auth is
+ * hand-rolled here by design.
+ */
+
 type TwoFactorActionResult = {
     error?: string
     success?: boolean

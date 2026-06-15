@@ -1,6 +1,6 @@
 import React from "react"
 import { Resend } from "resend"
-import { sanitizeEmailSubject, sanitizeEmailUserContent, sanitizeDomain, sanitizeFilename } from "@/lib/utils"
+import { sanitizeEmailSubject, sanitizeEmailUserContent, sanitizeDomain } from "@/lib/utils"
 import { createLogger } from "@/lib/logger"
 import { unsubscribeUrl as buildUnsubscribeUrl } from "@/lib/email-unsubscribe"
 
@@ -154,17 +154,16 @@ export async function sendPaymentActionRequiredEmail(email: string, paymentUrl: 
     }
 }
 
-export async function sendDropExpiringEmail(email: string, dropName: string, dropId: string, hoursRemaining: number) {
+export async function sendDropExpiringEmail(email: string, hoursRemaining: number) {
     try {
         const resend = getResendClient()
         const { FileExpiringEmail } = await import("@/components/email/file-expiring")
-        const safeName = sanitizeFilename(dropName, 50)
 
         const { data, error } = await resend.emails.send({
             from: "anon.li <hi@anon.li>",
             to: email,
             subject: sanitizeEmailSubject(`Your drop expires soon`),
-            react: React.createElement(FileExpiringEmail, { fileName: safeName, fileId: dropId, hoursRemaining }),
+            react: React.createElement(FileExpiringEmail, { hoursRemaining }),
         })
 
         if (error) {
@@ -179,17 +178,16 @@ export async function sendDropExpiringEmail(email: string, dropName: string, dro
     }
 }
 
-export async function sendDownloadLimitReachedEmail(email: string, fileName: string, fileId: string, downloads: number) {
+export async function sendDownloadLimitReachedEmail(email: string, downloads: number) {
     try {
         const resend = getResendClient()
         const { DownloadLimitReachedEmail } = await import("@/components/email/download-limit")
-        const safeName = sanitizeFilename(fileName, 50)
 
         const { data, error } = await resend.emails.send({
             from: "anon.li <hi@anon.li>",
             to: email,
             subject: sanitizeEmailSubject(`Download limit reached for a drop`),
-            react: React.createElement(DownloadLimitReachedEmail, { fileName: safeName, fileId, downloads }),
+            react: React.createElement(DownloadLimitReachedEmail, { downloads }),
         })
 
         if (error) {

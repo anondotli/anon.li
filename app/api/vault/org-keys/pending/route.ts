@@ -39,24 +39,24 @@ export async function GET(request: Request) {
         }
 
         const organizationId = new URL(request.url).searchParams.get("organizationId")
-        if (!idSchema.safeParse(organizationId).success) {
+        if (!organizationId || !idSchema.safeParse(organizationId).success) {
             return withNoStore(apiError("Invalid organizationId", ErrorCodes.VALIDATION_ERROR, requestId, 400))
         }
 
         // Only owner/admin may see the pending list (only they grant).
-        if (!(await isOrgManager(session.user.id, organizationId!))) {
+        if (!(await isOrgManager(session.user.id, organizationId))) {
             return withNoStore(apiError("Insufficient organization role", ErrorCodes.FORBIDDEN, requestId, 403))
         }
 
         // Members who have published an identity public key…
         const [organization, members, granted] = await Promise.all([
             prisma.organization.findUnique({
-                where: { id: organizationId! },
+                where: { id: organizationId },
                 select: { orgKeyGeneration: true },
             }),
             prisma.member.findMany({
                 where: {
-                    organizationId: organizationId!,
+                    organizationId: organizationId,
                     user: { security: { identityPublicKey: { not: null } } },
                 },
                 select: {
@@ -66,7 +66,7 @@ export async function GET(request: Request) {
             }),
             // …minus those who already hold a CURRENT-generation member key.
             prisma.organizationMemberKey.findMany({
-                where: { organizationId: organizationId! },
+                where: { organizationId: organizationId },
                 select: { userId: true, orgKeyGeneration: true },
             }),
         ])

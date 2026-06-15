@@ -4,6 +4,7 @@ import { auth } from "@/auth"
 import { stripe } from "@/lib/stripe"
 import { redirect } from "next/navigation"
 import { runScopedAction, type ActionState } from "@/lib/safe-action"
+import { isOrgScope } from "@/lib/ownership"
 import { BUSINESS_PLAN } from "@/config/plans"
 import { prisma } from "@/lib/prisma"
 
@@ -30,8 +31,9 @@ export async function createTeamCheckoutSession(params: TeamCheckoutParams) {
     const result = await runScopedAction<void, string>(
         { rateLimitKey: "stripeOps", minRole: "owner" },
         async (_data, scope) => {
-            // minRole: "owner" guarantees an active org context.
-            const organizationId = scope.organizationId as string
+            // minRole: "owner" guarantees an active org context; narrow to a string id.
+            if (!isOrgScope(scope)) throw new Error("Organization context required")
+            const { organizationId } = scope
 
             const frequency = params.frequency === "yearly" ? "yearly" : "monthly"
             const priceId = BUSINESS_PLAN.priceIds?.[frequency]

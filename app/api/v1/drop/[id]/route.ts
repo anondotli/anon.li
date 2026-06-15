@@ -42,7 +42,7 @@ const getHandler = withPolicy<RouteParams>(
         rateLimitIdentifier: async () => getClientIp(),
     },
     async (_ctx, routeContext) => {
-        const { id: dropId } = await routeContext!.params
+        const { id: dropId } = await routeContext.params
         const clientIp = await getClientIp()
 
         const perDropLimited = await rateLimit("dropMetadataPerDrop", `${clientIp}:${dropId}`)
@@ -69,7 +69,7 @@ export const DELETE = withPolicy<RouteParams>(
         rateLimit: "dropOps",
     },
     async (ctx, routeContext) => {
-        const { id: dropId } = await routeContext!.params
+        const { id: dropId } = await routeContext.params
 
         await DropService.deleteDrop(dropId, scopeFromContext(ctx))
 
@@ -86,7 +86,7 @@ const completeHandler = withPolicy<RouteParams>(
         rateLimit: "dropOps",
     },
     async (ctx, routeContext) => {
-        const { id: dropId } = await routeContext!.params
+        const { id: dropId } = await routeContext.params
         const body = await ctx.request.json().catch(() => ({}))
         const validation = completeDropSchema.safeParse(body)
 
@@ -109,7 +109,7 @@ const finishHandler = withPolicy<RouteParams>(
         rateLimitIdentifier: async (ctx) => ctx.userId ?? await getClientIp(),
     },
     async (ctx, routeContext) => {
-        const { id: dropId } = await routeContext!.params
+        const { id: dropId } = await routeContext.params
         // Session caller → org-aware scope; token caller → the token owner's scope; guest → null.
         let finishScope: OwnerScope | null = ctx.userId ? scopeFromContext(ctx) : null
         const hasUploadToken = Boolean(ctx.request.headers.get("x-upload-token"))
@@ -144,7 +144,7 @@ const toggleHandler = withPolicy<RouteParams>(
         rateLimit: "dropOps",
     },
     async (ctx, routeContext) => {
-        const { id: dropId } = await routeContext!.params
+        const { id: dropId } = await routeContext.params
         const disabled = await DropService.toggleDrop(dropId, scopeFromContext(ctx))
 
         return NextResponse.json({ success: true, disabled })

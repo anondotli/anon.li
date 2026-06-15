@@ -130,7 +130,6 @@ async function runCleanup(): Promise<NextResponse> {
             },
             select: {
                 id: true,
-                encryptedTitle: true,
                 expiresAt: true,
                 user: { select: { email: true } },
             },
@@ -142,9 +141,7 @@ async function runCleanup(): Promise<NextResponse> {
                 try {
                     const { sendDropExpiringEmail } = await import("@/lib/resend");
                     const hoursRemaining = Math.ceil((drop.expiresAt.getTime() - now.getTime()) / (1000 * 60 * 60));
-                    // Can't decrypt title server-side (by design), use generic description
-                    const displayName = "one of your drops";
-                    await sendDropExpiringEmail(drop.user.email, displayName, drop.id, hoursRemaining);
+                    await sendDropExpiringEmail(drop.user.email, hoursRemaining);
                     await prisma.drop.update({
                         where: { id: drop.id },
                         data: { expiryNotifiedAt: now },

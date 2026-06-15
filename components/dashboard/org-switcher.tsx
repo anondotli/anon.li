@@ -131,7 +131,7 @@ export function OrgSwitcher() {
                     >
                         <span className="flex min-w-0 items-center gap-2">
                             {isTeam ? <Building2 className="h-4 w-4 shrink-0" /> : <User className="h-4 w-4 shrink-0" />}
-                            <span className="truncate text-foreground">{activeOrg?.name ?? "Personal"}</span>
+                            <span className="hidden truncate text-foreground sm:inline">{activeOrg?.name ?? "Personal"}</span>
                         </span>
                         <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 opacity-50" />
                     </Button>

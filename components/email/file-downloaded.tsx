@@ -1,25 +1,19 @@
 import { EmailLayout } from "./layout";
-import { EmailHeader, FileInfoCard, StatBox, EmailCTA, emailColors } from "./primitives";
+import { EmailHeader, StatBox, EmailCTA, emailColors } from "./primitives";
 
 interface FileDownloadedEmailProps {
-    fileName: string;
     downloadCount: number;
     downloadTime: string;
 }
 
-export function FileDownloadedEmail({ fileName, downloadCount, downloadTime }: FileDownloadedEmailProps) {
+export function FileDownloadedEmail({ downloadCount, downloadTime }: FileDownloadedEmailProps) {
     return (
-        <EmailLayout title="Your File Was Downloaded" preheader="Someone just downloaded your file">
+        <EmailLayout title="Your Drop Was Downloaded" preheader="Someone just downloaded your drop">
             <EmailHeader
                 icon="&#128229;"
                 iconBgColor={emailColors.successBg}
-                title="File Downloaded"
-                subtitle="Someone just downloaded your file."
-            />
-            <FileInfoCard
-                icon="&#128193;"
-                title={fileName}
-                description={`Downloaded at ${downloadTime}`}
+                title="Drop Downloaded"
+                subtitle={`Someone downloaded your drop on ${downloadTime}.`}
             />
             <StatBox
                 value={downloadCount}

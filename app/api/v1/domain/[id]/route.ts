@@ -80,7 +80,7 @@ export const GET = withPolicy<RouteParams>(
             return apiError("Unauthorized", ErrorCodes.UNAUTHORIZED, ctx.requestId, 401)
         }
 
-        const { id } = await routeContext!.params
+        const { id } = await routeContext.params
         const domain = await prisma.domain.findUnique({ where: { id } })
         if (!domain || !isWithinScope(domain, scopeFromContext(ctx))) {
             return apiError("Domain not found", ErrorCodes.NOT_FOUND, ctx.requestId, 404)
@@ -101,7 +101,7 @@ export const DELETE = withPolicy<RouteParams>(
             return apiError("Unauthorized", ErrorCodes.UNAUTHORIZED, ctx.requestId, 401)
         }
 
-        const { id } = await routeContext!.params
+        const { id } = await routeContext.params
         await DomainService.deleteDomain(scopeFromContext(ctx), id)
         return apiSuccess({ deleted: true }, ctx.requestId)
     },
