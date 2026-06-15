@@ -388,8 +388,23 @@ export class DropService {
             // Authenticated path: validate against plan limits and reserve
             // storage atomically to prevent TOCTOU. In org scope the file-size /
             // storage-ceiling limits derive from the org's own plan.
-            // TODO(track-c): org-owned drops still meter usage against the
-            // creating member's storage counter; true org-pooled storage is future work.
+            //
+            // TODO(track-c) — org-pooled storage (own change, needs a migration):
+            // org-owned drops currently meter against the creating member's
+            // `users.storageUsed`. Reserve and reclaim are internally consistent
+            // (both hit that user counter), so there's no drift — but usage is
+            // per-member, not pooled across the org, and a member's personal usage
+            // is checked against the ORG limit. To pool it:
+            //   1. Add Organization.storageUsed BigInt @default(0) (+ migration).
+            //   2. Here: in org scope, reserve against the org counter
+            //      (atomic UPDATE on `organizations`), not the user.
+            //   3. Route EVERY reclaim path to the org counter for org-owned
+            //      drops: deleteFilesAndReclaimQuota / drop-storage.ts, the four
+            //      drop-cleanup.ts sites, admin.ts takedown, and the
+            //      billing-downgrade.ts reconciliation (which sums per user).
+            //   4. Add pooling + concurrency/drift tests across those paths.
+            // Missing any reclaim path leaks the org counter, so do it as one
+            // coordinated change.
             const userLimits = await getUserAndLimits(scope.userId);
             const storageUsed = userLimits.storageUsed;
             let limits = userLimits.limits;
@@ -1057,8 +1072,10 @@ export class DropService {
         // Deleting a shared org drop is destructive for the team → admin+ in org context.
         assertCanManage(drop, scope);
 
-        // Reclaim storage from the user originally charged (the creator).
-        // TODO(track-c): org-owned drops should reclaim against org storage.
+        // Reclaim storage from the user originally charged (the creator). This
+        // pairs with the reservation in createDrop — see the track-c spec there:
+        // when storage becomes org-pooled, this reclaim must target the org
+        // counter for org-owned drops (drop.organizationId) instead of the user.
         await DropService.deleteFilesAndReclaimQuota(drop.files, drop.userId ?? scope.userId);
 
         await prisma.drop.delete({ where: { id: dropId } });
