@@ -116,8 +116,8 @@ export class AliasService {
         // Purchase-first Teams: an unsubscribed org is a zero-capacity workspace.
         if (scope.organizationId) assertOrgPlanActive(limitContext, "aliases", "alias_random")
 
-        // Resolve recipients: prefer recipientIds array, fall back to single recipientId/recipientEmail
-        // TODO(track-d): in org scope, resolve org-owned recipients (shared team recipients).
+        // Resolve recipients: prefer recipientIds array, fall back to single recipientId/recipientEmail.
+        // Recipient lookups are scope-aware (ownerWhere), so org scope resolves the org's shared recipients.
         const recipients = await this._resolveRecipients(
             scope, user.email || "", data.recipientIds, data.recipientId, data.recipientEmail
         )
@@ -142,8 +142,8 @@ export class AliasService {
                 throw new ConflictError("Alias already taken on this domain")
             }
 
-            // Re-check limits inside the transaction (counted within the owner scope).
-            // TODO(track-c): org-scope limit *values* should derive from the org plan.
+            // Re-check limits inside the transaction (counted within the owner scope;
+            // limit values come from limitContext, which is the org plan in org scope).
             const currentCount = await tx.alias.count({
                 where: { ...ownerWhere(scope), format },
             })
@@ -537,12 +537,15 @@ export class AliasService {
             throw new ValidationError("At least one recipient is required")
         }
 
-        // Enforce max recipients per alias based on plan (per-user; TODO(track-c) org plan)
-        const user = await getUserById(scope.userId)
-        if (!user) throw new NotFoundError("User not found")
-        const { recipientsPerAlias } = getPlanLimits(user)
+        // Enforce max recipients per alias based on the OWNING plan: in org scope
+        // from the org's own subscription, else the acting user's.
+        const limitContext = scope.organizationId
+            ? await getOrgLimitContext(scope.organizationId)
+            : await getUserById(scope.userId)
+        if (!limitContext) throw new NotFoundError("User not found")
+        const { recipientsPerAlias } = getPlanLimits(limitContext)
         if (recipientsPerAlias !== undefined && recipientIds.length > recipientsPerAlias) {
-            const currentTier = getEffectiveTier(user)
+            const currentTier = getEffectiveTier(limitContext)
             throw new UpgradeRequiredError(
                 `Maximum ${recipientsPerAlias} recipients per alias on your plan.`,
                 {

@@ -42,7 +42,7 @@ export async function createOrgPortalSession(): Promise<ActionState> {
             const { organizationId } = scope
             const sub = await getActiveOrgStripeSub(organizationId)
             if (!sub?.providerCustomerId) {
-                throw new Error("No active team subscription to manage.")
+                throw new ValidationError("No active team subscription to manage.")
             }
             const portal = await stripe.billingPortal.sessions.create({
                 customer: sub.providerCustomerId,
@@ -95,7 +95,9 @@ export async function updateOrgSeats(input: z.infer<typeof updateSeatsSchema>): 
             })
             logger.info("Org seats updated", { organizationId, seats })
 
-            // The customer.subscription.updated webhook syncs `seats` to our DB.
+            // The customer.subscription.updated webhook syncs `seats` to our DB and
+            // emits the org.billing.seats_change audit entry (subscription-sync.ts).
+            // Don't emit one here too — that would double-log a single seat change.
             return { seats }
         },
     )

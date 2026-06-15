@@ -5,6 +5,7 @@ import { stripe } from "@/lib/stripe"
 import { redirect } from "next/navigation"
 import { runScopedAction, type ActionState } from "@/lib/safe-action"
 import { isOrgScope } from "@/lib/ownership"
+import { ValidationError } from "@/lib/api-error-utils"
 import { BUSINESS_PLAN } from "@/config/plans"
 import { prisma } from "@/lib/prisma"
 
@@ -50,7 +51,7 @@ export async function createTeamCheckoutSession(params: TeamCheckoutParams) {
                 },
             })
             if (existing) {
-                throw new Error("Your team already has an active subscription. Manage it from billing.")
+                throw new ValidationError("Your team already has an active subscription. Manage it from billing.")
             }
 
             // Owner chooses how many seats to buy (default 2); never below the
