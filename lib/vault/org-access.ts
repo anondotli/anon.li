@@ -28,7 +28,7 @@ export async function isOrgMember(userId: string, organizationId: string): Promi
  * known OrgRole and treat any unrecognized value as "no role" (null), so an
  * unexpected role can never satisfy a privilege check.
  */
-export async function getOrgRole(userId: string, organizationId: string): Promise<OrgRole | null> {
+async function getOrgRole(userId: string, organizationId: string): Promise<OrgRole | null> {
     const member = await prisma.member.findUnique({
         where: { organizationId_userId: { organizationId, userId } },
         select: { role: true },

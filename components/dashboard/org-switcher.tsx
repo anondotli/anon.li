@@ -114,7 +114,7 @@ export function OrgSwitcher() {
     // Until the active-org query settles we can't tell Personal from a team, so
     // render a placeholder instead of flashing "Personal".
     if (activeOrgPending && !activeOrg) {
-        return <Skeleton className="h-8 w-[150px] rounded-md" />
+        return <Skeleton className="h-8 w-14 rounded-md sm:w-[150px]" />
     }
 
     const isTeam = !!activeOrg

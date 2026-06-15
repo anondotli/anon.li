@@ -10,7 +10,7 @@ vi.mock("@/lib/prisma", () => ({
 }))
 
 import { prisma } from "@/lib/prisma"
-import { claimReferral, normalizeReferralCode, REFERRAL_REWARD_DAYS } from "@/lib/services/referral"
+import { claimReferral, getReferralRewardPreview, normalizeReferralCode, REFERRAL_REWARD_DAYS } from "@/lib/services/referral"
 import { getUserAndLimits } from "@/lib/drop-utils"
 
 const prismaMock = prisma as unknown as {
@@ -98,6 +98,32 @@ describe("normalizeReferralCode", () => {
         expect(normalizeReferralCode("A".repeat(17))).toBeNull()
         expect(normalizeReferralCode(null)).toBeNull()
         expect(normalizeReferralCode(undefined)).toBeNull()
+    })
+})
+
+describe("getReferralRewardPreview", () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+    })
+
+    it("returns null for a malformed code without hitting the DB", async () => {
+        expect(await getReferralRewardPreview("ab12")).toBeNull()
+        expect(await getReferralRewardPreview(null)).toBeNull()
+        expect(prismaMock.user.findUnique).not.toHaveBeenCalled()
+    })
+
+    it("returns null when no referrer owns the code", async () => {
+        prismaMock.user.findUnique.mockResolvedValueOnce(null)
+        expect(await getReferralRewardPreview("ABCD1234")).toBeNull()
+    })
+
+    it("previews the reward when the code maps to a real referrer", async () => {
+        prismaMock.user.findUnique.mockResolvedValueOnce({ id: "referrer" })
+        // Normalizes before lookup, so a messy URL value still resolves.
+        expect(await getReferralRewardPreview("abcd-1234")).toEqual({ rewardDays: REFERRAL_REWARD_DAYS })
+        expect(prismaMock.user.findUnique).toHaveBeenCalledWith(
+            expect.objectContaining({ where: { referralCode: "ABCD1234" } }),
+        )
     })
 })
 

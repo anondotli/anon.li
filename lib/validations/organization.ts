@@ -12,8 +12,8 @@
  * in sanitizeEmailUserContent (lib/utils.ts).
  */
 
-export const ORG_NAME_MIN_LENGTH = 2
-export const ORG_NAME_MAX_LENGTH = 50
+const ORG_NAME_MIN_LENGTH = 2
+const ORG_NAME_MAX_LENGTH = 50
 
 // C0/C1 control chars plus invisible & bidi formatting chars (zero-width
 // spaces/joiners, LRO/RLO overrides, BOM) — spoofing and copy-confusion tools.

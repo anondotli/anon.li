@@ -31,13 +31,13 @@ import { adminAc, memberAc, ownerAc, defaultStatements } from "better-auth/plugi
  * `User.isAdmin` super-admin flag. `isAdmin` is anon.li staff; org roles govern
  * a customer's own organization. Do not conflate the two.
  */
-export const statement = { ...defaultStatements } as const
+const statement = { ...defaultStatements } as const
 
 export const ac = createAccessControl(statement)
 
-export const member = ac.newRole({ ...memberAc.statements })
-export const admin = ac.newRole({ ...adminAc.statements })
-export const owner = ac.newRole({ ...ownerAc.statements })
+const member = ac.newRole({ ...memberAc.statements })
+const admin = ac.newRole({ ...adminAc.statements })
+const owner = ac.newRole({ ...ownerAc.statements })
 
 export const roles = { owner, admin, member }
 

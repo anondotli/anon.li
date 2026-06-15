@@ -66,9 +66,6 @@ export async function generateKeypair(): Promise<KeypairExport> {
     }
 }
 
-/** Back-compat alias for Form callers (builder-page). */
-export const generateFormKeypair = generateKeypair
-
 async function importPublicKey(raw: string): Promise<CryptoKey> {
     return crypto.subtle.importKey("raw", b64UrlToBuf(raw), ECDH_PARAMS, true, [])
 }

@@ -52,7 +52,7 @@ vi.mock("@/components/vault/vault-provider", () => ({
 }))
 
 vi.mock("@/lib/crypto/asymmetric", () => ({
-    generateFormKeypair: vi.fn(),
+    generateKeypair: vi.fn(),
 }))
 
 vi.mock("@/lib/vault/crypto", () => ({

@@ -501,7 +501,7 @@ export const FORM_PLANS: Record<"free" | "plus" | "pro", PlanDefinition> = {
 export const BUSINESS_SEAT_PRICE = { monthly: 11.99, yearly: 119.89 } as const;
 
 // Business always resolves to Pro-level entitlements across every product.
-export const BUSINESS_TIER: PaidTier = "pro";
+const BUSINESS_TIER: PaidTier = "pro";
 
 export const BUSINESS_PLAN: PlanDefinition = {
     id: "business",

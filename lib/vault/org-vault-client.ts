@@ -222,7 +222,7 @@ export async function seedOrgVaultKey(orgId: string): Promise<void> {
  * seal a stale key to others). Returns the number of members newly granted.
  * Fail-soft per member.
  */
-export async function reconcileOrgGrants(orgId: string, vaultKey: CryptoKey): Promise<number> {
+async function reconcileOrgGrants(orgId: string, vaultKey: CryptoKey): Promise<number> {
     const handle = await getOrgVaultKey(orgId, vaultKey)
     if (!handle) return 0
 

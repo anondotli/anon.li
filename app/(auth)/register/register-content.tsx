@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import { useSearchParams } from "next/navigation"
+import { Gift } from "lucide-react"
 import { LoginForm } from "@/components/auth"
 import Link from "next/link"
 import { Icons } from "@/components/shared/icons"
@@ -11,7 +12,13 @@ const PRODUCT_DASHBOARDS: Record<string, string> = {
     drop: "/dashboard/drop",
 }
 
-export function RegisterPageContent() {
+interface RegisterPageContentProps {
+    /** Days of Plus the visitor will receive on signup via a valid pending
+     *  referral, or null when there's no referral to honor. */
+    referralRewardDays?: number | null
+}
+
+export function RegisterPageContent({ referralRewardDays = null }: RegisterPageContentProps) {
     const [emailSent, setEmailSent] = useState(false)
     const searchParams = useSearchParams()
     const from = searchParams.get("from")
@@ -35,6 +42,19 @@ export function RegisterPageContent() {
                         </div>
                     </div>
                 )}
+                {!emailSent && referralRewardDays ? (
+                    <div className="mb-6 flex items-center gap-3 rounded-xl border border-primary/20 bg-primary/5 p-4">
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+                            <Gift className="h-5 w-5 text-primary" />
+                        </div>
+                        <p className="text-sm">
+                            <span className="font-medium">You&apos;ve been referred!</span>{" "}
+                            <span className="text-muted-foreground">
+                                Create your account to get {referralRewardDays} days of Plus, free.
+                            </span>
+                        </p>
+                    </div>
+                ) : null}
                 <LoginForm mode="register" onEmailSentChange={setEmailSent} callbackUrl={callbackUrl} />
                 {!emailSent && (
                     <div className="mt-6 space-y-3">

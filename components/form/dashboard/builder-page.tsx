@@ -33,7 +33,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { useVault } from "@/components/vault/vault-provider"
 import { UpgradeRequiredDialog } from "@/components/upgrade/upgrade-required-dialog"
-import { generateFormKeypair } from "@/lib/crypto/asymmetric"
+import { generateKeypair } from "@/lib/crypto/asymmetric"
 import { wrapVaultPayload, base64UrlToArrayBuffer } from "@/lib/vault/crypto"
 import { authClient } from "@/lib/auth-client"
 import { FormSchemaDoc, EMPTY_FORM_SCHEMA, serializeSchema } from "@/lib/form-schema"
@@ -255,7 +255,7 @@ export function FormBuilderPage({
                 return
             }
 
-            const keypair = await generateFormKeypair()
+            const keypair = await generateKeypair()
             const privateKeyBytes = base64UrlToArrayBuffer(keypair.privateKey)
 
             let wrappedPrivateKey: string

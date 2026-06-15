@@ -148,6 +148,29 @@ export async function claimReferral(userId: string, rawCode: string | null): Pro
     return { status: "claimed", rewardDays: REFERRAL_REWARD_DAYS }
 }
 
+/**
+ * Pre-signup preview of a pending referral. Confirms the raw code (from the
+ * `?ref` URL param or first-touch `anonli_ref` cookie) maps to a real referrer
+ * so the register page can truthfully promise the reward *before* the account
+ * exists. Read-only — no attribution, no account required. Self-referral can't
+ * be detected yet (there's no account to compare against), which is fine: the
+ * authoritative {@link claimReferral} still rejects it at claim time.
+ */
+export async function getReferralRewardPreview(
+    rawCode: string | null | undefined,
+): Promise<{ rewardDays: number } | null> {
+    const code = normalizeReferralCode(rawCode)
+    if (!code) return null
+
+    const referrer = await prisma.user.findUnique({
+        where: { referralCode: code },
+        select: { id: true },
+    })
+    if (!referrer) return null
+
+    return { rewardDays: REFERRAL_REWARD_DAYS }
+}
+
 export interface ReferralStats {
     code: string
     successfulReferrals: number
