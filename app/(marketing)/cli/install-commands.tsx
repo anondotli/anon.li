@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { useClipboard } from "@/hooks/use-clipboard"
 import { Check, Copy } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -24,14 +25,12 @@ const tabs = [
 
 export function InstallCommands() {
     const [activeTab, setActiveTab] = useState("linux")
-    const [copied, setCopied] = useState(false)
+    const { copied, copy, reset } = useClipboard()
 
     const active = tabs.find((t) => t.id === activeTab)!
 
     function handleCopy() {
-        navigator.clipboard.writeText(active.command)
-        setCopied(true)
-        setTimeout(() => setCopied(false), 2000)
+        void copy(active.command)
     }
 
     return (
@@ -42,7 +41,7 @@ export function InstallCommands() {
                     {tabs.map((tab) => (
                         <button
                             key={tab.id}
-                            onClick={() => { setActiveTab(tab.id); setCopied(false) }}
+                            onClick={() => { setActiveTab(tab.id); reset() }}
                             className={cn(
                                 "flex-1 px-4 py-3 text-sm font-medium transition-colors relative",
                                 activeTab === tab.id

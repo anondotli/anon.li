@@ -5,6 +5,7 @@ import { logVaultError, logVaultWarn } from "@/lib/vault/api"
 import { getVaultSession } from "@/lib/vault/server"
 import { getVaultSchemaState, VAULT_SCHEMA_UNAVAILABLE_MESSAGE } from "@/lib/vault/schema"
 import { enforceVaultRequestGuards } from "@/lib/vault/http"
+import { isOrgManager } from "@/lib/vault/org-access"
 
 /**
  * Pending org-key grants (ORG-E2EE-DESIGN.md §5/§10.3).
@@ -19,7 +20,6 @@ import { enforceVaultRequestGuards } from "@/lib/vault/http"
 
 const ROUTE_NAME = "vault-org-keys-pending"
 const idSchema = z.string().min(1).max(64)
-const GRANT_ROLES = new Set(["owner", "admin"])
 
 export async function GET(request: Request) {
     const requestId = generateRequestId()
@@ -44,11 +44,7 @@ export async function GET(request: Request) {
         }
 
         // Only owner/admin may see the pending list (only they grant).
-        const granter = await prisma.member.findUnique({
-            where: { organizationId_userId: { organizationId: organizationId!, userId: session.user.id } },
-            select: { role: true },
-        })
-        if (!granter || !GRANT_ROLES.has(granter.role)) {
+        if (!(await isOrgManager(session.user.id, organizationId!))) {
             return withNoStore(apiError("Insufficient organization role", ErrorCodes.FORBIDDEN, requestId, 403))
         }
 

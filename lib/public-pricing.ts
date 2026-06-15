@@ -7,6 +7,7 @@ import {
     type PlanDefinition,
     type Product,
 } from "@/config/plans"
+import { formatStorageCompact } from "@/lib/format"
 
 type PublicTier = "free" | "plus" | "pro"
 type BillingInterval = "monthly" | "yearly"
@@ -147,11 +148,6 @@ function roundCurrency(value: number) {
     return Number(value.toFixed(2))
 }
 
-function formatBytes(bytes: number) {
-    const gb = bytes / (1024 * 1024 * 1024)
-    return gb >= 1 ? `${gb}GB` : `${Math.round(bytes / (1024 * 1024))}MB`
-}
-
 function getAliasEntitlements(tier: PublicTier): PublicAliasEntitlements {
     const entitlements = PLAN_ENTITLEMENTS.alias[tier]
 
@@ -170,9 +166,9 @@ function getDropEntitlements(tier: PublicTier): PublicDropEntitlements {
 
     return {
         maxFileSizeBytes: entitlements.maxFileSize,
-        maxFileSize: formatBytes(entitlements.maxFileSize),
+        maxFileSize: formatStorageCompact(entitlements.maxFileSize),
         bandwidthBytes: entitlements.bandwidth,
-        bandwidth: formatBytes(entitlements.bandwidth),
+        bandwidth: formatStorageCompact(entitlements.bandwidth),
         maxExpiryDays: entitlements.maxExpiryDays,
         passwordProtection: entitlements.customKey,
         downloadLimits: entitlements.downloadLimits,
@@ -196,7 +192,7 @@ function getFormEntitlements(tier: PublicTier): PublicFormEntitlements {
         passwordProtection: entitlements.customKey,
         removeBranding: entitlements.removeBranding,
         maxSubmissionFileSizeBytes: entitlements.maxSubmissionFileSize,
-        maxSubmissionFileSize: formatBytes(entitlements.maxSubmissionFileSize),
+        maxSubmissionFileSize: formatStorageCompact(entitlements.maxSubmissionFileSize),
         apiRequestsPerMonth: entitlements.apiRequests,
     }
 }

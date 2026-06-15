@@ -7,6 +7,7 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { analytics } from "@/lib/analytics"
+import { useClipboard } from "@/hooks/use-clipboard"
 
 /**
  * localStorage key storing the referral count at the moment of dismissal.
@@ -18,8 +19,6 @@ const DISMISS_KEY = "anon-li-invite-banner-dismissed-count"
 interface InviteBannerProps {
     link: string
     successfulReferrals: number
-    /** ISO date string, or null if the user has no complimentary Plus. */
-    plusUntil: string | null
     rewardDays: number
 }
 
@@ -32,7 +31,7 @@ export function InviteBanner({ link, successfulReferrals, rewardDays }: InviteBa
     // Start hidden so SSR and the first client paint agree (no hydration flash);
     // the effect reveals it once we've read localStorage. Mirrors FeaturePromptGrid.
     const [visible, setVisible] = useState(false)
-    const [copied, setCopied] = useState(false)
+    const { copied, copy: copyToClipboard } = useClipboard()
 
     useEffect(() => {
         const timer = window.setTimeout(() => {
@@ -49,11 +48,10 @@ export function InviteBanner({ link, successfulReferrals, rewardDays }: InviteBa
     }, [successfulReferrals])
 
     const copy = async () => {
-        await navigator.clipboard.writeText(link)
-        setCopied(true)
-        analytics.referralLinkCopied("dashboard_banner")
-        toast.success("Referral link copied!")
-        setTimeout(() => setCopied(false), 2000)
+        if (await copyToClipboard(link)) {
+            analytics.referralLinkCopied("dashboard_banner")
+            toast.success("Referral link copied!")
+        }
     }
 
     const dismiss = () => {

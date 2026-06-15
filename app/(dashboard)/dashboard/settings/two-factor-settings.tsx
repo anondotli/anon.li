@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useTransition, useCallback, useRef } from "react"
+import { useClipboard } from "@/hooks/use-clipboard"
 import Image from "next/image"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -89,8 +90,8 @@ export function TwoFactorSettings() {
     const [disableCode, setDisableCode] = useState("")
     const [regenerateCode, setRegenerateCode] = useState("")
     const [setupStep, setSetupStep] = useState<SetupStep>("qr")
-    const [copiedSecret, setCopiedSecret] = useState(false)
-    const [copiedBackup, setCopiedBackup] = useState(false)
+    const { copied: copiedSecret, copy: copySecretToClipboard } = useClipboard()
+    const { copied: copiedBackup, copy: copyBackupToClipboard } = useClipboard()
     const otpRef = useRef<HTMLInputElement>(null)
 
     const loadStatus = useCallback(() => {
@@ -182,17 +183,15 @@ export function TwoFactorSettings() {
     }
 
     const copySecret = async () => {
-        await navigator.clipboard.writeText(secret)
-        setCopiedSecret(true)
-        toast.success("Secret copied")
-        setTimeout(() => setCopiedSecret(false), 2000)
+        if (await copySecretToClipboard(secret)) {
+            toast.success("Secret copied")
+        }
     }
 
     const copyBackupCodes = async () => {
-        await navigator.clipboard.writeText(backupCodes.join("\n"))
-        setCopiedBackup(true)
-        toast.success("Backup codes copied")
-        setTimeout(() => setCopiedBackup(false), 2000)
+        if (await copyBackupToClipboard(backupCodes.join("\n"))) {
+            toast.success("Backup codes copied")
+        }
     }
 
     if (isEnabled === null) {

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useClipboard } from "@/hooks/use-clipboard";
 import { AlertTriangle, Send, Mail, FileIcon, ClipboardList, Loader2, CheckCircle2, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -47,7 +48,7 @@ export function ReportAbuseForm() {
     const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
     const [turnstileRequested, setTurnstileRequested] = useState(false);
     const [turnstileRenderKey, setTurnstileRenderKey] = useState(0);
-    const [copied, setCopied] = useState(false);
+    const { copied, copy } = useClipboard();
 
     const [error, setError] = useState<string | null>(null);
 
@@ -140,9 +141,7 @@ export function ReportAbuseForm() {
 
     const copyTrackingToken = () => {
         if (trackingToken) {
-            navigator.clipboard.writeText(trackingToken);
-            setCopied(true);
-            setTimeout(() => setCopied(false), 2000);
+            void copy(trackingToken);
         }
     };
 

@@ -5,6 +5,7 @@ import { logVaultError, logVaultWarn } from "@/lib/vault/api"
 import { getVaultSession } from "@/lib/vault/server"
 import { getVaultSchemaState, VAULT_SCHEMA_UNAVAILABLE_MESSAGE } from "@/lib/vault/schema"
 import { enforceVaultRequestGuards } from "@/lib/vault/http"
+import { isOrgManager } from "@/lib/vault/org-access"
 import { audit } from "@/lib/services/audit"
 
 /**
@@ -19,7 +20,6 @@ import { audit } from "@/lib/services/audit"
 
 const ROUTE_NAME = "vault-org-keys-rekey"
 const idSchema = z.string().min(1).max(64)
-const GRANT_ROLES = new Set(["owner", "admin"])
 
 const rekeyItem = z.object({ id: z.string().min(1).max(64), wrappedKey: z.string().min(1).max(4096) })
 const memberGrant = z.object({ userId: idSchema, wrappedOrgVaultKey: z.string().min(1).max(4096) })
@@ -32,14 +32,6 @@ const rekeySchema = z.object({
 })
 
 class StaleGenerationError extends Error {}
-
-async function requireManager(userId: string, organizationId: string): Promise<boolean> {
-    const member = await prisma.member.findUnique({
-        where: { organizationId_userId: { organizationId, userId } },
-        select: { role: true },
-    })
-    return Boolean(member && GRANT_ROLES.has(member.role))
-}
 
 export async function GET(request: Request) {
     const requestId = generateRequestId()
@@ -62,7 +54,7 @@ export async function GET(request: Request) {
         if (!idSchema.safeParse(organizationId).success) {
             return withNoStore(apiError("Invalid organizationId", ErrorCodes.VALIDATION_ERROR, requestId, 400))
         }
-        if (!(await requireManager(session.user.id, organizationId!))) {
+        if (!(await isOrgManager(session.user.id, organizationId!))) {
             return withNoStore(apiError("Insufficient organization role", ErrorCodes.FORBIDDEN, requestId, 403))
         }
 
@@ -111,7 +103,7 @@ export async function POST(request: Request) {
         }
         const { organizationId, orgKeyGeneration, memberGrants, dropKeys, formKeys } = validation.data
 
-        if (!(await requireManager(session.user.id, organizationId))) {
+        if (!(await isOrgManager(session.user.id, organizationId))) {
             return withNoStore(apiError("Insufficient organization role", ErrorCodes.FORBIDDEN, requestId, 403))
         }
 

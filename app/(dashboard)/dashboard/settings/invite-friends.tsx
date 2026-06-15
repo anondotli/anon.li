@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useClipboard } from "@/hooks/use-clipboard"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -16,13 +16,12 @@ interface InviteFriendsProps {
 }
 
 export function InviteFriends({ link, successfulReferrals, plusUntil, rewardDays }: InviteFriendsProps) {
-    const [copied, setCopied] = useState(false)
+    const { copied, copy: copyToClipboard } = useClipboard()
 
     const copy = async () => {
-        await navigator.clipboard.writeText(link)
-        setCopied(true)
-        toast.success("Referral link copied!")
-        setTimeout(() => setCopied(false), 2000)
+        if (await copyToClipboard(link)) {
+            toast.success("Referral link copied!")
+        }
     }
 
     const plusUntilLabel = plusUntil

@@ -29,6 +29,16 @@ export function formatBytes(bytes: number | bigint | string, decimals: number = 
     return `${parseFloat((value / Math.pow(k, i)).toFixed(dm))} ${BYTE_UNITS[i]}`
 }
 
+/**
+ * Compact storage size for pricing/plan feature strings (e.g. "5GB", "500MB").
+ * Intentionally terser than formatBytes() — no space, GB/MB only, no decimals —
+ * to match marketing/pricing copy. Use formatBytes() for everything else.
+ */
+export function formatStorageCompact(bytes: number): string {
+    const gb = bytes / (1024 * 1024 * 1024)
+    return gb >= 1 ? `${gb}GB` : `${Math.round(bytes / (1024 * 1024))}MB`
+}
+
 /** Format a date as DD/MM/YYYY (en-GB). */
 export function formatDate(date: Date | string | number): string {
     return new Date(date).toLocaleDateString("en-GB")

@@ -53,9 +53,6 @@ export interface KeypairExport {
     privateKey: string       // base64url PKCS#8
 }
 
-/** Back-compat alias for the original Form-specific name. */
-export type FormKeypairExport = KeypairExport
-
 /** Generate a P-256 ECDH keypair, exported as base64url (raw public, PKCS#8 private). */
 export async function generateKeypair(): Promise<KeypairExport> {
     const pair = await crypto.subtle.generateKey(ECDH_PARAMS, true, ["deriveBits"])

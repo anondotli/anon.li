@@ -161,7 +161,6 @@ export default async function DashboardPage() {
             <InviteBanner
                 link={referralLink}
                 successfulReferrals={referral.successfulReferrals}
-                plusUntil={referral.plusUntil ? referral.plusUntil.toISOString() : null}
                 rewardDays={REFERRAL_REWARD_DAYS}
             />
 

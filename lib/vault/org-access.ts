@@ -1,6 +1,7 @@
 import "server-only"
 
 import { prisma } from "@/lib/prisma"
+import { meetsMinRole, type OrgRole } from "@/lib/ownership"
 
 /**
  * Membership helpers for org shared-E2EE owner-key access. An org-owned owner
@@ -9,6 +10,8 @@ import { prisma } from "@/lib/prisma"
  * owner-key path which is gated to the owning user.
  */
 
+const ORG_ROLES = new Set<OrgRole>(["member", "admin", "owner"])
+
 /** True when the user is a member (any role) of the organization. */
 export async function isOrgMember(userId: string, organizationId: string): Promise<boolean> {
     const member = await prisma.member.findUnique({
@@ -16,6 +19,33 @@ export async function isOrgMember(userId: string, organizationId: string): Promi
         select: { id: true },
     })
     return Boolean(member)
+}
+
+/**
+ * The caller's role in an organization, or null if they are not a member.
+ *
+ * better-auth stores `Member.role` as a free-form string; we narrow it to a
+ * known OrgRole and treat any unrecognized value as "no role" (null), so an
+ * unexpected role can never satisfy a privilege check.
+ */
+export async function getOrgRole(userId: string, organizationId: string): Promise<OrgRole | null> {
+    const member = await prisma.member.findUnique({
+        where: { organizationId_userId: { organizationId, userId } },
+        select: { role: true },
+    })
+    if (!member) return null
+    return ORG_ROLES.has(member.role as OrgRole) ? (member.role as OrgRole) : null
+}
+
+/**
+ * True when the caller is at least an admin (admin or owner) of the org — the
+ * shared gate for org-vault grant/seed/rotate/list operations (ORG-E2EE §10.5).
+ *
+ * SECURITY: single source of truth for "may manage org keys". Every org-vault
+ * route that mints, lists, or re-wraps key material must gate on this.
+ */
+export async function isOrgManager(userId: string, organizationId: string): Promise<boolean> {
+    return meetsMinRole(await getOrgRole(userId, organizationId), "admin")
 }
 
 /** Organization ids the user is a member of. */

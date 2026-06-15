@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useClipboard } from "@/hooks/use-clipboard";
 import Link from "next/link";
 import { Check, Copy, Mail, Key, Plus, Clock, Download, Lock, Infinity, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -25,14 +25,13 @@ interface SuccessViewProps {
 export function SuccessView({
   shareUrl, password, fileCount, totalSize, expiresAt, maxDownloads, onReset, isGuest = false
 }: SuccessViewProps) {
-  const [copied, setCopied] = useState(false);
+  const { copied, copy } = useClipboard();
 
   const copyLink = async () => {
-    await navigator.clipboard.writeText(shareUrl);
-    setCopied(true);
-    analytics.dropShareLinkCopied();
-    toast.success("Link copied!");
-    setTimeout(() => setCopied(false), 2000);
+    if (await copy(shareUrl)) {
+      analytics.dropShareLinkCopied();
+      toast.success("Link copied!");
+    }
   };
 
   const mailtoOptions: DropShareOptions = { shareUrl, fileCount, totalSize };

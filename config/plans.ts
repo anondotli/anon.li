@@ -11,6 +11,8 @@
  * - Bundle: Best value for users who need both
  */
 
+import { formatStorageCompact } from "@/lib/format";
+
 // "business" is the unified, per-seat Teams plan: it grants Pro-level
 // entitlements across alias + drop + form (resolved like "bundle"), but is
 // owned by an Organization and billed per seat. See lib/limits.ts /
@@ -253,11 +255,6 @@ export const GUEST_MAX_DROP_BYTES = 100 * 1024 * 1024;
 
 // ─── Helpers for generating feature strings from entitlements ──────────────
 
-function formatBytes(bytes: number): string {
-    const gb = bytes / GB;
-    return gb >= 1 ? `${gb}GB` : `${Math.round(bytes / (1024 * 1024))}MB`;
-}
-
 function formatAliasCount(count: number, noun = "aliases", hideLimit = false): string {
     return (hideLimit || count === -1) ? `Unlimited ${noun}` : `${count} ${noun}`;
 }
@@ -287,8 +284,8 @@ function aliasFeatureStrings(tier: "free" | PaidTier): { features: string[]; mis
 function dropFeatureStrings(tier: "free" | PaidTier): { features: string[]; missingFeatures: string[] } {
     const e = PLAN_ENTITLEMENTS.drop[tier];
     const features: string[] = [
-        `${formatBytes(e.bandwidth)} bandwidth`,
-        `${formatBytes(e.maxFileSize)} max file size`,
+        `${formatStorageCompact(e.bandwidth)} bandwidth`,
+        `${formatStorageCompact(e.maxFileSize)} max file size`,
         `${e.maxExpiryDays}-day file expiry`,
         "End-to-end encryption",
         ...(e.customKey ? ["Password protection"] : []),
@@ -298,9 +295,9 @@ function dropFeatureStrings(tier: "free" | PaidTier): { features: string[]; miss
     ];
     const missingFeatures: string[] = [];
     if (tier === "free") {
-        missingFeatures.push("Password protection", `${formatBytes(PLAN_ENTITLEMENTS.drop.plus.bandwidth)} bandwidth`, `${PLAN_ENTITLEMENTS.drop.plus.maxExpiryDays}-day expiry`);
+        missingFeatures.push("Password protection", `${formatStorageCompact(PLAN_ENTITLEMENTS.drop.plus.bandwidth)} bandwidth`, `${PLAN_ENTITLEMENTS.drop.plus.maxExpiryDays}-day expiry`);
     } else if (tier === "plus") {
-        missingFeatures.push(`${formatBytes(PLAN_ENTITLEMENTS.drop.pro.bandwidth)} bandwidth`, `${PLAN_ENTITLEMENTS.drop.pro.maxExpiryDays}-day file expiry`);
+        missingFeatures.push(`${formatStorageCompact(PLAN_ENTITLEMENTS.drop.pro.bandwidth)} bandwidth`, `${PLAN_ENTITLEMENTS.drop.pro.maxExpiryDays}-day file expiry`);
     }
     return { features, missingFeatures };
 }
@@ -317,7 +314,7 @@ function formFeatureStrings(tier: "free" | PaidTier): { features: string[]; miss
         `${e.retentionDays}-day submission retention`,
         "End-to-end encryption",
         ...(e.customKey ? ["Password-protected forms"] : []),
-        ...(e.maxSubmissionFileSize > 0 ? [`${formatBytes(e.maxSubmissionFileSize)} file attachments`] : []),
+        ...(e.maxSubmissionFileSize > 0 ? [`${formatStorageCompact(e.maxSubmissionFileSize)} file attachments`] : []),
         ...(e.removeBranding ? ["Remove branding"] : []),
     ];
     const missingFeatures: string[] = [];

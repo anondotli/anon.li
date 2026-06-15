@@ -25,7 +25,7 @@ afterEach(() => {
 
 describe("InviteBanner", () => {
     it("shows the invite pitch for a user with no referrals", async () => {
-        render(<InviteBanner link={LINK} successfulReferrals={0} plusUntil={null} rewardDays={30} />)
+        render(<InviteBanner link={LINK} successfulReferrals={0} rewardDays={30} />)
         await waitFor(() => {
             expect(screen.getByText("Invite a friend, you both get Plus free")).toBeTruthy()
         })
@@ -33,14 +33,14 @@ describe("InviteBanner", () => {
     })
 
     it("shows a celebratory variant once friends have joined", async () => {
-        render(<InviteBanner link={LINK} successfulReferrals={2} plusUntil={null} rewardDays={30} />)
+        render(<InviteBanner link={LINK} successfulReferrals={2} rewardDays={30} />)
         await waitFor(() => {
             expect(screen.getByText("Nice — 2 friends have joined")).toBeTruthy()
         })
     })
 
     it("dismisses and persists the referral count at dismissal", async () => {
-        render(<InviteBanner link={LINK} successfulReferrals={1} plusUntil={null} rewardDays={30} />)
+        render(<InviteBanner link={LINK} successfulReferrals={1} rewardDays={30} />)
         await waitFor(() => expect(screen.getByText(/has joined/)).toBeTruthy())
 
         fireEvent.click(screen.getByRole("button", { name: "Dismiss invite banner" }))
@@ -51,7 +51,7 @@ describe("InviteBanner", () => {
 
     it("stays hidden while no new friend has joined since dismissal", async () => {
         localStorage.setItem(DISMISS_KEY, "1")
-        render(<InviteBanner link={LINK} successfulReferrals={1} plusUntil={null} rewardDays={30} />)
+        render(<InviteBanner link={LINK} successfulReferrals={1} rewardDays={30} />)
         // Give the reveal effect a tick; it should decide to stay hidden.
         await new Promise((r) => setTimeout(r, 5))
         expect(screen.queryByRole("button", { name: "Dismiss invite banner" })).toBeNull()
@@ -59,7 +59,7 @@ describe("InviteBanner", () => {
 
     it("re-shows once a new friend has joined since dismissal", async () => {
         localStorage.setItem(DISMISS_KEY, "1")
-        render(<InviteBanner link={LINK} successfulReferrals={2} plusUntil={null} rewardDays={30} />)
+        render(<InviteBanner link={LINK} successfulReferrals={2} rewardDays={30} />)
         await waitFor(() => expect(screen.getByText("Nice — 2 friends have joined")).toBeTruthy())
     })
 
@@ -67,7 +67,7 @@ describe("InviteBanner", () => {
         const writeText = vi.fn().mockResolvedValue(undefined)
         Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true })
 
-        render(<InviteBanner link={LINK} successfulReferrals={0} plusUntil={null} rewardDays={30} />)
+        render(<InviteBanner link={LINK} successfulReferrals={0} rewardDays={30} />)
         await waitFor(() => expect(screen.getByRole("button", { name: "Copy referral link" })).toBeTruthy())
 
         fireEvent.click(screen.getByRole("button", { name: "Copy referral link" }))

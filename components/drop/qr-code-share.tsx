@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useClipboard } from "@/hooks/use-clipboard"
 import Image from "next/image"
 import {
     Dialog,
@@ -27,7 +28,7 @@ interface QRCodeShareProps {
 
 export function QRCodeShare({ url, title = "Share", variant = "icon", disabled = false, encryptionKey }: QRCodeShareProps) {
     const [qrCodeDataUrl, setQrCodeDataUrl] = useState<string>("")
-    const [copied, setCopied] = useState(false)
+    const { copied, copy } = useClipboard()
     const [isOpen, setIsOpen] = useState(false)
     const [fullUrl, setFullUrl] = useState<string>("")
 
@@ -69,13 +70,10 @@ export function QRCodeShare({ url, title = "Share", variant = "icon", disabled =
     }, [isOpen, url, encryptionKey])
 
     const handleCopy = async () => {
-        try {
-            // Use the full URL with encryption key included
-            await navigator.clipboard.writeText(fullUrl || url)
-            setCopied(true)
+        // Use the full URL with encryption key included
+        if (await copy(fullUrl || url)) {
             toast.success("Link copied to clipboard")
-            setTimeout(() => setCopied(false), 2000)
-        } catch {
+        } else {
             toast.error("Failed to copy link")
         }
     }
