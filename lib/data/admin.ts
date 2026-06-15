@@ -325,7 +325,7 @@ type AdminUserDetailRow = {
     } | null
     security: { migrationState: string; vaultGeneration: number; passwordSetAt: Date; updatedAt: Date } | null
     twoFactor: { verified: boolean } | null
-    members: Array<{ role: string; organization: { id: string; name: string; slug: string } }>
+    memberships: Array<{ role: string; organization: { id: string; name: string; slug: string } }>
     _count: { aliases: number; drops: number; recipients: number; domains: number; apiKeys: number; sessions: number }
 }
 
@@ -1322,7 +1322,7 @@ export async function getAdminUserDetail(userId: string) {
             twoFactor: {
                 select: { verified: true },
             },
-            members: {
+            memberships: {
                 select: {
                     role: true,
                     organization: { select: { id: true, name: true, slug: true } },

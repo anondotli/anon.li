@@ -112,7 +112,7 @@ interface UserDetailClientProps {
             updatedAt: Date
         } | null
         twoFactor: { verified: boolean } | null
-        members: Array<{
+        memberships: Array<{
             role: string
             organization: { id: string; name: string; slug: string }
         }>
@@ -447,7 +447,7 @@ export function UserDetailClient({ user }: UserDetailClientProps) {
                 </CardContent>
             </Card>
 
-            {user.members.length > 0 && (
+            {user.memberships.length > 0 && (
                 <Card>
                     <CardHeader>
                         <CardTitle>Organizations</CardTitle>
@@ -455,7 +455,7 @@ export function UserDetailClient({ user }: UserDetailClientProps) {
                     </CardHeader>
                     <CardContent>
                         <div className="space-y-2">
-                            {user.members.map((member) => (
+                            {user.memberships.map((member) => (
                                 <div key={member.organization.id} className="flex items-center justify-between py-2 border-b last:border-0">
                                     <div>
                                         <EntityLink type="organization" id={member.organization.id} label={member.organization.name} />

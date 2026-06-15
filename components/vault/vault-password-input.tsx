@@ -28,7 +28,7 @@ export const VaultPasswordInput = React.forwardRef<HTMLInputElement, VaultPasswo
                     type={show ? "text" : "password"}
                     disabled={disabled}
                     className={cn(
-                        "h-12 rounded-xl pl-10 pr-11 text-base transition-colors duration-200 md:text-sm",
+                        "h-14 rounded-xl pl-10 pr-11 text-base transition-colors duration-200 md:h-12 md:text-sm",
                         invalid && "border-destructive text-destructive focus-visible:ring-destructive",
                         valid && "border-success text-success focus-visible:ring-success",
                         className,
