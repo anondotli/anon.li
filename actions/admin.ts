@@ -69,7 +69,7 @@ export async function deleteDrop(dropId: string) {
         await audit({ action: "drop.delete", actorId: adminId, targetId: validated.id })
         logger.info("Drop deleted", { adminId, dropId: validated.id })
         revalidatePath("/admin/drops")
-        revalidatePath("/admin/storage")
+        revalidatePath("/admin/maintenance/storage")
         return { success: true }
     })
 }
@@ -124,8 +124,8 @@ export async function deleteUser(userId: string) {
         await audit({ action: "user.delete_request", actorId: adminId, targetId: validated.id, metadata: { requestId: result.requestId } })
         logger.info("User deleted", { adminId, userId: validated.id, requestId: result.requestId })
         revalidatePath("/admin/users")
-        revalidatePath("/admin/deletion")
-        revalidatePath("/admin/storage")
+        revalidatePath("/admin/maintenance/deletion")
+        revalidatePath("/admin/maintenance/storage")
         return { success: true }
     })
 }
@@ -229,7 +229,7 @@ export async function hardDeleteDrop(dropId: string) {
         await audit({ action: "drop.delete", actorId: adminId, targetId: validated.id, metadata: { source: "takedowns" } })
         logger.info("Drop hard-deleted", { adminId, dropId: validated.id })
         revalidatePath("/admin/takedowns")
-        revalidatePath("/admin/storage")
+        revalidatePath("/admin/maintenance/storage")
         return { success: true }
     })
 }
@@ -279,9 +279,9 @@ export async function processDeletionRequest(requestId: string) {
         await AdminService.processDeletionRequest(validated.id)
         await audit({ action: "deletion.process", actorId: adminId, targetId: validated.id })
         logger.info("Deletion request retried", { adminId, requestId: validated.id })
-        revalidatePath("/admin/deletion")
+        revalidatePath("/admin/maintenance/deletion")
         revalidatePath("/admin/users")
-        revalidatePath("/admin/storage")
+        revalidatePath("/admin/maintenance/storage")
         return { success: true }
     })
 }
@@ -291,7 +291,7 @@ export async function cleanupOrphanedFiles() {
         const result = await AdminService.cleanupOrphanedFiles()
         await audit({ action: "storage.orphaned_cleanup", actorId: adminId, metadata: result })
         logger.info("Orphaned file cleanup triggered", { adminId, result })
-        revalidatePath("/admin/storage")
+        revalidatePath("/admin/maintenance/storage")
         revalidatePath("/admin")
         return result
     })

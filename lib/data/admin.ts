@@ -2,6 +2,7 @@ import type { Prisma } from "@prisma/client"
 import { ADMIN_PAGE_SIZE } from "@/lib/admin/constants"
 import { STORAGE_LIMITS, type PaidTier, type Product } from "@/config/plans"
 import { getDropLimits } from "@/lib/limits"
+import { FREE_TEAM_MEMBER_LIMIT } from "@/lib/org-seats"
 import { prisma } from "@/lib/prisma"
 
 type SearchParams = { [key: string]: string | string[] | undefined }
@@ -324,6 +325,7 @@ type AdminUserDetailRow = {
     } | null
     security: { migrationState: string; vaultGeneration: number; passwordSetAt: Date; updatedAt: Date } | null
     twoFactor: { verified: boolean } | null
+    members: Array<{ role: string; organization: { id: string; name: string; slug: string } }>
     _count: { aliases: number; drops: number; recipients: number; domains: number; apiKeys: number; sessions: number }
 }
 
@@ -372,10 +374,13 @@ type AuditLogRow = {
 
 type AdminSubscriptionRow = AdminSubscriptionSummary & {
     id: string
-    userId: string
+    userId: string | null
+    organizationId: string | null
+    seats: number
     currentPeriodStart: Date | null
     updatedAt: Date
-    user: UserRef & { paymentMethod: string }
+    user: (UserRef & { paymentMethod: string }) | null
+    organization: { id: string; name: string; slug: string } | null
 }
 
 type AdminCryptoPaymentRow = {
@@ -394,6 +399,54 @@ type AdminCryptoPaymentRow = {
     periodEnd: Date | null
     createdAt: Date
     user: UserRef
+}
+
+type AdminOrgListRow = {
+    id: string
+    name: string
+    slug: string
+    createdAt: Date
+    _count: { members: number }
+    subscriptions: Array<{ seats: number; tier: string; status: string; product: string }>
+}
+
+type AdminOrgDetailRow = {
+    id: string
+    name: string
+    slug: string
+    logo: string | null
+    enforce2FA: boolean
+    orgKeyGeneration: number
+    keyRotationRecommendedAt: Date | null
+    createdAt: Date
+    members: Array<{
+        id: string
+        role: string
+        createdAt: Date
+        user: { id: string; email: string; name: string | null }
+    }>
+    invitations: Array<{
+        id: string
+        email: string
+        role: string | null
+        status: string
+        expiresAt: Date
+        createdAt: Date
+        inviter: { id: string; email: string } | null
+    }>
+    subscriptions: Array<{
+        id: string
+        provider: string
+        providerSubscriptionId: string | null
+        product: string
+        tier: string
+        status: string
+        seats: number
+        currentPeriodEnd: Date | null
+        cancelAtPeriodEnd: boolean
+        createdAt: Date
+    }>
+    _count: { aliases: number; drops: number; forms: number; domains: number; apiKeys: number; members: number; invitations: number }
 }
 
 type AdminDeletionRequestRow = {
@@ -1269,6 +1322,13 @@ export async function getAdminUserDetail(userId: string) {
             twoFactor: {
                 select: { verified: true },
             },
+            members: {
+                select: {
+                    role: true,
+                    organization: { select: { id: true, name: true, slug: true } },
+                },
+                orderBy: { createdAt: "asc" },
+            },
             _count: {
                 select: {
                     aliases: true,
@@ -1366,6 +1426,9 @@ export async function getAdminDashboardStats() {
         scheduledRecipients,
         scheduledDomains,
         storageStats,
+        totalOrganizations,
+        totalMembers,
+        activeBusinessSubs,
     ] = await Promise.all([
         prisma.user.count(),
         prisma.user.count({
@@ -1391,6 +1454,11 @@ export async function getAdminDashboardStats() {
         prisma.user.aggregate({
             _sum: { storageUsed: true },
         }),
+        prisma.organization.count(),
+        prisma.member.count(),
+        prisma.subscription.count({
+            where: { organizationId: { not: null }, status: { in: ["active", "trialing"] } },
+        }),
     ])
 
     return {
@@ -1410,6 +1478,9 @@ export async function getAdminDashboardStats() {
         waitingCryptoPayments,
         scheduledRemovals: scheduledAliases + scheduledRecipients + scheduledDomains,
         totalStorage: storageStats._sum.storageUsed || BigInt(0),
+        totalOrganizations,
+        totalMembers,
+        activeBusinessSubs,
     }
 }
 
@@ -1482,6 +1553,8 @@ export async function getAdminBilling(searchParams: SearchParams) {
                 { providerCustomerId: { contains: search, mode: "insensitive" } },
                 { providerPriceId: { contains: search, mode: "insensitive" } },
                 { user: { email: { contains: search, mode: "insensitive" } } },
+                { organization: { name: { contains: search, mode: "insensitive" } } },
+                { organization: { slug: { contains: search, mode: "insensitive" } } },
             ],
         }),
     }
@@ -1491,6 +1564,7 @@ export async function getAdminBilling(searchParams: SearchParams) {
             where,
             include: {
                 user: { select: { id: true, email: true, name: true, paymentMethod: true } },
+                organization: { select: { id: true, name: true, slug: true } },
             },
             orderBy: { createdAt: "desc" },
             skip: (page - 1) * ADMIN_PAGE_SIZE,
@@ -1577,6 +1651,166 @@ export async function getAdminReferrals(searchParams: SearchParams) {
             activePlus,
         },
         ...getPageMetadata(total, page),
+    }
+}
+
+export async function getAdminOrganizations(searchParams: SearchParams) {
+    const search = sanitizeSearch(getStringParam(searchParams, "search"))
+    const page = parsePage(getStringParam(searchParams, "page"))
+
+    const where: Prisma.OrganizationWhereInput = {
+        ...(search && {
+            OR: [
+                { name: { contains: search, mode: "insensitive" } },
+                { slug: { contains: search, mode: "insensitive" } },
+            ],
+        }),
+    }
+
+    const [organizations, total, totalOrganizations, totalMembers, activeBusinessSubs] = await Promise.all([
+        prismaPayload<Promise<AdminOrgListRow[]>>(prisma.organization.findMany({
+            where,
+            select: {
+                id: true,
+                name: true,
+                slug: true,
+                createdAt: true,
+                _count: { select: { members: true } },
+                subscriptions: {
+                    where: { status: { in: ["active", "trialing"] } },
+                    orderBy: { seats: "desc" },
+                    select: { seats: true, tier: true, status: true, product: true },
+                    take: 1,
+                },
+            },
+            orderBy: { createdAt: "desc" },
+            skip: (page - 1) * ADMIN_PAGE_SIZE,
+            take: ADMIN_PAGE_SIZE,
+        })),
+        prisma.organization.count({ where }),
+        prisma.organization.count(),
+        prisma.member.count(),
+        prisma.subscription.count({
+            where: { organizationId: { not: null }, status: { in: ["active", "trialing"] } },
+        }),
+    ])
+
+    const rows = organizations.map((org) => {
+        const subscription = org.subscriptions[0] ?? null
+        return {
+            id: org.id,
+            name: org.name,
+            slug: org.slug,
+            createdAt: org.createdAt,
+            memberCount: org._count.members,
+            seatLimit: subscription ? Math.max(subscription.seats, 1) : FREE_TEAM_MEMBER_LIMIT,
+            subscription,
+        }
+    })
+
+    return {
+        organizations: rows,
+        total,
+        search,
+        stats: { totalOrganizations, totalMembers, activeBusinessSubs },
+        ...getPageMetadata(total, page),
+    }
+}
+
+export async function getAdminOrgDetail(organizationId: string) {
+    const org = prismaPayload<AdminOrgDetailRow | null>(await prisma.organization.findUnique({
+        where: { id: organizationId },
+        select: {
+            id: true,
+            name: true,
+            slug: true,
+            logo: true,
+            enforce2FA: true,
+            orgKeyGeneration: true,
+            keyRotationRecommendedAt: true,
+            createdAt: true,
+            members: {
+                select: {
+                    id: true,
+                    role: true,
+                    createdAt: true,
+                    user: { select: { id: true, email: true, name: true } },
+                },
+                orderBy: { createdAt: "asc" },
+            },
+            invitations: {
+                where: { status: "pending" },
+                select: {
+                    id: true,
+                    email: true,
+                    role: true,
+                    status: true,
+                    expiresAt: true,
+                    createdAt: true,
+                    inviter: { select: { id: true, email: true } },
+                },
+                orderBy: { createdAt: "desc" },
+            },
+            subscriptions: {
+                select: {
+                    id: true,
+                    provider: true,
+                    providerSubscriptionId: true,
+                    product: true,
+                    tier: true,
+                    status: true,
+                    seats: true,
+                    currentPeriodEnd: true,
+                    cancelAtPeriodEnd: true,
+                    createdAt: true,
+                },
+                orderBy: { createdAt: "desc" },
+            },
+            _count: {
+                select: {
+                    aliases: true,
+                    drops: true,
+                    forms: true,
+                    domains: true,
+                    apiKeys: true,
+                    members: true,
+                    invitations: true,
+                },
+            },
+        },
+    }))
+
+    if (!org) {
+        return null
+    }
+
+    const activeSubscription = org.subscriptions.find(
+        (subscription) => subscription.status === "active" || subscription.status === "trialing"
+    ) ?? null
+
+    const auditLogs = prismaPayload<AuditLogRow[]>(await prisma.auditLog.findMany({
+        where: { organizationId },
+        orderBy: { createdAt: "desc" },
+        take: 25,
+    }))
+
+    const actorIds = [...new Set(auditLogs.map((log) => log.actorId))]
+    const actors = actorIds.length > 0
+        ? prismaPayload<UserRef[]>(await prisma.user.findMany({
+            where: { id: { in: actorIds } },
+            select: { id: true, email: true, name: true },
+        }))
+        : []
+    const actorMap = new Map(actors.map((actor) => [actor.id, actor]))
+
+    return {
+        ...org,
+        activeSubscription,
+        seatLimit: activeSubscription ? Math.max(activeSubscription.seats, 1) : FREE_TEAM_MEMBER_LIMIT,
+        auditLogs: auditLogs.map((log) => ({
+            ...log,
+            actor: actorMap.get(log.actorId) ?? null,
+        })),
     }
 }
 

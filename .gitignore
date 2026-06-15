@@ -55,3 +55,6 @@ pnpm-lock.yaml
 
 # email previews
 .email-preview
+
+# stray AI assistant scratch/system-prompt files
+CLAUDE-FABLE*.md

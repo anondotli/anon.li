@@ -2,7 +2,7 @@ import Link from "next/link"
 import { cn } from "@/lib/utils"
 
 interface EntityLinkProps {
-    type: "user" | "drop" | "alias" | "domain" | "recipient"
+    type: "user" | "drop" | "alias" | "domain" | "recipient" | "organization"
     id: string
     label?: string
     className?: string
@@ -14,9 +14,10 @@ const typeToPath: Record<EntityLinkProps["type"], string> = {
     alias: "/admin/aliases",
     domain: "/admin/domains",
     recipient: "/admin/recipients",
+    organization: "/admin/organizations",
 }
 
-function EntityLink({ type, id, label, className }: EntityLinkProps) {
+export function EntityLink({ type, id, label, className }: EntityLinkProps) {
     const basePath = typeToPath[type]
     const href = `${basePath}/${id}`
     const displayLabel = label || id

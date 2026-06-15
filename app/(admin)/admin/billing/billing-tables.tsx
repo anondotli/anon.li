@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { DataTable, type Column } from "@/components/admin/data-table"
-import { UserLink } from "@/components/admin/entity-link"
+import { EntityLink, UserLink } from "@/components/admin/entity-link"
 import { formatDateTime, formatRelativeTime } from "@/lib/format"
 
 interface SubscriptionRow {
@@ -16,11 +16,14 @@ interface SubscriptionRow {
     product: string
     tier: string
     status: string
+    seats: number
+    organizationId: string | null
     currentPeriodStart: Date | null
     currentPeriodEnd: Date | null
     cancelAtPeriodEnd: boolean
     createdAt: Date
-    user: { id: string; email: string; name: string | null; paymentMethod: string }
+    user: { id: string; email: string; name: string | null; paymentMethod: string } | null
+    organization: { id: string; name: string; slug: string } | null
 }
 
 interface CryptoPaymentRow {
@@ -66,8 +69,15 @@ export function BillingTables({
 }: BillingTablesProps) {
     const columns: Column<SubscriptionRow>[] = [
         {
-            header: "User",
-            accessor: (row) => <UserLink user={row.user} />
+            header: "Owner",
+            accessor: (row) => row.organization ? (
+                <div className="flex items-center gap-2">
+                    <EntityLink type="organization" id={row.organization.id} label={row.organization.name} />
+                    <Badge variant="outline" className="text-xs">Team</Badge>
+                </div>
+            ) : (
+                <UserLink user={row.user} />
+            )
         },
         {
             header: "Plan",
@@ -77,6 +87,12 @@ export function BillingTables({
                     <div className="text-xs text-muted-foreground">{row.provider}</div>
                 </div>
             )
+        },
+        {
+            header: "Seats",
+            accessor: (row) => row.organizationId
+                ? row.seats
+                : <span className="text-muted-foreground">-</span>
         },
         {
             header: "Status",

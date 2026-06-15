@@ -31,6 +31,7 @@ import {
     CreditCard
 } from "lucide-react"
 import { formatBytes, formatDateTime } from "@/lib/format"
+import { EntityLink } from "@/components/admin/entity-link"
 import { banUser, unbanUser, deleteUser } from "@/actions/admin"
 import { toast } from "sonner"
 
@@ -111,6 +112,10 @@ interface UserDetailClientProps {
             updatedAt: Date
         } | null
         twoFactor: { verified: boolean } | null
+        members: Array<{
+            role: string
+            organization: { id: string; name: string; slug: string }
+        }>
         aliases: Array<{
             id: string
             email: string
@@ -441,6 +446,28 @@ export function UserDetailClient({ user }: UserDetailClientProps) {
                     )}
                 </CardContent>
             </Card>
+
+            {user.members.length > 0 && (
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Organizations</CardTitle>
+                        <CardDescription>Team memberships</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="space-y-2">
+                            {user.members.map((member) => (
+                                <div key={member.organization.id} className="flex items-center justify-between py-2 border-b last:border-0">
+                                    <div>
+                                        <EntityLink type="organization" id={member.organization.id} label={member.organization.name} />
+                                        <div className="text-xs text-muted-foreground">{member.organization.slug}</div>
+                                    </div>
+                                    <Badge variant="outline" className="capitalize">{member.role}</Badge>
+                                </div>
+                            ))}
+                        </div>
+                    </CardContent>
+                </Card>
+            )}
 
             <div className="grid gap-6 md:grid-cols-2">
                 <Card>

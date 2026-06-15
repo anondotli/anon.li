@@ -127,7 +127,7 @@ export function DeletionTable({ requests, total, page, totalPages, search, statu
                 total={total}
                 page={page}
                 totalPages={totalPages}
-                basePath="/admin/deletion"
+                basePath="/admin/maintenance/deletion"
                 search={search}
                 filter={status}
                 filterKey="status"

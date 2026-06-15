@@ -1,5 +1,5 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Users, FileBox, ClipboardList, Mail, AlertTriangle, HardDrive, CreditCard, Trash2, ShieldAlert } from "lucide-react"
+import { Users, FileBox, ClipboardList, Mail, AlertTriangle, HardDrive, CreditCard, Building2, Wrench } from "lucide-react"
 import Link from "next/link"
 import { StatCard } from "@/components/admin/stat-card"
 import { PageHeader } from "@/components/admin/page-header"
@@ -63,11 +63,19 @@ export default async function AdminDashboard() {
                 />
 
                 <StatCard
+                    title="Organizations"
+                    value={stats.totalOrganizations}
+                    description={`${stats.totalMembers} members · ${stats.activeBusinessSubs} on Business`}
+                    icon={Building2}
+                    href="/admin/organizations"
+                />
+
+                <StatCard
                     title="Storage Used"
                     value={formatBytes(stats.totalStorage)}
                     description="Across all users"
                     icon={HardDrive}
-                    href="/admin/storage"
+                    href="/admin/maintenance/storage"
                 />
 
                 <StatCard
@@ -79,21 +87,12 @@ export default async function AdminDashboard() {
                 />
 
                 <StatCard
-                    title="Deletion Queue"
-                    value={stats.activeDeletionRequests}
-                    description="Failed account deletions"
-                    icon={Trash2}
-                    href="/admin/deletion"
-                    variant={stats.activeDeletionRequests > 0 ? "destructive" : "default"}
-                />
-
-                <StatCard
-                    title="Cleanup Backlog"
-                    value={stats.orphanedFiles}
-                    description={`${stats.scheduledRemovals} resources scheduled for removal`}
-                    icon={ShieldAlert}
-                    href="/admin/storage"
-                    variant={stats.orphanedFiles > 0 ? "destructive" : "default"}
+                    title="Maintenance"
+                    value={stats.orphanedFiles + stats.activeDeletionRequests}
+                    description={`${stats.orphanedFiles} orphaned files · ${stats.activeDeletionRequests} deletion retries`}
+                    icon={Wrench}
+                    href="/admin/maintenance"
+                    variant={stats.orphanedFiles > 0 || stats.activeDeletionRequests > 0 ? "destructive" : "default"}
                 />
             </div>
 
@@ -132,7 +131,7 @@ export default async function AdminDashboard() {
                             </div>
                         </Link>
                         <Link
-                            href="/admin/deletion"
+                            href="/admin/maintenance/deletion"
                             className="block p-3 rounded-lg hover:bg-muted transition-colors"
                         >
                             <div className="font-medium">Deletion Queue</div>
@@ -170,6 +169,10 @@ export default async function AdminDashboard() {
                             <span className={`text-sm font-medium ${stats.orphanedFiles > 0 ? "text-destructive" : ""}`}>
                                 {stats.orphanedFiles}
                             </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                            <span className="text-sm">Scheduled Removals</span>
+                            <span className="text-sm font-medium">{stats.scheduledRemovals}</span>
                         </div>
                     </CardContent>
                 </Card>

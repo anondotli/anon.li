@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils"
 import {
     LayoutDashboard,
     Users,
+    Building2,
     FileBox,
     ClipboardList,
     Mail,
@@ -19,8 +20,7 @@ import {
     ScrollText,
     CreditCard,
     Gift,
-    Trash2,
-    HardDrive,
+    Wrench,
     ChevronDown,
     ChevronRight,
     type LucideIcon
@@ -45,6 +45,7 @@ const navGroups: NavGroup[] = [
         items: [
             { title: "Dashboard", href: "/admin", icon: LayoutDashboard },
             { title: "All Users", href: "/admin/users", icon: Users },
+            { title: "Organizations", href: "/admin/organizations", icon: Building2 },
             { title: "Referrals", href: "/admin/referrals", icon: Gift },
         ]
     },
@@ -79,8 +80,7 @@ const navGroups: NavGroup[] = [
         items: [
             { title: "API Keys", href: "/admin/api-keys", icon: Key },
             { title: "Billing", href: "/admin/billing", icon: CreditCard },
-            { title: "Deletion Retries", href: "/admin/deletion", icon: Trash2 },
-            { title: "Storage Cleanup", href: "/admin/storage", icon: HardDrive },
+            { title: "Maintenance", href: "/admin/maintenance", icon: Wrench },
             { title: "Audit Logs", href: "/admin/audit", icon: ScrollText },
             { title: "Settings", href: "/admin/settings", icon: Settings },
         ]

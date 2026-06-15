@@ -92,7 +92,7 @@ export function StorageTable({ orphanedFiles, oldestCreatedAt, total, page, tota
                 total={total}
                 page={page}
                 totalPages={totalPages}
-                basePath="/admin/storage"
+                basePath="/admin/maintenance/storage"
                 searchPlaceholder="Search is disabled for hidden storage keys"
                 emptyMessage="No orphaned files found"
                 rowKey={(row) => row.id}
