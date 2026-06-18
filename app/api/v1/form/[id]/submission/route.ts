@@ -24,6 +24,7 @@ export const GET = withPolicy<RouteParams>(
             limit: url.searchParams.get("limit"),
             offset: url.searchParams.get("offset"),
             unreadOnly: url.searchParams.get("unreadOnly"),
+            includePayload: url.searchParams.get("include") === "payload" ? "true" : undefined,
         })
         if (!parsed.success) {
             return apiError("Invalid query", ErrorCodes.VALIDATION_ERROR, ctx.requestId, 400, zodErrorToDetails(parsed.error))
@@ -35,6 +36,13 @@ export const GET = withPolicy<RouteParams>(
             created_at: s.createdAt.toISOString(),
             read_at: s.readAt?.toISOString() ?? null,
             has_attached_drop: s.hasAttachedDrop,
+            ...(s.payload
+                ? {
+                      ephemeral_pub_key: s.payload.ephemeralPubKey,
+                      iv: s.payload.iv,
+                      encrypted_payload: s.payload.encryptedPayload,
+                  }
+                : {}),
         }))
 
         return apiList(data, ctx.requestId, { total: result.total, limit: parsed.data.limit, offset: parsed.data.offset })

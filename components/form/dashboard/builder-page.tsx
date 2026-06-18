@@ -3,9 +3,11 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import type { ReactNode } from "react"
 import { useRouter } from "next/navigation"
+import Link from "next/link"
 import { toast } from "sonner"
 import {
     AlertTriangle,
+    ArrowLeft,
     CalendarClock,
     ChevronDown,
     ChevronLeft,
@@ -31,6 +33,7 @@ import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { EmptyState } from "@/components/ui/empty-state"
 import { useVault } from "@/components/vault/vault-provider"
 import { UpgradeRequiredDialog } from "@/components/upgrade/upgrade-required-dialog"
 import { generateKeypair } from "@/lib/crypto/asymmetric"
@@ -210,6 +213,7 @@ export function FormBuilderPage({
 
     const saveLabel = isEdit ? "Save changes" : "Create form"
     const disabled = submitting
+    const canSave = !disabled && title.trim().length > 0
 
     const handleSave = async () => {
         const input = buildFormInput({
@@ -328,9 +332,6 @@ export function FormBuilderPage({
             formActive={formActive}
             passwordEnabled={passwordEnabled}
             passwordPending={passwordEnabled && !passwordPayload && !(isEdit && initialForm?.customKey && !passwordChanged)}
-            saveLabel={saveLabel}
-            submitting={submitting}
-            canSave={!disabled && title.trim().length > 0}
             onPatchSchema={patchSchema}
             onToggleHideBranding={(checked) => {
                 setHideBranding(checked)
@@ -368,7 +369,6 @@ export function FormBuilderPage({
                 markChanged()
             }}
             onPasswordEdit={() => setPasswordDialogOpen(true)}
-            onSave={handleSave}
         />
     )
 
@@ -403,9 +403,37 @@ export function FormBuilderPage({
             />
 
             <div className="mx-auto w-full max-w-[1600px]">
+                <div className="flex items-center justify-between gap-3 px-4 pb-4 sm:px-6">
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        asChild
+                        className="-ml-2 h-8 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+                    >
+                        <Link href="/dashboard/form">
+                            <ArrowLeft className="h-4 w-4" />
+                            All forms
+                        </Link>
+                    </Button>
+                    <div className="flex items-center gap-3">
+                        <span className="hidden items-center gap-1.5 text-[11px] uppercase tracking-wider text-muted-foreground sm:inline-flex">
+                            <ShieldCheck className="h-3.5 w-3.5" />
+                            End-to-end encrypted
+                        </span>
+                        <Button type="button" onClick={handleSave} disabled={!canSave} size="sm" className="gap-1.5">
+                            {submitting ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                                <Save className="h-3.5 w-3.5" />
+                            )}
+                            {submitting ? "Saving…" : saveLabel}
+                        </Button>
+                    </div>
+                </div>
+
                 {isEdit && hasSubmissions ? (
                     <div className="px-4 pb-4 sm:px-6">
-                        <Alert className="rounded-lg border-amber-500/30 bg-amber-500/10">
+                        <Alert variant="warning" className="rounded-lg">
                             <AlertTriangle className="h-4 w-4" />
                             <AlertTitle>Live form with submissions</AlertTitle>
                             <AlertDescription>
@@ -418,7 +446,7 @@ export function FormBuilderPage({
                 <div className="grid gap-0 px-4 pb-24 sm:px-6 lg:gap-10 xl:grid-cols-[minmax(0,1fr)_320px]">
                     <main className="mx-auto w-full min-w-0 max-w-3xl">
                         <Tabs value={editorMode} onValueChange={handleEditorModeChange}>
-                            <div className="mb-8 flex flex-wrap items-center justify-between gap-3">
+                            <div className="mb-8">
                                 <TabsList className="h-9 bg-secondary/60">
                                     <TabsTrigger value="build" className="gap-1.5 text-xs">
                                         <Settings2 className="h-3.5 w-3.5" />
@@ -433,10 +461,6 @@ export function FormBuilderPage({
                                         JSON
                                     </TabsTrigger>
                                 </TabsList>
-                                <div className="inline-flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-muted-foreground">
-                                    <ShieldCheck className="h-3.5 w-3.5" />
-                                    End-to-end encrypted
-                                </div>
                             </div>
 
                             <TabsContent value="build" className="mt-0 space-y-8">
@@ -483,7 +507,7 @@ export function FormBuilderPage({
                             </TabsContent>
 
                             <TabsContent value="json" className="mt-0">
-                                <div className="space-y-4 rounded-xl border border-border/40 bg-card p-5 md:p-6">
+                                <div className="space-y-4 rounded-xl border border-border/60 bg-card p-5 luxury-shadow-sm md:p-6">
                                     <div className="flex items-start justify-between gap-3">
                                         <div className="space-y-1">
                                             <p className="font-serif text-lg font-medium tracking-tight">Schema JSON</p>
@@ -657,9 +681,6 @@ interface SettingsPanelProps {
     formActive: boolean
     passwordEnabled: boolean
     passwordPending: boolean
-    saveLabel: string
-    submitting: boolean
-    canSave: boolean
     onPatchSchema: (patch: Partial<FormSchemaDocType>) => void
     onToggleHideBranding: (checked: boolean) => void
     onMaxSubmissionsChange: (value: string) => void
@@ -668,7 +689,6 @@ interface SettingsPanelProps {
     onActiveChange: (checked: boolean) => void
     onPasswordToggle: (checked: boolean) => void
     onPasswordEdit: () => void
-    onSave: () => void
 }
 
 function SettingsPanel({
@@ -686,9 +706,6 @@ function SettingsPanel({
     formActive,
     passwordEnabled,
     passwordPending,
-    saveLabel,
-    submitting,
-    canSave,
     onPatchSchema,
     onToggleHideBranding,
     onMaxSubmissionsChange,
@@ -697,7 +714,6 @@ function SettingsPanel({
     onActiveChange,
     onPasswordToggle,
     onPasswordEdit,
-    onSave,
 }: SettingsPanelProps) {
     const displayMode = schema.displayMode ?? "classic"
     // Each section is independently collapsible — multiple can be open at once,
@@ -711,7 +727,7 @@ function SettingsPanel({
             return next
         })
     return (
-        <div className="overflow-hidden rounded-xl border border-border/40 bg-card">
+        <div className="overflow-hidden rounded-xl border border-border/60 bg-card luxury-shadow-sm">
             <div className="flex items-center justify-between gap-2 border-b border-border/40 px-4 py-3">
                 <h2 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                     Form settings
@@ -943,22 +959,6 @@ function SettingsPanel({
                     </div>
                 </SettingsSection>
 
-                <div className="px-3 py-3">
-                    <Button
-                        type="button"
-                        onClick={onSave}
-                        disabled={!canSave}
-                        className="h-9 w-full justify-center gap-1.5"
-                    >
-                        {submitting ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                            <Save className="h-3.5 w-3.5" />
-                        )}
-                        <span>{submitting ? "Saving…" : saveLabel}</span>
-                    </Button>
-                </div>
-
                 {isEdit ? (
                     <SettingsSection
                         id="status"
@@ -1068,16 +1068,17 @@ function DisplayModeToggle({
         },
     ]
     return (
-        <div className="grid gap-2">
+        <div role="radiogroup" aria-label="Form display mode" className="grid gap-2">
             {options.map((opt) => {
                 const selected = value === opt.value
                 return (
                     <button
                         key={opt.value}
                         type="button"
+                        role="radio"
                         onClick={() => onChange(opt.value)}
                         disabled={disabled}
-                        aria-pressed={selected}
+                        aria-checked={selected}
                         className={cn(
                             "flex items-start gap-3 rounded-lg border p-3 text-left transition-colors",
                             selected
@@ -1149,11 +1150,12 @@ function PreviewPanel({
 
     if (schema.fields.length === 0) {
         return (
-            <div className="rounded-xl border border-dashed border-border/60 bg-secondary/10 p-12 text-center">
-                <p className="font-serif text-2xl font-medium text-muted-foreground">
-                    Add a question to see the preview
-                </p>
-            </div>
+            <EmptyState
+                variant="panel"
+                icon={Eye}
+                title="Nothing to preview yet"
+                description="Add a question in the Build tab to see the live preview."
+            />
         )
     }
 

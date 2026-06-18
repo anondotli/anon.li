@@ -104,5 +104,9 @@ export const listSubmissionsQuerySchema = z.object({
     limit: z.coerce.number().int().min(1).max(100).default(25),
     offset: z.coerce.number().int().min(0).default(0),
     unreadOnly: z.coerce.boolean().optional(),
+    // Owner-only: include the encrypted ciphertext per row so the dashboard can
+    // decrypt a whole page in a single request (instead of one read per row).
+    // Listing never marks rows read.
+    includePayload: z.coerce.boolean().optional(),
 })
 

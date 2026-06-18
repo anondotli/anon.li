@@ -127,9 +127,9 @@ export default function AboutPage() {
 
             {/* CTA */}
             <section className="text-center space-y-6">
-                <h2 className="text-3xl font-serif font-medium">Ready to Protect Your Privacy?</h2>
+                <h2 className="text-3xl font-serif font-medium">Try it on the free tier.</h2>
                 <p className="text-muted-foreground max-w-xl mx-auto">
-                    Protect your digital identity with anon.li. Get started in seconds.
+                    One account covers aliases, file sharing, and forms. No card to start.
                 </p>
                 <div className="flex flex-col sm:flex-row gap-4 justify-center">
                     <Button asChild size="lg" className="rounded-full">

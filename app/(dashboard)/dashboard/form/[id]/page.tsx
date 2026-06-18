@@ -4,7 +4,7 @@ import { scopeFromSession } from "@/lib/auth-session"
 import { FormService } from "@/lib/services/form"
 import { NotFoundError, ForbiddenError } from "@/lib/api-error-utils"
 import { FormSchemaDoc } from "@/lib/form-schema"
-import { FormDetailClient } from "@/components/form/dashboard/detail-client"
+import { FormResponsesClient } from "@/components/form/dashboard/responses"
 
 interface PageProps {
     params: Promise<{ id: string }>
@@ -15,12 +15,17 @@ export default async function FormDetailPage({ params }: PageProps) {
     if (!session?.user?.id) redirect("/login")
 
     const { id } = await params
+    const scope = scopeFromSession(session)
     let form: Awaited<ReturnType<typeof FormService.getFormForOwner>>
     let submissions: Awaited<ReturnType<typeof FormService.listSubmissions>>
+    let stats: Awaited<ReturnType<typeof FormService.getSubmissionStats>>
 
     try {
-        form = await FormService.getFormForOwner(id, scopeFromSession(session))
-        submissions = await FormService.listSubmissions(id, scopeFromSession(session), { limit: 50 })
+        form = await FormService.getFormForOwner(id, scope)
+        ;[submissions, stats] = await Promise.all([
+            FormService.listSubmissions(id, scope, { limit: 50 }),
+            FormService.getSubmissionStats(id, scope),
+        ])
     } catch (error) {
         if (error instanceof NotFoundError) notFound()
         if (error instanceof ForbiddenError) notFound()
@@ -30,7 +35,7 @@ export default async function FormDetailPage({ params }: PageProps) {
     const schema = FormSchemaDoc.parse(JSON.parse(form.schemaJson))
 
     return (
-        <FormDetailClient
+        <FormResponsesClient
             form={{
                 id: form.id,
                 title: form.title,
@@ -39,11 +44,18 @@ export default async function FormDetailPage({ params }: PageProps) {
                 disabledByUser: form.disabledByUser,
                 takenDown: form.takenDown,
                 submissionsCount: form.submissionsCount,
+                maxSubmissions: form.maxSubmissions,
+                closesAt: form.closesAt?.toISOString() ?? null,
                 allowFileUploads: form.allowFileUploads,
                 createdAt: form.createdAt.toISOString(),
                 hasOwnerKey: form.ownerKey !== null,
-                fieldLabels: Object.fromEntries(schema.fields.map((field) => [field.id, field.label])),
-                fieldOrder: schema.fields.map((field) => field.id),
+                fields: schema.fields.map((field) => ({
+                    id: field.id,
+                    label: field.label,
+                    type: field.type,
+                    options: "options" in field ? field.options : undefined,
+                    max: field.type === "rating" ? field.max : undefined,
+                })),
             }}
             submissions={submissions.submissions.map((s) => ({
                 id: s.id,
@@ -51,7 +63,7 @@ export default async function FormDetailPage({ params }: PageProps) {
                 readAt: s.readAt?.toISOString() ?? null,
                 hasAttachedDrop: s.hasAttachedDrop,
             }))}
-            total={submissions.total}
+            stats={stats}
         />
     )
 }

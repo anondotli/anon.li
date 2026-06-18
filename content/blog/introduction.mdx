@@ -1,11 +1,11 @@
 ---
 title: "Introducing anon.li"
 publishedAt: "2026-03-12"
-summary: "We're excited to launch anon.li - privacy tools that respect you. Private email aliases and end-to-end encrypted file sharing with transient forwarding for Alias and zero-knowledge encryption for Drop."
+summary: "What anon.li is and how it works: private email aliases with transient forwarding, and zero-knowledge file sharing where the keys never touch our servers."
 author: "The anon.li Team"
 ---
 
-We believe privacy is a fundamental human right. In an age of constant surveillance and data harvesting, we built anon.li to give you back control over your digital identity.
+anon.li started as two tools we wanted for ourselves: a way to hand out email addresses without giving away our real inbox, and a way to send someone a file without it sitting unencrypted on a company's servers. This post is what we shipped and how it actually works.
 
 <Video
   src="/videos/intro.mp4"
@@ -14,11 +14,7 @@ We believe privacy is a fundamental human right. In an age of constant surveilla
 
 ## Why anon.li?
 
-Most privacy tools are either too complex for everyday use or don't go far enough. We set out to change that by building a service that is:
-
-- **Simple**: A modern, clean interface that anyone can use
-- **Secure**: Zero-knowledge encryption for Drop, transient no-storage forwarding for Alias, and open source code
-- **Private**: We minimize what exists at rest and keep file encryption keys client-side
+A lot of privacy tools fail in one of two directions: they're too fiddly to use every day, or they put "private" on the label while still keeping everything in plaintext on a server. We tried to avoid both. Drop encrypts in your browser before anything uploads, so the keys never reach us. Alias forwards mail in real time instead of warehousing it. And the application code is [open source](https://github.com/anondotli/anon.li), so none of that has to be taken on faith.
 
 ## What We Offer
 
@@ -44,13 +40,9 @@ Features include:
 - Zero-knowledge storage - we literally cannot see your files
 - Free account uploads with public link-only downloads
 
-## Our Commitment
+## How we keep ourselves honest
 
-**Transparency**: Our platform code is [open source](https://github.com/anondotli/anon.li). Anyone can audit our code and verify our security claims.
-
-**Minimal Data**: We collect only what's necessary to provide the service. No tracking, no analytics cookies, no selling data.
-
-**Sustainability**: Free tiers are generous because privacy shouldn't depend on your wallet. Paid plans help us build a sustainable service for everyone.
+The platform code is [open source](https://github.com/anondotli/anon.li), so you can check the claims above against what actually runs instead of trusting a marketing page. We collect only what the service needs to work — no tracking pixels of our own, no analytics cookies, nothing sold on. And the business model is subscriptions, not ads, which is the only reason the incentives line up: we make money when you pay us, not when we learn more about you. The free tier stays free because a privacy tool that's paywalled out of reach isn't much of a privacy tool.
 
 ## Get Started
 
@@ -61,7 +53,7 @@ Creating an account is free and takes seconds:
 3. Click the magic link
 4. Start protecting your privacy
 
-Welcome to anon.li. Your privacy journey starts here.
+That's the whole pitch. If you want the cryptographic details rather than the summary, the [security architecture](/blog/security-architecture) post goes much deeper.
 
 ---
 

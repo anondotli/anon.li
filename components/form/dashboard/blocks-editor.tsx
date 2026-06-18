@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { EmptyState } from "@/components/ui/empty-state"
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -196,26 +197,18 @@ export function FormBlocksEditor({
 
     if (schema.fields.length === 0) {
         return (
-            <div className="rounded-2xl border border-dashed border-border/60 bg-secondary/10 p-8 sm:p-10">
-                <div className="mx-auto max-w-md space-y-2 text-center">
-                    <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full border border-border/50 bg-background">
-                        <Plus className="h-5 w-5 text-muted-foreground" />
+            <EmptyState
+                variant="panel"
+                icon={Plus}
+                title="Add your first question"
+                description="Pick a question type to begin. You can reorder, duplicate, and add logic later."
+                action={
+                    <div className="w-full max-w-md">
+                        <FieldTypePalette layout="grid" onAdd={(type) => insertField(type)} disabled={disabled} />
                     </div>
-                    <h3 className="font-serif text-2xl font-medium tracking-tight">
-                        Add your first question
-                    </h3>
-                    <p className="text-sm font-light leading-relaxed text-muted-foreground">
-                        Pick a question type to begin. You can reorder, duplicate, and add logic later.
-                    </p>
-                </div>
-                <div className="mx-auto mt-6 max-w-md">
-                    <FieldTypePalette
-                        layout="grid"
-                        onAdd={(type) => insertField(type)}
-                        disabled={disabled}
-                    />
-                </div>
-            </div>
+                }
+                className="p-8 sm:p-10"
+            />
         )
     }
 
@@ -535,7 +528,7 @@ function FieldRow({
 
     return (
         <div
-            className="group/row relative flex items-start gap-3 px-3 py-3 sm:px-4 sm:py-3.5"
+            className="group/row relative flex items-center gap-3 px-3 py-3 sm:px-4 sm:py-3.5"
             onClick={onClick}
             role="button"
             tabIndex={-1}
@@ -547,7 +540,7 @@ function FieldRow({
                 onDragEnd={onDragEnd}
                 onClick={(event) => event.stopPropagation()}
                 aria-label={`Drag ${fieldName}`}
-                className="mt-1 inline-flex h-8 w-5 cursor-grab items-center justify-center rounded text-muted-foreground/40 transition-colors hover:text-foreground active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-30"
+                className="inline-flex h-8 w-5 cursor-grab items-center justify-center rounded text-muted-foreground/40 transition-colors hover:text-foreground active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-30"
                 disabled={disabled}
             >
                 <GripVertical className="h-4 w-4" />
@@ -555,7 +548,7 @@ function FieldRow({
 
             <span
                 className={cn(
-                    "mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md border transition-colors",
+                    "flex h-9 w-9 shrink-0 items-center justify-center rounded-md border transition-colors",
                     selected
                         ? "border-foreground/40 bg-foreground/5 text-foreground"
                         : "border-border/40 bg-background text-muted-foreground",
@@ -567,26 +560,27 @@ function FieldRow({
 
             <div className="min-w-0 flex-1 space-y-1" onClick={(event) => event.stopPropagation()}>
                 <div className="flex items-baseline gap-2">
-                    <span className="font-mono text-[10px] tabular-nums text-muted-foreground/60">
-                        {String(index + 1).padStart(2, "0")}
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                        Question {index + 1}
                     </span>
-                    <span className="text-[11px] uppercase tracking-wider text-muted-foreground/80">
+                    <span aria-hidden className="text-muted-foreground/40">·</span>
+                    <span className="text-[10px] uppercase tracking-wider text-muted-foreground/70">
                         {typeInfo.label}
                     </span>
                     {field.required ? (
-                        <span className="text-[11px] text-destructive/80">Required</span>
+                        <span className="text-[10px] text-destructive/80">Required</span>
                     ) : null}
                     {field.visibleWhen ? (
-                        <span className="text-[11px] text-muted-foreground">· Logic</span>
+                        <span className="text-[10px] text-muted-foreground">· Logic</span>
                     ) : null}
                 </div>
                 <Input
-                    aria-label={`Label for ${fieldName}`}
+                    aria-label={`Question text for ${fieldName}`}
                     value={field.label}
                     onChange={(event) => onLabelChange(event.target.value)}
-                    placeholder="Untitled question"
+                    placeholder="Write your question…"
                     disabled={disabled}
-                    className="h-auto border-transparent bg-transparent px-0 py-0.5 font-serif text-lg font-medium leading-snug tracking-tight shadow-none focus-visible:border-border focus-visible:bg-background sm:text-xl"
+                    className="-mx-2 h-auto rounded-md border border-transparent bg-transparent px-2 py-1 font-serif text-xl font-medium leading-snug tracking-tight text-foreground shadow-none transition-colors hover:border-border/60 hover:bg-secondary/30 focus-visible:border-foreground/40 focus-visible:bg-background focus-visible:ring-0 sm:text-2xl"
                 />
             </div>
 

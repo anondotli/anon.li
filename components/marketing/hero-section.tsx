@@ -24,7 +24,7 @@ export function HeroSection() {
 
                         <FadeIn delay={200}>
                             <p className="mx-auto max-w-2xl text-muted-foreground md:text-lg lg:text-xl leading-relaxed font-light">
-                                The privacy layer for your digital life. Anonymous email aliases, E2E encrypted file sharing, and confidential forms without compromises.
+                                Anonymous email aliases, end-to-end encrypted file sharing, and confidential forms. We can&apos;t read any of it - by design, not by policy.
                             </p>
                         </FadeIn>
                     </div>

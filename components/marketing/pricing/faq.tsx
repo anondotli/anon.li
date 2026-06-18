@@ -44,11 +44,11 @@ const FAQ_CATEGORIES: FAQCategory[] = [
             },
             {
                 question: "Can I change plans at any time?",
-                answer: "Yes! Upgrade or downgrade from your dashboard anytime. Upgrades are prorated, downgrades take effect at the end of your billing period."
+                answer: "Upgrade or downgrade from your dashboard anytime. Upgrades are prorated; downgrades take effect at the end of your billing period."
             },
             {
                 question: "Do you offer annual billing?",
-                answer: "Yes! Save up to 25% with annual billing. Switch between monthly and annual anytime from your billing dashboard."
+                answer: "Annual billing saves up to 25%. Switch between monthly and annual anytime from your billing dashboard."
             },
             {
                 question: "What happens if I exceed my plan limits?",
@@ -56,7 +56,7 @@ const FAQ_CATEGORIES: FAQCategory[] = [
             },
             {
                 question: "Do you offer discounts?",
-                answer: "We keep prices low for everyone. Annual billing saves up to 25%. Our free plan is generous and always available."
+                answer: "We keep prices low for everyone. Annual billing saves up to 25%, and the free plan is always available."
             },
             {
                 question: "What payment methods do you accept?",
@@ -92,11 +92,11 @@ const FAQ_CATEGORIES: FAQCategory[] = [
             },
             {
                 question: "Can I use my own domain?",
-                answer: "Yes! Plus (3 domains) and Pro (10 domains) plans support custom domains. Add your domain, configure DNS, and create aliases on your own domain."
+                answer: "Plus (3 domains) and Pro (10 domains) plans support custom domains. Add your domain, configure DNS, and create aliases on it."
             },
             {
                 question: "Can I send emails from my aliases?",
-                answer: "Yes! Reply to any forwarded email and your response will appear to come from your alias. The recipient never sees your real email address."
+                answer: "Reply to any forwarded email and your response goes back out from your alias. The recipient never sees your real email address."
             },
             {
                 question: "What happens to aliases if I downgrade?",
@@ -104,7 +104,7 @@ const FAQ_CATEGORIES: FAQCategory[] = [
             },
             {
                 question: "Which email providers work?",
-                answer: "All of them! Gmail, Outlook, ProtonMail, iCloud, Yahoo, or your own server. If it receives email, we can forward to it."
+                answer: "All of them. Gmail, Outlook, ProtonMail, iCloud, Yahoo, or your own server — if it receives email, we can forward to it."
             }
         ]
     },
@@ -116,7 +116,7 @@ const FAQ_CATEGORIES: FAQCategory[] = [
         items: [
             {
                 question: "Is PGP encryption included?",
-                answer: "Yes, on all plans including free! Add your public key and we'll encrypt all forwarded emails before sending them to you."
+                answer: "On every plan, including free. Add your public key and we encrypt forwarded copies before they reach you."
             },
             {
                 question: "How is file encryption handled?",
@@ -126,7 +126,7 @@ const FAQ_CATEGORIES: FAQCategory[] = [
                 question: "Can I audit your security?",
                 answer: (
                     <>
-                        Yes! Our platform code is open source at <a href="https://github.com/anondotli/anon.li" className="text-primary hover:underline">github.com/anondotli/anon.li</a>. We believe in open source security over blind trust.
+                        Our platform code is open source at <a href="https://github.com/anondotli/anon.li" className="text-primary hover:underline">github.com/anondotli/anon.li</a>. Read it, build it, and check our claims against the source.
                     </>
                 )
             },
@@ -152,7 +152,7 @@ const FAQ_CATEGORIES: FAQCategory[] = [
             },
             {
                 question: "What are download limits?",
-                answer: "Set a max number of downloads for any drop. Once reached, the drop auto-deletes. Perfect for sensitive documents."
+                answer: "Set a max number of downloads for any drop. Once reached, it auto-deletes — useful for documents that should only be opened a few times."
             },
             {
                 question: "How much bandwidth do I get?",
@@ -160,7 +160,7 @@ const FAQ_CATEGORIES: FAQCategory[] = [
             },
             {
                 question: "Can recipients download without an account?",
-                answer: "Yes! Anyone with the link can download - no account needed. Decryption happens automatically in their browser."
+                answer: "Anyone with the link can download — no account needed. Decryption happens automatically in their browser."
             }
         ]
     },
@@ -172,7 +172,7 @@ const FAQ_CATEGORIES: FAQCategory[] = [
         items: [
             {
                 question: "Do you offer an API?",
-                answer: "Yes! Full REST API for aliases, domains, and drops. Free: 500 requests/month. Plus: 25,000. Pro: 100,000. Docs in your dashboard."
+                answer: "A full REST API covers aliases, domains, and drops. Free: 500 requests/month, Plus: 25,000, Pro: 100,000. Docs are in your dashboard."
             },
             {
                 question: "Is there a browser extension?",
@@ -313,10 +313,10 @@ export function PricingFAQ() {
                     <HelpCircle className="h-6 w-6 text-primary" />
                 </div>
                 <h2 className="text-3xl md:text-4xl font-serif font-medium tracking-tight">
-                    Questions? We&apos;ve got answers.
+                    Pricing, plans, and the fine print.
                 </h2>
                 <p className="text-muted-foreground max-w-lg mx-auto">
-                    Everything you need to know about anon.li. Can&apos;t find what you&apos;re looking for? <a href="mailto:hi@anon.li" className="text-primary hover:underline">Contact us</a>.
+                    Straight answers on limits, billing, and how we stack up. Still stuck? <a href="mailto:hi@anon.li" className="text-primary hover:underline">Email us</a>.
                 </p>
             </div>
 

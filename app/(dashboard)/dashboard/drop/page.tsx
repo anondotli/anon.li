@@ -30,7 +30,7 @@ export default async function DropDashboardPage() {
       <div className="space-y-8">
         <div className="flex items-center justify-between border-b border-border/40 pb-6">
           <div className="space-y-1">
-            <h1 className="text-3xl font-medium tracking-tight font-serif">Drop</h1>
+            <h1 className="text-3xl font-medium tracking-tight font-serif">Drops</h1>
             <p className="text-muted-foreground font-light">
               Create and manage your drops with end-to-end encryption
             </p>
@@ -146,7 +146,7 @@ export default async function DropDashboardPage() {
     <div className="space-y-8">
       <div className="flex items-center justify-between border-b border-border/40 pb-6">
         <div className="space-y-1">
-          <h1 className="text-3xl font-medium tracking-tight font-serif">Drop</h1>
+          <h1 className="text-3xl font-medium tracking-tight font-serif">Drops</h1>
           <p className="text-muted-foreground font-light">
             Create and manage your drops with end-to-end encryption
           </p>

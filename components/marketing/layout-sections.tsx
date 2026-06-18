@@ -8,7 +8,7 @@ export function HowItWorksSection() {
                 <div className="text-center mb-8 md:mb-14 space-y-4">
                     <h2 className="text-3xl md:text-4xl font-serif font-medium tracking-tight">Simple by Design</h2>
                     <p className="text-base md:text-lg text-muted-foreground max-w-2xl mx-auto font-light">
-                        Privacy shouldn&apos;t be complicated. Get started in seconds.
+                        Each product stands on its own. Here is the whole flow for all three.
                     </p>
                 </div>
 
@@ -80,10 +80,10 @@ export function CtaSection() {
 
                     <div className="relative z-10 space-y-6 max-w-3xl mx-auto">
                         <h2 className="text-3xl md:text-4xl lg:text-5xl font-serif font-medium tracking-tight leading-tight">
-                            Ready to take back your privacy?
+                            Start with the free tier.
                         </h2>
                         <p className="text-lg opacity-90 font-light max-w-2xl mx-auto">
-                            Protect your identity online. Free to start, built for people who value privacy.
+                            One account covers aliases, file sharing, and forms. We bill subscriptions, not your data.
                         </p>
                         <CtaAuthButtons />
                     </div>

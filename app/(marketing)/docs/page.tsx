@@ -48,7 +48,7 @@ export default async function DocsPage() {
                     </h1>
 
                     <p className="text-xl text-muted-foreground font-light max-w-2xl leading-relaxed">
-                        Everything you need to get started with private email aliases and encrypted file sharing.
+                        Setup guides, API and CLI reference, and how the encryption actually works.
                     </p>
                 </div>
             </section>

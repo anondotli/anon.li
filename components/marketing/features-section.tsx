@@ -178,7 +178,7 @@ export function FeaturesSection() {
                         <div className="max-w-md">
                             <h3 className="font-serif text-xl font-medium">Advanced controls</h3>
                             <p className="mt-1.5 text-sm text-muted-foreground">
-                                Powerful but contextual options, grouped by product so they surface where they help.
+                                The deeper options, grouped by product so they surface where they help.
                             </p>
                         </div>
                         <div className="mt-6 grid gap-x-8 gap-y-6 sm:grid-cols-2">

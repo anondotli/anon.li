@@ -124,6 +124,12 @@ interface SubmissionListItem {
     createdAt: Date
     readAt: Date | null
     hasAttachedDrop: boolean
+    /** Present only when listSubmissions is called with includePayload. */
+    payload?: {
+        ephemeralPubKey: string
+        iv: string
+        encryptedPayload: string
+    }
 }
 
 interface SubmissionDetail extends SubmissionListItem {
@@ -663,9 +669,9 @@ export class FormService {
     static async listSubmissions(
         formId: string,
         scope: OwnerScope,
-        options: { limit?: number; offset?: number; unreadOnly?: boolean } = {},
+        options: { limit?: number; offset?: number; unreadOnly?: boolean; includePayload?: boolean } = {},
     ): Promise<{ submissions: SubmissionListItem[]; total: number }> {
-        const { limit = 25, offset = 0, unreadOnly = false } = options
+        const { limit = 25, offset = 0, unreadOnly = false, includePayload = false } = options
         const form = await prisma.form.findUnique({ where: { id: formId } })
         if (!form || form.deletedAt) throw new NotFoundError("Form not found")
         assertCanAccess(form, scope)
@@ -684,6 +690,9 @@ export class FormService {
                     createdAt: true,
                     readAt: true,
                     attachedDropId: true,
+                    ...(includePayload
+                        ? { ephemeralPubKey: true, iv: true, encryptedPayload: true }
+                        : {}),
                 },
             }),
             prisma.formSubmission.count({ where }),
@@ -695,9 +704,39 @@ export class FormService {
                 createdAt: s.createdAt,
                 readAt: s.readAt,
                 hasAttachedDrop: s.attachedDropId !== null,
+                ...(includePayload && "ephemeralPubKey" in s
+                    ? {
+                          payload: {
+                              ephemeralPubKey: s.ephemeralPubKey,
+                              iv: s.iv,
+                              encryptedPayload: s.encryptedPayload,
+                          },
+                      }
+                    : {}),
             })),
             total,
         }
+    }
+
+    /**
+     * Aggregate counts for a form's submissions (owner-scoped). Cheap, indexed
+     * COUNTs — used for accurate dashboard metrics independent of pagination.
+     */
+    static async getSubmissionStats(
+        formId: string,
+        scope: OwnerScope,
+    ): Promise<{ total: number; unread: number; withAttachments: number }> {
+        const form = await prisma.form.findUnique({ where: { id: formId } })
+        if (!form || form.deletedAt) throw new NotFoundError("Form not found")
+        assertCanAccess(form, scope)
+
+        const [total, unread, withAttachments] = await Promise.all([
+            prisma.formSubmission.count({ where: { formId } }),
+            prisma.formSubmission.count({ where: { formId, readAt: null } }),
+            prisma.formSubmission.count({ where: { formId, attachedDropId: { not: null } } }),
+        ])
+
+        return { total, unread, withAttachments }
     }
 
     static async getSubmission(

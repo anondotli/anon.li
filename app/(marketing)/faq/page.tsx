@@ -37,7 +37,7 @@ export default function FAQPage() {
                     Frequently Asked Questions
                 </h1>
                 <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-                    Everything you need to know about anon.li&apos;s email aliases, encrypted file sharing, and confidential forms.
+                    How aliases, encrypted file sharing, and confidential forms work - and what we can and can&apos;t see.
                 </p>
             </section>
 
@@ -54,7 +54,7 @@ export default function FAQPage() {
                         anon.li is a privacy platform with three core services: private email aliases (anon.li Alias), end-to-end encrypted file sharing (anon.li Drop), and end-to-end encrypted forms (anon.li Form). Alias forwards email in real time without storing message content, Drop is client-side encrypted so we never receive the plaintext files or keys, and Form responses are encrypted in the submitter&apos;s browser to a per-form public key — only you can decrypt them. You can use them through the web dashboard, the <a href="/cli" className="text-primary hover:underline">CLI tool</a>, the <a href="/extension" className="text-primary hover:underline">browser extension</a>, or the REST API.
                     </FAQItem>
                     <FAQItem value="is-free" question="Is anon.li free?">
-                        Yes! We offer generous free tiers for both services. Free accounts include email aliases and file uploads with reasonable limits. Paid plans unlock higher limits, longer expiry times, and advanced features like custom domains and custom encryption keys.
+                        Every product has a free tier. Free accounts include email aliases and file uploads with reasonable limits. Paid plans unlock higher limits, longer expiry, and features like custom domains and custom encryption keys.
                     </FAQItem>
                     <FAQItem value="open-source" question="Is anon.li open source?">
                         Our public application code is open source on GitHub. You can audit the web app and companion repositories, but the hosted service and separate mail stack still depend on deployment and infrastructure you must trust independently.
@@ -78,13 +78,13 @@ export default function FAQPage() {
                         An email alias is a unique email address (like random123@anon.li) that forwards messages to your real inbox. Create aliases to sign up for services without exposing your real email. Free users get 10 random aliases and 1 custom alias, Plus gets 100 random and 10 custom aliases, and Pro gets unlimited random aliases plus 100 custom aliases.
                     </FAQItem>
                     <FAQItem value="reply-alias" question="Can I reply from an alias?">
-                        Yes! When you reply to a forwarded email, your response is automatically sent through your alias. The recipient sees your alias address, never your real email.
+                        When you reply to a forwarded email, your response is automatically sent back through your alias. The recipient sees your alias address, never your real email.
                     </FAQItem>
                     <FAQItem value="spam-blocking" question="How does spam blocking work?">
-                        You can disable any alias with one click. When disabled, all emails to that alias are rejected. This is perfect for when a service starts spamming you - just turn off that alias instead of dealing with unsubscribe links.
+                        You can disable any alias with one click. When disabled, all email to that alias is rejected. So when a service starts spamming, you switch the alias off instead of hunting for an unsubscribe link.
                     </FAQItem>
                     <FAQItem value="custom-domain" question="Can I use my own domain?">
-                        Yes, paid plans include custom domain support. You can use addresses like anything@yourdomain.com that forward to your inbox. This is great for professional use or personal branding.
+                        Paid plans include custom domain support. You can use addresses like anything@yourdomain.com that forward to your inbox - useful for a work address or your own brand.
                     </FAQItem>
                     <FAQItem value="pgp-encryption" question="What is PGP encryption?">
                         PGP (Pretty Good Privacy) is an encryption standard. If you add a PGP public key to a verified recipient, we&apos;ll encrypt forwarded copies for aliases routed to that recipient before delivery. Standard forwarding still requires transient server-side processing, but the delivered message is encrypted to your key.
@@ -111,19 +111,19 @@ export default function FAQPage() {
                         No. We only receive encrypted data. Without the encryption key (which stays in your browser and share link), the data is indistinguishable from random noise. Even filenames are encrypted.
                     </FAQItem>
                     <FAQItem value="need-account" question="Do I need an account to share files?">
-                        Yes. You need a free account to upload and manage drops. Recipients can still download with only the shared link and never need an account.
+                        You need a free account to upload and manage drops. Recipients still download with only the shared link and never need an account.
                     </FAQItem>
                     <FAQItem value="file-expiry" question="How long do files stay available?">
                         It depends on your plan. Free accounts get up to 3 days, Plus gets 7 days, and Pro gets 30 days. After expiry, files are automatically deleted from our servers.
                     </FAQItem>
                     <FAQItem value="download-limits" question="What are download limits?">
-                        You can set a maximum number of downloads for any file. Once the limit is reached, the file is automatically deleted. Perfect for sharing sensitive documents that should only be accessed a specific number of times.
+                        You can set a maximum number of downloads for any file. Once the limit is reached, the file is automatically deleted - handy when a document should only be opened a fixed number of times.
                     </FAQItem>
                     <FAQItem value="revoke-link" question="Can I revoke a share link?">
-                        Yes! From your dashboard, you can disable any drop&apos;s download link at any time. You can also re-enable it later if needed. This gives you full control over who can access your shared files.
+                        From your dashboard you can disable any drop&apos;s download link at any time, and re-enable it later if you need to.
                     </FAQItem>
                     <FAQItem value="password-protection" question="Can I password-protect files?">
-                        Yes! Plus and Pro users can set a custom encryption key (password) on their files. The recipient will need both the link and the password to decrypt. For extra security, we recommend sending the password & the file link through different channels.
+                        Plus and Pro users can set a custom encryption key (password) on a file. The recipient then needs both the link and the password to decrypt it. For sensitive files, send the password and the link through different channels.
                     </FAQItem>
                     <FAQItem value="lost-link" question="What if I lose my share link?">
                         The dashboard can rebuild full links for link-only drops after you unlock your vault. Password-protected drops still require the password you set. Forgotten vault passwords or lost custom passwords remain unrecoverable because we do not have your decrypted keys.
@@ -146,20 +146,20 @@ export default function FAQPage() {
                     <FAQItem value="what-is-form" question="What is anon.li Form?">
                         anon.li Form lets you publish end-to-end encrypted forms at <code className="text-foreground">/f/[id]</code>. Each form gets its own P-256 keypair; the private half is wrapped in your vault and never reaches our servers unwrapped. Submitters encrypt their answers in the browser before they leave their device, so only you can decrypt the responses.
                     </FAQItem>
-                    <FAQItem value="form-use-cases" question="What is it good for?">
+                    <FAQItem value="form-use-cases" question="What kinds of forms is it for?">
                         Anything where a Google Form would betray trust: whistleblowing tip lines, patient intake at clinics, legal client contact, HR forms, grant applications, and confidential research surveys. If responses contain anything sensitive, Form keeps them encrypted from the submitter&apos;s browser to your dashboard.
                     </FAQItem>
                     <FAQItem value="form-attachments" question="Can submitters attach files?">
-                        Yes. File attachments are accepted per submission and are encrypted in the browser alongside the rest of the response. Storage is governed by the form plan and billed to the form owner.
+                        Yes. File attachments are accepted per submission and encrypted in the browser alongside the rest of the response. Storage counts against the form plan and is billed to the form owner.
                     </FAQItem>
                     <FAQItem value="form-builder" question="How do I build a form?">
                         Use the drag-and-drop block builder, or paste a JSON schema directly. The schema is versioned, so developers and AI agents can author and diff forms like code, and the same shape is shared with the CLI and API.
                     </FAQItem>
                     <FAQItem value="form-embed" question="Can I embed a form on my own site?">
-                        Yes. Forms can be loaded directly at <code className="text-foreground">/f/[id]</code> or embedded via iframe at <code className="text-foreground">/embed/f/[id]</code> on any origin. Encryption still happens in the visitor&apos;s browser.
+                        Forms load directly at <code className="text-foreground">/f/[id]</code>, or you can embed them via iframe at <code className="text-foreground">/embed/f/[id]</code> on any origin. Encryption still happens in the visitor&apos;s browser.
                     </FAQItem>
                     <FAQItem value="form-notifications" question="Do I get notified about new submissions?">
-                        Yes. New submissions trigger an account-email notification to you. The notification never includes any encrypted response content — only that a new response arrived.
+                        New submissions trigger an account-email notification. It never includes any encrypted response content - only that a new response arrived.
                     </FAQItem>
                     <FAQItem value="form-abuse" question="How do you prevent abuse and spam?">
                         Forms support optional Cloudflare Turnstile challenges, password protection, submission caps, and closing dates. You can throttle who can submit and shut a form down at any time without losing previously decrypted responses.
@@ -177,13 +177,13 @@ export default function FAQPage() {
                 </div>
                 <Accordion type="single" collapsible className="space-y-3">
                     <FAQItem value="cli-tool" question="Is there a CLI tool?">
-                        Yes! Our CLI lets you manage aliases, drops, domains, and recipients directly from the terminal. Install it from the <a href="/cli" className="text-primary hover:underline">/cli</a> page. It supports all major operations including creating aliases, uploading encrypted files, and managing your subscription.
+                        The CLI manages aliases, drops, domains, and recipients directly from the terminal. Install it from the <a href="/cli" className="text-primary hover:underline">/cli</a> page; it covers the main operations, including creating aliases, uploading encrypted files, and managing your subscription.
                     </FAQItem>
                     <FAQItem value="browser-extension" question="Is there a browser extension?">
                         Yes. The <a href="/extension" className="text-primary hover:underline">anon.li browser extension</a> can be installed through Firefox & Chrome web stores today or manually from our GitHub repositories. It lets you create aliases with one click while browsing, manage your drops, and share files with a QR code without leaving the current tab.
                     </FAQItem>
                     <FAQItem value="api-access" question="Do you offer an API?">
-                        Yes! We provide a REST API for aliases, recipients, domains, and drops. API-key requests count against monthly API quotas: Free accounts get 500 requests/month, Plus gets 25,000, and Pro gets 100,000. Generate and revoke API keys from your dashboard with your signed-in session.
+                        There&apos;s a REST API for aliases, recipients, domains, and drops. API-key requests count against monthly quotas: Free gets 500 requests/month, Plus 25,000, and Pro 100,000. Generate and revoke keys from your dashboard with your signed-in session.
                     </FAQItem>
                 </Accordion>
             </section>
@@ -207,7 +207,7 @@ export default function FAQPage() {
                         Start with our public source code and security documentation. We label which claims are backed by published source across the web app and mail stack, and which ones still depend on runtime infrastructure like log retention or the hosted build matching the published source.
                     </FAQItem>
                     <FAQItem value="two-factor-auth" question="Do you support two-factor authentication (2FA)?">
-                        Yes! You can enable TOTP-based two-factor authentication from your account settings. Use any authenticator app (Google Authenticator, Authy, 1Password, etc.) for an extra layer of security on top of your normal sign-in flow.
+                        You can enable TOTP-based two-factor authentication from your account settings. Use any authenticator app (Google Authenticator, Authy, 1Password, and so on) for a second factor on top of your normal sign-in.
                     </FAQItem>
                     <FAQItem value="data-export" question="Can I export my data?">
                         Yes. You can export your account data from your dashboard settings. We also support full account deletion, which immediately removes your live account data including aliases, drops, and domains.
@@ -222,7 +222,7 @@ export default function FAQPage() {
             <section className="rounded-3xl bg-secondary/30 p-8 md:p-12 text-center space-y-6">
                 <h2 className="text-2xl font-serif font-medium">Still Have Questions?</h2>
                 <p className="text-muted-foreground max-w-xl mx-auto">
-                    Check our documentation for detailed guides, or reach out to our support team. We&apos;re happy to help.
+                    The documentation covers most things in depth. If it doesn&apos;t, email us directly.
                 </p>
                 <div className="flex flex-col sm:flex-row gap-4 justify-center">
                     <Button asChild size="lg" className="rounded-full">

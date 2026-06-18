@@ -29,6 +29,7 @@ import {
     CalendarClock,
     Check,
     ExternalLink,
+    FileText,
     MoreHorizontal,
     Paperclip,
     Pencil,
@@ -40,8 +41,10 @@ import {
     X,
 } from "lucide-react"
 import { toggleFormAction, deleteFormAction } from "@/actions/form"
-import { cn } from "@/lib/utils"
 import { formatRelativeTime } from "@/lib/format"
+import { EmptyState } from "@/components/ui/empty-state"
+import { SegmentedControl } from "@/components/ui/segmented-control"
+import { getFormStatus, StatusBadge } from "@/components/form/dashboard/form-status"
 
 export interface FormListItemSerialized {
     id: string
@@ -62,18 +65,10 @@ export interface FormListItemSerialized {
 
 type FilterStatus = "all" | "live" | "paused"
 type SortBy = "recent" | "submissions" | "title"
-type FormStatusKind = "live" | "paused" | "closed" | "limit" | "taken-down"
 
 interface SortOption {
     value: SortBy
     label: string
-}
-
-interface FormDisplayStatus {
-    kind: FormStatusKind
-    label: string
-    dotClassName: string
-    badgeClassName: string
 }
 
 const FILTER_TABS: { value: FilterStatus; label: string }[] = [
@@ -172,7 +167,23 @@ export function FormListClient({ forms: initialForms }: { forms: FormListItemSer
     }
 
     if (forms.length === 0) {
-        return <EmptyState />
+        return (
+            <EmptyState
+                variant="panel"
+                icon={FileText}
+                title="Build your first form"
+                description="Create a private, end-to-end encrypted form. Responses are visible only to you."
+                action={
+                    <Button asChild size="lg" className="h-11 gap-2">
+                        <Link href="/dashboard/form/new">
+                            <Plus className="h-4 w-4" />
+                            Create a form
+                        </Link>
+                    </Button>
+                }
+                className="min-h-[24rem]"
+            />
+        )
     }
 
     return (
@@ -191,7 +202,18 @@ export function FormListClient({ forms: initialForms }: { forms: FormListItemSer
             />
 
             {filteredForms.length === 0 ? (
-                <NoResults onClearFilters={clearFilters} />
+                <EmptyState
+                    variant="panel"
+                    icon={Search}
+                    title="No matching forms"
+                    description="Adjust the search or clear the active filters."
+                    action={
+                        <Button variant="link" onClick={clearFilters}>
+                            Clear filters
+                        </Button>
+                    }
+                    className="py-14"
+                />
             ) : (
                 <div className="overflow-hidden rounded-xl border border-border/60 bg-background luxury-shadow-sm">
                     <div className="hidden grid-cols-[minmax(0,1fr)_6.5rem_6rem_7rem_4.5rem] gap-x-4 border-b border-border/50 bg-gradient-to-b from-secondary/30 to-secondary/10 px-5 py-3 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground/80 lg:grid">
@@ -215,50 +237,6 @@ export function FormListClient({ forms: initialForms }: { forms: FormListItemSer
                 </div>
             )}
         </section>
-    )
-}
-
-function EmptyState() {
-    return (
-        <div className="flex min-h-[28rem] flex-col items-center justify-center rounded-lg border border-dashed border-border/60 bg-background px-6 py-16 text-center luxury-shadow-sm animate-in fade-in-50 duration-500">
-            <div className="mb-8 h-px w-24 bg-border/80" />
-            <div className="mb-6 flex h-12 w-12 items-center justify-center rounded-md border border-border/60 bg-secondary/30">
-                <Plus className="h-5 w-5 text-muted-foreground" />
-            </div>
-            <h2 className="font-serif text-3xl font-medium leading-tight sm:text-4xl">
-                Build your first form
-            </h2>
-            <p className="mx-auto mt-3 max-w-md text-sm font-light leading-relaxed text-muted-foreground sm:text-base">
-                Create a private, end-to-end encrypted form. Responses are visible only to you.
-            </p>
-            <div className="mt-8">
-                <Button asChild size="lg" className="h-11 gap-2">
-                    <Link href="/dashboard/form/new">
-                        <Plus className="h-4 w-4" />
-                        Create a form
-                    </Link>
-                </Button>
-            </div>
-        </div>
-    )
-}
-
-function NoResults({ onClearFilters }: { onClearFilters: () => void }) {
-    return (
-        <div className="rounded-lg border border-dashed border-border/60 bg-secondary/10 px-6 py-14 text-center">
-            <div className="mx-auto mb-4 flex h-10 w-10 items-center justify-center rounded-md border border-border/60 bg-background">
-                <Search className="h-4 w-4 text-muted-foreground" />
-            </div>
-            <p className="font-serif text-2xl font-medium text-foreground">
-                No matching forms
-            </p>
-            <p className="mx-auto mt-2 max-w-sm text-sm font-light text-muted-foreground">
-                Adjust the search or clear the active filters.
-            </p>
-            <Button variant="link" onClick={onClearFilters} className="mt-3">
-                Clear filters
-            </Button>
-        </div>
     )
 }
 
@@ -318,27 +296,12 @@ function FilterBar({
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
-                    <div className="inline-flex h-10 items-center rounded-lg border border-border/60 bg-background p-0.5">
-                        {FILTER_TABS.map((tab) => {
-                            const active = filterStatus === tab.value
-                            return (
-                                <button
-                                    key={tab.value}
-                                    type="button"
-                                    aria-pressed={active}
-                                    onClick={() => onFilterChange(tab.value)}
-                                    className={cn(
-                                        "inline-flex h-8 min-w-14 items-center justify-center rounded-md px-3 text-xs font-medium transition-colors",
-                                        active
-                                            ? "bg-foreground text-background shadow-sm"
-                                            : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground",
-                                    )}
-                                >
-                                    {tab.label}
-                                </button>
-                            )
-                        })}
-                    </div>
+                    <SegmentedControl
+                        aria-label="Filter forms by status"
+                        items={FILTER_TABS}
+                        value={filterStatus}
+                        onChange={onFilterChange}
+                    />
 
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild>
@@ -571,20 +534,6 @@ function FormListRow({
     )
 }
 
-function StatusBadge({ status }: { status: FormDisplayStatus }) {
-    return (
-        <span
-            className={cn(
-                "inline-flex h-[22px] items-center gap-1.5 rounded-full border px-2 text-[10px] font-medium tracking-[0.04em]",
-                status.badgeClassName,
-            )}
-        >
-            <span className={cn("h-1.5 w-1.5 rounded-full", status.dotClassName)} />
-            {status.label}
-        </span>
-    )
-}
-
 function CapabilityIcons({ form }: { form: FormListItemSerialized }) {
     if (!form.allowFileUploads && !form.notifyOnSubmission && !form.hideBranding) return null
 
@@ -622,54 +571,6 @@ function CapabilityIcons({ form }: { form: FormListItemSerialized }) {
             </span>
         </>
     )
-}
-
-function getFormStatus(form: FormListItemSerialized, now: number): FormDisplayStatus {
-    const isClosed = form.closesAt ? new Date(form.closesAt).getTime() < now : false
-    const isAtLimit = form.maxSubmissions != null && form.submissionsCount >= form.maxSubmissions
-
-    if (form.takenDown) {
-        return {
-            kind: "taken-down",
-            label: "Taken down",
-            dotClassName: "bg-destructive",
-            badgeClassName: "border-destructive/25 bg-destructive/5 text-destructive",
-        }
-    }
-
-    if (form.disabledByUser || !form.active) {
-        return {
-            kind: "paused",
-            label: "Paused",
-            dotClassName: "bg-muted-foreground",
-            badgeClassName: "border-border/60 bg-secondary/50 text-muted-foreground",
-        }
-    }
-
-    if (isClosed) {
-        return {
-            kind: "closed",
-            label: "Closed",
-            dotClassName: "bg-amber-500",
-            badgeClassName: "border-amber-500/25 bg-amber-500/10 text-amber-700 dark:text-amber-300",
-        }
-    }
-
-    if (isAtLimit) {
-        return {
-            kind: "limit",
-            label: "Limit reached",
-            dotClassName: "bg-amber-500",
-            badgeClassName: "border-amber-500/25 bg-amber-500/10 text-amber-700 dark:text-amber-300",
-        }
-    }
-
-    return {
-        kind: "live",
-        label: "Live",
-        dotClassName: "bg-emerald-500",
-        badgeClassName: "border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
-    }
 }
 
 function formatShortDate(value: string) {
