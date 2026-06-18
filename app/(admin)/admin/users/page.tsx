@@ -1,5 +1,6 @@
 import { Suspense } from "react"
 import { UserTable } from "@/components/admin/user-table"
+import { PageHeader } from "@/components/admin/page-header"
 import { getAdminUsers } from "@/lib/data/admin"
 
 interface UsersPageProps {
@@ -12,12 +13,10 @@ export default async function UsersPage({ searchParams }: UsersPageProps) {
 
     return (
         <div className="space-y-6">
-            <div>
-                <h1 className="text-3xl font-bold tracking-tight">Users</h1>
-                <p className="text-muted-foreground">
-                    Manage user accounts, bans, and subscriptions.
-                </p>
-            </div>
+            <PageHeader
+                title="Users"
+                description="Manage user accounts, bans, and subscriptions."
+            />
 
             <Suspense>
                 <UserTable

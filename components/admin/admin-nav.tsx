@@ -4,96 +4,14 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useState } from "react"
 import { cn } from "@/lib/utils"
-import {
-    LayoutDashboard,
-    Users,
-    Building2,
-    FileBox,
-    ClipboardList,
-    Mail,
-    Flag,
-    Globe,
-    Inbox,
-    Key,
-    ShieldX,
-    Settings,
-    ScrollText,
-    CreditCard,
-    Gift,
-    Wrench,
-    ChevronDown,
-    ChevronRight,
-    type LucideIcon
-} from "lucide-react"
-
-interface NavItem {
-    title: string
-    href: string
-    icon: LucideIcon
-}
-
-interface NavGroup {
-    title: string
-    items: NavItem[]
-    defaultOpen?: boolean
-}
-
-const navGroups: NavGroup[] = [
-    {
-        title: "OVERVIEW",
-        defaultOpen: true,
-        items: [
-            { title: "Dashboard", href: "/admin", icon: LayoutDashboard },
-            { title: "All Users", href: "/admin/users", icon: Users },
-            { title: "Organizations", href: "/admin/organizations", icon: Building2 },
-            { title: "Referrals", href: "/admin/referrals", icon: Gift },
-        ]
-    },
-    {
-        title: "ALIAS SERVICE",
-        defaultOpen: true,
-        items: [
-            { title: "Aliases", href: "/admin/aliases", icon: Mail },
-            { title: "Recipients", href: "/admin/recipients", icon: Inbox },
-            { title: "Domains", href: "/admin/domains", icon: Globe },
-        ]
-    },
-    {
-        title: "OTHER SERVICE",
-        defaultOpen: true,
-        items: [
-            { title: "Drops", href: "/admin/drops", icon: FileBox },
-            { title: "Forms", href: "/admin/forms", icon: ClipboardList },
-        ]
-    },
-    {
-        title: "MODERATION",
-        defaultOpen: true,
-        items: [
-            { title: "Abuse Reports", href: "/admin/reports", icon: Flag },
-            { title: "Takedowns", href: "/admin/takedowns", icon: ShieldX },
-        ]
-    },
-    {
-        title: "SYSTEM",
-        defaultOpen: true,
-        items: [
-            { title: "API Keys", href: "/admin/api-keys", icon: Key },
-            { title: "Billing", href: "/admin/billing", icon: CreditCard },
-            { title: "Maintenance", href: "/admin/maintenance", icon: Wrench },
-            { title: "Audit Logs", href: "/admin/audit", icon: ScrollText },
-            { title: "Settings", href: "/admin/settings", icon: Settings },
-        ]
-    },
-]
+import { ChevronDown, ChevronRight } from "lucide-react"
+import { navGroups, isNavItemActive, type NavGroup } from "./nav-config"
 
 function AdminNavGroup({ group }: { group: NavGroup }) {
     const pathname = usePathname()
     const [isOpen, setIsOpen] = useState(group.defaultOpen ?? true)
 
-    const hasActiveItem = group.items.some(
-        item => pathname === item.href || (item.href !== "/admin" && pathname.startsWith(item.href))
-    )
+    const hasActiveItem = group.items.some((item) => isNavItemActive(pathname, item.href))
 
     return (
         <div className="mb-4">
@@ -115,20 +33,23 @@ function AdminNavGroup({ group }: { group: NavGroup }) {
             {isOpen && (
                 <nav className="flex flex-col gap-0.5 mt-1">
                     {group.items.map((item) => {
-                        const isActive = pathname === item.href ||
-                            (item.href !== "/admin" && pathname.startsWith(item.href))
+                        const isActive = isNavItemActive(pathname, item.href)
 
                         return (
                             <Link
                                 key={item.href}
                                 href={item.href}
+                                aria-current={isActive ? "page" : undefined}
                                 className={cn(
-                                    "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
+                                    "group relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
                                     isActive
                                         ? "bg-destructive/10 text-destructive font-medium"
                                         : "text-muted-foreground hover:text-foreground hover:bg-muted"
                                 )}
                             >
+                                {isActive && (
+                                    <span className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-destructive" />
+                                )}
                                 <item.icon className="h-4 w-4" />
                                 {item.title}
                             </Link>

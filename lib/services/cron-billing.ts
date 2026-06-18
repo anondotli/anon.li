@@ -23,12 +23,37 @@ export async function handleBillingCron() {
     const scheduling = await BillingDowngradeService.processSchedulingBatch();
     const deletion = await BillingDowngradeService.processDeletionBatch();
     const cryptoReminders = await processCryptoRenewalReminders();
+    const reconciliation = await reconcileSubscriptions();
 
     return {
         scheduling: { processed: scheduling.processed, errors: scheduling.errors },
         deletion: { processed: deletion.processed, errors: deletion.errors },
         cryptoReminders,
+        reconciliation,
     };
+}
+
+/**
+ * Safety net for missed Stripe webhooks: re-sync rows that are stored active but
+ * whose period has lapsed, so a dropped payment_failed/subscription.deleted event
+ * can't leave a permanently-"active" row (inflating MRR, lingering past renewal).
+ *
+ * Gated on STRIPE_SECRET_KEY because the Stripe client throws at construction
+ * without it — skip cleanly in environments where billing isn't configured rather
+ * than failing the whole billing cron. Errors are swallowed so the sibling
+ * scheduling/deletion/reminder results are never lost to a Stripe outage.
+ */
+async function reconcileSubscriptions() {
+    if (!process.env.STRIPE_SECRET_KEY) {
+        return { skipped: "stripe-not-configured" as const };
+    }
+    try {
+        const { reconcileStaleStripeSubscriptions } = await import("@/lib/services/subscription-sync");
+        return await reconcileStaleStripeSubscriptions();
+    } catch (error) {
+        logger.error("Subscription reconciliation failed", error);
+        return { error: "failed" as const };
+    }
 }
 
 async function processCryptoRenewalReminders(): Promise<{ sent: number; errors: number }> {

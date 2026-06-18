@@ -44,11 +44,11 @@ export default function McpPage() {
     return (
         <>
             {/* Hero */}
-            <section id="hero" className="relative w-full py-16 md:py-24 lg:py-32 flex items-center justify-center min-h-[90vh] overflow-hidden">
+            <section id="hero" className="relative w-full py-12 md:py-20 lg:py-24 flex items-center justify-center min-h-[80vh] overflow-hidden">
                 <div className="absolute inset-0 pointer-events-none overflow-hidden">
                     <div className="absolute inset-0 bg-[radial-gradient(hsl(var(--primary))_1px,transparent_1px)] [background-size:16px_16px] opacity-20 [mask-image:radial-gradient(ellipse_50%_50%_at_50%_50%,#000_70%,transparent_100%)]" />
-                    <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[500px] bg-primary/10 opacity-50 blur-[100px] rounded-full pointer-events-none" />
-                    <div className="absolute bottom-0 right-0 w-[600px] h-[400px] bg-secondary/10 opacity-30 blur-[80px] rounded-full pointer-events-none" />
+                    <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[400px] bg-primary/10 opacity-50 blur-[80px] rounded-full pointer-events-none" />
+                    <div className="absolute bottom-0 right-0 w-[400px] h-[300px] bg-secondary/10 opacity-30 blur-[60px] rounded-full pointer-events-none" />
                 </div>
 
                 <div className="container mx-auto px-6 relative z-10 w-full">
@@ -91,16 +91,16 @@ export default function McpPage() {
             </section>
 
             {/* Features */}
-            <section className="w-full py-32 bg-background border-t border-border/40">
+            <section className="w-full py-20 bg-background border-t border-border/40">
                 <div className="container mx-auto px-6 relative z-10">
-                    <div className="text-center mb-20 space-y-6">
-                        <h2 className="text-4xl md:text-5xl font-serif font-medium tracking-tight">AI access without loose secrets</h2>
-                        <p className="text-lg text-muted-foreground max-w-2xl mx-auto font-light">
+                    <div className="text-center mb-14 space-y-4">
+                        <h2 className="text-3xl md:text-4xl font-serif font-medium tracking-tight">AI access without loose secrets</h2>
+                        <p className="text-base md:text-lg text-muted-foreground max-w-2xl mx-auto font-light">
                             The MCP server gives agents the account controls they need while keeping private content outside the tool boundary.
                         </p>
                     </div>
 
-                    <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-3">
+                    <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-3 max-w-6xl mx-auto">
                         <FeatureCard
                             icon={<Key className="h-6 w-6" />}
                             title="OAuth Connector Flow"
@@ -136,12 +136,12 @@ export default function McpPage() {
             </section>
 
             {/* Tools Showcase */}
-            <section className="w-full py-32 bg-secondary/20">
+            <section className="w-full py-20 bg-secondary/20">
                 <div className="container mx-auto px-6">
                     <div className="grid gap-16 lg:grid-cols-2 items-center">
                         <div className="space-y-6">
-                            <h2 className="text-4xl md:text-5xl font-serif font-medium tracking-tight">Typed tools,<br />clear boundaries</h2>
-                            <p className="text-lg text-muted-foreground font-light leading-relaxed max-w-xl">
+                            <h2 className="text-3xl md:text-4xl font-serif font-medium tracking-tight">Typed tools,<br />clear boundaries</h2>
+                            <p className="text-base md:text-lg text-muted-foreground font-light leading-relaxed max-w-xl">
                                 MCP turns everyday privacy operations into explicit tool calls. Agents can work on the control plane, but encrypted content stays protected by anon.li&apos;s browser and vault encryption model.
                             </p>
                             <div className="flex flex-col sm:flex-row gap-3 pt-2">
@@ -175,11 +175,11 @@ export default function McpPage() {
             </section>
 
             {/* How It Works */}
-            <section className="py-32 bg-background border-t border-border/40">
+            <section className="py-20 bg-background border-t border-border/40">
                 <div className="container mx-auto px-6">
-                    <div className="text-center mb-24 space-y-6">
-                        <h2 className="text-4xl md:text-5xl font-serif font-medium tracking-tight">Connect in three steps</h2>
-                        <p className="text-lg text-muted-foreground max-w-2xl mx-auto font-light">
+                    <div className="text-center mb-14 space-y-4">
+                        <h2 className="text-3xl md:text-4xl font-serif font-medium tracking-tight">Connect in three steps</h2>
+                        <p className="text-base md:text-lg text-muted-foreground max-w-2xl mx-auto font-light">
                             From connector URL to first agent task in minutes.
                         </p>
                     </div>
@@ -210,25 +210,25 @@ export default function McpPage() {
             </section>
 
             {/* CTA */}
-            <section className="py-32 bg-background">
+            <section className="py-20 bg-background">
                 <div className="container mx-auto px-6">
-                    <div className="relative rounded-[2.5rem] overflow-hidden bg-primary text-primary-foreground px-6 py-24 md:px-24 md:py-32 text-center shadow-2xl">
+                    <div className="relative rounded-2xl overflow-hidden bg-primary text-primary-foreground px-6 py-16 md:px-16 md:py-20 text-center shadow-2xl">
                         <div className="absolute inset-0 opacity-20 bg-[url('/noise.svg')] mix-blend-overlay"></div>
 
-                        <div className="relative z-10 space-y-10 max-w-4xl mx-auto">
-                            <h2 className="text-4xl md:text-5xl lg:text-6xl font-serif font-medium tracking-tight leading-tight">
+                        <div className="relative z-10 space-y-6 max-w-3xl mx-auto">
+                            <h2 className="text-3xl md:text-4xl lg:text-5xl font-serif font-medium tracking-tight leading-tight">
                                 Ready to connect your agent?
                             </h2>
-                            <p className="text-xl opacity-90 font-light max-w-2xl mx-auto">
+                            <p className="text-lg opacity-90 font-light max-w-2xl mx-auto">
                                 Add the MCP endpoint, authorize through anon.li, and keep encrypted content outside the agent boundary.
                             </p>
                             <div className="flex flex-col sm:flex-row justify-center pt-4 gap-4">
-                                <Button asChild size="xl" variant="secondary" className="rounded-full px-12 h-16 text-lg bg-background text-foreground hover:bg-secondary transition-colors border-none font-medium">
+                                <Button asChild size="lg" variant="secondary" className="rounded-full px-8 bg-background text-foreground hover:bg-secondary transition-colors border-none font-medium">
                                     <Link href="/docs/api/mcp">
                                         Set Up MCP
                                     </Link>
                                 </Button>
-                                <Button asChild size="xl" variant="outline" className="rounded-full px-12 h-16 text-lg text-foreground bg-background/80 hover:bg-background/60 font-medium">
+                                <Button asChild size="lg" variant="outline" className="rounded-full px-8 text-foreground bg-background/80 hover:bg-background/60 font-medium">
                                     <Link href="/register">
                                         Create Account
                                     </Link>

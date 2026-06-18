@@ -20,6 +20,7 @@ import {
     SelectValue,
 } from "@/components/ui/select"
 import { Search, ChevronLeft, ChevronRight } from "lucide-react"
+import { cn } from "@/lib/utils"
 
 export interface Column<T> {
     header: string
@@ -48,6 +49,10 @@ interface DataTableProps<T> {
     searchPlaceholder?: string
     emptyMessage?: string
     rowKey: (row: T) => string
+    /** Optional trailing actions cell rendered per row (stops row-click propagation). */
+    rowActions?: (row: T) => ReactNode
+    /** Optional content rendered to the right of the search/filter bar. */
+    toolbar?: ReactNode
 }
 
 export function DataTable<T>({
@@ -65,7 +70,9 @@ export function DataTable<T>({
     onRowClick,
     searchPlaceholder = "Search...",
     emptyMessage = "No results found",
-    rowKey
+    rowKey,
+    rowActions,
+    toolbar
 }: DataTableProps<T>) {
     const router = useRouter()
     const searchParams = useSearchParams()
@@ -139,28 +146,34 @@ export function DataTable<T>({
                         </SelectContent>
                     </Select>
                 )}
+
+                {toolbar}
             </div>
 
             <div className="text-sm text-muted-foreground">
                 Showing {data.length} of {total} results
             </div>
 
-            <div className="rounded-lg border">
+            <div className="rounded-lg border overflow-hidden">
                 <Table>
-                    <TableHeader>
-                        <TableRow>
+                    <TableHeader className="sticky top-0 z-10 bg-muted/50 backdrop-blur-sm">
+                        <TableRow className="hover:bg-transparent">
                             {columns.map((column, i) => (
                                 <TableHead key={i} className={column.className}>
                                     {column.header}
                                 </TableHead>
                             ))}
+                            {rowActions && <TableHead className="w-px text-right">Actions</TableHead>}
                         </TableRow>
                     </TableHeader>
                     <TableBody>
                         {data.map((row) => (
                             <TableRow
                                 key={rowKey(row)}
-                                className={isClickable ? "cursor-pointer hover:bg-muted/50" : undefined}
+                                className={cn(
+                                    "odd:bg-muted/20",
+                                    isClickable && "cursor-pointer hover:bg-muted/60"
+                                )}
                                 onClick={() => isClickable && handleRowClick(row)}
                             >
                                 {columns.map((column, i) => (
@@ -168,11 +181,19 @@ export function DataTable<T>({
                                         {renderCell(row, column)}
                                     </TableCell>
                                 ))}
+                                {rowActions && (
+                                    <TableCell
+                                        className="text-right"
+                                        onClick={(e) => e.stopPropagation()}
+                                    >
+                                        {rowActions(row)}
+                                    </TableCell>
+                                )}
                             </TableRow>
                         ))}
                         {data.length === 0 && (
-                            <TableRow>
-                                <TableCell colSpan={columns.length} className="text-center py-8 text-muted-foreground">
+                            <TableRow className="hover:bg-transparent">
+                                <TableCell colSpan={columns.length + (rowActions ? 1 : 0)} className="text-center py-8 text-muted-foreground">
                                     {emptyMessage}
                                 </TableCell>
                             </TableRow>

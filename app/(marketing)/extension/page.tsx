@@ -23,11 +23,11 @@ export default function ExtensionPage() {
     return (
         <>
             {/* Hero */}
-            <section id="hero" className="relative w-full py-16 md:py-24 lg:py-32 flex items-center justify-center min-h-[90vh] overflow-hidden">
+            <section id="hero" className="relative w-full py-12 md:py-20 lg:py-24 flex items-center justify-center min-h-[80vh] overflow-hidden">
                 <div className="absolute inset-0 pointer-events-none overflow-hidden">
                     <div className="absolute inset-0 bg-[radial-gradient(hsl(var(--primary))_1px,transparent_1px)] [background-size:16px_16px] opacity-20 [mask-image:radial-gradient(ellipse_50%_50%_at_50%_50%,#000_70%,transparent_100%)]" />
-                    <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[500px] bg-primary/10 opacity-50 blur-[100px] rounded-full pointer-events-none" />
-                    <div className="absolute bottom-0 right-0 w-[600px] h-[400px] bg-secondary/10 opacity-30 blur-[80px] rounded-full pointer-events-none" />
+                    <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[400px] bg-primary/10 opacity-50 blur-[80px] rounded-full pointer-events-none" />
+                    <div className="absolute bottom-0 right-0 w-[400px] h-[300px] bg-secondary/10 opacity-30 blur-[60px] rounded-full pointer-events-none" />
                 </div>
 
                 <div className="container mx-auto px-6 relative z-10 w-full">
@@ -38,11 +38,11 @@ export default function ExtensionPage() {
                         </div>
 
                         <div className="space-y-6 max-w-5xl mx-auto w-full">
-                            <h1 className="text-5xl font-medium tracking-tight sm:text-6xl md:text-7xl lg:text-8xl font-serif text-primary animate-in fade-in slide-in-from-bottom-6 duration-1000 fill-mode-both delay-100">
+                            <h1 className="text-4xl font-medium tracking-tight sm:text-5xl md:text-6xl lg:text-7xl font-serif text-primary animate-in fade-in slide-in-from-bottom-6 duration-1000 fill-mode-both delay-100">
                                 Your Privacy Suite.<br className="hidden md:block" />
                                 <span className="italic text-muted-foreground">In Your Browser.</span>
                             </h1>
-                            <p className="mx-auto max-w-2xl text-muted-foreground md:text-xl lg:text-2xl leading-relaxed font-light animate-in fade-in slide-in-from-bottom-6 duration-1000 fill-mode-both delay-200">
+                            <p className="mx-auto max-w-2xl text-muted-foreground md:text-lg lg:text-xl leading-relaxed font-light animate-in fade-in slide-in-from-bottom-6 duration-1000 fill-mode-both delay-200">
                                 Manage aliases and drops directly from any website. One-click alias generation, drop management, and more.
                             </p>
                         </div>
@@ -70,16 +70,16 @@ export default function ExtensionPage() {
             </section>
 
             {/* Features */}
-            <section className="w-full py-32 bg-background border-t border-border/40">
+            <section className="w-full py-20 bg-background border-t border-border/40">
                 <div className="container mx-auto px-6 relative z-10">
-                    <div className="text-center mb-20 space-y-6">
-                        <h2 className="text-4xl md:text-5xl font-serif font-medium tracking-tight">Everything at your fingertips</h2>
-                        <p className="text-lg text-muted-foreground max-w-2xl mx-auto font-light">
+                    <div className="text-center mb-14 space-y-4">
+                        <h2 className="text-3xl md:text-4xl font-serif font-medium tracking-tight">Everything at your fingertips</h2>
+                        <p className="text-base md:text-lg text-muted-foreground max-w-2xl mx-auto font-light">
                             The full anon.li experience, built for your browser.
                         </p>
                     </div>
 
-                    <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-3">
+                    <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-3 max-w-6xl mx-auto">
                         <FeatureCard
                             icon={<Mail className="h-6 w-6" />}
                             title="One-Click Aliases"
@@ -115,12 +115,12 @@ export default function ExtensionPage() {
             </section>
 
             {/* Keyboard Shortcuts Showcase */}
-            <section className="w-full py-32 bg-secondary/20">
+            <section className="w-full py-20 bg-secondary/20">
                 <div className="container mx-auto px-6">
                     <div className="grid gap-16 lg:grid-cols-2 items-center">
                         <div className="space-y-6">
-                            <h2 className="text-4xl md:text-5xl font-serif font-medium tracking-tight">Keyboard-first<br />design</h2>
-                            <p className="text-lg text-muted-foreground font-light leading-relaxed max-w-xl">
+                            <h2 className="text-3xl md:text-4xl font-serif font-medium tracking-tight">Keyboard-first<br />design</h2>
+                            <p className="text-base md:text-lg text-muted-foreground font-light leading-relaxed max-w-xl">
                                 Navigate your aliases and drops without touching the mouse. Every action has a shortcut, every view is accessible from the keyboard.
                             </p>
                         </div>
@@ -160,11 +160,11 @@ export default function ExtensionPage() {
             </section>
 
             {/* How It Works */}
-            <section className="py-32 bg-background border-t border-border/40">
+            <section className="py-20 bg-background border-t border-border/40">
                 <div className="container mx-auto px-6">
-                    <div className="text-center mb-24 space-y-6">
-                        <h2 className="text-4xl md:text-5xl font-serif font-medium tracking-tight">Get started in three steps</h2>
-                        <p className="text-lg text-muted-foreground max-w-2xl mx-auto font-light">
+                    <div className="text-center mb-14 space-y-4">
+                        <h2 className="text-3xl md:text-4xl font-serif font-medium tracking-tight">Get started in three steps</h2>
+                        <p className="text-base md:text-lg text-muted-foreground max-w-2xl mx-auto font-light">
                             From install to first alias in under a minute.
                         </p>
                     </div>
@@ -195,25 +195,25 @@ export default function ExtensionPage() {
             </section>
 
             {/* CTA */}
-            <section className="py-32 bg-background">
+            <section className="py-20 bg-background">
                 <div className="container mx-auto px-6">
-                    <div className="relative rounded-[2.5rem] overflow-hidden bg-primary text-primary-foreground px-6 py-24 md:px-24 md:py-32 text-center shadow-2xl">
+                    <div className="relative rounded-2xl overflow-hidden bg-primary text-primary-foreground px-6 py-16 md:px-16 md:py-20 text-center shadow-2xl">
                         <div className="absolute inset-0 opacity-20 bg-[url('/noise.svg')] mix-blend-overlay"></div>
 
-                        <div className="relative z-10 space-y-10 max-w-4xl mx-auto">
-                            <h2 className="text-4xl md:text-5xl lg:text-6xl font-serif font-medium tracking-tight leading-tight">
+                        <div className="relative z-10 space-y-6 max-w-3xl mx-auto">
+                            <h2 className="text-3xl md:text-4xl lg:text-5xl font-serif font-medium tracking-tight leading-tight">
                                 Ready to browse privately?
                             </h2>
-                            <p className="text-xl opacity-90 font-light max-w-2xl mx-auto">
+                            <p className="text-lg opacity-90 font-light max-w-2xl mx-auto">
                                 Install the extension and take your privacy with you everywhere you browse.
                             </p>
                             <div className="flex flex-col sm:flex-row justify-center pt-4 gap-4">
-                                <Button asChild size="xl" variant="secondary" className="rounded-full px-12 h-16 text-lg bg-background text-foreground hover:bg-secondary transition-colors border-none font-medium">
+                                <Button asChild size="lg" variant="secondary" className="rounded-full px-8 bg-background text-foreground hover:bg-secondary transition-colors border-none font-medium">
                                     <a href="#hero">
                                         Add to Browser
                                     </a>
                                 </Button>
-                                <Button asChild size="xl" variant="outline" className="rounded-full px-12 h-16 text-lg text-foreground bg-background/80 hover:bg-background/60 font-medium inline-flex items-center gap-2">
+                                <Button asChild size="lg" variant="outline" className="rounded-full px-8 text-foreground bg-background/80 hover:bg-background/60 font-medium inline-flex items-center gap-2">
                                     <Link href="https://github.com/anondotli/extension" target="_blank" rel="noopener noreferrer">
                                         View on GitHub
                                         <ExternalLink className="h-4 w-4" />

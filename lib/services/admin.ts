@@ -877,4 +877,217 @@ export class AdminService {
 
         return normalized.sort()
     }
+
+    // ========================================================================
+    // Organization Management
+    // ========================================================================
+
+    static async suspendOrganization(organizationId: string, reason: string) {
+        const org = await prisma.organization.findUnique({ where: { id: organizationId }, select: { id: true } })
+        if (!org) throw new NotFoundError("Organization not found")
+        await prisma.organization.update({
+            where: { id: organizationId },
+            data: { suspendedAt: new Date(), suspendedReason: reason },
+        })
+        return { success: true }
+    }
+
+    static async unsuspendOrganization(organizationId: string) {
+        const org = await prisma.organization.findUnique({ where: { id: organizationId }, select: { id: true } })
+        if (!org) throw new NotFoundError("Organization not found")
+        await prisma.organization.update({
+            where: { id: organizationId },
+            data: { suspendedAt: null, suspendedReason: null },
+        })
+        return { success: true }
+    }
+
+    static async deleteOrganization(organizationId: string) {
+        const org = await prisma.organization.findUnique({ where: { id: organizationId }, select: { id: true } })
+        if (!org) throw new NotFoundError("Organization not found")
+
+        // Enqueue R2 blob cleanup for org-owned drops BEFORE the cascade delete
+        // removes their DropFile rows (Drop.organization is onDelete: Cascade),
+        // otherwise the blobs orphan with no OrphanedFile record to reap them.
+        const orgDrops = await prisma.drop.findMany({
+            where: { organizationId },
+            select: { files: { select: { storageKey: true } } },
+        })
+        const storageKeys = orgDrops.flatMap((d) => d.files.map((f) => f.storageKey))
+        if (storageKeys.length > 0) {
+            await prisma.orphanedFile.createMany({ data: storageKeys.map((key) => ({ storageKey: key })) })
+        }
+
+        await prisma.organization.delete({ where: { id: organizationId } })
+        return { success: true, orphanedFiles: storageKeys.length }
+    }
+
+    static async setOrgEnforce2FA(organizationId: string, enforce: boolean) {
+        const org = await prisma.organization.findUnique({ where: { id: organizationId }, select: { id: true } })
+        if (!org) throw new NotFoundError("Organization not found")
+        await prisma.organization.update({ where: { id: organizationId }, data: { enforce2FA: enforce } })
+        return { success: true }
+    }
+
+    static async recommendOrgKeyRotation(organizationId: string) {
+        const org = await prisma.organization.findUnique({ where: { id: organizationId }, select: { id: true } })
+        if (!org) throw new NotFoundError("Organization not found")
+        await prisma.organization.update({
+            where: { id: organizationId },
+            data: { keyRotationRecommendedAt: new Date() },
+        })
+        return { success: true }
+    }
+
+    static async removeOrgMember(organizationId: string, userId: string) {
+        const member = await prisma.member.findUnique({
+            where: { organizationId_userId: { organizationId, userId } },
+            select: { id: true, role: true },
+        })
+        if (!member) throw new NotFoundError("Member not found")
+        if (member.role === "owner") {
+            const ownerCount = await prisma.member.count({ where: { organizationId, role: "owner" } })
+            if (ownerCount <= 1) throw new ValidationError("Cannot remove the only owner of an organization")
+        }
+        // Drop the member, their wrapped org-vault key, and flag key rotation
+        // (soft revocation, mirroring the dashboard remove-member flow).
+        await prisma.$transaction([
+            prisma.member.delete({ where: { organizationId_userId: { organizationId, userId } } }),
+            prisma.organizationMemberKey.deleteMany({ where: { organizationId, userId } }),
+            prisma.organization.update({
+                where: { id: organizationId },
+                data: { keyRotationRecommendedAt: new Date() },
+            }),
+        ])
+        return { success: true, role: member.role }
+    }
+
+    static async updateOrgMemberRole(
+        organizationId: string,
+        userId: string,
+        role: "owner" | "admin" | "member",
+    ) {
+        const member = await prisma.member.findUnique({
+            where: { organizationId_userId: { organizationId, userId } },
+            select: { id: true, role: true },
+        })
+        if (!member) throw new NotFoundError("Member not found")
+        if (member.role === "owner" && role !== "owner") {
+            const ownerCount = await prisma.member.count({ where: { organizationId, role: "owner" } })
+            if (ownerCount <= 1) throw new ValidationError("Cannot demote the only owner of an organization")
+        }
+        await prisma.member.update({
+            where: { organizationId_userId: { organizationId, userId } },
+            data: { role },
+        })
+        return { success: true, previousRole: member.role }
+    }
+
+    static async cancelOrgInvitation(invitationId: string) {
+        const invitation = await prisma.invitation.findUnique({
+            where: { id: invitationId },
+            select: { id: true, organizationId: true },
+        })
+        if (!invitation) throw new NotFoundError("Invitation not found")
+        await prisma.invitation.update({ where: { id: invitationId }, data: { status: "canceled" } })
+        return { success: true, organizationId: invitation.organizationId }
+    }
+
+    // ========================================================================
+    // User Account Editing
+    // ========================================================================
+
+    static async setUserAdmin(userId: string, isAdmin: boolean) {
+        const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } })
+        if (!user) throw new NotFoundError("User not found")
+        await prisma.user.update({ where: { id: userId }, data: { isAdmin } })
+        return { success: true }
+    }
+
+    static async setUserStorageLimit(userId: string, storageLimit: bigint) {
+        if (storageLimit < BigInt(0)) throw new ValidationError("Storage limit cannot be negative")
+        const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } })
+        if (!user) throw new NotFoundError("User not found")
+        await prisma.user.update({ where: { id: userId }, data: { storageLimit } })
+        return { success: true }
+    }
+
+    static async resetUser2FA(userId: string) {
+        const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } })
+        if (!user) throw new NotFoundError("User not found")
+        await prisma.$transaction([
+            prisma.twoFactor.deleteMany({ where: { userId } }),
+            prisma.user.update({ where: { id: userId }, data: { twoFactorEnabled: false } }),
+        ])
+        return { success: true }
+    }
+
+    static async setUserStrikes(userId: string, value: number) {
+        if (value < 0) throw new ValidationError("Strike count cannot be negative")
+        const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } })
+        if (!user) throw new NotFoundError("User not found")
+        await prisma.user.update({ where: { id: userId }, data: { tosViolations: value } })
+        return { success: true }
+    }
+
+    // ========================================================================
+    // OAuth / MCP Applications
+    // ========================================================================
+
+    static async setOauthAppDisabled(appId: string, disabled: boolean) {
+        const app = await prisma.oauthApplication.findUnique({ where: { id: appId }, select: { id: true } })
+        if (!app) throw new NotFoundError("Application not found")
+        await prisma.oauthApplication.update({ where: { id: appId }, data: { disabled } })
+        return { success: true }
+    }
+
+    static async deleteOauthApp(appId: string) {
+        const app = await prisma.oauthApplication.findUnique({
+            where: { id: appId },
+            select: { id: true, clientId: true },
+        })
+        if (!app) throw new NotFoundError("Application not found")
+        // Access tokens and consents key off clientId (no FK relation), so revoke
+        // them explicitly when the application is deleted.
+        await prisma.$transaction([
+            prisma.oauthAccessToken.deleteMany({ where: { clientId: app.clientId } }),
+            prisma.oauthConsent.deleteMany({ where: { clientId: app.clientId } }),
+            prisma.oauthApplication.delete({ where: { id: appId } }),
+        ])
+        return { success: true }
+    }
+
+    // ========================================================================
+    // Form Management (parity with Drops)
+    // ========================================================================
+
+    static async toggleFormActive(formId: string, active: boolean) {
+        const form = await prisma.form.findUnique({ where: { id: formId }, select: { id: true, takenDown: true } })
+        if (!form) throw new NotFoundError("Form not found")
+        if (form.takenDown) throw new ValidationError("Restore the form before changing its active state")
+        await prisma.form.update({ where: { id: formId }, data: { active } })
+        return { success: true }
+    }
+
+    static async hardDeleteForm(formId: string) {
+        const form = await prisma.form.findUnique({
+            where: { id: formId },
+            select: { id: true, submissions: { select: { attachedDropId: true } } },
+        })
+        if (!form) throw new NotFoundError("Form not found")
+
+        // Submission rows cascade with the form, but their attached drops (file
+        // uploads) are SetNull and would orphan — hard-delete each so its files,
+        // OrphanedFile records, and the owner's storage quota are handled.
+        const attachedDropIds = form.submissions
+            .map((s) => s.attachedDropId)
+            .filter((id): id is string => Boolean(id))
+        for (const dropId of attachedDropIds) {
+            await this.hardDeleteDrop(dropId)
+        }
+
+        // Delete the form — submissions, owner key, and upload tokens cascade.
+        await prisma.form.delete({ where: { id: formId } })
+        return { success: true, attachedDropsDeleted: attachedDropIds.length }
+    }
 }

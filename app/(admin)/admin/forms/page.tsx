@@ -1,5 +1,6 @@
 import { Suspense } from "react"
 import { FormTable } from "@/components/admin/form-table"
+import { PageHeader } from "@/components/admin/page-header"
 import { getAdminForms } from "@/lib/data/admin"
 
 interface FormsPageProps {
@@ -12,12 +13,10 @@ export default async function FormsPage({ searchParams }: FormsPageProps) {
 
     return (
         <div className="space-y-6">
-            <div>
-                <h1 className="text-3xl font-bold tracking-tight">Forms</h1>
-                <p className="text-muted-foreground">
-                    Manage E2EE forms, takedowns, and submissions.
-                </p>
-            </div>
+            <PageHeader
+                title="Forms"
+                description="Manage E2EE forms, takedowns, and submissions."
+            />
 
             <Suspense>
                 <FormTable

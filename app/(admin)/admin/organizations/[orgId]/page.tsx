@@ -1,14 +1,17 @@
 import { notFound } from "next/navigation"
 import Link from "next/link"
-import { ArrowLeft, Building2, Users, KeyRound, ShieldCheck } from "lucide-react"
+import { Building2, Users, KeyRound, ShieldCheck, Ban } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { UserLink } from "@/components/admin/entity-link"
+import { PageHeader } from "@/components/admin/page-header"
+import { StatusBadge } from "@/components/admin/status-badge"
 import { getAdminOrgDetail } from "@/lib/data/admin"
 import { formatDateTime, formatRelativeTime } from "@/lib/format"
+import { OrgActions } from "./org-actions"
+import { MemberActions, InvitationCancel } from "./member-actions"
 
 interface OrgDetailPageProps {
     params: Promise<{ orgId: string }>
@@ -51,35 +54,37 @@ export default async function OrgDetailPage({ params }: OrgDetailPageProps) {
 
     return (
         <div className="space-y-6">
-            <div className="flex items-center gap-4">
-                <Button variant="ghost" size="sm" asChild>
-                    <Link href="/admin/organizations">
-                        <ArrowLeft className="h-4 w-4 mr-2" />
-                        Back to Organizations
-                    </Link>
-                </Button>
+            <PageHeader
+                breadcrumbs={[
+                    { label: "Admin", href: "/admin" },
+                    { label: "Organizations", href: "/admin/organizations" },
+                    { label: org.name },
+                ]}
+                title={org.name}
+                description={`${org.slug} · ID: ${org.id}`}
+                actions={<OrgActions org={{ id: org.id, name: org.name, enforce2FA: org.enforce2FA, suspended: Boolean(org.suspendedAt) }} />}
+            />
+
+            <div className="flex flex-wrap gap-2">
+                {org.suspendedAt && <StatusBadge tone="danger" label="Suspended" icon={Ban} />}
+                {org.enforce2FA && <StatusBadge tone="info" label="2FA enforced" icon={ShieldCheck} />}
+                {org.keyRotationRecommendedAt && (
+                    <StatusBadge tone="warning" label="Key rotation recommended" icon={KeyRound} />
+                )}
+                {org.orgKeyGeneration === 0 && <StatusBadge tone="neutral" label="Vault unseeded" />}
             </div>
 
-            <div className="flex items-start justify-between">
-                <div>
-                    <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
-                        <Building2 className="h-7 w-7 text-muted-foreground" />
-                        {org.name}
-                    </h1>
-                    <p className="text-muted-foreground">
-                        <code className="text-xs">{org.slug}</code> · ID: {org.id}
+            {org.suspendedAt && (
+                <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-sm">
+                    <p className="font-medium text-destructive">This organization is suspended.</p>
+                    {org.suspendedReason && (
+                        <p className="mt-1 text-muted-foreground">Reason: {org.suspendedReason}</p>
+                    )}
+                    <p className="mt-1 text-muted-foreground">
+                        Suspended {formatRelativeTime(org.suspendedAt)} · org-scoped writes are blocked.
                     </p>
-                    <div className="flex flex-wrap gap-2 mt-2">
-                        {org.enforce2FA && <Badge variant="outline" className="gap-1"><ShieldCheck className="h-3 w-3" /> 2FA enforced</Badge>}
-                        {org.keyRotationRecommendedAt && (
-                            <Badge variant="outline" className="text-orange-500 gap-1">
-                                <KeyRound className="h-3 w-3" /> Key rotation recommended
-                            </Badge>
-                        )}
-                        {org.orgKeyGeneration === 0 && <Badge variant="outline">Vault unseeded</Badge>}
-                    </div>
                 </div>
-            </div>
+            )}
 
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                 <Card>
@@ -168,6 +173,7 @@ export default async function OrgDetailPage({ params }: OrgDetailPageProps) {
                                 <TableHead>User</TableHead>
                                 <TableHead>Role</TableHead>
                                 <TableHead>Joined</TableHead>
+                                <TableHead className="text-right">Manage</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -176,11 +182,17 @@ export default async function OrgDetailPage({ params }: OrgDetailPageProps) {
                                     <TableCell><UserLink user={member.user} /></TableCell>
                                     <TableCell><Badge variant={roleVariant(member.role)} className="capitalize">{member.role}</Badge></TableCell>
                                     <TableCell>{formatRelativeTime(member.createdAt)}</TableCell>
+                                    <TableCell>
+                                        <MemberActions
+                                            organizationId={org.id}
+                                            member={{ userId: member.user.id, role: member.role, email: member.user.email }}
+                                        />
+                                    </TableCell>
                                 </TableRow>
                             ))}
                             {members.length === 0 && (
                                 <TableRow>
-                                    <TableCell colSpan={3} className="text-center py-8 text-muted-foreground">No members</TableCell>
+                                    <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">No members</TableCell>
                                 </TableRow>
                             )}
                         </TableBody>
@@ -205,7 +217,10 @@ export default async function OrgDetailPage({ params }: OrgDetailPageProps) {
                                                 invited by {invitation.inviter?.email ?? "—"} · expires {formatDateTime(invitation.expiresAt)}
                                             </div>
                                         </div>
-                                        <Badge variant="outline" className="capitalize">{invitation.role ?? "member"}</Badge>
+                                        <div className="flex items-center gap-2">
+                                            <Badge variant="outline" className="capitalize">{invitation.role ?? "member"}</Badge>
+                                            <InvitationCancel invitationId={invitation.id} email={invitation.email} />
+                                        </div>
                                     </div>
                                 ))}
                             </div>

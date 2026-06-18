@@ -59,6 +59,21 @@ export async function isOrgSubscribed(organizationId: string): Promise<boolean> 
     return Boolean(sub)
 }
 
+/**
+ * Staff-suspension state for an organization. When `suspended` is true the org
+ * is frozen: runScopedAction rejects org-scoped writes and the dashboard shows a
+ * banner. Set only by the admin panel (AdminService.suspendOrganization).
+ */
+export async function getOrganizationSuspension(
+    organizationId: string,
+): Promise<{ suspended: boolean; reason: string | null }> {
+    const org = await prisma.organization.findUnique({
+        where: { id: organizationId },
+        select: { suspendedAt: true, suspendedReason: true },
+    })
+    return { suspended: Boolean(org?.suspendedAt), reason: org?.suspendedReason ?? null }
+}
+
 export async function getAuthUserState(userId: string): Promise<AuthUserState | null> {
     const user = await prisma.user.findUnique({
         where: { id: userId },

@@ -1,5 +1,6 @@
 import { Suspense } from "react"
 import { DropTable } from "@/components/admin/drop-table"
+import { PageHeader } from "@/components/admin/page-header"
 import { getAdminDrops } from "@/lib/data/admin"
 
 interface DropsPageProps {
@@ -12,12 +13,10 @@ export default async function DropsPage({ searchParams }: DropsPageProps) {
 
     return (
         <div className="space-y-6">
-            <div>
-                <h1 className="text-3xl font-bold tracking-tight">Drops</h1>
-                <p className="text-muted-foreground">
-                    Manage file drops, takedowns, and deletions.
-                </p>
-            </div>
+            <PageHeader
+                title="Drops"
+                description="Manage file drops, takedowns, and deletions."
+            />
 
             <Suspense>
                 <DropTable

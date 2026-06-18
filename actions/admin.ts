@@ -390,3 +390,218 @@ export async function updateReservedAliases(aliases: string[]) {
         return result
     })
 }
+
+// ============================================================================
+// Organization Management
+// ============================================================================
+
+const orgRoleSchema = z.enum(["owner", "admin", "member"])
+const suspendOrgSchema = z.object({ organizationId: idSchema, reason: reasonSchema })
+const orgIdSchema = z.object({ organizationId: idSchema })
+const setEnforce2FASchema = z.object({ organizationId: idSchema, enforce: z.boolean() })
+const orgMemberSchema = z.object({ organizationId: idSchema, userId: idSchema })
+const orgMemberRoleSchema = z.object({ organizationId: idSchema, userId: idSchema, role: orgRoleSchema })
+
+function revalidateOrg(organizationId: string) {
+    revalidatePath(`/admin/organizations/${organizationId}`)
+    revalidatePath("/admin/organizations")
+}
+
+export async function suspendOrganization(organizationId: string, reason: string) {
+    return runAdminAction({ schema: suspendOrgSchema, data: { organizationId, reason } }, async (validated, adminId) => {
+        await AdminService.suspendOrganization(validated.organizationId, validated.reason)
+        await audit({ action: "org.suspend", actorId: adminId, targetId: validated.organizationId, organizationId: validated.organizationId, metadata: { reason: validated.reason } })
+        logger.info("Organization suspended", { adminId, organizationId: validated.organizationId })
+        revalidateOrg(validated.organizationId)
+        return { success: true }
+    })
+}
+
+export async function unsuspendOrganization(organizationId: string) {
+    return runAdminAction({ schema: orgIdSchema, data: { organizationId } }, async (validated, adminId) => {
+        await AdminService.unsuspendOrganization(validated.organizationId)
+        await audit({ action: "org.unsuspend", actorId: adminId, targetId: validated.organizationId, organizationId: validated.organizationId })
+        logger.info("Organization unsuspended", { adminId, organizationId: validated.organizationId })
+        revalidateOrg(validated.organizationId)
+        return { success: true }
+    })
+}
+
+export async function deleteOrganization(organizationId: string) {
+    return runAdminAction({ schema: orgIdSchema, data: { organizationId } }, async (validated, adminId) => {
+        const result = await AdminService.deleteOrganization(validated.organizationId)
+        await audit({ action: "org.delete", actorId: adminId, targetId: validated.organizationId, organizationId: validated.organizationId, metadata: { orphanedFiles: result.orphanedFiles } })
+        logger.info("Organization deleted", { adminId, organizationId: validated.organizationId, orphanedFiles: result.orphanedFiles })
+        revalidatePath("/admin/organizations")
+        revalidatePath("/admin/maintenance/storage")
+        return { success: true }
+    })
+}
+
+export async function setOrgEnforce2FA(organizationId: string, enforce: boolean) {
+    return runAdminAction({ schema: setEnforce2FASchema, data: { organizationId, enforce } }, async (validated, adminId) => {
+        await AdminService.setOrgEnforce2FA(validated.organizationId, validated.enforce)
+        await audit({ action: validated.enforce ? "org.security.enforce_2fa_on" : "org.security.enforce_2fa_off", actorId: adminId, targetId: validated.organizationId, organizationId: validated.organizationId })
+        logger.info("Org 2FA enforcement updated", { adminId, organizationId: validated.organizationId, enforce: validated.enforce })
+        revalidateOrg(validated.organizationId)
+        return { success: true }
+    })
+}
+
+export async function recommendOrgKeyRotation(organizationId: string) {
+    return runAdminAction({ schema: orgIdSchema, data: { organizationId } }, async (validated, adminId) => {
+        await AdminService.recommendOrgKeyRotation(validated.organizationId)
+        await audit({ action: "org.key_rotation.recommend", actorId: adminId, targetId: validated.organizationId, organizationId: validated.organizationId })
+        logger.info("Org key rotation recommended", { adminId, organizationId: validated.organizationId })
+        revalidateOrg(validated.organizationId)
+        return { success: true }
+    })
+}
+
+export async function removeOrgMember(organizationId: string, userId: string) {
+    return runAdminAction({ schema: orgMemberSchema, data: { organizationId, userId } }, async (validated, adminId) => {
+        const result = await AdminService.removeOrgMember(validated.organizationId, validated.userId)
+        await audit({ action: "org.member.remove", actorId: adminId, targetId: validated.userId, organizationId: validated.organizationId, metadata: { role: result.role } })
+        logger.info("Org member removed", { adminId, organizationId: validated.organizationId, userId: validated.userId })
+        revalidateOrg(validated.organizationId)
+        return { success: true }
+    })
+}
+
+export async function updateOrgMemberRole(organizationId: string, userId: string, role: "owner" | "admin" | "member") {
+    return runAdminAction({ schema: orgMemberRoleSchema, data: { organizationId, userId, role } }, async (validated, adminId) => {
+        const result = await AdminService.updateOrgMemberRole(validated.organizationId, validated.userId, validated.role)
+        await audit({ action: "org.member.role_change", actorId: adminId, targetId: validated.userId, organizationId: validated.organizationId, metadata: { from: result.previousRole, to: validated.role } })
+        logger.info("Org member role changed", { adminId, organizationId: validated.organizationId, userId: validated.userId, role: validated.role })
+        revalidateOrg(validated.organizationId)
+        return { success: true }
+    })
+}
+
+export async function cancelOrgInvitation(invitationId: string) {
+    return runAdminAction({ schema: idOnlySchema, data: { id: invitationId } }, async (validated, adminId) => {
+        const result = await AdminService.cancelOrgInvitation(validated.id)
+        await audit({ action: "org.invitation.cancel", actorId: adminId, targetId: validated.id, organizationId: result.organizationId })
+        logger.info("Org invitation canceled", { adminId, invitationId: validated.id })
+        revalidateOrg(result.organizationId)
+        return { success: true }
+    })
+}
+
+// ============================================================================
+// User Account Editing
+// ============================================================================
+
+const setUserAdminSchema = z.object({ userId: idSchema, isAdmin: z.boolean() })
+const setStorageLimitSchema = z.object({ userId: idSchema, storageLimit: z.number().int().min(0) })
+const setStrikesSchema = z.object({ userId: idSchema, value: z.number().int().min(0).max(1000) })
+const warnUserSchema = z.object({ userId: idSchema, reason: reasonSchema })
+
+export async function setUserAdmin(userId: string, isAdmin: boolean) {
+    return runAdminAction({ schema: setUserAdminSchema, data: { userId, isAdmin } }, async (validated, adminId) => {
+        if (validated.userId === adminId && !validated.isAdmin) {
+            throw new Error("Cannot revoke your own admin access")
+        }
+        await AdminService.setUserAdmin(validated.userId, validated.isAdmin)
+        await audit({ action: "user.set_admin", actorId: adminId, targetId: validated.userId, metadata: { isAdmin: validated.isAdmin } })
+        logger.info("User admin flag updated", { adminId, userId: validated.userId, isAdmin: validated.isAdmin })
+        revalidatePath(`/admin/users/${validated.userId}`)
+        revalidatePath("/admin/users")
+        return { success: true }
+    })
+}
+
+export async function setUserStorageLimit(userId: string, storageLimit: number) {
+    return runAdminAction({ schema: setStorageLimitSchema, data: { userId, storageLimit } }, async (validated, adminId) => {
+        await AdminService.setUserStorageLimit(validated.userId, BigInt(validated.storageLimit))
+        await audit({ action: "user.set_storage_limit", actorId: adminId, targetId: validated.userId, metadata: { storageLimit: validated.storageLimit } })
+        logger.info("User storage limit updated", { adminId, userId: validated.userId, storageLimit: validated.storageLimit })
+        revalidatePath(`/admin/users/${validated.userId}`)
+        return { success: true }
+    })
+}
+
+export async function resetUser2FA(userId: string) {
+    return runAdminAction({ schema: idOnlySchema, data: { id: userId } }, async (validated, adminId) => {
+        await AdminService.resetUser2FA(validated.id)
+        await audit({ action: "user.reset_2fa", actorId: adminId, targetId: validated.id })
+        logger.info("User 2FA reset", { adminId, userId: validated.id })
+        revalidatePath(`/admin/users/${validated.id}`)
+        return { success: true }
+    })
+}
+
+export async function setUserStrikes(userId: string, value: number) {
+    return runAdminAction({ schema: setStrikesSchema, data: { userId, value } }, async (validated, adminId) => {
+        await AdminService.setUserStrikes(validated.userId, validated.value)
+        await audit({ action: "user.adjust_strikes", actorId: adminId, targetId: validated.userId, metadata: { value: validated.value } })
+        logger.info("User strikes set", { adminId, userId: validated.userId, value: validated.value })
+        revalidatePath(`/admin/users/${validated.userId}`)
+        revalidatePath("/admin/users")
+        return { success: true }
+    })
+}
+
+export async function warnUser(userId: string, reason: string) {
+    return runAdminAction({ schema: warnUserSchema, data: { userId, reason } }, async (validated, adminId) => {
+        await AdminService.sendWarningEmail(validated.userId, validated.reason)
+        await audit({ action: "admin.warning_sent", actorId: adminId, targetId: validated.userId, metadata: { reason: validated.reason } })
+        logger.info("Warning email sent", { adminId, userId: validated.userId })
+        return { success: true }
+    })
+}
+
+// ============================================================================
+// OAuth / MCP Application Management
+// ============================================================================
+
+const oauthDisabledSchema = z.object({ appId: idSchema, disabled: z.boolean() })
+
+export async function setOauthAppDisabled(appId: string, disabled: boolean) {
+    return runAdminAction({ schema: oauthDisabledSchema, data: { appId, disabled } }, async (validated, adminId) => {
+        await AdminService.setOauthAppDisabled(validated.appId, validated.disabled)
+        await audit({ action: "oauth_app.update", actorId: adminId, targetId: validated.appId, metadata: { disabled: validated.disabled } })
+        logger.info("OAuth app updated", { adminId, appId: validated.appId, disabled: validated.disabled })
+        revalidatePath(`/admin/oauth/${validated.appId}`)
+        revalidatePath("/admin/oauth")
+        return { success: true }
+    })
+}
+
+export async function deleteOauthApp(appId: string) {
+    return runAdminAction({ schema: idOnlySchema, data: { id: appId } }, async (validated, adminId) => {
+        await AdminService.deleteOauthApp(validated.id)
+        await audit({ action: "oauth_app.delete", actorId: adminId, targetId: validated.id })
+        logger.info("OAuth app deleted", { adminId, appId: validated.id })
+        revalidatePath("/admin/oauth")
+        return { success: true }
+    })
+}
+
+// ============================================================================
+// Form Management (parity with Drops)
+// ============================================================================
+
+const toggleFormSchema = z.object({ formId: idSchema, active: z.boolean() })
+
+export async function toggleFormActive(formId: string, active: boolean) {
+    return runAdminAction({ schema: toggleFormSchema, data: { formId, active } }, async (validated, adminId) => {
+        await AdminService.toggleFormActive(validated.formId, validated.active)
+        await audit({ action: "form.update", actorId: adminId, targetId: validated.formId, metadata: { active: validated.active } })
+        logger.info("Form active toggled", { adminId, formId: validated.formId, active: validated.active })
+        revalidatePath(`/admin/forms/${validated.formId}`)
+        revalidatePath("/admin/forms")
+        return { success: true }
+    })
+}
+
+export async function hardDeleteForm(formId: string) {
+    return runAdminAction({ schema: idOnlySchema, data: { id: formId } }, async (validated, adminId) => {
+        const result = await AdminService.hardDeleteForm(validated.id)
+        await audit({ action: "form.delete", actorId: adminId, targetId: validated.id, metadata: { attachedDropsDeleted: result.attachedDropsDeleted } })
+        logger.info("Form hard-deleted", { adminId, formId: validated.id, attachedDropsDeleted: result.attachedDropsDeleted })
+        revalidatePath("/admin/forms")
+        revalidatePath("/admin/maintenance/storage")
+        return { success: true }
+    })
+}

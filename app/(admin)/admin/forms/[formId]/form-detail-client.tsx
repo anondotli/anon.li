@@ -19,9 +19,10 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { ArrowLeft, Ban, Inbox, Calendar, User, RotateCcw } from "lucide-react"
+import { ConfirmDialog } from "@/components/admin/confirm-dialog"
+import { ArrowLeft, Ban, Inbox, Calendar, User, RotateCcw, Power, PowerOff, Trash2 } from "lucide-react"
 import { formatDateTime, formatDate } from "@/lib/format"
-import { takedownForm, restoreForm } from "@/actions/admin"
+import { takedownForm, restoreForm, toggleFormActive, hardDeleteForm } from "@/actions/admin"
 import { toast } from "sonner"
 
 interface FormDetailClientProps {
@@ -60,7 +61,40 @@ export function FormDetailClient({ form }: FormDetailClientProps) {
     const [loading, setLoading] = useState(false)
     const [showTakedownDialog, setShowTakedownDialog] = useState(false)
     const [showRestoreDialog, setShowRestoreDialog] = useState(false)
+    const [showDeleteDialog, setShowDeleteDialog] = useState(false)
     const [takedownReason, setTakedownReason] = useState("")
+
+    const handleToggleActive = async () => {
+        setLoading(true)
+        try {
+            const result = await toggleFormActive(form.id, !form.active)
+            if (result.error) {
+                toast.error(result.error)
+            } else {
+                toast.success(form.active ? "Form disabled" : "Form enabled")
+                router.refresh()
+            }
+        } catch {
+            toast.error("Failed to update form")
+        }
+        setLoading(false)
+    }
+
+    const handleDelete = async () => {
+        setLoading(true)
+        try {
+            const result = await hardDeleteForm(form.id)
+            if (result.error) {
+                toast.error(result.error)
+            } else {
+                toast.success("Form permanently deleted")
+                router.push("/admin/forms")
+            }
+        } catch {
+            toast.error("Failed to delete form")
+        }
+        setLoading(false)
+    }
 
     const handleTakedown = async () => {
         if (!takedownReason.trim()) return
@@ -132,7 +166,7 @@ export function FormDetailClient({ form }: FormDetailClientProps) {
                     </div>
                 </div>
 
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                     {form.takenDown ? (
                         <Button
                             variant="outline"
@@ -143,15 +177,25 @@ export function FormDetailClient({ form }: FormDetailClientProps) {
                             Restore
                         </Button>
                     ) : (
-                        <Button
-                            variant="outline"
-                            onClick={() => setShowTakedownDialog(true)}
-                            disabled={loading}
-                        >
-                            <Ban className="h-4 w-4 mr-2" />
-                            Takedown
-                        </Button>
+                        <>
+                            <Button variant="outline" onClick={handleToggleActive} disabled={loading}>
+                                {form.active ? <PowerOff className="h-4 w-4 mr-2" /> : <Power className="h-4 w-4 mr-2" />}
+                                {form.active ? "Disable" : "Enable"}
+                            </Button>
+                            <Button
+                                variant="outline"
+                                onClick={() => setShowTakedownDialog(true)}
+                                disabled={loading}
+                            >
+                                <Ban className="h-4 w-4 mr-2" />
+                                Takedown
+                            </Button>
+                        </>
                     )}
+                    <Button variant="destructive" onClick={() => setShowDeleteDialog(true)} disabled={loading}>
+                        <Trash2 className="h-4 w-4 mr-2" />
+                        Delete
+                    </Button>
                 </div>
             </div>
 
@@ -353,6 +397,16 @@ export function FormDetailClient({ form }: FormDetailClientProps) {
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
+
+            <ConfirmDialog
+                open={showDeleteDialog}
+                onOpenChange={setShowDeleteDialog}
+                title="Delete form"
+                description="Permanently delete this form, all submissions, and any uploaded files. The owner's storage quota is reclaimed. This cannot be undone."
+                confirmLabel="Delete form"
+                onConfirm={handleDelete}
+                loading={loading}
+            />
         </div>
     )
 }

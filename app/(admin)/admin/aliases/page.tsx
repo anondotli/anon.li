@@ -1,5 +1,6 @@
 import { Suspense } from "react"
 import { AliasTable } from "@/components/admin/alias-table"
+import { PageHeader } from "@/components/admin/page-header"
 import { getAdminAliases } from "@/lib/data/admin"
 
 interface AliasesPageProps {
@@ -12,12 +13,10 @@ export default async function AliasesPage({ searchParams }: AliasesPageProps) {
 
     return (
         <div className="space-y-6">
-            <div>
-                <h1 className="text-3xl font-bold tracking-tight">Aliases</h1>
-                <p className="text-muted-foreground">
-                    Manage email forwarding aliases.
-                </p>
-            </div>
+            <PageHeader
+                title="Aliases"
+                description="Manage email forwarding aliases."
+            />
 
             <Suspense>
                 <AliasTable

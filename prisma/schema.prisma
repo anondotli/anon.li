@@ -827,6 +827,12 @@ model Organization {
   // Org-wide security policy (enforced via lib/access-policy.ts)
   enforce2FA Boolean @default(false)
 
+  // Staff moderation: when suspendedAt is set the org is frozen — org-scoped
+  // writes are rejected in lib/safe-action.ts (runScopedAction) and a banner is
+  // shown. Set/cleared only by the admin panel (AdminService.suspendOrganization).
+  suspendedAt     DateTime? @map("suspended_at")
+  suspendedReason String?   @map("suspended_reason")
+
   // Shared-team E2EE coordination (ORG-E2EE-DESIGN.md). `orgKeyGeneration` is the
   // authoritative org vault key generation: 0 = unseeded, bumped to 1 on seed and
   // +1 on each rotation. Seed/rotate use a conditional update on this column as a

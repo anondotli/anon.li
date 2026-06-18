@@ -2,6 +2,7 @@ import { auth } from "@/auth"
 import { notFound } from "next/navigation"
 import { AdminNav } from "@/components/admin/admin-nav"
 import { AdminHeader } from "@/components/admin/admin-header"
+import { AdminCommandPalette } from "@/components/admin/command-palette"
 import { getAdminAccessUser } from "@/lib/data/admin"
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
@@ -27,6 +28,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     return (
         <div className="flex min-h-screen flex-col bg-background">
             <AdminHeader />
+            <AdminCommandPalette />
             <div className="container flex-1 items-start md:grid md:grid-cols-[220px_minmax(0,1fr)] md:gap-8 lg:grid-cols-[240px_minmax(0,1fr)] lg:gap-12">
                 <aside className="fixed top-16 z-30 -ml-2 hidden h-[calc(100vh-4rem)] w-full shrink-0 overflow-y-auto md:sticky md:block border-r border-border/40">
                     <div className="py-8 pr-6">

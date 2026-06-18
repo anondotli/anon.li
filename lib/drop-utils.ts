@@ -94,6 +94,7 @@ export async function getUserAndLimits(userId: string): Promise<UserLimits> {
             banFileUpload: true,
             banReason: true,
             storageUsed: true,
+            storageLimit: true,
             referralPlusUntil: true,
             subscriptions: {
                 where: { status: { in: ["active", "trialing"] } },
@@ -113,9 +114,18 @@ export async function getUserAndLimits(userId: string): Promise<UserLimits> {
             throw new ForbiddenError(ban.reason);
         }
         const userRef = { subscriptions: user.subscriptions, referralPlusUntil: user.referralPlusUntil };
+        const baseLimits = getDropLimits(userRef);
+        // The per-user `storageLimit` column is an admin-grantable floor: the
+        // effective storage is the greater of the plan limit and the column, so a
+        // staff grant raises capacity but can never undercut a paid plan. The
+        // column defaults to the free limit (5 GB), so this is a no-op until set.
+        const limits = {
+            ...baseLimits,
+            maxStorage: Math.max(baseLimits.maxStorage, Number(user.storageLimit ?? 0)),
+        };
         return {
             userId: user.id,
-            limits: getDropLimits(userRef),
+            limits,
             storageUsed: user.storageUsed,
             user: userRef,
             tier: getEffectiveTier(userRef) as DropTier,

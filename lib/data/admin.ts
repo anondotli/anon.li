@@ -1,6 +1,15 @@
 import type { Prisma } from "@prisma/client"
 import { ADMIN_PAGE_SIZE } from "@/lib/admin/constants"
-import { STORAGE_LIMITS, type PaidTier, type Product } from "@/config/plans"
+import {
+    STORAGE_LIMITS,
+    BUNDLE_PLANS,
+    ALIAS_PLANS,
+    DROP_PLANS,
+    FORM_PLANS,
+    BUSINESS_SEAT_PRICE,
+    type PaidTier,
+    type Product,
+} from "@/config/plans"
 import { getDropLimits } from "@/lib/limits"
 import { FREE_TEAM_MEMBER_LIMIT } from "@/lib/org-seats"
 import { prisma } from "@/lib/prisma"
@@ -418,6 +427,8 @@ type AdminOrgDetailRow = {
     enforce2FA: boolean
     orgKeyGeneration: number
     keyRotationRecommendedAt: Date | null
+    suspendedAt: Date | null
+    suspendedReason: string | null
     createdAt: Date
     members: Array<{
         id: string
@@ -509,24 +520,29 @@ function getPrimarySubscription(subscriptions: AdminSubscriptionSummary[]) {
 
 function getAdminStorageLimit(user: {
     subscriptions: AdminSubscriptionSummary[]
+    // Per-user admin-grantable floor (lib/drop-utils.ts getUserAndLimits); the
+    // effective limit is max(plan, column). Optional so list-row callers that
+    // don't load the column still resolve the plan limit.
+    storageLimit?: bigint
 }) {
     const subscription = getPrimarySubscription(user.subscriptions)
 
-    if (
+    const planLimit =
         subscription &&
         isSubscriptionCurrentlyActive(subscription) &&
         isProduct(subscription.product) &&
         (subscription.product === "bundle" || subscription.product === "drop") &&
         isPaidTier(subscription.tier)
-    ) {
-        return STORAGE_LIMITS[subscription.tier]
-    }
+            ? STORAGE_LIMITS[subscription.tier]
+            : getDropLimits({
+                  subscriptions: user.subscriptions
+                      .filter(isSubscriptionCurrentlyActive)
+                      .map((s) => ({ status: s.status, product: s.product, tier: s.tier, currentPeriodEnd: s.currentPeriodEnd })),
+              }).maxStorage
 
-    return getDropLimits({
-        subscriptions: user.subscriptions
-            .filter(isSubscriptionCurrentlyActive)
-            .map((s) => ({ status: s.status, product: s.product, tier: s.tier, currentPeriodEnd: s.currentPeriodEnd })),
-    }).maxStorage
+    return user.storageLimit !== undefined
+        ? Math.max(planLimit, Number(user.storageLimit))
+        : planLimit
 }
 
 function mapAliasRecipients(alias: AliasRoutingInput) {
@@ -1350,7 +1366,11 @@ export async function getAdminUserDetail(userId: string) {
         ...user,
         primarySubscription: getPrimarySubscription(user.subscriptions),
         storageUsed: user.storageUsed.toString(),
+        // Effective limit shown in the UI: max(plan, per-user grant column).
         storageLimit: BigInt(getAdminStorageLimit(user)).toString(),
+        // Raw per-user grant column, so the manage panel can edit the actual value.
+        storageLimitGrant: user.storageLimit.toString(),
+        twoFactorVerified: user.twoFactor?.verified ?? false,
         drops: user.drops.map((drop) => ({
             ...drop,
             totalSize: drop.files.reduce((sum, file) => sum + Number(file.size), 0),
@@ -1406,6 +1426,11 @@ export async function getAdminAccessUser(userId: string) {
 export async function getAdminDashboardStats() {
     const now = new Date()
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+    const sixtyDaysAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000)
+
+    // New-this-period vs the period before, so KPI cards can show deltas.
+    const createdBetween = (gte: Date, lt: Date) => ({ createdAt: { gte, lt } })
+    const createdSince = (gte: Date) => ({ createdAt: { gte } })
 
     const [
         totalUsers,
@@ -1429,6 +1454,14 @@ export async function getAdminDashboardStats() {
         totalOrganizations,
         totalMembers,
         activeBusinessSubs,
+        newUsers,
+        prevUsers,
+        newDrops,
+        prevDrops,
+        newAliases,
+        prevAliases,
+        newForms,
+        prevForms,
     ] = await Promise.all([
         prisma.user.count(),
         prisma.user.count({
@@ -1459,7 +1492,20 @@ export async function getAdminDashboardStats() {
         prisma.subscription.count({
             where: { organizationId: { not: null }, status: { in: ["active", "trialing"] } },
         }),
+        prisma.user.count({ where: createdSince(thirtyDaysAgo) }),
+        prisma.user.count({ where: createdBetween(sixtyDaysAgo, thirtyDaysAgo) }),
+        prisma.drop.count({ where: { deletedAt: null, ...createdSince(thirtyDaysAgo) } }),
+        prisma.drop.count({ where: { deletedAt: null, ...createdBetween(sixtyDaysAgo, thirtyDaysAgo) } }),
+        prisma.alias.count({ where: createdSince(thirtyDaysAgo) }),
+        prisma.alias.count({ where: createdBetween(sixtyDaysAgo, thirtyDaysAgo) }),
+        prisma.form.count({ where: { deletedAt: null, ...createdSince(thirtyDaysAgo) } }),
+        prisma.form.count({ where: { deletedAt: null, ...createdBetween(sixtyDaysAgo, thirtyDaysAgo) } }),
     ])
+
+    // Percentage change of this period vs the previous, rounded; null when no
+    // prior baseline exists (avoids a misleading "+100%").
+    const delta = (current: number, previous: number): number | null =>
+        previous === 0 ? null : Math.round(((current - previous) / previous) * 100)
 
     return {
         totalUsers,
@@ -1481,6 +1527,18 @@ export async function getAdminDashboardStats() {
         totalOrganizations,
         totalMembers,
         activeBusinessSubs,
+        deltas: {
+            users: delta(newUsers, prevUsers),
+            drops: delta(newDrops, prevDrops),
+            aliases: delta(newAliases, prevAliases),
+            forms: delta(newForms, prevForms),
+        },
+        newThisPeriod: {
+            users: newUsers,
+            drops: newDrops,
+            aliases: newAliases,
+            forms: newForms,
+        },
     }
 }
 
@@ -1728,6 +1786,8 @@ export async function getAdminOrgDetail(organizationId: string) {
             enforce2FA: true,
             orgKeyGeneration: true,
             keyRotationRecommendedAt: true,
+            suspendedAt: true,
+            suspendedReason: true,
             createdAt: true,
             members: {
                 select: {
@@ -1877,5 +1937,263 @@ export async function getAdminStorageOps(searchParams: SearchParams) {
         oldestCreatedAt: oldest?.createdAt ?? null,
         total,
         ...getPageMetadata(total, page),
+    }
+}
+
+// ============================================================================
+// OAuth / MCP Applications
+// ============================================================================
+
+type AdminOauthAppRow = {
+    id: string
+    clientId: string
+    name: string
+    type: string
+    disabled: boolean
+    createdAt: Date
+    user: UserRef | null
+}
+
+/** Counts active access tokens + consents per clientId for a set of apps. */
+async function getOauthAppUsage(clientIds: string[]) {
+    if (clientIds.length === 0) return new Map<string, { tokens: number; consents: number }>()
+    const [tokenGroups, consentGroups] = await Promise.all([
+        prisma.oauthAccessToken.groupBy({
+            by: ["clientId"],
+            where: { clientId: { in: clientIds } },
+            _count: { _all: true },
+        }),
+        prisma.oauthConsent.groupBy({
+            by: ["clientId"],
+            where: { clientId: { in: clientIds }, consentGiven: true },
+            _count: { _all: true },
+        }),
+    ])
+    const usage = new Map<string, { tokens: number; consents: number }>()
+    for (const id of clientIds) usage.set(id, { tokens: 0, consents: 0 })
+    for (const g of tokenGroups) usage.set(g.clientId, { ...usage.get(g.clientId)!, tokens: g._count._all })
+    for (const g of consentGroups) usage.set(g.clientId, { ...usage.get(g.clientId)!, consents: g._count._all })
+    return usage
+}
+
+export async function getAdminOauthApps(searchParams: SearchParams) {
+    const search = sanitizeSearch(getStringParam(searchParams, "search"))
+    const page = parsePage(getStringParam(searchParams, "page"))
+    const filter = getStringParam(searchParams, "filter") || ""
+
+    const where: Prisma.OauthApplicationWhereInput = {
+        ...(search && {
+            OR: [
+                { name: { contains: search, mode: "insensitive" } },
+                { clientId: { contains: search, mode: "insensitive" } },
+                { user: { email: { contains: search, mode: "insensitive" } } },
+            ],
+        }),
+        ...(filter === "disabled" && { disabled: true }),
+        ...(filter === "active" && { disabled: false }),
+    }
+
+    const [apps, total] = await Promise.all([
+        prismaPayload<Promise<AdminOauthAppRow[]>>(prisma.oauthApplication.findMany({
+            where,
+            select: {
+                id: true,
+                clientId: true,
+                name: true,
+                type: true,
+                disabled: true,
+                createdAt: true,
+                user: { select: { id: true, email: true, name: true } },
+            },
+            orderBy: { createdAt: "desc" },
+            skip: (page - 1) * ADMIN_PAGE_SIZE,
+            take: ADMIN_PAGE_SIZE,
+        })),
+        prisma.oauthApplication.count({ where }),
+    ])
+
+    const usage = await getOauthAppUsage(apps.map((a) => a.clientId))
+
+    return {
+        apps: apps.map((app) => ({ ...app, usage: usage.get(app.clientId) ?? { tokens: 0, consents: 0 } })),
+        total,
+        search,
+        filter,
+        ...getPageMetadata(total, page),
+    }
+}
+
+export async function getAdminOauthAppDetail(appId: string) {
+    const app = prismaPayload<(AdminOauthAppRow & { redirectUrls: string; updatedAt: Date }) | null>(
+        await prisma.oauthApplication.findUnique({
+            where: { id: appId },
+            select: {
+                id: true,
+                clientId: true,
+                name: true,
+                type: true,
+                disabled: true,
+                redirectUrls: true,
+                createdAt: true,
+                updatedAt: true,
+                user: { select: { id: true, email: true, name: true } },
+            },
+        }),
+    )
+
+    if (!app) return null
+
+    const usage = await getOauthAppUsage([app.clientId])
+    return { ...app, usage: usage.get(app.clientId) ?? { tokens: 0, consents: 0 } }
+}
+
+export async function getAdminFormSubmissions(formId: string) {
+    // Metadata only — the payload is E2EE and undecryptable server-side.
+    const submissions = await prisma.formSubmission.findMany({
+        where: { formId },
+        select: {
+            id: true,
+            createdAt: true,
+            readAt: true,
+            attachedDropId: true,
+            submitter: { select: { id: true, email: true } },
+        },
+        orderBy: { createdAt: "desc" },
+        take: 100,
+    })
+    return submissions
+}
+
+// ============================================================================
+// Analytics (time-series + revenue)
+// ============================================================================
+
+const DAY_MS = 24 * 60 * 60 * 1000
+const ANALYTICS_RANGES = new Set([7, 30, 90])
+
+export function parseAnalyticsRange(value?: string): 7 | 30 | 90 {
+    const n = parseInt(value || "30", 10)
+    return (ANALYTICS_RANGES.has(n) ? n : 30) as 7 | 30 | 90
+}
+
+type DailyCountRow = { bucket: Date; count: bigint | number }
+
+/** Buckets raw date_trunc rows into a gap-filled UTC day series of `days` length. */
+function fillDailySeries(rows: DailyCountRow[], days: number): Map<string, number> {
+    const counts = new Map<string, number>()
+    for (const r of rows) {
+        const key = new Date(r.bucket).toISOString().slice(0, 10)
+        counts.set(key, Number(r.count))
+    }
+    const out = new Map<string, number>()
+    const today = Date.now()
+    for (let i = days - 1; i >= 0; i--) {
+        const key = new Date(today - i * DAY_MS).toISOString().slice(0, 10)
+        out.set(key, counts.get(key) ?? 0)
+    }
+    return out
+}
+
+/**
+ * Daily creation counts per product entity over the trailing `days` window,
+ * merged into a single dataset (one row per day) for multi-series charts.
+ * Uses Postgres date_trunc on the mapped tables.
+ */
+export async function getAdminGrowthSeries(days: number) {
+    const since = new Date(Date.now() - days * DAY_MS)
+
+    const [users, drops, aliases, forms, submissions] = await Promise.all([
+        prisma.$queryRaw<DailyCountRow[]>`SELECT date_trunc('day', "createdAt") AS bucket, count(*) AS count FROM "users" WHERE "createdAt" >= ${since} GROUP BY bucket`,
+        prisma.$queryRaw<DailyCountRow[]>`SELECT date_trunc('day', "createdAt") AS bucket, count(*) AS count FROM "drops" WHERE "createdAt" >= ${since} AND "deletedAt" IS NULL GROUP BY bucket`,
+        prisma.$queryRaw<DailyCountRow[]>`SELECT date_trunc('day', "createdAt") AS bucket, count(*) AS count FROM "aliases" WHERE "createdAt" >= ${since} GROUP BY bucket`,
+        prisma.$queryRaw<DailyCountRow[]>`SELECT date_trunc('day', "createdAt") AS bucket, count(*) AS count FROM "forms" WHERE "createdAt" >= ${since} AND "deletedAt" IS NULL GROUP BY bucket`,
+        prisma.$queryRaw<DailyCountRow[]>`SELECT date_trunc('day', "createdAt") AS bucket, count(*) AS count FROM "form_submissions" WHERE "createdAt" >= ${since} GROUP BY bucket`,
+    ])
+
+    const usersMap = fillDailySeries(users, days)
+    const dropsMap = fillDailySeries(drops, days)
+    const aliasesMap = fillDailySeries(aliases, days)
+    const formsMap = fillDailySeries(forms, days)
+    const submissionsMap = fillDailySeries(submissions, days)
+
+    const points = [...usersMap.keys()].map((date) => ({
+        date,
+        users: usersMap.get(date) ?? 0,
+        drops: dropsMap.get(date) ?? 0,
+        aliases: aliasesMap.get(date) ?? 0,
+        forms: formsMap.get(date) ?? 0,
+        submissions: submissionsMap.get(date) ?? 0,
+    }))
+
+    const sum = (m: Map<string, number>) => [...m.values()].reduce((a, b) => a + b, 0)
+
+    return {
+        range: days,
+        points,
+        totals: {
+            users: sum(usersMap),
+            drops: sum(dropsMap),
+            aliases: sum(aliasesMap),
+            forms: sum(formsMap),
+            submissions: sum(submissionsMap),
+        },
+    }
+}
+
+/** Estimated monthly price (USD) for an active subscription line. */
+function monthlyPriceFor(product: string, tier: string, seats: number): number {
+    if (product === "business") return BUSINESS_SEAT_PRICE.monthly * Math.max(seats, 1)
+    const map =
+        product === "bundle" ? BUNDLE_PLANS
+            : product === "alias" ? ALIAS_PLANS
+                : product === "drop" ? DROP_PLANS
+                    : product === "form" ? FORM_PLANS
+                        : null
+    if (!map) return 0
+    const def = map[tier as "free" | "plus" | "pro"]
+    return def?.price.monthly ?? 0
+}
+
+/**
+ * Revenue analytics: new subscriptions per day (by provider) + current
+ * estimated MRR (from config pricing) broken down by product. Read-only — no
+ * billing mutations.
+ */
+export async function getAdminRevenueSeries(days: number) {
+    const since = new Date(Date.now() - days * DAY_MS)
+
+    const [stripeRows, cryptoRows, active] = await Promise.all([
+        prisma.$queryRaw<DailyCountRow[]>`SELECT date_trunc('day', "createdAt") AS bucket, count(*) AS count FROM "subscriptions" WHERE "createdAt" >= ${since} AND "provider" = 'stripe' GROUP BY bucket`,
+        prisma.$queryRaw<DailyCountRow[]>`SELECT date_trunc('day', "createdAt") AS bucket, count(*) AS count FROM "subscriptions" WHERE "createdAt" >= ${since} AND "provider" = 'crypto' GROUP BY bucket`,
+        prisma.subscription.findMany({
+            where: { status: { in: ["active", "trialing"] } },
+            select: { product: true, tier: true, seats: true },
+        }),
+    ])
+
+    const stripeMap = fillDailySeries(stripeRows, days)
+    const cryptoMap = fillDailySeries(cryptoRows, days)
+    const points = [...stripeMap.keys()].map((date) => ({
+        date,
+        stripe: stripeMap.get(date) ?? 0,
+        crypto: cryptoMap.get(date) ?? 0,
+    }))
+
+    const mrrByProduct: Record<string, number> = {}
+    let currentMrr = 0
+    for (const sub of active) {
+        const price = monthlyPriceFor(sub.product, sub.tier, sub.seats)
+        currentMrr += price
+        mrrByProduct[sub.product] = (mrrByProduct[sub.product] ?? 0) + price
+    }
+
+    return {
+        range: days,
+        points,
+        currentMrr: Math.round(currentMrr * 100) / 100,
+        mrrByProduct: Object.entries(mrrByProduct)
+            .map(([product, mrr]) => ({ product, mrr: Math.round(mrr * 100) / 100 }))
+            .sort((a, b) => b.mrr - a.mrr),
+        activeSubscriptions: active.length,
     }
 }

@@ -5,6 +5,7 @@ import { createLogger } from "@/lib/logger"
 import { getPlanFromPriceId } from "@/config/plans"
 import type { Prisma } from "@prisma/client"
 import { audit } from "@/lib/services/audit"
+import { DAY_MS } from "@/lib/constants"
 
 const logger = createLogger("SubscriptionSync")
 
@@ -184,6 +185,97 @@ export async function syncSubscriptionFromStripe(userId: string): Promise<{
     }
 
     return { synced: true }
+}
+
+/**
+ * Reconcile DB rows that are stored as active/trialing but whose billing period
+ * has lapsed past the access grace window — the signature of a missed Stripe
+ * webhook (a payment_failed / subscription.deleted that never reached us, leaving
+ * the row permanently "active"). Re-fetches each from Stripe and writes back the
+ * true status so stale rows can't inflate admin MRR or linger past their real end.
+ *
+ * This is a safety net for the webhook handler, not a replacement: it owns only
+ * "is this still active, and until when". A targeted status/period update (rather
+ * than a full upsertStripeSubscription) needs no userId, so it also covers org
+ * subs whose buyer account was deleted (userId = null); plan/seat changes remain
+ * the job of the customer.subscription.updated webhook.
+ */
+export async function reconcileStaleStripeSubscriptions(limit = 100): Promise<{
+    checked: number
+    revoked: number
+    refreshed: number
+    errors: number
+}> {
+    // Mirror the entitlement guards (currentPeriodEnd + 1 day): only touch rows
+    // genuinely past their paid period, so a sub that renewed moments ago (webhook
+    // still in flight) isn't needlessly re-fetched and flapped.
+    const cutoff = new Date(Date.now() - DAY_MS)
+
+    const stale = await prisma.subscription.findMany({
+        where: {
+            provider: "stripe",
+            providerSubscriptionId: { not: null },
+            status: { in: ["active", "trialing"] },
+            currentPeriodEnd: { lt: cutoff },
+        },
+        select: { providerSubscriptionId: true },
+        orderBy: { currentPeriodEnd: "asc" },
+        take: limit,
+    })
+
+    let checked = 0
+    let revoked = 0
+    let refreshed = 0
+    let errors = 0
+
+    for (const row of stale) {
+        const subId = row.providerSubscriptionId
+        if (!subId) continue
+        checked++
+
+        try {
+            const subscription = await stripe.subscriptions.retrieve(subId)
+            const item = subscription.items.data[0]
+            const periodEnd = item?.current_period_end
+                ? new Date(item.current_period_end * 1000)
+                : (subscription.current_period_end ? new Date(subscription.current_period_end * 1000) : null)
+            const status = mapStripeStatus(subscription.status)
+
+            await prisma.subscription.updateMany({
+                where: { providerSubscriptionId: subId },
+                data: {
+                    status,
+                    currentPeriodEnd: periodEnd,
+                    cancelAtPeriodEnd: subscription.cancel_at_period_end,
+                },
+            })
+
+            if (status === "active" || status === "trialing") {
+                refreshed++
+            } else {
+                revoked++
+            }
+        } catch (error) {
+            // Subscription no longer exists in Stripe → it's gone for good; cancel.
+            if (error instanceof Stripe.errors.StripeInvalidRequestError && error.code === "resource_missing") {
+                await prisma.subscription.updateMany({
+                    where: { providerSubscriptionId: subId },
+                    data: { status: "canceled", cancelAtPeriodEnd: false },
+                })
+                revoked++
+                continue
+            }
+            // Transient (network/Stripe 5xx): leave the row for the next run.
+            logger.error("Failed to reconcile subscription from Stripe", error, { subscriptionId: subId })
+            errors++
+        }
+    }
+
+    if (checked > 0) {
+        logger.info("Reconciled stale Stripe subscriptions", { checked, revoked, refreshed, errors })
+    }
+
+    return { checked, revoked, refreshed, errors }
 }
 
 /**

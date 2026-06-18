@@ -8,9 +8,10 @@
  */
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-const { auth, getAuthUserState, rateLimit, prisma, stripe, redirect } = vi.hoisted(() => ({
+const { auth, getAuthUserState, getOrganizationSuspension, rateLimit, prisma, stripe, redirect } = vi.hoisted(() => ({
     auth: vi.fn(),
     getAuthUserState: vi.fn(),
+    getOrganizationSuspension: vi.fn(),
     rateLimit: vi.fn(),
     prisma: {
         member: { count: vi.fn() },
@@ -25,7 +26,7 @@ const { auth, getAuthUserState, rateLimit, prisma, stripe, redirect } = vi.hoist
 }))
 
 vi.mock("@/auth", () => ({ auth }))
-vi.mock("@/lib/data/auth", () => ({ getAuthUserState }))
+vi.mock("@/lib/data/auth", () => ({ getAuthUserState, getOrganizationSuspension }))
 vi.mock("@/lib/rate-limit", () => ({ rateLimit, rateLimiters: {} }))
 vi.mock("@/lib/prisma", () => ({ prisma }))
 vi.mock("@/lib/stripe", () => ({ stripe }))
@@ -56,6 +57,7 @@ function setSession(role: string | null = "owner", email = "owner@example.com") 
 beforeEach(() => {
     vi.clearAllMocks()
     getAuthUserState.mockResolvedValue({ banned: false })
+    getOrganizationSuspension.mockResolvedValue({ suspended: false, reason: null })
     rateLimit.mockResolvedValue(null)
 })
 

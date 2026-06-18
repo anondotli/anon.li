@@ -32,6 +32,7 @@ import {
 } from "lucide-react"
 import { formatBytes, formatDateTime } from "@/lib/format"
 import { EntityLink } from "@/components/admin/entity-link"
+import { UserManagePanel } from "./user-manage-panel"
 import { banUser, unbanUser, deleteUser } from "@/actions/admin"
 import { toast } from "sonner"
 
@@ -52,6 +53,7 @@ interface UserDetailClientProps {
         downgradedAt: Date | null
         storageUsed: string
         storageLimit: string
+        storageLimitGrant: string
         createdAt: Date
         updatedAt: Date
         primarySubscription: {
@@ -398,6 +400,8 @@ export function UserDetailClient({ user }: UserDetailClientProps) {
                     </CardContent>
                 </Card>
             </div>
+
+            <UserManagePanel user={user} />
 
             <Card>
                 <CardHeader>

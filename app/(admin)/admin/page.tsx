@@ -1,21 +1,39 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Users, FileBox, ClipboardList, Mail, AlertTriangle, HardDrive, CreditCard, Building2, Wrench } from "lucide-react"
+import { Users, FileBox, ClipboardList, Mail, AlertTriangle, HardDrive, CreditCard, Building2, Wrench, LineChart } from "lucide-react"
 import Link from "next/link"
 import { StatCard } from "@/components/admin/stat-card"
 import { PageHeader } from "@/components/admin/page-header"
+import { ChartCard } from "@/components/admin/charts/chart-card"
+import { AreaTrend } from "@/components/admin/charts/area-trend"
+import { MiniSparkline } from "@/components/admin/charts/mini-sparkline"
 import { formatBytes } from "@/lib/format"
-import { getAdminDashboardStats } from "@/lib/data/admin"
+import { getAdminDashboardStats, getAdminGrowthSeries } from "@/lib/data/admin"
 
 export const dynamic = "force-dynamic"
 
 export default async function AdminDashboard() {
-    const stats = await getAdminDashboardStats()
+    const [stats, growth] = await Promise.all([
+        getAdminDashboardStats(),
+        getAdminGrowthSeries(30),
+    ])
+
+    const spark = (key: "users" | "drops" | "aliases" | "forms") =>
+        growth.points.map((p) => p[key] as number)
 
     return (
         <div className="space-y-8">
             <PageHeader
                 title="Admin Dashboard"
                 description="Overview of platform activity and resources."
+                actions={
+                    <Link
+                        href="/admin/analytics"
+                        className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium transition-colors hover:bg-muted"
+                    >
+                        <LineChart className="h-4 w-4" />
+                        View analytics
+                    </Link>
+                }
             />
 
             {stats.pendingReports > 0 && (
@@ -36,6 +54,8 @@ export default async function AdminDashboard() {
                     description={`${stats.activeUsers} active (30d) · ${stats.bannedUsers} banned`}
                     icon={Users}
                     href="/admin/users"
+                    delta={stats.deltas.users}
+                    sparkline={<MiniSparkline values={spark("users")} />}
                 />
 
                 <StatCard
@@ -44,6 +64,8 @@ export default async function AdminDashboard() {
                     description={`${stats.takenDownDrops} taken down`}
                     icon={FileBox}
                     href="/admin/drops"
+                    delta={stats.deltas.drops}
+                    sparkline={<MiniSparkline values={spark("drops")} color="hsl(var(--destructive))" />}
                 />
 
                 <StatCard
@@ -52,6 +74,8 @@ export default async function AdminDashboard() {
                     description="Email forwarding aliases"
                     icon={Mail}
                     href="/admin/aliases"
+                    delta={stats.deltas.aliases}
+                    sparkline={<MiniSparkline values={spark("aliases")} />}
                 />
 
                 <StatCard
@@ -60,6 +84,8 @@ export default async function AdminDashboard() {
                     description={`${stats.takenDownForms} taken down`}
                     icon={ClipboardList}
                     href="/admin/forms"
+                    delta={stats.deltas.forms}
+                    sparkline={<MiniSparkline values={spark("forms")} />}
                 />
 
                 <StatCard
@@ -95,6 +121,28 @@ export default async function AdminDashboard() {
                     variant={stats.orphanedFiles > 0 || stats.activeDeletionRequests > 0 ? "destructive" : "default"}
                 />
             </div>
+
+            <ChartCard
+                title="Growth (30 days)"
+                description="New users, drops, aliases, and forms per day"
+                action={
+                    <Link href="/admin/analytics" className="text-sm text-muted-foreground hover:text-foreground">
+                        Details →
+                    </Link>
+                }
+            >
+                <AreaTrend
+                    data={growth.points}
+                    xKey="date"
+                    series={[
+                        { key: "users", label: "Users", color: "hsl(var(--foreground))" },
+                        { key: "drops", label: "Drops", color: "hsl(var(--destructive))" },
+                        { key: "aliases", label: "Aliases", color: "hsl(var(--muted-foreground))" },
+                        { key: "forms", label: "Forms", color: "hsl(var(--chart-3))" },
+                    ]}
+                    height={260}
+                />
+            </ChartCard>
 
             <div className="grid gap-4 md:grid-cols-2">
                 <Card>

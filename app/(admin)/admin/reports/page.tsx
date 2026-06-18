@@ -1,5 +1,6 @@
 import { Suspense } from "react"
 import { ReportTable } from "@/components/admin/report-table"
+import { PageHeader } from "@/components/admin/page-header"
 import { getAdminReports } from "@/lib/data/admin"
 
 interface ReportsPageProps {
@@ -12,12 +13,10 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
 
     return (
         <div className="space-y-6">
-            <div>
-                <h1 className="text-3xl font-bold tracking-tight">Abuse Reports</h1>
-                <p className="text-muted-foreground">
-                    Review and process abuse reports.
-                </p>
-            </div>
+            <PageHeader
+                title="Abuse Reports"
+                description="Review and process abuse reports."
+            />
 
             <Suspense>
                 <ReportTable

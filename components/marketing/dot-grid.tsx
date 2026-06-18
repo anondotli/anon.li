@@ -49,6 +49,11 @@ export function InteractiveDotGrid() {
     }
 
     const drawStaticAndCache = () => {
+      // Bail out if the canvas has no layout box yet (hidden, detached, or
+      // a ResizeObserver tick where width/height collapsed to 0). Calling
+      // getImageData with a zero source dimension throws IndexSizeError.
+      if (canvas.width <= 0 || canvas.height <= 0) return
+
       ctx.clearRect(0, 0, width, height)
       ctx.fillStyle = `rgba(${primaryColorRef.current}, ${BASE_OPACITY})`
       const cols = Math.ceil(width / DOT_SPACING) + 1

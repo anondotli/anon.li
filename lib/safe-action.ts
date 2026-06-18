@@ -1,5 +1,5 @@
 import { auth } from "@/auth"
-import { getAuthUserState } from "@/lib/data/auth"
+import { getAuthUserState, getOrganizationSuspension } from "@/lib/data/auth"
 import { rateLimit, rateLimiters } from "@/lib/rate-limit"
 import { logError } from "@/lib/logger"
 import { UpgradeRequiredError, ValidationError, type UpgradeRequiredDetails } from "@/lib/api-error-utils"
@@ -178,6 +178,14 @@ export async function runScopedAction<T = void, R = unknown>(
   }
   if (options.minRole && !meetsMinRole(scope.role, options.minRole)) {
     return { error: "Insufficient organization role" }
+  }
+
+  // Staff suspension: a frozen org cannot perform org-scoped writes.
+  if (scope.organizationId) {
+    const { suspended } = await getOrganizationSuspension(scope.organizationId)
+    if (suspended) {
+      return { error: "This organization has been suspended. Please contact support." }
+    }
   }
 
   if (options.rateLimitKey) {
