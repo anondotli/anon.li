@@ -1,8 +1,8 @@
 import Link from "next/link"
-import { CheckCircle2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { LazyDotGrid } from "./lazy-dot-grid"
 import { HeroAuthCta } from "./auth-aware-cta"
+import { HeroTrustBar } from "./hero-trust-bar"
 import { HERO_TRUST_INDICATORS } from "@/config/claims"
 
 export function HeroSection() {
@@ -66,18 +66,9 @@ function HeroBadge() {
 
 function TrustIndicators() {
     return (
-        <div className="flex flex-wrap justify-center gap-x-8 gap-y-3 font-medium text-foreground/50 uppercase tracking-widest text-xs">
-            {HERO_TRUST_INDICATORS.map((item) => (
-                <Link
-                    key={item.claimId}
-                    href="/security"
-                    className="flex items-center gap-3 hover:text-foreground/70 transition-colors"
-                >
-                    <CheckCircle2 className="h-4 w-4 text-primary" />
-                    <span>{item.label}</span>
-                </Link>
-            ))}
-        </div>
+        <HeroTrustBar
+            items={HERO_TRUST_INDICATORS.map((item) => ({ label: item.label, href: "/security" }))}
+        />
     )
 }
 

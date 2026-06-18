@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button"
 import { FeatureCard } from "@/components/marketing/feature-card"
 import { StepCard } from "@/components/marketing/step-card"
 import { InteractiveDotGrid } from "@/components/marketing/dot-grid"
+import { HeroTrustBar } from "@/components/marketing/hero-trust-bar"
 import { siteConfig } from "@/config/site"
 
 export const metadata: Metadata = {
@@ -37,15 +38,15 @@ export default function FormProductPage() {
             <section className="relative w-full py-12 md:py-20 lg:py-24 flex items-center justify-center min-h-[80vh] overflow-hidden">
                 <div className="absolute inset-0 pointer-events-none overflow-hidden">
                     <InteractiveDotGrid />
-                    <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[400px] bg-primary/10 opacity-50 blur-[80px] rounded-full" />
-                    <div className="absolute bottom-0 right-0 w-[400px] h-[300px] bg-secondary/10 opacity-30 blur-[60px] rounded-full" />
+                    <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[400px] bg-primary/10 opacity-50 blur-[80px] rounded-full pointer-events-none" />
+                    <div className="absolute bottom-0 right-0 w-[400px] h-[300px] bg-secondary/10 opacity-30 blur-[60px] rounded-full pointer-events-none" />
                 </div>
 
                 <div className="container mx-auto px-6 relative z-10 w-full">
                     <div className="flex flex-col items-center space-y-5 text-center">
                         <Link
                             href="/form"
-                            className="inline-flex items-center rounded-full border border-primary/10 bg-background px-4 py-1.5 text-sm font-medium"
+                            className="inline-flex items-center rounded-full border border-primary/10 bg-background px-4 py-1.5 text-sm font-medium animate-in fade-in slide-in-from-bottom-4 duration-700 hover:scale-105 transition-transform"
                         >
                             <span className="flex h-2 w-2 rounded-full bg-primary mr-2 animate-pulse" />
                             <span className="text-primary/80 tracking-wide">
@@ -54,18 +55,18 @@ export default function FormProductPage() {
                         </Link>
 
                         <div className="space-y-6 max-w-5xl mx-auto w-full">
-                            <h1 className="text-4xl font-medium tracking-tight sm:text-5xl md:text-6xl lg:text-7xl font-serif text-primary">
+                            <h1 className="text-4xl font-medium tracking-tight sm:text-5xl md:text-6xl lg:text-7xl font-serif text-primary animate-in fade-in slide-in-from-bottom-6 duration-1000 fill-mode-both delay-100">
                                 Collect Responses.
                                 <br className="hidden md:block" />
                                 <span className="italic text-muted-foreground">Keep them Private.</span>
                             </h1>
-                            <p className="mx-auto max-w-2xl text-muted-foreground md:text-lg lg:text-xl leading-relaxed font-light">
+                            <p className="mx-auto max-w-2xl text-muted-foreground md:text-lg lg:text-xl leading-relaxed font-light animate-in fade-in slide-in-from-bottom-6 duration-1000 fill-mode-both delay-200">
                                 End-to-end encrypted forms for whistleblowing, patient intake, legal contact
                                 & anything confidential. Only you can decrypt submissions.
                             </p>
                         </div>
 
-                        <div className="flex flex-row gap-3 sm:gap-4 w-full sm:w-auto justify-center pt-6 px-4 sm:px-0">
+                        <div className="flex flex-row gap-3 sm:gap-4 w-full sm:w-auto justify-center animate-in fade-in slide-in-from-bottom-6 duration-1000 fill-mode-both delay-300 pt-6 px-4 sm:px-0">
                             <Button
                                 asChild
                                 size="lg"
@@ -85,6 +86,16 @@ export default function FormProductPage() {
                                     Check pricing <Sparkles className="ml-2 h-4 w-4 text-muted-foreground" />
                                 </Link>
                             </Button>
+                        </div>
+
+                        <div className="pt-10 animate-in fade-in duration-1000 delay-500">
+                            <HeroTrustBar
+                                items={[
+                                    { label: "End-to-End Encrypted" },
+                                    { label: "Zero-Knowledge" },
+                                    { label: "Open Source" },
+                                ]}
+                            />
                         </div>
                     </div>
                 </div>
@@ -146,7 +157,7 @@ export default function FormProductPage() {
                         <FeatureCard
                             icon={<LayoutList className="h-6 w-6" />}
                             title="Block or JSON builder"
-                            description="Drag blocks together — or paste a JSON schema. Share the same shape with your CLI and AI tools."
+                            description="Drag blocks together - or paste a JSON schema. Share the same shape with your CLI and AI tools."
                         />
                         <FeatureCard
                             icon={<FileJson className="h-6 w-6" />}

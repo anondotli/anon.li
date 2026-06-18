@@ -69,7 +69,7 @@ export default function BusinessPage() {
                             </h1>
                             <p className="mx-auto max-w-2xl text-muted-foreground md:text-lg lg:text-xl leading-relaxed font-light">
                                 Shared anonymous aliases, custom domains, and end-to-end encrypted file sharing for
-                                your organization — with per-seat billing, roles, and centralized control.
+                                your organization - with per-seat billing, roles, and centralized control.
                             </p>
                         </div>
 

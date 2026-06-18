@@ -29,7 +29,7 @@ export default async function FormDetailPage({ params }: FormDetailPageProps) {
                 <CardHeader>
                     <CardTitle>Submissions</CardTitle>
                     <CardDescription>
-                        Metadata only — submission payloads are end-to-end encrypted and cannot be read server-side.
+                        Metadata only - submission payloads are end-to-end encrypted and cannot be read server-side.
                         Showing up to 100 most recent.
                     </CardDescription>
                 </CardHeader>
@@ -64,7 +64,7 @@ export default async function FormDetailPage({ params }: FormDetailPageProps) {
                                                 View drop
                                             </Link>
                                         ) : (
-                                            <span className="text-muted-foreground">—</span>
+                                            <span className="text-muted-foreground">-</span>
                                         )}
                                     </TableCell>
                                     <TableCell>

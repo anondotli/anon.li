@@ -140,6 +140,13 @@ export function SiteMobileNav({ product, config, isLoggedIn }: SiteMobileNavProp
                                 </Link>
                             )}
                             <Link
+                                href="/business"
+                                className="block py-2 text-sm font-medium hover:text-primary transition-colors"
+                                onClick={() => setIsOpen(false)}
+                            >
+                                Business
+                            </Link>
+                            <Link
                                 href={config.pricingLink}
                                 className="block py-2 text-sm font-medium hover:text-primary transition-colors"
                                 onClick={() => setIsOpen(false)}

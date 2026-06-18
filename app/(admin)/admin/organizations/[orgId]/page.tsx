@@ -214,7 +214,7 @@ export default async function OrgDetailPage({ params }: OrgDetailPageProps) {
                                         <div>
                                             <div className="text-sm">{invitation.email}</div>
                                             <div className="text-xs text-muted-foreground">
-                                                invited by {invitation.inviter?.email ?? "—"} · expires {formatDateTime(invitation.expiresAt)}
+                                                invited by {invitation.inviter?.email ?? "-"} · expires {formatDateTime(invitation.expiresAt)}
                                             </div>
                                         </div>
                                         <div className="flex items-center gap-2">

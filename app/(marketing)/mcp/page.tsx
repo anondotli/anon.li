@@ -1,7 +1,6 @@
 import Link from "next/link"
 import { Metadata } from "next"
 import {
-    CheckCircle2,
     Code2,
     FileText,
     Key,
@@ -15,6 +14,8 @@ import {
 import { Button } from "@/components/ui/button"
 import { FeatureCard } from "@/components/marketing/feature-card"
 import { StepCard } from "@/components/marketing/step-card"
+import { InteractiveDotGrid } from "@/components/marketing/dot-grid"
+import { HeroTrustBar } from "@/components/marketing/hero-trust-bar"
 
 export const metadata: Metadata = {
     title: "MCP Server",
@@ -46,14 +47,14 @@ export default function McpPage() {
             {/* Hero */}
             <section id="hero" className="relative w-full py-12 md:py-20 lg:py-24 flex items-center justify-center min-h-[80vh] overflow-hidden">
                 <div className="absolute inset-0 pointer-events-none overflow-hidden">
-                    <div className="absolute inset-0 bg-[radial-gradient(hsl(var(--primary))_1px,transparent_1px)] [background-size:16px_16px] opacity-20 [mask-image:radial-gradient(ellipse_50%_50%_at_50%_50%,#000_70%,transparent_100%)]" />
+                    <InteractiveDotGrid />
                     <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[400px] bg-primary/10 opacity-50 blur-[80px] rounded-full pointer-events-none" />
                     <div className="absolute bottom-0 right-0 w-[400px] h-[300px] bg-secondary/10 opacity-30 blur-[60px] rounded-full pointer-events-none" />
                 </div>
 
                 <div className="container mx-auto px-6 relative z-10 w-full">
                     <div className="flex flex-col items-center space-y-5 text-center">
-                        <Link href="/docs/api/mcp" className="inline-flex items-center rounded-full border border-primary/10 bg-background px-4 py-1.5 text-sm font-medium animate-in fade-in slide-in-from-bottom-4 duration-700 hover:scale-105 hover:text-primary">
+                        <Link href="/docs/api/mcp" className="inline-flex items-center rounded-full border border-primary/10 bg-background px-4 py-1.5 text-sm font-medium animate-in fade-in slide-in-from-bottom-4 duration-700 hover:scale-105 transition-transform">
                             <span className="flex h-2 w-2 rounded-full bg-primary mr-2 animate-pulse"></span>
                             <span className="text-primary/80 tracking-wide">OAuth MCP Server</span>
                         </Link>
@@ -72,19 +73,14 @@ export default function McpPage() {
                             <McpConnectionPanel />
                         </div>
 
-                        <div className="pt-12 flex flex-wrap justify-center gap-x-12 gap-y-6 text-sm font-medium text-muted-foreground/80 animate-in fade-in duration-1000 delay-500 uppercase tracking-widest text-xs">
-                            <div className="flex items-center gap-3">
-                                <CheckCircle2 className="h-4 w-4 text-primary" />
-                                <span>OAuth + PKCE</span>
-                            </div>
-                            <div className="flex items-center gap-3">
-                                <CheckCircle2 className="h-4 w-4 text-primary" />
-                                <span>Streamable HTTP</span>
-                            </div>
-                            <div className="flex items-center gap-3">
-                                <CheckCircle2 className="h-4 w-4 text-primary" />
-                                <span>Zero-Knowledge Boundaries</span>
-                            </div>
+                        <div className="pt-10 animate-in fade-in duration-1000 delay-500">
+                            <HeroTrustBar
+                                items={[
+                                    { label: "OAuth + PKCE" },
+                                    { label: "Streamable HTTP" },
+                                    { label: "Zero-Knowledge Boundaries" },
+                                ]}
+                            />
                         </div>
                     </div>
                 </div>

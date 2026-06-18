@@ -39,7 +39,6 @@ import {
     MoreHorizontal,
     Pencil,
     Power,
-    RefreshCw,
     Search,
     Share2,
     Trash2,

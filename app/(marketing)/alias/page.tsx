@@ -42,9 +42,9 @@ export default async function AliasLandingPage() {
                 <div className="container mx-auto px-6 relative z-10 w-full">
                     <div className="flex flex-col items-center space-y-5 text-center">
 
-                        <Link href="/about" className="inline-flex items-center rounded-full border border-primary/10 bg-background px-4 py-1.5 text-sm font-medium animate-in fade-in slide-in-from-bottom-4 hover:scale-105 duration-700">
+                        <Link href="/about" className="inline-flex items-center rounded-full border border-primary/10 bg-background px-4 py-1.5 text-sm font-medium animate-in fade-in slide-in-from-bottom-4 duration-700 hover:scale-105 transition-transform">
                             <span className="flex h-2 w-2 rounded-full bg-primary mr-2 animate-pulse"></span>
-                            <span className="text-primary/80 tracking-wide font-serif">Open Source & Private</span>
+                            <span className="text-primary/80 tracking-wide">Open Source & Private</span>
                         </Link>
 
                         <div className="space-y-6 max-w-5xl mx-auto w-full">

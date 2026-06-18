@@ -40,7 +40,7 @@ export default function DropProductPage() {
                 <div className="container mx-auto px-6 relative z-10 w-full">
                     <div className="flex flex-col items-center space-y-5 text-center">
 
-                        <Link href="/blog/introduction" className="inline-flex items-center rounded-full border border-primary/10 bg-background px-4 py-1.5 text-sm font-medium animate-in fade-in slide-in-from-bottom-4 duration-700 hover:bg-primary/10 hover:text-primary">
+                        <Link href="/blog/introduction" className="inline-flex items-center rounded-full border border-primary/10 bg-background px-4 py-1.5 text-sm font-medium animate-in fade-in slide-in-from-bottom-4 duration-700 hover:scale-105 transition-transform">
                             <span className="flex h-2 w-2 rounded-full bg-primary mr-2 animate-pulse"></span>
                             <span className="text-primary/80 tracking-wide">Introducing anon.li <span className="font-serif">Drop</span></span>
                         </Link>
@@ -96,7 +96,7 @@ export default function DropProductPage() {
                         <FeatureCard
                             icon={<Upload className="h-6 w-6" />}
                             title={`Up to ${DROP_PRO_LIMIT_LABELS.maxFileSizeValue} Per Transfer`}
-                            description="Send multiple files in a single drop with smart, resumable chunking — all encrypted in your browser before they upload."
+                            description="Send multiple files in a single drop with smart, resumable chunking - all encrypted in your browser before they upload."
                         />
                         <FeatureCard
                             icon={<Download className="h-6 w-6" />}

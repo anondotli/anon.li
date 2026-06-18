@@ -40,7 +40,7 @@ const FILE_SIZE_LABEL = formatBytes(GUEST_MAX_DROP_BYTES)
 const EXPIRY_DAYS = PLAN_ENTITLEMENTS.drop.guest.maxExpiryDays
 
 export const metadata: Metadata = {
-    title: "Send Files Anonymously — Free Encrypted File Transfer",
+    title: "Send Files Anonymously - Free Encrypted File Transfer",
     description: `Upload and share files up to ${FILE_SIZE_LABEL} without an account. End-to-end encrypted in your browser, auto-deleted in ${EXPIRY_DAYS} days. No tracking, no email required. WeTransfer alternative with zero-knowledge encryption.`,
     keywords: [
         "send file anonymously",
@@ -58,7 +58,7 @@ export const metadata: Metadata = {
         canonical: PAGE_URL,
     },
     openGraph: {
-        title: "Send Files Anonymously — Free Encrypted File Transfer",
+        title: "Send Files Anonymously - Free Encrypted File Transfer",
         description: `End-to-end encrypted. No account. Up to ${FILE_SIZE_LABEL}, auto-deleted in ${EXPIRY_DAYS} days.`,
         url: PAGE_URL,
         type: "website",
@@ -66,7 +66,7 @@ export const metadata: Metadata = {
     },
     twitter: {
         card: "summary_large_image",
-        title: "Send Files Anonymously — End-to-End Encrypted",
+        title: "Send Files Anonymously - End-to-End Encrypted",
         description: `No account required. Files up to ${FILE_SIZE_LABEL}, encrypted in your browser.`,
     },
     robots: {
@@ -89,7 +89,7 @@ const HOW_IT_WORKS = [
     {
         icon: <LinkIcon className="h-6 w-6" />,
         title: "Share the link",
-        description: "The decryption key rides in the URL fragment — only whoever you send the link to can open the file.",
+        description: "The decryption key rides in the URL fragment - only whoever you send the link to can open the file.",
     },
 ] as const
 
@@ -97,7 +97,7 @@ const FEATURES = [
     {
         icon: <Lock className="h-6 w-6" />,
         title: "Zero-knowledge by default",
-        description: "Files are encrypted client-side with AES-256-GCM. We store only ciphertext and minimal metadata — never your decryption key.",
+        description: "Files are encrypted client-side with AES-256-GCM. We store only ciphertext and minimal metadata - never your decryption key.",
     },
     {
         icon: <UserX className="h-6 w-6" />,
@@ -117,7 +117,7 @@ const FEATURES = [
     {
         icon: <Zap className="h-6 w-6" />,
         title: "Resumable uploads",
-        description: "Chunked, parallel multipart uploads via presigned URLs. Bytes stream straight to object storage — never through a backend.",
+        description: "Chunked, parallel multipart uploads via presigned URLs. Bytes stream straight to object storage - never through a backend.",
     },
     {
         icon: <Globe className="h-6 w-6" />,
@@ -129,11 +129,11 @@ const FEATURES = [
 const FAQ = [
     {
         q: "How do I send a file without signing up?",
-        a: "Drop a file on this page, wait for it to encrypt and upload, then copy the share link. You can send that link over any channel — email, Signal, a QR code. The recipient clicks the link and downloads directly, no account needed on either side.",
+        a: "Drop a file on this page, wait for it to encrypt and upload, then copy the share link. You can send that link over any channel - email, Signal, a QR code. The recipient clicks the link and downloads directly, no account needed on either side.",
     },
     {
         q: "Is the file actually encrypted before it leaves my browser?",
-        a: "Yes. anon.li Drop uses WebCrypto AES-256-GCM to encrypt every chunk locally before upload. The decryption key is generated inside your browser and appended to the share link as a URL fragment — browsers never send URL fragments to the server.",
+        a: "Yes. anon.li Drop uses WebCrypto AES-256-GCM to encrypt every chunk locally before upload. The decryption key is generated inside your browser and appended to the share link as a URL fragment - browsers never send URL fragments to the server.",
     },
     {
         q: "What's the maximum file size without an account?",
@@ -145,15 +145,15 @@ const FAQ = [
     },
     {
         q: "Can anon.li read my files?",
-        a: "No. The server stores only encrypted ciphertext, an initialization vector, and minimal metadata like size and chunk count. It never receives the decryption key — so staff, subpoenas, or a database breach cannot recover the plaintext.",
+        a: "No. The server stores only encrypted ciphertext, an initialization vector, and minimal metadata like size and chunk count. It never receives the decryption key - so staff, subpoenas, or a database breach cannot recover the plaintext.",
     },
     {
         q: "Is anon.li a WeTransfer alternative?",
-        a: "Yes — with one critical difference. WeTransfer and Dropbox Transfer can see and scan the files you upload; anon.li cannot. Client-side end-to-end encryption makes the file contents mathematically inaccessible to us.",
+        a: "Yes - with one critical difference. WeTransfer and Dropbox Transfer can see and scan the files you upload; anon.li cannot. Client-side end-to-end encryption makes the file contents mathematically inaccessible to us.",
     },
     {
         q: "What happens if I lose the link?",
-        a: "The decryption key lives only in the link's URL fragment. If the link is lost, the file cannot be recovered — not by you, not by us. Treat the link like a password.",
+        a: "The decryption key lives only in the link's URL fragment. If the link is lost, the file cannot be recovered - not by you, not by us. Treat the link like a password.",
     },
     {
         q: "Do you log IP addresses or track uploads?",
@@ -244,7 +244,7 @@ export default async function UploadCompatibilityPage() {
                             </h1>
                             <p className="mx-auto max-w-2xl text-muted-foreground md:text-lg lg:text-xl leading-relaxed font-light animate-in fade-in slide-in-from-bottom-6 duration-1000 fill-mode-both delay-200">
                                 Upload up to {FILE_SIZE_LABEL}, encrypted in your browser before it ever leaves.
-                                Share the link — the key goes with it, and only the people you send it to can open the file.
+                                Share the link - the key goes with it, and only the people you send it to can open the file.
                             </p>
                         </div>
 

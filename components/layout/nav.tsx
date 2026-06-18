@@ -267,6 +267,9 @@ export function SiteNav({ isLoggedIn }: { isLoggedIn?: boolean }) {
                             Upload
                         </Link>
                     )}
+                    <Link className="text-sm font-medium hover:text-primary transition-colors" href="/business">
+                        Business
+                    </Link>
                     <Link className="text-sm font-medium hover:text-primary transition-colors" href={config.pricingLink}>
                         Pricing
                     </Link>
