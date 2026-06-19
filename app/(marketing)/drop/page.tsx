@@ -5,7 +5,9 @@ import { Upload, Lock, Download, Clock, CheckCircle2, FileKey, Sparkles, KeyRoun
 import { Icons } from "@/components/shared/icons"
 import { FeatureCard } from "@/components/marketing/feature-card"
 import { StepCard } from "@/components/marketing/step-card"
-import { InteractiveDotGrid } from "@/components/marketing/dot-grid"
+import { PageHero } from "@/components/marketing/page-hero"
+import { MarketingBadge } from "@/components/marketing/marketing-badge"
+import { CtaBanner } from "@/components/marketing/cta-banner"
 import { TrustIndicatorBar } from "@/components/marketing/trust-indicator-bar"
 import { DROP_PRO_LIMIT_LABELS } from "@/config/features"
 
@@ -27,59 +29,46 @@ export const metadata: Metadata = {
 export default function DropProductPage() {
     return (
         <>
-            <section className="relative w-full py-12 md:py-20 lg:py-24 flex items-center justify-center min-h-[80vh] overflow-hidden">
-                {/* Background */}
-                <div className="absolute inset-0 pointer-events-none overflow-hidden">
-                    <InteractiveDotGrid />
-
-                    {/* Subtle Glow Accents */}
-                    <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[400px] bg-primary/10 opacity-50 blur-[80px] rounded-full pointer-events-none" />
-                    <div className="absolute bottom-0 right-0 w-[400px] h-[300px] bg-secondary/10 opacity-30 blur-[60px] rounded-full pointer-events-none" />
-                </div>
-
-                <div className="container mx-auto px-6 relative z-10 w-full">
-                    <div className="flex flex-col items-center space-y-5 text-center">
-
-                        <Link href="/blog/introduction" className="inline-flex items-center rounded-full border border-primary/10 bg-background px-4 py-1.5 text-sm font-medium animate-in fade-in slide-in-from-bottom-4 duration-700 hover:scale-105 transition-transform">
-                            <span className="flex h-2 w-2 rounded-full bg-primary mr-2 animate-pulse"></span>
-                            <span className="text-primary/80 tracking-wide">Introducing anon.li <span className="font-serif">Drop</span></span>
-                        </Link>
-
-                        <div className="space-y-6 max-w-5xl mx-auto w-full">
-                            <h1 className="text-4xl font-medium tracking-tight sm:text-5xl md:text-6xl lg:text-7xl font-serif text-primary animate-in fade-in slide-in-from-bottom-6 duration-1000 fill-mode-both delay-100">
-                                Share Files.<br className="hidden md:block" />
-                                <span className="italic text-muted-foreground">Not Your Data.</span>
-                            </h1>
-                            <p className="mx-auto max-w-2xl text-muted-foreground md:text-lg lg:text-xl leading-relaxed font-light animate-in fade-in slide-in-from-bottom-6 duration-1000 fill-mode-both delay-200">
-                                End-to-end encrypted file sharing for transfers up to {DROP_PRO_LIMIT_LABELS.maxFileSizeValue}. We can&apos;t see your files, only people with the full link can decrypt them.
-                            </p>
-                        </div>
-
-                        <div className="flex flex-row gap-3 sm:gap-4 w-full sm:w-auto justify-center animate-in fade-in slide-in-from-bottom-6 duration-1000 fill-mode-both delay-300 pt-6 px-4 sm:px-0">
-                            <Button asChild size="lg" className="flex-1 sm:flex-none w-auto rounded-full px-4 sm:px-6 text-sm sm:text-base font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-all duration-200 shadow-lg shadow-primary/10 whitespace-nowrap">
-                                <Link href="/drop/upload">
-                                    Upload Now <Upload className="ml-2 h-4 w-4" />
-                                </Link>
-                            </Button>
-                            <Button variant="outline" size="lg" asChild className="flex-1 sm:flex-none w-auto rounded-full px-4 sm:px-6 text-sm sm:text-base border-primary/20 bg-background font-medium transition-colors whitespace-nowrap">
-                                <Link href="/pricing?drop">Check Pricing <Sparkles className="ml-2 h-4 w-4 text-muted-foreground" /></Link>
-                            </Button>
-                        </div>
-
-                        <div className="pt-10 animate-in fade-in duration-1000 delay-500">
-                            <TrustIndicatorBar product="drop" />
-                        </div>
-
+            <PageHero
+                background="right"
+                badge={
+                    <MarketingBadge href="/blog/introduction">
+                        Introducing anon.li <span className="font-serif">Drop</span>
+                    </MarketingBadge>
+                }
+                title={
+                    <>
+                        Send any file.<br className="hidden md:block" />
+                        <span className="italic text-muted-foreground">Only the recipient can open it.</span>
+                    </>
+                }
+                subtitle={
+                    <>
+                        End-to-end encrypted file sharing for transfers up to {DROP_PRO_LIMIT_LABELS.maxFileSizeValue}. We can&apos;t see your files, only people with the full link can decrypt them.
+                    </>
+                }
+                actions={
+                    <div className="flex flex-row gap-3 sm:gap-4 w-full sm:w-auto justify-center">
+                        <Button asChild size="lg" className="flex-1 sm:flex-none w-auto rounded-full px-4 sm:px-6 text-sm sm:text-base font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-all duration-200 shadow-lg shadow-primary/10 whitespace-nowrap">
+                            <Link href="/drop/upload">
+                                Upload Now <Upload className="ml-2 h-4 w-4" />
+                            </Link>
+                        </Button>
+                        <Button variant="outline" size="lg" asChild className="flex-1 sm:flex-none w-auto rounded-full px-4 sm:px-6 text-sm sm:text-base border-primary/20 bg-background font-medium transition-colors whitespace-nowrap">
+                            <Link href="/pricing?drop">Check Pricing <Sparkles className="ml-2 h-4 w-4 text-muted-foreground" /></Link>
+                        </Button>
                     </div>
-                </div>
-            </section>
+                }
+            >
+                <TrustIndicatorBar product="drop" />
+            </PageHero>
 
             <section id="features" className="w-full py-20 bg-secondary/30 relative">
                 <div className="container mx-auto px-6 relative z-10">
                     <div className="text-center mb-14 space-y-4">
                         <h2 className="text-3xl md:text-4xl font-serif font-medium tracking-tight">Built for privacy</h2>
                         <p className="text-base md:text-lg text-muted-foreground max-w-2xl mx-auto font-light">
-                            Every feature designed around one principle: your files are yours alone.
+                            Encryption happens in your browser, before anything leaves your device.
                         </p>
                     </div>
                     <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-4 max-w-6xl mx-auto">
@@ -132,7 +121,7 @@ export default function DropProductPage() {
                     <div className="text-center mb-14 space-y-4">
                         <h2 className="text-3xl md:text-4xl font-serif font-medium tracking-tight">How it works</h2>
                         <p className="text-base md:text-lg text-muted-foreground max-w-2xl mx-auto font-light">
-                            Three simple steps. Your files stay yours.
+                            Three steps from drag-and-drop to a private link.
                         </p>
                     </div>
 
@@ -237,35 +226,23 @@ export default function DropProductPage() {
                 </div>
             </section>
 
-            <section className="py-20 bg-background">
-                <div className="container mx-auto px-6">
-                    <div className="relative rounded-2xl overflow-hidden bg-primary text-primary-foreground px-6 py-16 md:px-16 md:py-20 text-center shadow-2xl">
-                        {/* Texture */}
-                        <div className="absolute inset-0 opacity-5 bg-[url('/noise.svg')] mix-blend-overlay"></div>
-
-                        <div className="relative z-10 space-y-6 max-w-3xl mx-auto">
-                            <h2 className="text-3xl md:text-4xl lg:text-5xl font-serif font-medium tracking-tight leading-tight">
-                                Ready to share files privately?
-                            </h2>
-                            <p className="text-lg opacity-90 font-light max-w-2xl mx-auto">
-                                Sign up for free and start sharing in seconds.
-                            </p>
-                            <div className="flex flex-col sm:flex-row justify-center pt-4 gap-3">
-                                <Button asChild size="lg" variant="secondary" className="rounded-full px-8 bg-background text-foreground hover:bg-secondary transition-colors border-none font-medium">
-                                    <Link href="/drop/upload">
-                                        Upload Now <Upload className="ml-2 h-4 w-4" />
-                                    </Link>
-                                </Button>
-                                <Button asChild size="lg" variant="outline" className="rounded-full px-8 text-foreground bg-background/80 hover:bg-secondary/70 font-medium">
-                                    <Link href="/pricing?drop">
-                                        View Pricing
-                                    </Link>
-                                </Button>
-                            </div>
-                        </div>
-                    </div>
+            <CtaBanner
+                title="Ready to share files privately?"
+                description="Sign up for free and start sharing in seconds."
+            >
+                <div className="flex flex-col sm:flex-row justify-center pt-4 gap-3">
+                    <Button asChild size="lg" variant="secondary" className="rounded-full px-8 bg-background text-foreground hover:bg-secondary transition-colors border-none font-medium">
+                        <Link href="/drop/upload">
+                            Upload Now <Upload className="ml-2 h-4 w-4" />
+                        </Link>
+                    </Button>
+                    <Button asChild size="lg" variant="outline" className="rounded-full px-8 text-foreground bg-background/80 hover:bg-secondary/70 font-medium">
+                        <Link href="/pricing?drop">
+                            View Pricing
+                        </Link>
+                    </Button>
                 </div>
-            </section>
+            </CtaBanner>
 
             <script
                 suppressHydrationWarning

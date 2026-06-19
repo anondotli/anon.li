@@ -30,21 +30,21 @@ export default function ComparePage() {
                     <div className="grid md:grid-cols-3 gap-6 mb-16">
                         <div className="bg-card rounded-2xl p-6 border border-border/50">
                             <Shield className="h-8 w-8 text-primary mb-4" />
-                            <h3 className="font-medium mb-2">Privacy First</h3>
+                            <h3 className="font-medium mb-2">Encrypted by default</h3>
                             <p className="text-sm text-muted-foreground">
                                 End-to-end encrypted file sharing with privacy-focused email forwarding.
                             </p>
                         </div>
                         <div className="bg-card rounded-2xl p-6 border border-border/50">
                             <DollarSign className="h-8 w-8 text-primary mb-4" />
-                            <h3 className="font-medium mb-2">Fair Pricing</h3>
+                            <h3 className="font-medium mb-2">More on the free tier</h3>
                             <p className="text-sm text-muted-foreground">
                                 More features on free tier. PGP encryption included at no extra cost.
                             </p>
                         </div>
                         <div className="bg-card rounded-2xl p-6 border border-border/50">
                             <Zap className="h-8 w-8 text-primary mb-4" />
-                            <h3 className="font-medium mb-2">All-in-One</h3>
+                            <h3 className="font-medium mb-2">Aliases, files, and forms</h3>
                             <p className="text-sm text-muted-foreground">
                                 Email aliases and encrypted file sharing in one simple platform.
                             </p>

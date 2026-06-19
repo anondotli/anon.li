@@ -1,5 +1,6 @@
 import { Mail, FileUp, ClipboardList } from "lucide-react"
 import { CtaAuthButtons } from "./auth-aware-cta"
+import { CtaBanner } from "./cta-banner"
 
 export function HowItWorksSection() {
     return (
@@ -73,22 +74,11 @@ function StepItem({ number, title, description }: { number: string; title: strin
 
 export function CtaSection() {
     return (
-        <section className="py-12 md:py-20 bg-background">
-            <div className="container mx-auto px-6">
-                <div className="relative rounded-2xl overflow-hidden bg-primary text-primary-foreground px-6 py-16 md:px-16 md:py-20 text-center shadow-2xl">
-                    <div className="absolute inset-0 opacity-20 bg-[url('/noise.svg')] mix-blend-overlay"></div>
-
-                    <div className="relative z-10 space-y-6 max-w-3xl mx-auto">
-                        <h2 className="text-3xl md:text-4xl lg:text-5xl font-serif font-medium tracking-tight leading-tight">
-                            Start with the free tier.
-                        </h2>
-                        <p className="text-lg opacity-90 font-light max-w-2xl mx-auto">
-                            One account covers aliases, file sharing, and forms. We bill subscriptions, not your data.
-                        </p>
-                        <CtaAuthButtons />
-                    </div>
-                </div>
-            </div>
-        </section>
+        <CtaBanner
+            title="Start with the free tier."
+            description="One account covers aliases, file sharing, and forms. We bill subscriptions, not your data."
+        >
+            <CtaAuthButtons />
+        </CtaBanner>
     )
 }

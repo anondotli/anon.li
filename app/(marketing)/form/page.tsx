@@ -2,7 +2,6 @@ import Link from "next/link"
 import { Metadata } from "next"
 import {
     Lock,
-    Sparkles,
     ClipboardList,
     ShieldCheck,
     KeyRound,
@@ -11,11 +10,14 @@ import {
     Mail,
     FileUp,
     LayoutList,
+    Sparkles,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { FeatureCard } from "@/components/marketing/feature-card"
 import { StepCard } from "@/components/marketing/step-card"
-import { InteractiveDotGrid } from "@/components/marketing/dot-grid"
+import { PageHero } from "@/components/marketing/page-hero"
+import { MarketingBadge } from "@/components/marketing/marketing-badge"
+import { CtaBanner } from "@/components/marketing/cta-banner"
 import { HeroTrustBar } from "@/components/marketing/hero-trust-bar"
 import { siteConfig } from "@/config/site"
 
@@ -35,71 +37,52 @@ export const metadata: Metadata = {
 export default function FormProductPage() {
     return (
         <>
-            <section className="relative w-full py-12 md:py-20 lg:py-24 flex items-center justify-center min-h-[80vh] overflow-hidden">
-                <div className="absolute inset-0 pointer-events-none overflow-hidden">
-                    <InteractiveDotGrid />
-                    <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[400px] bg-primary/10 opacity-50 blur-[80px] rounded-full pointer-events-none" />
-                    <div className="absolute bottom-0 right-0 w-[400px] h-[300px] bg-secondary/10 opacity-30 blur-[60px] rounded-full pointer-events-none" />
-                </div>
-
-                <div className="container mx-auto px-6 relative z-10 w-full">
-                    <div className="flex flex-col items-center space-y-5 text-center">
-                        <Link
-                            href="/form"
-                            className="inline-flex items-center rounded-full border border-primary/10 bg-background px-4 py-1.5 text-sm font-medium animate-in fade-in slide-in-from-bottom-4 duration-700 hover:scale-105 transition-transform"
+            <PageHero
+                background="minimal"
+                badge={
+                    <MarketingBadge>
+                        Introducing anon.li <span className="font-serif">Form</span>
+                    </MarketingBadge>
+                }
+                title={
+                    <>
+                        Collect responses.<br className="hidden md:block" />
+                        <span className="italic text-muted-foreground">Only you can read them.</span>
+                    </>
+                }
+                subtitle="End-to-end encrypted forms for whistleblowing, patient intake, legal contact & anything confidential. Only you can decrypt submissions."
+                actions={
+                    <div className="flex flex-row gap-3 sm:gap-4 w-full sm:w-auto justify-center">
+                        <Button
+                            asChild
+                            size="lg"
+                            className="flex-1 sm:flex-none rounded-full px-6 font-medium shadow-lg shadow-primary/10"
                         >
-                            <span className="flex h-2 w-2 rounded-full bg-primary mr-2 animate-pulse" />
-                            <span className="text-primary/80 tracking-wide">
-                                Introducing anon.li <span className="font-serif">Form</span>
-                            </span>
-                        </Link>
-
-                        <div className="space-y-6 max-w-5xl mx-auto w-full">
-                            <h1 className="text-4xl font-medium tracking-tight sm:text-5xl md:text-6xl lg:text-7xl font-serif text-primary animate-in fade-in slide-in-from-bottom-6 duration-1000 fill-mode-both delay-100">
-                                Collect Responses.
-                                <br className="hidden md:block" />
-                                <span className="italic text-muted-foreground">Keep them Private.</span>
-                            </h1>
-                            <p className="mx-auto max-w-2xl text-muted-foreground md:text-lg lg:text-xl leading-relaxed font-light animate-in fade-in slide-in-from-bottom-6 duration-1000 fill-mode-both delay-200">
-                                End-to-end encrypted forms for whistleblowing, patient intake, legal contact
-                                & anything confidential. Only you can decrypt submissions.
-                            </p>
-                        </div>
-
-                        <div className="flex flex-row gap-3 sm:gap-4 w-full sm:w-auto justify-center animate-in fade-in slide-in-from-bottom-6 duration-1000 fill-mode-both delay-300 pt-6 px-4 sm:px-0">
-                            <Button
-                                asChild
-                                size="lg"
-                                className="flex-1 sm:flex-none rounded-full px-6 font-medium shadow-lg shadow-primary/10"
-                            >
-                                <Link href="/dashboard/form/new">
-                                    Create a form <ClipboardList className="ml-2 h-4 w-4" />
-                                </Link>
-                            </Button>
-                            <Button
-                                variant="outline"
-                                size="lg"
-                                asChild
-                                className="flex-1 sm:flex-none rounded-full px-6 border-primary/20 bg-background font-medium"
-                            >
-                                <Link href="/pricing?form">
-                                    Check pricing <Sparkles className="ml-2 h-4 w-4 text-muted-foreground" />
-                                </Link>
-                            </Button>
-                        </div>
-
-                        <div className="pt-10 animate-in fade-in duration-1000 delay-500">
-                            <HeroTrustBar
-                                items={[
-                                    { label: "End-to-End Encrypted" },
-                                    { label: "Zero-Knowledge" },
-                                    { label: "Open Source" },
-                                ]}
-                            />
-                        </div>
+                            <Link href="/dashboard/form/new">
+                                Create a form <ClipboardList className="ml-2 h-4 w-4" />
+                            </Link>
+                        </Button>
+                        <Button
+                            variant="outline"
+                            size="lg"
+                            asChild
+                            className="flex-1 sm:flex-none rounded-full px-6 border-primary/20 bg-background font-medium"
+                        >
+                            <Link href="/pricing?form">
+                                Check pricing <Sparkles className="ml-2 h-4 w-4 text-muted-foreground" />
+                            </Link>
+                        </Button>
                     </div>
-                </div>
-            </section>
+                }
+            >
+                <HeroTrustBar
+                    items={[
+                        { label: "End-to-End Encrypted" },
+                        { label: "Zero-Knowledge" },
+                        { label: "Open Source" },
+                    ]}
+                />
+            </PageHero>
 
             <section id="use-cases" className="w-full py-20 bg-secondary/30">
                 <div className="container mx-auto px-6">
@@ -210,39 +193,29 @@ export default function FormProductPage() {
                 </div>
             </section>
 
-            <section className="py-20 bg-background">
-                <div className="container mx-auto px-6">
-                    <div className="relative rounded-2xl overflow-hidden bg-primary text-primary-foreground px-6 py-16 md:px-16 md:py-20 text-center shadow-2xl">
-                        <div className="absolute inset-0 opacity-5 bg-[url('/noise.svg')] mix-blend-overlay" />
-                        <div className="relative z-10 space-y-6 max-w-3xl mx-auto">
-                            <h2 className="text-3xl md:text-4xl lg:text-5xl font-serif font-medium tracking-tight leading-tight">
-                                Ready for your first encrypted form?
-                            </h2>
-                            <p className="text-lg opacity-90 font-light max-w-2xl mx-auto">
-                                Sign up for free and publish a form in under a minute.
-                            </p>
-                            <div className="flex flex-col sm:flex-row justify-center pt-4 gap-3">
-                                <Button
-                                    asChild
-                                    size="lg"
-                                    variant="secondary"
-                                    className="rounded-full px-8 bg-background text-foreground hover:bg-secondary font-medium"
-                                >
-                                    <Link href="/register">Get started</Link>
-                                </Button>
-                                <Button
-                                    asChild
-                                    size="lg"
-                                    variant="outline"
-                                    className="rounded-full px-8 text-foreground bg-background/80 hover:bg-secondary/70 font-medium"
-                                >
-                                    <Link href="/pricing?form">View pricing</Link>
-                                </Button>
-                            </div>
-                        </div>
-                    </div>
+            <CtaBanner
+                title="Ready for your first encrypted form?"
+                description="Sign up for free and publish a form in minutes."
+            >
+                <div className="flex flex-col sm:flex-row justify-center pt-4 gap-3">
+                    <Button
+                        asChild
+                        size="lg"
+                        variant="secondary"
+                        className="rounded-full px-8 bg-background text-foreground hover:bg-secondary font-medium"
+                    >
+                        <Link href="/register">Get started</Link>
+                    </Button>
+                    <Button
+                        asChild
+                        size="lg"
+                        variant="outline"
+                        className="rounded-full px-8 text-foreground bg-background/80 hover:bg-secondary/70 font-medium"
+                    >
+                        <Link href="/pricing?form">View pricing</Link>
+                    </Button>
                 </div>
-            </section>
+            </CtaBanner>
 
             <script
                 suppressHydrationWarning

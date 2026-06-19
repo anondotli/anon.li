@@ -25,11 +25,11 @@ export default function AboutPage() {
             {/* Hero */}
             <section className="text-center space-y-6">
                 <h1 className="text-4xl md:text-5xl lg:text-6xl font-serif font-medium tracking-tight">
-                    Privacy Should Be a Right,<br />
-                    <span className="text-muted-foreground italic">Not a Privilege</span>
+                    We built the privacy tools<br />
+                    <span className="text-muted-foreground italic">we wanted to use.</span>
                 </h1>
                 <p className="text-lg text-muted-foreground max-w-2xl mx-auto leading-relaxed">
-                    We believe everyone deserves digital privacy, regardless of technical skill or budget. That&apos;s why we&apos;re building open source privacy tools that make privacy simple and accessible.
+                    anon.li started because the privacy tools we relied on were either closed, expensive, or asked you to just trust them. So we built open ones where you don&apos;t have to: the encryption does the work, and the code is there to read.
                 </p>
             </section>
 
@@ -77,7 +77,7 @@ export default function AboutPage() {
                             </div>
                             <h3 className="text-xl font-medium">Transparency</h3>
                             <p className="text-muted-foreground text-sm leading-relaxed">
-                                Our code is open source. Trust through transparency, not promises.
+                                Our code is open source, so you can verify what we claim.
                             </p>
                         </CardContent>
                     </Card>
@@ -95,12 +95,12 @@ export default function AboutPage() {
                     />
                     <ValueItem
                         icon={<Users className="h-5 w-5" />}
-                        title="Community Over Profit"
+                        title="A free tier you can actually live on"
                         description="We offer generous free tiers because privacy shouldn't depend on your wallet. Paid plans help us sustain the service for everyone."
                     />
                     <ValueItem
                         icon={<Globe className="h-5 w-5" />}
-                        title="Transparency Builds Trust"
+                        title="Open source and auditable"
                         description="Our platform code is open source on GitHub. Anyone can audit our code and verify our claims."
                     />
                 </div>

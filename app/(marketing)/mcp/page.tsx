@@ -14,7 +14,9 @@ import {
 import { Button } from "@/components/ui/button"
 import { FeatureCard } from "@/components/marketing/feature-card"
 import { StepCard } from "@/components/marketing/step-card"
-import { InteractiveDotGrid } from "@/components/marketing/dot-grid"
+import { PageHero } from "@/components/marketing/page-hero"
+import { MarketingBadge } from "@/components/marketing/marketing-badge"
+import { CtaBanner } from "@/components/marketing/cta-banner"
 import { HeroTrustBar } from "@/components/marketing/hero-trust-bar"
 
 export const metadata: Metadata = {
@@ -45,46 +47,25 @@ export default function McpPage() {
     return (
         <>
             {/* Hero */}
-            <section id="hero" className="relative w-full py-12 md:py-20 lg:py-24 flex items-center justify-center min-h-[80vh] overflow-hidden">
-                <div className="absolute inset-0 pointer-events-none overflow-hidden">
-                    <InteractiveDotGrid />
-                    <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[400px] bg-primary/10 opacity-50 blur-[80px] rounded-full pointer-events-none" />
-                    <div className="absolute bottom-0 right-0 w-[400px] h-[300px] bg-secondary/10 opacity-30 blur-[60px] rounded-full pointer-events-none" />
-                </div>
-
-                <div className="container mx-auto px-6 relative z-10 w-full">
-                    <div className="flex flex-col items-center space-y-5 text-center">
-                        <Link href="/docs/api/mcp" className="inline-flex items-center rounded-full border border-primary/10 bg-background px-4 py-1.5 text-sm font-medium animate-in fade-in slide-in-from-bottom-4 duration-700 hover:scale-105 transition-transform">
-                            <span className="flex h-2 w-2 rounded-full bg-primary mr-2 animate-pulse"></span>
-                            <span className="text-primary/80 tracking-wide">OAuth MCP Server</span>
-                        </Link>
-
-                        <div className="space-y-6 max-w-5xl mx-auto w-full">
-                            <h1 className="text-4xl font-medium tracking-tight sm:text-5xl md:text-6xl lg:text-7xl font-serif text-primary animate-in fade-in slide-in-from-bottom-6 duration-1000 fill-mode-both delay-100">
-                                Your Privacy Suite.<br className="hidden md:block" />
-                                <span className="italic text-muted-foreground">In Your AI Agent.</span>
-                            </h1>
-                            <p className="mx-auto max-w-2xl text-muted-foreground md:text-lg lg:text-xl leading-relaxed font-light animate-in fade-in slide-in-from-bottom-6 duration-1000 fill-mode-both delay-200">
-                                Connect Claude, Cursor, and MCP-compatible tools to manage aliases, recipients, and encrypted drop metadata through a standard OAuth flow.
-                            </p>
-                        </div>
-
-                        <div className="w-full animate-in fade-in slide-in-from-bottom-6 duration-1000 fill-mode-both delay-300 pt-10 px-4 sm:px-0">
-                            <McpConnectionPanel />
-                        </div>
-
-                        <div className="pt-10 animate-in fade-in duration-1000 delay-500">
-                            <HeroTrustBar
-                                items={[
-                                    { label: "OAuth + PKCE" },
-                                    { label: "Streamable HTTP" },
-                                    { label: "Zero-Knowledge Boundaries" },
-                                ]}
-                            />
-                        </div>
+            <div id="hero">
+                <PageHero
+                    background="minimal"
+                    badge={<MarketingBadge href="/docs/api/mcp">OAuth MCP Server</MarketingBadge>}
+                    title="Let an AI agent manage your aliases."
+                    subtitle="Connect Claude, Cursor, and MCP-compatible tools to manage aliases, recipients, and encrypted drop metadata through a standard OAuth flow."
+                >
+                    <McpConnectionPanel />
+                    <div className="pt-10">
+                        <HeroTrustBar
+                            items={[
+                                { label: "OAuth + PKCE" },
+                                { label: "Streamable HTTP" },
+                                { label: "Zero-Knowledge Boundaries" },
+                            ]}
+                        />
                     </div>
-                </div>
-            </section>
+                </PageHero>
+            </div>
 
             {/* Features */}
             <section className="w-full py-20 bg-background border-t border-border/40">
@@ -174,9 +155,9 @@ export default function McpPage() {
             <section className="py-20 bg-background border-t border-border/40">
                 <div className="container mx-auto px-6">
                     <div className="text-center mb-14 space-y-4">
-                        <h2 className="text-3xl md:text-4xl font-serif font-medium tracking-tight">Connect in three steps</h2>
+                        <h2 className="text-3xl md:text-4xl font-serif font-medium tracking-tight">Connect your agent</h2>
                         <p className="text-base md:text-lg text-muted-foreground max-w-2xl mx-auto font-light">
-                            From connector URL to first agent task in minutes.
+                            Add the endpoint, authorize through anon.li, then delegate.
                         </p>
                     </div>
 
@@ -206,34 +187,23 @@ export default function McpPage() {
             </section>
 
             {/* CTA */}
-            <section className="py-20 bg-background">
-                <div className="container mx-auto px-6">
-                    <div className="relative rounded-2xl overflow-hidden bg-primary text-primary-foreground px-6 py-16 md:px-16 md:py-20 text-center shadow-2xl">
-                        <div className="absolute inset-0 opacity-20 bg-[url('/noise.svg')] mix-blend-overlay"></div>
-
-                        <div className="relative z-10 space-y-6 max-w-3xl mx-auto">
-                            <h2 className="text-3xl md:text-4xl lg:text-5xl font-serif font-medium tracking-tight leading-tight">
-                                Ready to connect your agent?
-                            </h2>
-                            <p className="text-lg opacity-90 font-light max-w-2xl mx-auto">
-                                Add the MCP endpoint, authorize through anon.li, and keep encrypted content outside the agent boundary.
-                            </p>
-                            <div className="flex flex-col sm:flex-row justify-center pt-4 gap-4">
-                                <Button asChild size="lg" variant="secondary" className="rounded-full px-8 bg-background text-foreground hover:bg-secondary transition-colors border-none font-medium">
-                                    <Link href="/docs/api/mcp">
-                                        Set Up MCP
-                                    </Link>
-                                </Button>
-                                <Button asChild size="lg" variant="outline" className="rounded-full px-8 text-foreground bg-background/80 hover:bg-background/60 font-medium">
-                                    <Link href="/register">
-                                        Create Account
-                                    </Link>
-                                </Button>
-                            </div>
-                        </div>
-                    </div>
+            <CtaBanner
+                title="Ready to connect your agent?"
+                description="Add the MCP endpoint, authorize through anon.li, and keep encrypted content outside the agent boundary."
+            >
+                <div className="flex flex-col sm:flex-row justify-center pt-4 gap-4">
+                    <Button asChild size="lg" variant="secondary" className="rounded-full px-8 bg-background text-foreground hover:bg-secondary transition-colors border-none font-medium">
+                        <Link href="/docs/api/mcp">
+                            Set Up MCP
+                        </Link>
+                    </Button>
+                    <Button asChild size="lg" variant="outline" className="rounded-full px-8 text-foreground bg-background/80 hover:bg-background/60 font-medium">
+                        <Link href="/register">
+                            Create Account
+                        </Link>
+                    </Button>
                 </div>
-            </section>
+            </CtaBanner>
 
             {/* JSON-LD */}
             <script

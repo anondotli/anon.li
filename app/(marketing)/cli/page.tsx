@@ -4,7 +4,9 @@ import { Button } from "@/components/ui/button"
 import { Terminal, Download, Mail, Lock, Key, Globe } from "lucide-react"
 import { FeatureCard } from "@/components/marketing/feature-card"
 import { StepCard } from "@/components/marketing/step-card"
-import { InteractiveDotGrid } from "@/components/marketing/dot-grid"
+import { PageHero } from "@/components/marketing/page-hero"
+import { MarketingBadge } from "@/components/marketing/marketing-badge"
+import { CtaBanner } from "@/components/marketing/cta-banner"
 import { HeroTrustBar } from "@/components/marketing/hero-trust-bar"
 import { InstallCommands } from "./install-commands"
 
@@ -25,54 +27,33 @@ export default function CliPage() {
     return (
         <>
             {/* Hero */}
-            <section id="hero" className="relative w-full py-12 md:py-20 lg:py-24 flex items-center justify-center min-h-[80vh] overflow-hidden">
-                <div className="absolute inset-0 pointer-events-none overflow-hidden">
-                    <InteractiveDotGrid />
-                    <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[400px] bg-primary/10 opacity-50 blur-[80px] rounded-full pointer-events-none" />
-                    <div className="absolute bottom-0 right-0 w-[400px] h-[300px] bg-secondary/10 opacity-30 blur-[60px] rounded-full pointer-events-none" />
-                </div>
-
-                <div className="container mx-auto px-6 relative z-10 w-full">
-                    <div className="flex flex-col items-center space-y-5 text-center">
-                        <Link href="https://github.com/anondotli/cli" className="inline-flex items-center rounded-full border border-primary/10 bg-background px-4 py-1.5 text-sm font-medium animate-in fade-in slide-in-from-bottom-4 duration-700 hover:scale-105 transition-transform">
-                            <span className="flex h-2 w-2 rounded-full bg-primary mr-2 animate-pulse"></span>
-                            <span className="text-primary/80 tracking-wide">Open Source CLI</span>
-                        </Link>
-
-                        <div className="space-y-6 max-w-5xl mx-auto w-full">
-                            <h1 className="text-4xl font-medium tracking-tight sm:text-5xl md:text-6xl lg:text-7xl font-serif text-primary animate-in fade-in slide-in-from-bottom-6 duration-1000 fill-mode-both delay-100">
-                                Your Privacy Suite.<br className="hidden md:block" />
-                                <span className="italic text-muted-foreground">In Your Terminal.</span>
-                            </h1>
-                            <p className="mx-auto max-w-2xl text-muted-foreground md:text-lg lg:text-xl leading-relaxed font-light animate-in fade-in slide-in-from-bottom-6 duration-1000 fill-mode-both delay-200">
-                                Manage private email aliases and share encrypted files - all from the command line. Fast, scriptable & open source.
-                            </p>
-                        </div>
-
-                        <div className="w-full animate-in fade-in slide-in-from-bottom-6 duration-1000 fill-mode-both delay-300 pt-10 px-4 sm:px-0">
-                            <InstallCommands />
-                        </div>
-
-                        <div className="pt-10 animate-in fade-in duration-1000 delay-500">
-                            <HeroTrustBar
-                                items={[
-                                    { label: "Cross-Platform" },
-                                    { label: "Open Source" },
-                                    { label: "E2E Encrypted" },
-                                ]}
-                            />
-                        </div>
+            <div id="hero">
+                <PageHero
+                    background="left"
+                    badge={<MarketingBadge href="https://github.com/anondotli/cli">Open Source CLI</MarketingBadge>}
+                    title="Aliases and encrypted drops, from your terminal."
+                    subtitle="Manage private email aliases and share encrypted files - all from the command line. Fast, scriptable & open source."
+                >
+                    <InstallCommands />
+                    <div className="pt-10">
+                        <HeroTrustBar
+                            items={[
+                                { label: "Cross-Platform" },
+                                { label: "Open Source" },
+                                { label: "E2E Encrypted" },
+                            ]}
+                        />
                     </div>
-                </div>
-            </section>
+                </PageHero>
+            </div>
 
             {/* Features */}
             <section className="w-full py-20 bg-background border-t border-border/40">
                 <div className="container mx-auto px-6 relative z-10">
                     <div className="text-center mb-14 space-y-4">
-                        <h2 className="text-3xl md:text-4xl font-serif font-medium tracking-tight">Everything you need</h2>
+                        <h2 className="text-3xl md:text-4xl font-serif font-medium tracking-tight">What the CLI does</h2>
                         <p className="text-base md:text-lg text-muted-foreground max-w-2xl mx-auto font-light">
-                            The full anon.li experience, built for your terminal.
+                            Aliases, drops, recipients, and domains — scriptable from one binary.
                         </p>
                     </div>
 
@@ -133,9 +114,9 @@ export default function CliPage() {
             <section className="py-20 bg-background border-t border-border/40">
                 <div className="container mx-auto px-6">
                     <div className="text-center mb-14 space-y-4">
-                        <h2 className="text-3xl md:text-4xl font-serif font-medium tracking-tight">Get started in three steps</h2>
+                        <h2 className="text-3xl md:text-4xl font-serif font-medium tracking-tight">Up and running</h2>
                         <p className="text-base md:text-lg text-muted-foreground max-w-2xl mx-auto font-light">
-                            From install to first command in under a minute.
+                            Install, link your account, and start scripting.
                         </p>
                     </div>
 
@@ -165,34 +146,23 @@ export default function CliPage() {
             </section>
 
             {/* CTA */}
-            <section className="py-20 bg-background">
-                <div className="container mx-auto px-6">
-                    <div className="relative rounded-2xl overflow-hidden bg-primary text-primary-foreground px-6 py-16 md:px-16 md:py-20 text-center shadow-2xl">
-                        <div className="absolute inset-0 opacity-20 bg-[url('/noise.svg')] mix-blend-overlay"></div>
-
-                        <div className="relative z-10 space-y-6 max-w-3xl mx-auto">
-                            <h2 className="text-3xl md:text-4xl lg:text-5xl font-serif font-medium tracking-tight leading-tight">
-                                Ready to go command-line?
-                            </h2>
-                            <p className="text-lg opacity-90 font-light max-w-2xl mx-auto">
-                                Install the CLI and start managing your privacy from the terminal.
-                            </p>
-                            <div className="flex flex-col sm:flex-row justify-center pt-4 gap-4">
-                                <Button asChild size="lg" variant="secondary" className="rounded-full px-8 bg-background text-foreground hover:bg-secondary transition-colors border-none font-medium">
-                                    <a href="#hero">
-                                        Install Now
-                                    </a>
-                                </Button>
-                                <Button asChild size="lg" variant="outline" className="rounded-full px-8 text-foreground bg-background/80 hover:bg-primary-foreground/20 font-medium">
-                                    <Link href="/docs">
-                                        View Documentation
-                                    </Link>
-                                </Button>
-                            </div>
-                        </div>
-                    </div>
+            <CtaBanner
+                title="Ready to go command-line?"
+                description="Install the CLI and start managing your privacy from the terminal."
+            >
+                <div className="flex flex-col sm:flex-row justify-center pt-4 gap-4">
+                    <Button asChild size="lg" variant="secondary" className="rounded-full px-8 bg-background text-foreground hover:bg-secondary transition-colors border-none font-medium">
+                        <a href="#hero">
+                            Install Now
+                        </a>
+                    </Button>
+                    <Button asChild size="lg" variant="outline" className="rounded-full px-8 text-foreground bg-background/80 hover:bg-primary-foreground/20 font-medium">
+                        <Link href="/docs">
+                            View Documentation
+                        </Link>
+                    </Button>
                 </div>
-            </section>
+            </CtaBanner>
 
             {/* JSON-LD */}
             <script

@@ -11,14 +11,15 @@ import {
     CreditCard,
     UserCog,
     ShieldCheck,
-    Sparkles,
     ArrowRight,
     ClipboardList,
+    Sparkles,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { FeatureCard } from "@/components/marketing/feature-card"
 import { StepCard } from "@/components/marketing/step-card"
-import { InteractiveDotGrid } from "@/components/marketing/dot-grid"
+import { PageHero } from "@/components/marketing/page-hero"
+import { MarketingBadge } from "@/components/marketing/marketing-badge"
 
 // Zero-knowledge sharing flow, rendered as a semantic ordered list. The final
 // step is the "proof" line and uses the lock marker instead of a number.
@@ -45,58 +46,45 @@ export default function BusinessPage() {
     return (
         <>
             {/* ── Hero ─────────────────────────────────────────────────────── */}
-            <section className="relative w-full py-12 md:py-20 lg:py-24 flex items-center justify-center min-h-[80vh] overflow-hidden">
-                <div className="absolute inset-0 pointer-events-none overflow-hidden">
-                    <InteractiveDotGrid />
-                    <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[400px] bg-primary/10 opacity-50 blur-[80px] rounded-full" />
-                    <div className="absolute bottom-0 right-0 w-[400px] h-[300px] bg-secondary/10 opacity-30 blur-[60px] rounded-full" />
-                </div>
-
-                <div className="container mx-auto px-6 relative z-10 w-full">
-                    <div className="flex flex-col items-center space-y-5 text-center">
-                        <span className="inline-flex items-center rounded-full border border-primary/10 bg-background px-4 py-1.5 text-sm font-medium">
-                            <span className="flex h-2 w-2 rounded-full bg-primary mr-2 animate-pulse" />
-                            <span className="text-primary/80 tracking-wide">
-                                anon.li for <span className="font-serif">Business</span>
-                            </span>
-                        </span>
-
-                        <div className="space-y-6 max-w-5xl mx-auto w-full">
-                            <h1 className="text-4xl font-medium tracking-tight sm:text-5xl md:text-6xl lg:text-7xl font-serif text-primary">
-                                Privacy your whole
-                                <br className="hidden md:block" />
-                                <span className="italic text-muted-foreground"> team can share.</span>
-                            </h1>
-                            <p className="mx-auto max-w-2xl text-muted-foreground md:text-lg lg:text-xl leading-relaxed font-light">
-                                Shared anonymous aliases, custom domains, and end-to-end encrypted file sharing for
-                                your organization - with per-seat billing, roles, and centralized control.
-                            </p>
-                        </div>
-
-                        <div className="flex flex-row gap-3 sm:gap-4 w-full sm:w-auto justify-center pt-6 px-4 sm:px-0">
-                            <Button
-                                asChild
-                                size="lg"
-                                className="flex-1 sm:flex-none rounded-full px-6 font-medium shadow-lg shadow-primary/10"
-                            >
-                                <Link href="/register">
-                                    Start a team <ArrowRight className="ml-2 h-4 w-4" />
-                                </Link>
-                            </Button>
-                            <Button
-                                variant="outline"
-                                size="lg"
-                                asChild
-                                className="flex-1 sm:flex-none rounded-full px-6 border-primary/20 bg-background font-medium"
-                            >
-                                <Link href="mailto:hi@anon.li?subject=anon.li%20for%20Business">
-                                    Talk to sales <Building2 className="ml-2 h-4 w-4 text-muted-foreground" />
-                                </Link>
-                            </Button>
-                        </div>
+            <PageHero
+                background="right"
+                badge={
+                    <MarketingBadge>
+                        anon.li for <span className="font-serif">Business</span>
+                    </MarketingBadge>
+                }
+                title={
+                    <>
+                        Privacy your whole
+                        <br className="hidden md:block" />
+                        <span className="italic text-muted-foreground"> team can share.</span>
+                    </>
+                }
+                subtitle="Shared anonymous aliases, custom domains, and end-to-end encrypted file sharing for your organization - with per-seat billing, roles, and centralized control."
+                actions={
+                    <div className="flex flex-row gap-3 sm:gap-4 w-full sm:w-auto justify-center">
+                        <Button
+                            asChild
+                            size="lg"
+                            className="flex-1 sm:flex-none rounded-full px-6 font-medium shadow-lg shadow-primary/10"
+                        >
+                            <Link href="/register">
+                                Start a team <ArrowRight className="ml-2 h-4 w-4" />
+                            </Link>
+                        </Button>
+                        <Button
+                            variant="outline"
+                            size="lg"
+                            asChild
+                            className="flex-1 sm:flex-none rounded-full px-6 border-primary/20 bg-background font-medium"
+                        >
+                            <Link href="mailto:hi@anon.li?subject=anon.li%20for%20Business">
+                                Talk to sales <Building2 className="ml-2 h-4 w-4 text-muted-foreground" />
+                            </Link>
+                        </Button>
                     </div>
-                </div>
-            </section>
+                }
+            />
 
             {/* ── Value props ──────────────────────────────────────────────── */}
             <section id="features" className="w-full py-20 bg-secondary/30">
@@ -106,7 +94,7 @@ export default function BusinessPage() {
                             Everything your team needs, nothing it leaks
                         </h2>
                         <p className="text-base md:text-lg text-muted-foreground max-w-2xl mx-auto font-light">
-                            The same zero-knowledge tools people already trust — now shared across an organization.
+                            The same zero-knowledge tools, now shared across your organization.
                         </p>
                     </div>
                     <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-3 max-w-6xl mx-auto">
@@ -153,13 +141,13 @@ export default function BusinessPage() {
                                 <Lock className="h-3.5 w-3.5" /> Zero-knowledge by design
                             </div>
                             <h2 className="text-3xl md:text-4xl font-serif font-medium tracking-tight">
-                                Shared access, without sharing trust
+                                Encrypted for your whole team
                             </h2>
                             <p className="text-muted-foreground font-light leading-relaxed">
                                 Most &ldquo;team&rdquo; privacy tools just move your plaintext to a company account
                                 they can still read. anon.li doesn&apos;t. Every shared Drop and Form is encrypted to a team
-                                key that&apos;s wrapped to each member&apos;s own keypair — so adding a teammate is a
-                                cryptographic grant, not a server with the keys.
+                                key that&apos;s wrapped to each member&apos;s own keypair, so adding a teammate seals that key
+                                to their device — our servers never hold a readable copy.
                             </p>
                             <ul className="space-y-3 text-sm text-muted-foreground">
                                 <li className="flex items-start gap-3">
@@ -172,7 +160,7 @@ export default function BusinessPage() {
                                 </li>
                                 <li className="flex items-start gap-3">
                                     <ShieldCheck className="h-5 w-5 text-primary shrink-0 mt-0.5" />
-                                    <span>Remove someone and rotate the team key to cut off access to future content — true revocation, not a toggle.</span>
+                                    <span>Remove someone and rotate the team key, and they lose access to anything shared afterward.</span>
                                 </li>
                             </ul>
                         </div>
@@ -206,7 +194,7 @@ export default function BusinessPage() {
                 <div className="container mx-auto px-6">
                     <div className="text-center mb-14 space-y-4">
                         <h2 className="text-3xl md:text-4xl font-serif font-medium tracking-tight">
-                            Live in minutes
+                            Set up your team
                         </h2>
                     </div>
                     <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-4 max-w-6xl mx-auto">

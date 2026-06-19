@@ -24,7 +24,9 @@ import {
 } from "@/components/ui/accordion"
 import { FeatureCard } from "@/components/marketing/feature-card"
 import { StepCard } from "@/components/marketing/step-card"
-import { InteractiveDotGrid } from "@/components/marketing/dot-grid"
+import { GlowBackground } from "@/components/marketing/glow-background"
+import { MarketingBadge } from "@/components/marketing/marketing-badge"
+import { CtaBanner } from "@/components/marketing/cta-banner"
 import { TrustIndicatorBar } from "@/components/marketing/trust-indicator-bar"
 import { GuestUploader } from "@/components/drop/guest-uploader"
 import {
@@ -221,38 +223,27 @@ export default async function UploadCompatibilityPage() {
         <>
             {/* Hero + uploader */}
             <section className="relative w-full py-12 md:py-20 lg:py-24 overflow-hidden">
-                {/* Background */}
-                <div className="absolute inset-0 pointer-events-none overflow-hidden">
-                    <InteractiveDotGrid />
-                    <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[400px] bg-primary/10 opacity-50 blur-[80px] rounded-full pointer-events-none" />
-                    <div className="absolute bottom-0 right-0 w-[400px] h-[300px] bg-secondary/10 opacity-30 blur-[60px] rounded-full pointer-events-none" />
-                </div>
+                <GlowBackground variant="left" />
 
                 <div className="container mx-auto px-6 relative z-10">
-                    <div className="flex flex-col items-center space-y-5 text-center">
-                        <div className="inline-flex items-center rounded-full border border-primary/10 bg-background px-4 py-1.5 text-sm font-medium animate-in fade-in slide-in-from-bottom-4 duration-700">
-                            <span className="flex h-2 w-2 rounded-full bg-primary mr-2 animate-pulse" />
-                            <span className="text-primary/80 tracking-wide">
-                                No account &middot; encrypted in your browser
-                            </span>
-                        </div>
+                    <div className="flex flex-col items-center space-y-5 text-center animate-in fade-in duration-700">
+                        <MarketingBadge>No account &middot; encrypted in your browser</MarketingBadge>
 
                         <div className="space-y-6 max-w-4xl mx-auto w-full">
-                            <h1 className="text-4xl font-medium tracking-tight sm:text-5xl md:text-6xl lg:text-7xl font-serif text-primary animate-in fade-in slide-in-from-bottom-6 duration-1000 fill-mode-both delay-100">
-                                Send a file.<br className="hidden md:block" />
-                                <span className="italic text-muted-foreground">Anonymously.</span>
+                            <h1 className="text-4xl font-medium tracking-tight sm:text-5xl md:text-6xl lg:text-7xl font-serif text-primary">
+                                Send a file, anonymously.
                             </h1>
-                            <p className="mx-auto max-w-2xl text-muted-foreground md:text-lg lg:text-xl leading-relaxed font-light animate-in fade-in slide-in-from-bottom-6 duration-1000 fill-mode-both delay-200">
+                            <p className="mx-auto max-w-2xl text-muted-foreground md:text-lg lg:text-xl leading-relaxed font-light">
                                 Upload up to {FILE_SIZE_LABEL}, encrypted in your browser before it ever leaves.
                                 Share the link - the key goes with it, and only the people you send it to can open the file.
                             </p>
                         </div>
 
-                        <div className="w-full max-w-2xl pt-6 animate-in fade-in slide-in-from-bottom-6 duration-1000 fill-mode-both delay-300">
+                        <div className="w-full max-w-2xl pt-6">
                             <GuestUploader />
                         </div>
 
-                        <p className="text-xs text-muted-foreground/80 pt-2 animate-in fade-in duration-1000 delay-500">
+                        <p className="text-xs text-muted-foreground/80 pt-2">
                             Need more than {FILE_SIZE_LABEL} or longer retention?{" "}
                             <Link href="/register" className="text-primary hover:underline font-medium">
                                 Create a free account
@@ -260,7 +251,7 @@ export default async function UploadCompatibilityPage() {
                             for 5 GB files and {PLAN_ENTITLEMENTS.drop.free.maxExpiryDays}-day expiry.
                         </p>
 
-                        <div className="pt-10 animate-in fade-in duration-1000 delay-500">
+                        <div className="pt-10">
                             <TrustIndicatorBar product="drop" />
                         </div>
                     </div>
@@ -364,35 +355,28 @@ export default async function UploadCompatibilityPage() {
             </section>
 
             {/* CTA */}
-            <section className="py-20 bg-background">
-                <div className="container mx-auto px-6">
-                    <div className="relative rounded-2xl overflow-hidden bg-primary text-primary-foreground px-6 py-16 md:px-16 md:py-20 text-center shadow-2xl">
-                        <div className="absolute inset-0 opacity-5 bg-[url('/noise.svg')] mix-blend-overlay" />
-
-                        <div className="relative z-10 space-y-6 max-w-3xl mx-auto">
-                            <h2 className="text-3xl md:text-4xl lg:text-5xl font-serif font-medium tracking-tight leading-tight">
-                                Want larger files and longer retention?
-                            </h2>
-                            <p className="text-lg opacity-90 font-light max-w-2xl mx-auto">
-                                Free accounts get 5 GB uploads, {PLAN_ENTITLEMENTS.drop.free.maxExpiryDays}-day expiry,
-                                email aliases, and a dashboard of your drops. Still free forever.
-                            </p>
-                            <div className="flex flex-col sm:flex-row justify-center pt-4 gap-3">
-                                <Button asChild size="lg" variant="secondary" className="rounded-full px-8 bg-background text-foreground hover:bg-secondary transition-colors border-none font-medium">
-                                    <Link href="/register">
-                                        Create a free account <ArrowRight className="ml-2 h-4 w-4" />
-                                    </Link>
-                                </Button>
-                                <Button asChild size="lg" variant="outline" className="rounded-full px-8 text-foreground bg-background/80 hover:bg-secondary/70 font-medium">
-                                    <Link href="/pricing?drop">
-                                        See pricing <Sparkles className="ml-2 h-4 w-4" />
-                                    </Link>
-                                </Button>
-                            </div>
-                        </div>
-                    </div>
+            <CtaBanner
+                title="Want larger files and longer retention?"
+                description={
+                    <>
+                        Free accounts get 5 GB uploads, {PLAN_ENTITLEMENTS.drop.free.maxExpiryDays}-day expiry,
+                        email aliases, and a dashboard of your drops. Still free forever.
+                    </>
+                }
+            >
+                <div className="flex flex-col sm:flex-row justify-center pt-4 gap-3">
+                    <Button asChild size="lg" variant="secondary" className="rounded-full px-8 bg-background text-foreground hover:bg-secondary transition-colors border-none font-medium">
+                        <Link href="/register">
+                            Create a free account <ArrowRight className="ml-2 h-4 w-4" />
+                        </Link>
+                    </Button>
+                    <Button asChild size="lg" variant="outline" className="rounded-full px-8 text-foreground bg-background/80 hover:bg-secondary/70 font-medium">
+                        <Link href="/pricing?drop">
+                            See pricing <Sparkles className="ml-2 h-4 w-4" />
+                        </Link>
+                    </Button>
                 </div>
-            </section>
+            </CtaBanner>
 
             <script
                 suppressHydrationWarning
