@@ -4,7 +4,6 @@ import localFont from "next/font/local";
 import "./globals.css";
 import { ThemeProvider } from "@/components/shared/theme-provider"
 import { LazyToaster } from "@/components/ui/lazy-toaster"
-import { AnalyticsScript } from "@/components/shared/analytics-script"
 import { THEME_INIT_SCRIPT } from "@/lib/theme-init"
 
 const geistSans = localFont({
@@ -148,7 +147,6 @@ export default function RootLayout({
             })
           }}
         />
-        <AnalyticsScript />
       </body>
     </html>
   );

@@ -8,20 +8,13 @@ const logger = createLogger("RateLimit");
 
 const isProduction = process.env.NODE_ENV === "production";
 
-export const redis = process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN
-  ? new Redis({
-    url: process.env.UPSTASH_REDIS_REST_URL,
-    token: process.env.UPSTASH_REDIS_REST_TOKEN,
-  })
-  : null;
+export const redis = new Redis({
+  url: process.env.UPSTASH_REDIS_REST_URL!,
+  token: process.env.UPSTASH_REDIS_REST_TOKEN!,
+});
 
-// In production, rate limiting must be configured
-if (isProduction && !redis) {
-  throw new Error("Rate limiting is required in production. Set UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN.");
-}
-
-function createLimiter(prefix: string, limit: number, window: Duration, analytics = false): Ratelimit | null {
-  return redis ? new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(limit, window), prefix, analytics }) : null;
+function createLimiter(prefix: string, limit: number, window: Duration, analytics = false): Ratelimit {
+  return new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(limit, window), prefix, analytics });
 }
 
 // Monthly API quota limiters (tier-based)
@@ -87,6 +80,10 @@ export const rateLimiters = {
   // Upload retries create a fresh drop ID today, so the create budget needs to
   // tolerate flaky networks without forcing users to wait an hour.
   dropCreate: createLimiter("ratelimit:drop:create", 60, "1 h"),
+  // Per-IP DAILY ceiling for anonymous (guest) drops, layered on top of the
+  // hourly dropCreate burst limit — bounds anonymous bandwidth cost/abuse and
+  // nudges heavy guests toward signing up. Authenticated users are exempt.
+  dropCreateGuest: createLimiter("ratelimit:drop:create:guest", 10, "24 h"),
   // Aborting stale multipart uploads is cleanup, not user-visible abuse. Keep
   // this separate from dropOps so retries/cancels do not starve normal actions.
   dropAbortUpload: createLimiter("ratelimit:drop:abort-upload", 300, "1 h"),
@@ -171,15 +168,10 @@ export async function getClientIp(): Promise<string> {
  * Returns null if rate limit passed, or a NextResponse if rate limited
  */
 export async function checkRateLimit(
-  limiter: Ratelimit | null,
+  limiter: Ratelimit,
   identifier: string,
   failClosed = false
 ): Promise<NextResponse | null> {
-  // If rate limiting is not configured, allow request
-  if (!limiter) {
-    return null;
-  }
-
   try {
     const { success, limit, reset } = await limiter.limit(identifier);
 

@@ -78,10 +78,12 @@ https://anon.li/d/abc123#U2FsdGVkX1...
 
 Per the HTTP specification, the fragment identifier is stripped from requests by the browser and never included in network traffic. The server receives only the drop ID - it is cryptographically impossible for the server to decrypt the file.
 
+The server can never derive or recover this key on its own. The one documented exception is when someone who already holds the link voluntarily submits the key — for example, an abuse reporter pasting a full Drop URL into a report. In that case the submitted key is stored encrypted at rest (see Report Encryption, below), so reported content is protected even against a database compromise.
+
 ### IV and Chunk Encryption
 
 - **Base IV**: 12 bytes of cryptographically random data, generated per file
-- **Chunk IVs**: Derived deterministically from the base IV - the first 8 bytes of the base IV are copied, and the chunk index is appended as a 4-byte big-endian integer. This ensures every chunk has a unique IV without requiring additional random generation
+- **Chunk IVs**: Derived deterministically from the base IV - the first 8 bytes of the base IV form a 64-bit random nonce prefix, and the chunk index is appended as a 4-byte big-endian counter. This gives every chunk within a file a unique IV without additional random generation. Because each file is encrypted under a fresh, random 256-bit key, the (key, IV) pair is unique for every chunk, which is the property AES-GCM requires
 - **Chunk size**: Minimum 50 MB per chunk, up to 100 chunks per file
 - **Authentication**: Each chunk carries a 16-byte GCM authentication tag, providing per-chunk integrity verification. Any tampering with individual chunks is detected immediately on decryption
 
@@ -219,7 +221,7 @@ Reporters receive email notifications when their report is reviewed. Affected us
 | Encrypted files | User-configured expiry (1–30 days) or manual deletion |
 | Account data | Aliases, domains, files, drops, API keys, recipients, sign-in credentials, vault materials, and the account record are deleted from live systems immediately on account deletion |
 | IP addresses | Never stored in sessions; hashed for abuse reports only; ephemeral in rate-limit cache |
-| Analytics | [Umami](https://umami.is/) on non-sensitive marketing/product pages only; disabled on Drop upload/download, auth, dashboard, and vault routes; event payloads exclude drop IDs and custom domains |
+| Analytics | [PostHog](https://posthog.com/) (EU region), cookie-free (local-storage id), no session replay; URL fragments and resource IDs are stripped before any event is sent; not loaded on Drop download, auth/verify/reset, or admin routes |
 
 We do not serve advertising, build user profiles, or sell data to third parties.
 

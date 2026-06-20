@@ -11,7 +11,7 @@ import { apiError, apiList, apiSuccess, ErrorCodes, zodErrorToDetails } from "@/
 import { checkVaultIdentity, vaultIdentityErrorResponse } from "@/lib/vault/identity"
 import { getDropLimits } from "@/lib/limits"
 import { prisma } from "@/lib/prisma"
-import { getClientIp } from "@/lib/rate-limit"
+import { getClientIp, checkRateLimit, rateLimiters } from "@/lib/rate-limit"
 import { withPolicy, scopeFromContext } from "@/lib/route-policy"
 import { DropService, type DropListItem } from "@/lib/services/drop"
 import { issueUploadToken } from "@/lib/services/drop-upload-token"
@@ -141,6 +141,10 @@ export const POST = withPolicy(
             if (turnstileError) {
                 return apiError(turnstileError, ErrorCodes.VALIDATION_ERROR, ctx.requestId, 400)
             }
+            // Per-IP daily ceiling for anonymous drops, on top of the hourly
+            // dropCreate burst limit — bounds anonymous bandwidth cost/abuse.
+            const guestLimited = await checkRateLimit(rateLimiters.dropCreateGuest, await getClientIp())
+            if (guestLimited) return guestLimited
         }
 
         // Guests cannot persist vault-wrapped owner keys.

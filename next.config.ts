@@ -1,10 +1,11 @@
 import type { NextConfig } from "next";
 import { HOMEPAGE_LINK_HEADER } from "./config/agent-discovery"
 
-// Keep the production build on webpack for now. During local verification on
-// 2026-04-16, `next build` (Turbopack) failed to complete within the same
-// timeout window where `next build --webpack` compiled, type-checked, and
-// generated static pages successfully.
+// Production build uses Turbopack (the Next.js 16 default). An earlier note
+// (2026-04-16) had pinned the build to `--webpack` after a Turbopack build
+// timed out; re-verified on 2026-06-19 that `next build` (Turbopack) completes
+// cleanly and faster (~32s vs ~63s on webpack), so the `--webpack` pin was
+// removed.
 
 const securityHeaders = [
   {
@@ -45,6 +46,18 @@ const xFrameOptionsHeader = {
 const nextConfig: NextConfig = {
   poweredByHeader: false,
   reactCompiler: true,
+  // Reverse-proxy PostHog (EU) so analytics ingestion is first-party and
+  // ad-blocker resistant; posthog-js points api_host at /ingest. Static/array
+  // asset rewrites must precede the catch-all. Trailing-slash redirects break
+  // PostHog API requests, so they are disabled.
+  skipTrailingSlashRedirect: true,
+  async rewrites() {
+    return [
+      { source: "/ingest/static/:path*", destination: "https://eu-assets.i.posthog.com/static/:path*" },
+      { source: "/ingest/array/:path*", destination: "https://eu-assets.i.posthog.com/array/:path*" },
+      { source: "/ingest/:path*", destination: "https://eu.i.posthog.com/:path*" },
+    ]
+  },
   experimental: {
     optimizePackageImports: [
       'lucide-react',

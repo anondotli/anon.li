@@ -183,7 +183,7 @@ export const CLAIMS: Claim[] = [
         caveats: [
             "Targets known tracking domains, 1x1 pixels, and common URL parameters",
             "Not a guarantee against every possible tracker or remote-image technique",
-            "Web analytics use cookie-free Umami but still collect aggregate page views",
+            "Product analytics use PostHog (EU region) with no cookies and no session replay; URL fragments and resource IDs are stripped before sending",
         ],
         appliesTo: ["alias"],
     },

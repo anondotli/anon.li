@@ -1,23 +1,13 @@
 /**
  * @vitest-environment node
  */
-import { afterEach, describe, expect, it } from "vitest"
+import { describe, expect, it } from "vitest"
 import crypto from "crypto"
 import { NextRequest } from "next/server"
 import proxy from "@/proxy"
 import { THEME_INIT_SCRIPT, THEME_INIT_SCRIPT_SHA256 } from "@/lib/theme-init"
 
 describe("proxy auth guard", () => {
-    const originalTurnstileSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY
-
-    afterEach(() => {
-        if (originalTurnstileSiteKey === undefined) {
-            delete process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY
-        } else {
-            process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY = originalTurnstileSiteKey
-        }
-    })
-
     it("redirects protected routes without a session", async () => {
         const response = await proxy(new NextRequest("http://localhost/dashboard/alias"))
 
@@ -36,9 +26,7 @@ describe("proxy auth guard", () => {
         expect(response.headers.get("x-request-id")).toBeTruthy()
     })
 
-    it("allows Turnstile network calls in CSP when captcha is configured", async () => {
-        process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY = "site-key"
-
+    it("allows Turnstile network calls in CSP", async () => {
         const response = await proxy(new NextRequest("http://localhost/login"))
         const csp = response.headers.get("content-security-policy")
 

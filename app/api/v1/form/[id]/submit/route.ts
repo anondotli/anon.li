@@ -32,7 +32,7 @@ export const POST = withPolicy<RouteParams>(
 
         // Turnstile only applies to anonymous submissions from the web form.
         // Authenticated API callers are exempt so CLI/extension flows keep working.
-        if (!ctx.userId && !parsed.data.attachedDropId && process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY) {
+        if (!ctx.userId && !parsed.data.attachedDropId) {
             if (!parsed.data.turnstileToken) {
                 return apiError("Verification required", ErrorCodes.VALIDATION_ERROR, ctx.requestId, 400)
             }

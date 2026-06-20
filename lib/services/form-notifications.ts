@@ -28,7 +28,7 @@ export async function notifyFormSubmission(formId: string, submissionId: string)
         if (!recipient) return
 
         const { FormSubmissionNotificationEmail } = await import("@/components/email/form-submission")
-        const dashboardUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? "https://anon.li"}/dashboard/form/${form.id}`
+        const dashboardUrl = `${process.env.NEXT_PUBLIC_APP_URL}/dashboard/form/${form.id}`
         const result = await sendEmail({
             to: recipient,
             subject: `New response to "${form.title}"`,

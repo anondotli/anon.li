@@ -7,7 +7,6 @@ import {
   ARGON2_PARALLELISM,
   ARGON2_HASH_LENGTH,
   AUTH_TAG_SIZE,
-  DROP_PASSWORD_MIN_LENGTH,
 } from "@/lib/constants";
 import { argon2id } from "hash-wasm";
 import {
@@ -107,21 +106,21 @@ class FileEncryptionService {
     );
   }
 
-  async createEncryptionContext(customKey?: string) {
-    let keyString: string;
-
-    if (customKey) {
-      if (customKey.length < DROP_PASSWORD_MIN_LENGTH) {
-        throw new Error(`Password must be at least ${DROP_PASSWORD_MIN_LENGTH} characters.`);
-      }
-      // Derive key from password if provided
-      const salt = this.generateSalt();
-      const derivedKey = await this.deriveKeyFromPassword(customKey, salt);
-      const exportedKey = await crypto.subtle.exportKey("raw", derivedKey);
-      keyString = `derived:${salt}:${this.arrayBufferToBase64Url(exportedKey)}`;
-    } else {
-      keyString = await this.generateKey();
-    }
+  /**
+   * Create a fresh encryption context for a new drop: a random 256-bit AES-GCM
+   * key plus a random base IV. The key is generated client-side and is only ever
+   * placed in the URL fragment — it never reaches the server.
+   *
+   * This intentionally does NOT derive the key from a password. Password
+   * protection is layered on top via encryptKeyWithPassword(), which wraps this
+   * random key — keeping the password out of the share URL and the raw key
+   * material out of any server-stored field. A previous branch here derived the
+   * key from a password and embedded it as a `derived:salt:key` string; it was
+   * removed so a derived key can never leak into a share URL. (importKeyFromString
+   * still *decodes* that legacy form for backward compatibility.)
+   */
+  async createEncryptionContext() {
+    const keyString = await this.generateKey();
 
     const key = await this.importKeyFromString(keyString);
     const dropIvString = this.generateBaseIv();

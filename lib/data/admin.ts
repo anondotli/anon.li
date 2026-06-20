@@ -1432,6 +1432,11 @@ export async function getAdminDashboardStats() {
     const createdBetween = (gte: Date, lt: Date) => ({ createdAt: { gte, lt } })
     const createdSince = (gte: Date) => ({ createdAt: { gte } })
 
+    // Exclude records owned by an admin (staff testing) from analytics counts.
+    // `NOT: { user: { isAdmin: true } }` keeps null-owner rows (anonymous drops,
+    // or org rows whose creator was deleted) since they have no admin owner.
+    const notAdminOwned = { NOT: { user: { isAdmin: true } } }
+
     const [
         totalUsers,
         activeUsers,
@@ -1463,25 +1468,25 @@ export async function getAdminDashboardStats() {
         newForms,
         prevForms,
     ] = await Promise.all([
-        prisma.user.count(),
+        prisma.user.count({ where: { isAdmin: false } }),
         prisma.user.count({
-            where: { updatedAt: { gte: thirtyDaysAgo } },
+            where: { updatedAt: { gte: thirtyDaysAgo }, isAdmin: false },
         }),
         prisma.user.count({
             where: { OR: [{ banned: true }, { banAliasCreation: true }, { banFileUpload: true }] },
         }),
-        prisma.drop.count({ where: { deletedAt: null } }),
-        prisma.drop.count({ where: { takenDown: true } }),
-        prisma.alias.count(),
-        prisma.form.count({ where: { deletedAt: null } }),
-        prisma.form.count({ where: { takenDown: true } }),
+        prisma.drop.count({ where: { deletedAt: null, ...notAdminOwned } }),
+        prisma.drop.count({ where: { takenDown: true, ...notAdminOwned } }),
+        prisma.alias.count({ where: { ...notAdminOwned } }),
+        prisma.form.count({ where: { deletedAt: null, ...notAdminOwned } }),
+        prisma.form.count({ where: { takenDown: true, ...notAdminOwned } }),
         prisma.abuseReport.count({ where: { status: "pending" } }),
         prisma.abuseReport.count({ where: { status: "pending", priority: { in: ["urgent", "high"] } } }),
         prisma.deletionRequest.count(),
         prisma.orphanedFile.count(),
-        prisma.subscription.count({ where: { status: { in: ["active", "trialing"] } } }),
+        prisma.subscription.count({ where: { status: { in: ["active", "trialing"] }, ...notAdminOwned } }),
         prisma.cryptoPayment.count({ where: { status: { in: ["waiting", "confirming"] } } }),
-        prisma.alias.count({ where: { scheduledForRemovalAt: { not: null } } }),
+        prisma.alias.count({ where: { scheduledForRemovalAt: { not: null }, ...notAdminOwned } }),
         prisma.recipient.count({ where: { scheduledForRemovalAt: { not: null } } }),
         prisma.domain.count({ where: { scheduledForRemovalAt: { not: null } } }),
         prisma.user.aggregate({
@@ -1490,16 +1495,16 @@ export async function getAdminDashboardStats() {
         prisma.organization.count(),
         prisma.member.count(),
         prisma.subscription.count({
-            where: { organizationId: { not: null }, status: { in: ["active", "trialing"] } },
+            where: { organizationId: { not: null }, status: { in: ["active", "trialing"] }, ...notAdminOwned },
         }),
-        prisma.user.count({ where: createdSince(thirtyDaysAgo) }),
-        prisma.user.count({ where: createdBetween(sixtyDaysAgo, thirtyDaysAgo) }),
-        prisma.drop.count({ where: { deletedAt: null, ...createdSince(thirtyDaysAgo) } }),
-        prisma.drop.count({ where: { deletedAt: null, ...createdBetween(sixtyDaysAgo, thirtyDaysAgo) } }),
-        prisma.alias.count({ where: createdSince(thirtyDaysAgo) }),
-        prisma.alias.count({ where: createdBetween(sixtyDaysAgo, thirtyDaysAgo) }),
-        prisma.form.count({ where: { deletedAt: null, ...createdSince(thirtyDaysAgo) } }),
-        prisma.form.count({ where: { deletedAt: null, ...createdBetween(sixtyDaysAgo, thirtyDaysAgo) } }),
+        prisma.user.count({ where: { ...createdSince(thirtyDaysAgo), isAdmin: false } }),
+        prisma.user.count({ where: { ...createdBetween(sixtyDaysAgo, thirtyDaysAgo), isAdmin: false } }),
+        prisma.drop.count({ where: { deletedAt: null, ...createdSince(thirtyDaysAgo), ...notAdminOwned } }),
+        prisma.drop.count({ where: { deletedAt: null, ...createdBetween(sixtyDaysAgo, thirtyDaysAgo), ...notAdminOwned } }),
+        prisma.alias.count({ where: { ...createdSince(thirtyDaysAgo), ...notAdminOwned } }),
+        prisma.alias.count({ where: { ...createdBetween(sixtyDaysAgo, thirtyDaysAgo), ...notAdminOwned } }),
+        prisma.form.count({ where: { deletedAt: null, ...createdSince(thirtyDaysAgo), ...notAdminOwned } }),
+        prisma.form.count({ where: { deletedAt: null, ...createdBetween(sixtyDaysAgo, thirtyDaysAgo), ...notAdminOwned } }),
     ])
 
     // Percentage change of this period vs the previous, rounded; null when no
@@ -2103,11 +2108,11 @@ export async function getAdminGrowthSeries(days: number) {
     const since = new Date(Date.now() - days * DAY_MS)
 
     const [users, drops, aliases, forms, submissions] = await Promise.all([
-        prisma.$queryRaw<DailyCountRow[]>`SELECT date_trunc('day', "createdAt") AS bucket, count(*) AS count FROM "users" WHERE "createdAt" >= ${since} GROUP BY bucket`,
-        prisma.$queryRaw<DailyCountRow[]>`SELECT date_trunc('day', "createdAt") AS bucket, count(*) AS count FROM "drops" WHERE "createdAt" >= ${since} AND "deletedAt" IS NULL GROUP BY bucket`,
-        prisma.$queryRaw<DailyCountRow[]>`SELECT date_trunc('day', "createdAt") AS bucket, count(*) AS count FROM "aliases" WHERE "createdAt" >= ${since} GROUP BY bucket`,
-        prisma.$queryRaw<DailyCountRow[]>`SELECT date_trunc('day', "createdAt") AS bucket, count(*) AS count FROM "forms" WHERE "createdAt" >= ${since} AND "deletedAt" IS NULL GROUP BY bucket`,
-        prisma.$queryRaw<DailyCountRow[]>`SELECT date_trunc('day', "createdAt") AS bucket, count(*) AS count FROM "form_submissions" WHERE "createdAt" >= ${since} GROUP BY bucket`,
+        prisma.$queryRaw<DailyCountRow[]>`SELECT date_trunc('day', "createdAt") AS bucket, count(*) AS count FROM "users" WHERE "createdAt" >= ${since} AND "isAdmin" = false GROUP BY bucket`,
+        prisma.$queryRaw<DailyCountRow[]>`SELECT date_trunc('day', "createdAt") AS bucket, count(*) AS count FROM "drops" WHERE "createdAt" >= ${since} AND "deletedAt" IS NULL AND NOT EXISTS (SELECT 1 FROM users u WHERE u.id = "drops"."userId" AND u."isAdmin" = true) GROUP BY bucket`,
+        prisma.$queryRaw<DailyCountRow[]>`SELECT date_trunc('day', "createdAt") AS bucket, count(*) AS count FROM "aliases" WHERE "createdAt" >= ${since} AND NOT EXISTS (SELECT 1 FROM users u WHERE u.id = "aliases"."userId" AND u."isAdmin" = true) GROUP BY bucket`,
+        prisma.$queryRaw<DailyCountRow[]>`SELECT date_trunc('day', "createdAt") AS bucket, count(*) AS count FROM "forms" WHERE "createdAt" >= ${since} AND "deletedAt" IS NULL AND NOT EXISTS (SELECT 1 FROM users u WHERE u.id = "forms"."userId" AND u."isAdmin" = true) GROUP BY bucket`,
+        prisma.$queryRaw<DailyCountRow[]>`SELECT date_trunc('day', "createdAt") AS bucket, count(*) AS count FROM "form_submissions" WHERE "createdAt" >= ${since} AND NOT EXISTS (SELECT 1 FROM forms f JOIN users u ON u.id = f."userId" WHERE f.id = "form_submissions"."formId" AND u."isAdmin" = true) GROUP BY bucket`,
     ])
 
     const usersMap = fillDailySeries(users, days)
@@ -2163,10 +2168,10 @@ export async function getAdminRevenueSeries(days: number) {
     const since = new Date(Date.now() - days * DAY_MS)
 
     const [stripeRows, cryptoRows, active] = await Promise.all([
-        prisma.$queryRaw<DailyCountRow[]>`SELECT date_trunc('day', "createdAt") AS bucket, count(*) AS count FROM "subscriptions" WHERE "createdAt" >= ${since} AND "provider" = 'stripe' GROUP BY bucket`,
-        prisma.$queryRaw<DailyCountRow[]>`SELECT date_trunc('day', "createdAt") AS bucket, count(*) AS count FROM "subscriptions" WHERE "createdAt" >= ${since} AND "provider" = 'crypto' GROUP BY bucket`,
+        prisma.$queryRaw<DailyCountRow[]>`SELECT date_trunc('day', "createdAt") AS bucket, count(*) AS count FROM "subscriptions" WHERE "createdAt" >= ${since} AND "provider" = 'stripe' AND NOT EXISTS (SELECT 1 FROM users u WHERE u.id = "subscriptions"."userId" AND u."isAdmin" = true) GROUP BY bucket`,
+        prisma.$queryRaw<DailyCountRow[]>`SELECT date_trunc('day', "createdAt") AS bucket, count(*) AS count FROM "subscriptions" WHERE "createdAt" >= ${since} AND "provider" = 'crypto' AND NOT EXISTS (SELECT 1 FROM users u WHERE u.id = "subscriptions"."userId" AND u."isAdmin" = true) GROUP BY bucket`,
         prisma.subscription.findMany({
-            where: { status: { in: ["active", "trialing"] } },
+            where: { status: { in: ["active", "trialing"] }, NOT: { user: { isAdmin: true } } },
             select: { product: true, tier: true, seats: true },
         }),
     ])

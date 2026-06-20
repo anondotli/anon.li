@@ -28,22 +28,22 @@ const serverEnvSchema = z.object({
     // servers entirely.
     R2_PUBLIC_ENDPOINT: z.string().url("R2_PUBLIC_ENDPOINT must be a valid URL"),
 
-    // Rate Limiting (Upstash Redis) - Required in production
-    UPSTASH_REDIS_REST_URL: z.string().optional(),
-    UPSTASH_REDIS_REST_TOKEN: z.string().optional(),
+    // Rate Limiting (Upstash Redis)
+    UPSTASH_REDIS_REST_URL: z.string().min(1, "UPSTASH_REDIS_REST_URL is required"),
+    UPSTASH_REDIS_REST_TOKEN: z.string().min(1, "UPSTASH_REDIS_REST_TOKEN is required"),
 
     // Cron Protection
     CRON_SECRET: z.string().min(1, "CRON_SECRET is required"),
 
     // Abuse Reporting
     IP_HASH_PEPPER: z.string().min(1, "IP_HASH_PEPPER is required"),
-    REPORT_ENCRYPTION_KEY: z.string().optional(),
+    REPORT_ENCRYPTION_KEY: z.string().min(1, "REPORT_ENCRYPTION_KEY is required"),
 
     // DKIM Key Encryption
-    DKIM_ENCRYPTION_KEY: z.string().optional(),
+    DKIM_ENCRYPTION_KEY: z.string().min(1, "DKIM_ENCRYPTION_KEY is required"),
 
     // Turnstile
-    TURNSTILE_SECRET_KEY: z.string().optional(),
+    TURNSTILE_SECRET_KEY: z.string().min(1, "TURNSTILE_SECRET_KEY is required"),
 
     // OAuth (optional)
     AUTH_GITHUB_ID: z.string().optional(),
@@ -80,15 +80,16 @@ const serverEnvSchema = z.object({
     // DKIM key file path (alternative to database-stored keys)
     DKIM_KEY_PATH: z.string().optional(),
 
-    // Analytics (used in proxy.ts for CSP connect-src)
-    NEXT_PUBLIC_UMAMI_API_URL: z.string().optional(),
+    // Analytics & observability — PostHog (optional). The project token is read
+    // from NEXT_PUBLIC_POSTHOG_KEY; this is the server (posthog-node) host.
+    POSTHOG_HOST: z.string().optional(),
 });
 
 const clientEnvSchema = z.object({
     NEXT_PUBLIC_APP_URL: z.string().min(1, "NEXT_PUBLIC_APP_URL is required"),
-    NEXT_PUBLIC_TURNSTILE_SITE_KEY: z.string().optional(),
-    NEXT_PUBLIC_UMAMI_WEBSITE_ID: z.string().optional(),
-    NEXT_PUBLIC_UMAMI_URL: z.string().optional(),
+    NEXT_PUBLIC_TURNSTILE_SITE_KEY: z.string().min(1, "NEXT_PUBLIC_TURNSTILE_SITE_KEY is required"),
+    NEXT_PUBLIC_POSTHOG_KEY: z.string().optional(),
+    NEXT_PUBLIC_POSTHOG_HOST: z.string().optional(),
 });
 
 type ServerEnv = z.infer<typeof serverEnvSchema>;
@@ -111,30 +112,6 @@ export function validateServerEnv(): ServerEnv {
         );
     }
 
-    // Additional production-only validations
-    if (process.env.NODE_ENV === "production") {
-        if (!result.data.UPSTASH_REDIS_REST_URL || !result.data.UPSTASH_REDIS_REST_TOKEN) {
-            throw new Error(
-                "❌ Rate limiting (Upstash Redis) is required in production.\n" +
-                "Set UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN."
-            );
-        }
-
-        if (!process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || !result.data.TURNSTILE_SECRET_KEY) {
-            throw new Error(
-                "❌ Turnstile keys are required in production.\n" +
-                "Set NEXT_PUBLIC_TURNSTILE_SITE_KEY and TURNSTILE_SECRET_KEY."
-            );
-        }
-
-        if (!result.data.REPORT_ENCRYPTION_KEY) {
-            throw new Error(
-                "❌ REPORT_ENCRYPTION_KEY is required in production.\n" +
-                "Report decryption keys must be encrypted at rest."
-            );
-        }
-    }
-
     return result.data;
 }
 
@@ -145,8 +122,8 @@ export function validateClientEnv(): ClientEnv {
     const result = clientEnvSchema.safeParse({
         NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
         NEXT_PUBLIC_TURNSTILE_SITE_KEY: process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY,
-        NEXT_PUBLIC_UMAMI_WEBSITE_ID: process.env.NEXT_PUBLIC_UMAMI_WEBSITE_ID,
-        NEXT_PUBLIC_UMAMI_URL: process.env.NEXT_PUBLIC_UMAMI_URL,
+        NEXT_PUBLIC_POSTHOG_KEY: process.env.NEXT_PUBLIC_POSTHOG_KEY,
+        NEXT_PUBLIC_POSTHOG_HOST: process.env.NEXT_PUBLIC_POSTHOG_HOST,
     });
 
     if (!result.success) {

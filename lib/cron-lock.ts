@@ -10,9 +10,6 @@ const logger = createLogger("CronLock");
  * TTL is a safety net in case the worker crashes mid-run.
  *
  * Uses Upstash `SET key value NX EX ttl` — atomic acquire with expiration.
- *
- * If Redis is unavailable (dev without Upstash env vars), runs `fn`
- * unlocked so local development still works.
  */
 export async function withCronLock<T>(
   name: string,
@@ -21,11 +18,6 @@ export async function withCronLock<T>(
 ): Promise<T | null> {
   const key = `cron-lock:${name}`;
   const token = `${process.pid}-${Date.now()}-${crypto.randomUUID()}`;
-
-  if (!redis) {
-    logger.warn("Redis unavailable, running cron without lock", { name });
-    return await fn();
-  }
 
   // SET NX EX — only succeeds if the key does not exist
   let acquired: string | null = null

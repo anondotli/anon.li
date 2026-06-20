@@ -2,19 +2,8 @@ import { createLogger } from "@/lib/logger";
 
 const logger = createLogger("Turnstile");
 
-function isTurnstileEnabled(): boolean {
-    return Boolean(process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY);
-}
-
 export async function validateTurnstileToken(token: string): Promise<boolean> {
-    const secretKey = process.env.TURNSTILE_SECRET_KEY;
-
-    // Fail closed: if no secret key is configured, reject all requests
-    // This is secure by default - configure TURNSTILE_SECRET_KEY in production
-    if (!secretKey) {
-        logger.error("TURNSTILE_SECRET_KEY is not set, rejecting request");
-        return false;
-    }
+    const secretKey = process.env.TURNSTILE_SECRET_KEY!;
 
     try {
         const formData = new FormData();
@@ -36,10 +25,6 @@ export async function validateTurnstileToken(token: string): Promise<boolean> {
 }
 
 export async function getTurnstileError(token: string | null | undefined): Promise<string | null> {
-    if (!isTurnstileEnabled()) {
-        return null;
-    }
-
     if (!token) {
         return "Verification required. Please complete the challenge.";
     }

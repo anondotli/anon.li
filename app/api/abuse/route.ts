@@ -65,21 +65,19 @@ export async function POST(req: Request) {
 
         const data = parsed.data;
 
-        // Enforce Turnstile verification when configured
-        if (process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY) {
-            if (!data.turnstileToken) {
-                return NextResponse.json(
-                    { error: "Verification required. Please complete the challenge." },
-                    { status: 400 }
-                );
-            }
-            const isValidToken = await validateTurnstileToken(data.turnstileToken);
-            if (!isValidToken) {
-                return NextResponse.json(
-                    { error: "Bot verification failed. Please try again." },
-                    { status: 400 }
-                );
-            }
+        // Enforce Turnstile verification
+        if (!data.turnstileToken) {
+            return NextResponse.json(
+                { error: "Verification required. Please complete the challenge." },
+                { status: 400 }
+            );
+        }
+        const isValidToken = await validateTurnstileToken(data.turnstileToken);
+        if (!isValidToken) {
+            return NextResponse.json(
+                { error: "Bot verification failed. Please try again." },
+                { status: 400 }
+            );
         }
 
         // Sanitize and normalize the resource ID
@@ -180,13 +178,6 @@ export async function POST(req: Request) {
         let storedDecryptionKey = data.serviceType === "drop" ? data.decryptionKey : null;
         let decryptionKeyEncrypted = false;
         if (storedDecryptionKey) {
-            if (!process.env.REPORT_ENCRYPTION_KEY) {
-                logger.error("REPORT_ENCRYPTION_KEY not set — refusing to store decryption key in plaintext");
-                return NextResponse.json(
-                    { error: "Failed to submit report. Please try again later." },
-                    { status: 500 }
-                );
-            }
             storedDecryptionKey = encryptReportKey(storedDecryptionKey);
             decryptionKeyEncrypted = true;
         }

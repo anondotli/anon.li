@@ -19,24 +19,17 @@ const EXCLUDED_EMAILS = [
 
 let redis: Redis | null = null;
 
-function getRedis(): Redis | null {
+function getRedis(): Redis {
     if (redis) return redis;
-    if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
-        redis = new Redis({
-            url: process.env.UPSTASH_REDIS_REST_URL,
-            token: process.env.UPSTASH_REDIS_REST_TOKEN,
-        });
-    }
+    redis = new Redis({
+        url: process.env.UPSTASH_REDIS_REST_URL!,
+        token: process.env.UPSTASH_REDIS_REST_TOKEN!,
+    });
     return redis;
 }
 
 export async function handleHeavyUserUpsellCron(): Promise<{ sent: number; skipped: number; errors: number }> {
     const redisClient = getRedis();
-    if (!redisClient) {
-        logger.warn("Redis unavailable - skipping heavy-user upsell cron to prevent duplicates");
-        return { sent: 0, skipped: 0, errors: 0 };
-    }
-
     const candidates = await getHeavyFreeUsers({
         minAliases: MIN_ALIASES,
         minEmailsForwarded: MIN_EMAILS_FORWARDED,

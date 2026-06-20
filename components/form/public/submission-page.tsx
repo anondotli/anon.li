@@ -24,7 +24,7 @@ import { OneQuestionFlow } from "./one-question-flow"
 import { ClassicFlow } from "./classic-flow"
 import { Notice } from "./notice"
 
-const turnstileSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY
+const turnstileSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY!
 
 interface PublicFormData {
     id: string
@@ -74,7 +74,6 @@ export function FormSubmissionPage({ form }: Props) {
     const [customKeyProof, setCustomKeyProof] = useState<string | null>(null)
     const isClosed = !form.active || (form.closesAt && form.closesAt.getTime() < initialNow)
     const isPasswordProtected = form.customKey && !unlocked
-    const turnstileRequired = Boolean(turnstileSiteKey)
     const submitting = view.state === "submitting" || view.state === "uploading"
     const onActiveQuestions = phase.kind === "questions" && !isClosed && !isPasswordProtected
 
@@ -106,7 +105,7 @@ export function FormSubmissionPage({ form }: Props) {
         setFieldErrors({})
 
         const tokenForSubmit = verifiedTurnstileToken ?? turnstileToken
-        if (turnstileRequired && !tokenForSubmit) {
+        if (!tokenForSubmit) {
             setTurnstileRequested(true)
             setView((current) => current.state === "error" ? { state: "idle" } : current)
             return
@@ -190,7 +189,7 @@ export function FormSubmissionPage({ form }: Props) {
             })
             if (!res.ok) {
                 const body = await res.json().catch(() => ({}))
-                if (turnstileRequired) resetTurnstile()
+                resetTurnstile()
                 throw new Error(body.error?.message ?? body.error ?? `Submission failed (${res.status})`)
             }
             setView({ state: "idle" })
@@ -207,7 +206,6 @@ export function FormSubmissionPage({ form }: Props) {
         form.schema,
         customKeyProof,
         turnstileToken,
-        turnstileRequired,
         resetTurnstile,
     ])
 
@@ -282,7 +280,6 @@ export function FormSubmissionPage({ form }: Props) {
                         <FocusedFooter
                             isLast={isLast}
                             view={view}
-                            turnstileRequired={turnstileRequired}
                             turnstileRequested={turnstileRequested}
                             turnstileRenderKey={turnstileRenderKey}
                             onVerify={handleTurnstileVerify}
@@ -305,7 +302,6 @@ export function FormSubmissionPage({ form }: Props) {
                             schema={form.schema}
                             view={view}
                             disabled={submitting}
-                            turnstileRequired={turnstileRequired}
                             turnstileRequested={turnstileRequested}
                             turnstileToken={turnstileToken}
                             turnstileRenderKey={turnstileRenderKey}
@@ -431,7 +427,6 @@ function mimeAllowed(mimeType: string, accepted?: Extract<FormField, { type: "fi
 interface FocusedFooterProps {
     isLast: boolean
     view: View
-    turnstileRequired: boolean
     turnstileRequested: boolean
     turnstileRenderKey: number
     onVerify: (token: string) => void
@@ -442,7 +437,6 @@ interface FocusedFooterProps {
 function FocusedFooter({
     isLast,
     view,
-    turnstileRequired,
     turnstileRequested,
     turnstileRenderKey,
     onVerify,
@@ -464,10 +458,10 @@ function FocusedFooter({
                     Encrypting…
                 </div>
             ) : null}
-            {isLast && turnstileRequired && turnstileRequested ? (
+            {isLast && turnstileRequested ? (
                 <Turnstile
                     key={turnstileRenderKey}
-                    siteKey={turnstileSiteKey!}
+                    siteKey={turnstileSiteKey}
                     onVerify={onVerify}
                     onError={onTurnstileError}
                     onExpire={onTurnstileExpire}
@@ -485,7 +479,6 @@ interface ClassicFooterProps {
     schema: FormSchemaDoc
     view: View
     disabled: boolean
-    turnstileRequired: boolean
     turnstileRequested: boolean
     turnstileToken: string | null
     turnstileRenderKey: number
@@ -499,7 +492,6 @@ function ClassicFooter({
     schema,
     view,
     disabled,
-    turnstileRequired,
     turnstileRequested,
     turnstileToken,
     turnstileRenderKey,
@@ -508,7 +500,7 @@ function ClassicFooter({
     onTurnstileExpire,
     onSubmit,
 }: ClassicFooterProps) {
-    const submitDisabled = disabled || (turnstileRequired && turnstileRequested && !turnstileToken)
+    const submitDisabled = disabled || (turnstileRequested && !turnstileToken)
     return (
         <div className="space-y-4">
             {view.state === "error" ? (
@@ -518,11 +510,11 @@ function ClassicFooter({
                 </div>
             ) : null}
             {view.state === "uploading" ? <AttachmentProgress progress={view.progress} /> : null}
-            {turnstileRequired && turnstileRequested ? (
+            {turnstileRequested ? (
                 <div className="flex justify-center">
                     <Turnstile
                         key={turnstileRenderKey}
-                        siteKey={turnstileSiteKey!}
+                        siteKey={turnstileSiteKey}
                         onVerify={onVerify}
                         onError={onTurnstileError}
                         onExpire={onTurnstileExpire}

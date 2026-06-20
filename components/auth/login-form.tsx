@@ -13,7 +13,7 @@ import { cn } from "@/lib/utils"
 import { sanitizeAuthCallbackUrl } from "@/lib/safe-callback-url"
 
 const RESEND_COOLDOWN = 60
-const turnstileSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY
+const turnstileSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY!
 
 interface LoginFormProps extends React.HTMLAttributes<HTMLDivElement> {
     mode?: "login" | "register"
@@ -97,7 +97,7 @@ export function LoginForm({
         }
 
         const tokenForSubmit = verifiedTurnstileToken ?? turnstileToken
-        if (turnstileSiteKey && !tokenForSubmit) {
+        if (!tokenForSubmit) {
             setTurnstileRequested(true)
             return
         }
@@ -108,22 +108,16 @@ export function LoginForm({
                 ...(mode === "register" ? { name: getDefaultUserName() } : {}),
                 callbackURL: destination,
                 newUserCallbackURL: destination,
-                ...(turnstileSiteKey
-                    ? {
-                        fetchOptions: {
-                            headers: { "x-captcha-response": tokenForSubmit! },
-                        },
-                    }
-                    : {}),
+                fetchOptions: {
+                    headers: { "x-captcha-response": tokenForSubmit },
+                },
             })
 
             if (result.error) {
                 throw new Error(mapAuthError(result.error))
             }
         } finally {
-            if (turnstileSiteKey) {
-                resetTurnstile()
-            }
+            resetTurnstile()
         }
 
         if (mode === "register") {
@@ -162,7 +156,7 @@ export function LoginForm({
     }
 
     const hasEmail = email.trim().length > 0
-    const showTurnstile = !!turnstileSiteKey && hasEmail && turnstileRequested
+    const showTurnstile = hasEmail && turnstileRequested
     const magicLinkDisabled = isLoading || !!providerLoading || (showTurnstile && !turnstileToken)
 
     const handleNoticeResend = async () => {
@@ -205,7 +199,7 @@ export function LoginForm({
                     </div>
                 )}
 
-                {turnstileSiteKey && turnstileRequested && (
+                {turnstileRequested && (
                     <Turnstile
                         key={`notice-${turnstileRenderKey}`}
                         siteKey={turnstileSiteKey}
@@ -219,7 +213,7 @@ export function LoginForm({
                     variant="outline"
                     size="sm"
                     onClick={() => void handleNoticeResend()}
-                    disabled={isLoading || resendCooldown > 0 || (!!turnstileSiteKey && turnstileRequested && !turnstileToken)}
+                    disabled={isLoading || resendCooldown > 0 || (turnstileRequested && !turnstileToken)}
                     className="mx-auto gap-2"
                 >
                     <RotateCw className="h-3.5 w-3.5" />
@@ -280,7 +274,7 @@ export function LoginForm({
                 {showTurnstile && (
                     <Turnstile
                         key={`form-${turnstileRenderKey}`}
-                        siteKey={turnstileSiteKey!}
+                        siteKey={turnstileSiteKey}
                         onVerify={handleTurnstileVerify}
                         onError={resetTurnstile}
                         onExpire={() => setTurnstileToken(null)}

@@ -14,6 +14,15 @@ import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from "vite
 
 // ─── Stripe webhook dual-write + retry tests ────────────────────────────
 
+vi.mock("@/lib/posthog.server", () => ({
+    captureServerEvent: vi.fn(),
+    flushPostHog: vi.fn(),
+}))
+vi.mock("next/server", async (importOriginal) => {
+    const actual = await importOriginal<typeof import("next/server")>()
+    return { ...actual, after: (fn: () => unknown) => { void fn() } }
+})
+
 vi.mock("@/lib/stripe", () => ({
     stripe: {
         webhooks: { constructEvent: vi.fn() },

@@ -4,6 +4,14 @@ import { prisma } from '@/lib/prisma'
 import { POST } from './route'
 
 // Mock modules BEFORE imports that use them
+vi.mock('@/lib/posthog.server', () => ({
+    captureServerEvent: vi.fn(),
+    flushPostHog: vi.fn(),
+}))
+vi.mock('next/server', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('next/server')>()
+    return { ...actual, after: (fn: () => unknown) => { void fn() } }
+})
 vi.mock('@/lib/stripe', () => ({
     stripe: {
         webhooks: {

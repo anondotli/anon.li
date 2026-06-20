@@ -140,6 +140,20 @@ export function withPolicy<TRouteContext = void>(policy: RoutePolicy, handler: P
         const require2FA = policy.require2FA ?? true
 
         try {
+            // Defense-in-depth: an API-key-capable route with neither a monthly
+            // apiQuota nor a per-request rateLimit would be unthrottled. Today every
+            // such route sets one or both; warn loudly on any future regression
+            // instead of silently shipping unmetered API access.
+            if (
+                (policy.auth === "api_key" || policy.auth === "api_key_or_session" || policy.auth === "optional_api_key_or_session") &&
+                !policy.apiQuota &&
+                !policy.rateLimit
+            ) {
+                logger.warn("API-key route has neither apiQuota nor rateLimit; request is unthrottled", {
+                    path: new URL(request.url).pathname,
+                })
+            }
+
             let userId: string | null = null
             let user: PolicyContext["user"] = null
             let apiKeyId: string | undefined

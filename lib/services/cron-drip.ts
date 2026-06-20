@@ -33,24 +33,17 @@ const STAGES: DripStage[] = [
 
 let redis: Redis | null = null;
 
-function getRedis(): Redis | null {
+function getRedis(): Redis {
     if (redis) return redis;
-    if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
-        redis = new Redis({
-            url: process.env.UPSTASH_REDIS_REST_URL,
-            token: process.env.UPSTASH_REDIS_REST_TOKEN,
-        });
-    }
+    redis = new Redis({
+        url: process.env.UPSTASH_REDIS_REST_URL!,
+        token: process.env.UPSTASH_REDIS_REST_TOKEN!,
+    });
     return redis;
 }
 
 export async function handleDripCron(): Promise<Record<string, { sent: number; skipped: number; errors: number }>> {
     const redisClient = getRedis();
-    if (!redisClient) {
-        logger.warn("Redis unavailable - skipping drip cron to prevent duplicates");
-        return {};
-    }
-
     const results: Record<string, { sent: number; skipped: number; errors: number }> = {};
 
     for (const stage of STAGES) {

@@ -7,24 +7,23 @@ import {
 } from "@/lib/data/user"
 import { prisma } from "@/lib/prisma"
 import { stripe } from "@/lib/stripe"
-import { NextResponse } from "next/server"
+import { NextResponse, after } from "next/server"
 import { Redis } from "@upstash/redis"
 import { createLogger } from "@/lib/logger"
 import { SUBSCRIPTION_GRACE_PERIOD_DAYS, DOWNGRADE_SCHEDULING_DELAY_DAYS, DOWNGRADE_DELETION_DELAY_DAYS } from "@/lib/constants"
 import { upsertStripeSubscription } from "@/lib/services/subscription-sync"
+import { captureServerEvent, flushPostHog } from "@/lib/posthog.server"
 
 const logger = createLogger("StripeWebhook");
 
 // Lazy Redis initialization to support testing with environment variables set after import
 let redis: Redis | null = null
-function getRedis(): Redis | null {
+function getRedis(): Redis {
     if (redis) return redis
-    if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
-        redis = new Redis({
-            url: process.env.UPSTASH_REDIS_REST_URL,
-            token: process.env.UPSTASH_REDIS_REST_TOKEN,
-        })
-    }
+    redis = new Redis({
+        url: process.env.UPSTASH_REDIS_REST_URL!,
+        token: process.env.UPSTASH_REDIS_REST_TOKEN!,
+    })
     return redis
 }
 
@@ -37,8 +36,6 @@ function getRedis(): Redis | null {
  */
 async function tryClaimEvent(eventId: string): Promise<boolean> {
     const redisClient = getRedis()
-    if (!redisClient) return true // No Redis = process optimistically
-
     const eventKey = `stripe:event:${eventId}`
     // SET NX with 5-minute TTL: atomic claim that auto-expires on failure
     const claimed = await redisClient.set(eventKey, "processing", { nx: true, ex: 300 })
@@ -51,8 +48,6 @@ async function tryClaimEvent(eventId: string): Promise<boolean> {
  */
 async function markEventProcessed(eventId: string): Promise<void> {
     const redisClient = getRedis()
-    if (!redisClient) return
-
     const eventKey = `stripe:event:${eventId}`
     await redisClient.set(eventKey, "done", { ex: 86400 * 7 })
 }
@@ -63,8 +58,6 @@ async function markEventProcessed(eventId: string): Promise<void> {
  */
 async function releaseEventClaim(eventId: string): Promise<void> {
     const redisClient = getRedis()
-    if (!redisClient) return
-
     const eventKey = `stripe:event:${eventId}`
     await redisClient.del(eventKey)
 }
@@ -265,6 +258,17 @@ async function handleCheckoutSessionCompleted(event: Stripe.Event): Promise<void
     // Cancel any active downgrade since user just subscribed
     const { BillingDowngradeService } = await import("@/lib/services/billing-downgrade")
     await BillingDowngradeService.cancelDowngrade(userId)
+
+    // Authoritative, ad-blocker-proof revenue event (server-side).
+    const activatedPrice = subscription.items?.data?.[0]?.price
+    captureServerEvent(userId, "subscription_activated", {
+        provider: "stripe",
+        price_id: priceId,
+        amount: activatedPrice?.unit_amount != null ? activatedPrice.unit_amount / 100 : undefined,
+        currency: activatedPrice?.currency,
+        frequency: activatedPrice?.recurring?.interval,
+    })
+    after(() => flushPostHog())
 }
 
 /** Sync subscription state on successful payment (renewal or retry). */

@@ -18,7 +18,7 @@ export type ApiQuotaType = "alias" | "drop" | "form"
 
 type UserSubscription = UserSub
 
-type LimiterMap = { free: Ratelimit | null, plus: Ratelimit | null, pro: Ratelimit | null }
+type LimiterMap = { free: Ratelimit, plus: Ratelimit, pro: Ratelimit }
 type QuotaLimitConfig = Record<string, { apiRequests: number }>
 type QuotaConfig = { limits: QuotaLimitConfig; limiters: LimiterMap }
 
@@ -67,10 +67,6 @@ async function checkTieredQuota(
     }
 
     const limiter = limiterMap[tier]
-    if (!limiter) {
-        return { success: true, limit, remaining: limit, reset: new Date() }
-    }
-
     const result = await limiter.limit(userId)
     return {
         success: result.success,
@@ -98,10 +94,6 @@ async function readTieredQuota(
     }
 
     const limiter = limiterMap[tier]
-    if (!limiter) {
-        return { success: true, limit, remaining: limit, reset: new Date() }
-    }
-
     const result = await limiter.getRemaining(userId)
     return {
         success: result.remaining > 0,

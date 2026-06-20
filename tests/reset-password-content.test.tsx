@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import type * as React from "react"
 
@@ -16,8 +16,6 @@ const authMocks = vi.hoisted(() => ({
 const actionMocks = vi.hoisted(() => ({
     requestPasswordResetAction: vi.fn(),
 }))
-
-const originalTurnstileSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY
 
 vi.mock("next/navigation", () => ({
     useSearchParams: navigationMocks.useSearchParams,
@@ -54,7 +52,6 @@ vi.mock("@/components/ui/turnstile", () => ({
 }))
 
 beforeEach(() => {
-    delete process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY
     vi.resetModules()
     navigationMocks.useSearchParams.mockReturnValue(new URLSearchParams())
     authMocks.resetPassword.mockResolvedValue({ data: {}, error: null })
@@ -64,14 +61,6 @@ beforeEach(() => {
 afterEach(() => {
     cleanup()
     vi.clearAllMocks()
-})
-
-afterAll(() => {
-    if (originalTurnstileSiteKey === undefined) {
-        delete process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY
-    } else {
-        process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY = originalTurnstileSiteKey
-    }
 })
 
 describe("ResetPasswordContent", () => {
@@ -88,9 +77,10 @@ describe("ResetPasswordContent", () => {
             target: { value: " user@example.com " },
         })
         fireEvent.click(screen.getByRole("button", { name: "Send reset link" }))
+        fireEvent.click(screen.getByRole("button", { name: "Complete captcha" }))
 
         await waitFor(() => {
-            expect(actionMocks.requestPasswordResetAction).toHaveBeenCalledWith("user@example.com")
+            expect(actionMocks.requestPasswordResetAction).toHaveBeenCalledWith("user@example.com", "captcha-token")
         })
 
         expect(authMocks.resetPassword).not.toHaveBeenCalled()

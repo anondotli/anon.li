@@ -1,25 +1,15 @@
 /**
- * Client-side analytics event tracking via Umami.
- * Safe to call server-side (no-ops gracefully).
+ * Client-side analytics event tracking via PostHog.
+ * Safe to call server-side (no-ops gracefully). The public `analytics` API is
+ * unchanged from the previous Umami implementation — only the transport moved.
  */
 
-declare global {
-    interface Window {
-        umami?: {
-            track: (event: string, data?: Record<string, string | number>) => void
-        }
-    }
-}
+import posthog from "posthog-js"
 
 function trackEvent(event: string, data?: Record<string, string | number>) {
-    if (typeof window !== "undefined" && window.umami) {
-        if (data) {
-            window.umami.track(event, data)
-            return
-        }
-
-        window.umami.track(event)
-    }
+    if (typeof window === "undefined") return
+    if (!process.env.NEXT_PUBLIC_POSTHOG_KEY) return
+    posthog.capture(event, data)
 }
 
 // ─── Funnel events ─────────────────────────────────────────────────────
@@ -52,6 +42,14 @@ export const analytics = {
     /** Billing: checkout started */
     checkoutStarted: (product: string, tier: string, frequency: string) =>
         trackEvent("checkout_started", { product, tier, frequency }),
+
+    /**
+     * Billing: checkout completed — fired on the success-return page. Measured
+     * client-side (like checkout_started) so the start→complete funnel ratio is
+     * apples-to-apples. `method` is "card" or "crypto".
+     */
+    checkoutCompleted: (method: string) =>
+        trackEvent("checkout_completed", { method }),
 
     /** Auth: registration started */
     registrationStarted: (method: string) =>

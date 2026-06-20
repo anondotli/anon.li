@@ -14,6 +14,7 @@ const revokeUploadTokensMock = vi.fn();
 const resolveTokenUploadAccessMock = vi.fn();
 const validateFormDropFileMock = vi.fn();
 const getTurnstileErrorMock = vi.fn();
+const checkRateLimitMock = vi.fn();
 
 vi.mock("@/auth", () => ({ auth: vi.fn() }));
 vi.mock("@/lib/resend", () => ({
@@ -37,6 +38,7 @@ vi.mock("@/lib/resend", () => ({
 }));
 vi.mock("@/lib/rate-limit", () => ({
     rateLimit: vi.fn().mockResolvedValue(null),
+    checkRateLimit: checkRateLimitMock,
     getClientIp: vi.fn().mockResolvedValue("127.0.0.1"),
     rateLimiters: {},
     monthlyApiLimiters: {
@@ -142,6 +144,7 @@ describe("POST /api/v1/drop guest branch", () => {
             expiresAt: new Date("2026-04-22T00:00:00Z"),
         });
         getTurnstileErrorMock.mockResolvedValue(null);
+        checkRateLimitMock.mockResolvedValue(null);
     });
 
     it("returns an upload_token when no session is present", async () => {
@@ -235,6 +238,21 @@ describe("POST /api/v1/drop guest branch", () => {
         }));
 
         expect(response.status).toBe(400);
+        expect(DropService.createDrop).not.toHaveBeenCalled();
+        expect(issueUploadTokenMock).not.toHaveBeenCalled();
+    });
+
+    it("rejects guest create when the per-IP daily cap is exceeded", async () => {
+        (auth as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+        const { NextResponse } = await import("next/server");
+        checkRateLimitMock.mockResolvedValueOnce(
+            NextResponse.json({ error: "Too many requests" }, { status: 429 }),
+        );
+
+        const { POST } = await import("@/app/api/v1/drop/route");
+        const response = await POST(makeRequest(validDropBody));
+
+        expect(response.status).toBe(429);
         expect(DropService.createDrop).not.toHaveBeenCalled();
         expect(issueUploadTokenMock).not.toHaveBeenCalled();
     });

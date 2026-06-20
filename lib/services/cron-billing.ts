@@ -6,14 +6,12 @@ const logger = createLogger("CronBilling");
 
 let redis: Redis | null = null;
 
-function getRedis(): Redis | null {
+function getRedis(): Redis {
     if (redis) return redis;
-    if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
-        redis = new Redis({
-            url: process.env.UPSTASH_REDIS_REST_URL,
-            token: process.env.UPSTASH_REDIS_REST_TOKEN,
-        });
-    }
+    redis = new Redis({
+        url: process.env.UPSTASH_REDIS_REST_URL!,
+        token: process.env.UPSTASH_REDIS_REST_TOKEN!,
+    });
     return redis;
 }
 
@@ -38,15 +36,10 @@ export async function handleBillingCron() {
  * whose period has lapsed, so a dropped payment_failed/subscription.deleted event
  * can't leave a permanently-"active" row (inflating MRR, lingering past renewal).
  *
- * Gated on STRIPE_SECRET_KEY because the Stripe client throws at construction
- * without it — skip cleanly in environments where billing isn't configured rather
- * than failing the whole billing cron. Errors are swallowed so the sibling
- * scheduling/deletion/reminder results are never lost to a Stripe outage.
+ * Errors are swallowed so the sibling scheduling/deletion/reminder results are
+ * never lost to a Stripe outage.
  */
 async function reconcileSubscriptions() {
-    if (!process.env.STRIPE_SECRET_KEY) {
-        return { skipped: "stripe-not-configured" as const };
-    }
     try {
         const { reconcileStaleStripeSubscriptions } = await import("@/lib/services/subscription-sync");
         return await reconcileStaleStripeSubscriptions();
@@ -82,11 +75,6 @@ async function processCryptoRenewalReminders(): Promise<{ sent: number; errors: 
                 : null;
 
         if (!reminderKey) continue;
-
-        if (!redisClient) {
-            logger.warn("Redis unavailable - skipping crypto renewal reminders to prevent duplicates");
-            break;
-        }
 
         let alreadySent: string | null = null;
         try {

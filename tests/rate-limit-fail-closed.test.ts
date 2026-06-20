@@ -28,8 +28,4 @@ describe("checkRateLimit behavior on Redis outage", () => {
         expect(result).not.toBeNull()
         expect(result!.status).toBe(503)
     })
-
-    it("does not throw when the limiter is not configured (no Redis)", async () => {
-        await expect(checkRateLimit(null, "ip:1.2.3.4", true)).resolves.toBeNull()
-    })
 })

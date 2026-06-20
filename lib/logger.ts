@@ -60,7 +60,7 @@ function sanitizeUrl(str: string): string {
 /**
  * Sanitize a string value by redacting tokens, email addresses, and URL params
  */
-function sanitizeString(str: string): string {
+export function sanitizeString(str: string): string {
     // Redact long base64/hex-like tokens
     if (str.length > 20 && /^[A-Za-z0-9+/=_-]+$/.test(str)) {
         return "[REDACTED]";
@@ -79,7 +79,7 @@ function sanitizeString(str: string): string {
     return str;
 }
 
-function sanitizeObject(obj: unknown, depth = 0): unknown {
+export function sanitizeObject(obj: unknown, depth = 0): unknown {
     // Prevent infinite recursion
     if (depth > 10) return "[MAX_DEPTH]";
 
@@ -267,6 +267,17 @@ function logWarn(context: string, message: string, data?: unknown): void {
 }
 
 /**
+ * Optional sink for error logs (e.g. PostHog). Registered at startup by
+ * lib/posthog.server.ts so the logger carries no static import of the telemetry
+ * SDK and no telemetry is wired in environments that don't configure it.
+ */
+type ErrorSink = (context: string, message: string, error?: unknown, data?: unknown) => void;
+let errorSink: ErrorSink | null = null;
+export function setErrorSink(sink: ErrorSink | null): void {
+    errorSink = sink;
+}
+
+/**
  * Log an error with sanitized data
  * 
  * @example
@@ -274,6 +285,13 @@ function logWarn(context: string, message: string, data?: unknown): void {
  */
 export function logError(context: string, message: string, error?: unknown, data?: unknown): void {
     log(createLogEntry("error", context, message, data, error));
+    if (errorSink) {
+        try {
+            errorSink(context, message, error, data);
+        } catch {
+            // Never let telemetry failures break logging.
+        }
+    }
 }
 
 /**

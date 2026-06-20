@@ -17,6 +17,7 @@ import {
 } from "@/lib/drop.actions.guest";
 import type { UpgradeRequiredDetails } from "@/lib/api-error-utils";
 import { DROP_FEATURES, PLAN_ENTITLEMENTS } from "@/config/plans";
+import { DROP_PASSWORD_MIN_LENGTH } from "@/lib/constants";
 import { extractStoredKeyMaterial } from "@/lib/vault/crypto";
 import { upsertCachedWrappedDropKey } from "@/lib/vault/drop-keys-client";
 import { useOptionalVault } from "@/components/vault/vault-provider";
@@ -196,7 +197,7 @@ export function useDropUpload({
             let customKeyData: string | undefined;
             let customKeyIv: string | undefined;
 
-            if (options.password && options.password.length >= 8) {
+            if (options.password && options.password.length >= DROP_PASSWORD_MIN_LENGTH) {
                 const protection = await cryptoService.encryptKeyWithPassword(keyString, options.password);
                 customKey = true;
                 salt = protection.salt;

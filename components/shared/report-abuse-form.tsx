@@ -31,7 +31,7 @@ interface ReportFormData {
     decryptionKey?: string;
 }
 
-const turnstileSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
+const turnstileSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY!;
 export function ReportAbuseForm() {
     const searchParams = useSearchParams();
     const [formData, setFormData] = useState<ReportFormData>({
@@ -91,7 +91,7 @@ export function ReportAbuseForm() {
         }
 
         const tokenForSubmit = verifiedTurnstileToken ?? turnstileToken;
-        if (turnstileSiteKey && !tokenForSubmit) {
+        if (!tokenForSubmit) {
             setTurnstileRequested(true);
             return;
         }
@@ -379,7 +379,7 @@ export function ReportAbuseForm() {
                     </div>
 
                     {/* Turnstile */}
-                    {turnstileSiteKey && turnstileRequested && (
+                    {turnstileRequested && (
                         <Turnstile
                             key={turnstileRenderKey}
                             siteKey={turnstileSiteKey}
@@ -399,7 +399,7 @@ export function ReportAbuseForm() {
                         type="submit"
                         className="w-full"
                         size="lg"
-                        disabled={isSubmitting || (!!turnstileSiteKey && turnstileRequested && !turnstileToken)}
+                        disabled={isSubmitting || (turnstileRequested && !turnstileToken)}
                     >
                         {isSubmitting ? (
                             <>

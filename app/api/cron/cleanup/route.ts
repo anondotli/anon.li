@@ -133,6 +133,9 @@ async function runCleanup(): Promise<NextResponse> {
                 expiresAt: true,
                 user: { select: { email: true } },
             },
+            // Bound the scan. At current scale this is effectively the full set;
+            // if a single 24h window ever exceeds this, switch to cursor batching.
+            take: 1000,
         });
 
         let expiringNotificationsSent = 0;

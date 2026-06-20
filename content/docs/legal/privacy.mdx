@@ -35,7 +35,7 @@ We adhere to the principle of data minimization. We only collect the information
 ### 2.4. Technical Data
 
 - **Cookies**: We use only essential, first-party cookies to manage your authenticated session. We do not use third-party tracking or advertising cookies.
-- **Analytics**: We use Umami, a privacy-respecting, cookie-free analytics platform, to understand aggregate usage patterns on non-sensitive marketing and product pages. We do not send identifying values such as drop IDs or custom domains, and Umami is not loaded on Drop upload/download pages, auth pages, dashboard pages, or vault routes.
+- **Analytics & product monitoring**: We use [PostHog](https://posthog.com/) (EU region) to understand aggregate usage and improve the product. PostHog does **not** use cookies (a pseudonymous identifier is stored in your browser's local storage), session replay is **disabled**, and we honor the browser's **Do Not Track** signal. Before any event leaves your browser we strip URL fragments — which carry Drop decryption keys — and filter out resource identifiers; PostHog is never loaded on Drop download, password-reset, recipient-verification, or 2FA pages. After you sign in, events are linked to your account by an internal id only — never your email.
 - **IP Addresses**: We may process IP addresses for security purposes (rate limiting, fraud prevention, DDoS protection) but do not link them to your identity for tracking purposes.
 - **Session Metadata**: Active login sessions include device metadata such as user agent so you can review and manage signed-in devices from your dashboard. We do not store IP addresses in session records.
 
@@ -61,7 +61,7 @@ We share data only with trusted partners necessary for operation. All partners a
 | **Cloudflare** | CDN, DDoS protection, DNS | IP addresses, traffic data | Global |
 | **Cloudflare R2** | Encrypted file storage | Encrypted file data only | Global |
 | **Upstash** | Rate limiting | Anonymized request data | Global |
-| **Umami** | Privacy-respecting analytics | Page views, anonymized usage data (no cookies, no PII) | EU/USA |
+| **PostHog** | Product analytics & error monitoring | Pseudonymous usage events & sanitized error reports (no cookies, no session replay, no Drop keys/PII) | EU |
 
 ## 5. Data Retention
 
@@ -110,7 +110,7 @@ Your information may be processed in countries other than your own, primarily th
 
 ## 10. Do Not Track
 
-We do not track users across third-party websites and do not engage in behavioral tracking or targeted advertising. Our analytics provider (Umami) is privacy-respecting and does not use cookies. We do not currently vary application behavior based on browser Do Not Track headers.
+We do not track users across third-party websites and do not engage in behavioral tracking or targeted advertising. Our analytics provider (PostHog, EU region) does not use cookies, and analytics honor your browser's Do Not Track setting.
 
 ## 11. Changes to This Policy
 

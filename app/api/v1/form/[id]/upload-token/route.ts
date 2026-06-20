@@ -72,7 +72,7 @@ export const POST = withPolicy<RouteParams>(
         if (form.closesAt && form.closesAt.getTime() < Date.now()) {
             return apiError("Form has closed", ErrorCodes.FORBIDDEN, ctx.requestId, 403)
         }
-        if (!ctx.userId && process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY) {
+        if (!ctx.userId) {
             if (!parsed.data.turnstileToken) {
                 return apiError("Verification required", ErrorCodes.VALIDATION_ERROR, ctx.requestId, 400)
             }

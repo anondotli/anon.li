@@ -29,7 +29,7 @@ export default async function SettingsPage() {
     if (!user) redirect("/login")
 
     const referral = await getReferralStats(session.user.id)
-    const referralLink = `${process.env.NEXT_PUBLIC_APP_URL ?? ""}/?ref=${referral.code}`
+    const referralLink = `${process.env.NEXT_PUBLIC_APP_URL}/?ref=${referral.code}`
 
     const cookieStore = await cookies()
     const currentSessionToken = cookieStore.get("better-auth.session_token")?.value?.split(".")[0] ?? ""

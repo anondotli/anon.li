@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server"
+import { NextResponse, after } from "next/server"
 import { getUserBillingState } from "@/lib/data/user"
 import { prisma } from "@/lib/prisma"
 import { NOWPaymentsClient } from "@/lib/nowpayments"
@@ -7,20 +7,19 @@ import { createLogger } from "@/lib/logger"
 import { isValidCryptoProduct, isValidCryptoTier, getCryptoPrice } from "@/lib/crypto-prices"
 import type { CryptoProduct, CryptoTier } from "@/lib/crypto-prices"
 import { createCryptoSubscription } from "@/lib/services/subscription-sync"
+import { captureServerEvent, flushPostHog } from "@/lib/posthog.server"
 import { Prisma } from "@prisma/client"
 
 const logger = createLogger("NOWPaymentsWebhook")
 
 // Lazy Redis initialization (mirrors Stripe webhook pattern)
 let redis: Redis | null = null
-function getRedis(): Redis | null {
+function getRedis(): Redis {
     if (redis) return redis
-    if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
-        redis = new Redis({
-            url: process.env.UPSTASH_REDIS_REST_URL,
-            token: process.env.UPSTASH_REDIS_REST_TOKEN,
-        })
-    }
+    redis = new Redis({
+        url: process.env.UPSTASH_REDIS_REST_URL!,
+        token: process.env.UPSTASH_REDIS_REST_TOKEN!,
+    })
     return redis
 }
 
@@ -36,8 +35,6 @@ const SUCCESS_STATUSES = new Set(["finished", "confirmed", "sending"])
  */
 async function tryClaimIPN(paymentId: string, status: string): Promise<boolean> {
     const redisClient = getRedis()
-    if (!redisClient) return true
-
     const key = `nowpay:ipn:${paymentId}:${status}`
     const claimed = await redisClient.set(key, "processing", { nx: true, ex: 300 })
     return claimed !== null
@@ -48,8 +45,6 @@ async function tryClaimIPN(paymentId: string, status: string): Promise<boolean> 
  */
 async function markIPNProcessed(paymentId: string, status: string): Promise<void> {
     const redisClient = getRedis()
-    if (!redisClient) return
-
     const key = `nowpay:ipn:${paymentId}:${status}`
     await redisClient.set(key, "done", { ex: 86400 * 7 })
 }
@@ -59,8 +54,6 @@ async function markIPNProcessed(paymentId: string, status: string): Promise<void
  */
 async function releaseIPNClaim(paymentId: string, status: string): Promise<void> {
     const redisClient = getRedis()
-    if (!redisClient) return
-
     const key = `nowpay:ipn:${paymentId}:${status}`
     await redisClient.del(key)
 }
@@ -111,6 +104,16 @@ async function postActivationSideEffects(
     } catch (emailError) {
         logger.error("Failed to send crypto confirmation email", emailError)
     }
+
+    // Authoritative, ad-blocker-proof revenue event (server-side).
+    captureServerEvent(payment.userId, "subscription_activated", {
+        provider: "crypto",
+        product: payment.product,
+        tier: payment.tier,
+        frequency: "yearly",
+        amount: payment.priceAmount,
+    })
+    after(() => flushPostHog())
 
     logger.info("Crypto subscription activated", {
         userId: payment.userId,

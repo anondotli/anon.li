@@ -25,7 +25,6 @@ import { getVaultSchemaState } from "@/lib/vault/schema"
 import { MCP_DEFAULT_SCOPE, MCP_OAUTH_SCOPES } from "@/lib/mcp/oauth-metadata"
 
 const ACCOUNT_DELETION_PENDING_MESSAGE = "Account deletion is already in progress for this user."
-const turnstileEnabled = Boolean(process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY)
 
 /**
  * The user who PERFORMED the current request, for org member-lifecycle audit
@@ -51,14 +50,6 @@ async function hasDeletionRequest(userId: string): Promise<boolean> {
 
     return Boolean(request)
 }
-
-const turnstileCaptchaPlugin = turnstileEnabled
-    ? captcha({
-        provider: "cloudflare-turnstile",
-        secretKey: process.env.TURNSTILE_SECRET_KEY ?? "",
-        endpoints: ["/sign-in/magic-link"],
-    })
-    : null
 
 export const auth = betterAuth({
     database: prismaAdapter(prisma, { provider: "postgresql" }),
@@ -116,7 +107,11 @@ export const auth = betterAuth({
                 await sendMagicLinkEmail(email, url, host)
             },
         }),
-        ...(turnstileCaptchaPlugin ? [turnstileCaptchaPlugin] : []),
+        captcha({
+            provider: "cloudflare-turnstile",
+            secretKey: process.env.TURNSTILE_SECRET_KEY!,
+            endpoints: ["/sign-in/magic-link"],
+        }),
         twoFactor({
             issuer: "anon.li",
             backupCodeOptions: { amount: 8, length: 16, storeBackupCodes: "encrypted" },

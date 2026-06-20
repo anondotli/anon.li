@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { useFileDrop } from "@/hooks/use-file-drop";
 import { useDropUpload } from "@/hooks/use-drop-upload";
 import { formatBytes } from "@/lib/format";
+import { DROP_PASSWORD_MIN_LENGTH } from "@/lib/constants";
 import type { UpgradeRequiredDetails } from "@/lib/api-error-utils";
 
 import { Button } from "@/components/ui/button";
@@ -26,7 +27,7 @@ interface FileUploaderProps {
   guest?: boolean;
 }
 
-const turnstileSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
+const turnstileSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY!;
 
 export function FileUploader({ onUploadComplete, userTier, maxStorage, usedStorage, guest = false }: FileUploaderProps) {
   const { droppedFiles, setDroppedFiles } = useFileDrop();
@@ -130,7 +131,7 @@ export function FileUploader({ onUploadComplete, userTier, maxStorage, usedStora
     if (files.length === 0) return;
 
     const tokenForSubmit = verifiedTurnstileToken ?? turnstileToken;
-    if (guest && turnstileSiteKey && !tokenForSubmit) {
+    if (guest && !tokenForSubmit) {
       setTurnstileRequested(true);
       return;
     }
@@ -151,7 +152,7 @@ export function FileUploader({ onUploadComplete, userTier, maxStorage, usedStora
       ...(guest && tokenForSubmit ? { turnstileToken: tokenForSubmit } : {}),
     });
 
-    if (guest && turnstileSiteKey) {
+    if (guest) {
       setTurnstileRequested(false);
       resetTurnstile();
     }
@@ -222,7 +223,7 @@ export function FileUploader({ onUploadComplete, userTier, maxStorage, usedStora
         />
 
         <div className="grid gap-6">
-          {guest && turnstileSiteKey && turnstileRequested && (
+          {guest && turnstileRequested && (
             <Turnstile
               key={turnstileRenderKey}
               siteKey={turnstileSiteKey}
@@ -239,7 +240,7 @@ export function FileUploader({ onUploadComplete, userTier, maxStorage, usedStora
           <Button
             className="w-full h-12 rounded-full text-base font-medium shadow-lg shadow-primary/10 hover:shadow-xl hover:shadow-primary/15 transition-all hover:scale-[1.02]"
             onClick={() => startUpload()}
-            disabled={(config.protectionMode === "password" && config.password.length < 8) || (guest && !!turnstileSiteKey && turnstileRequested && !turnstileToken)}
+            disabled={(config.protectionMode === "password" && config.password.length < DROP_PASSWORD_MIN_LENGTH) || (guest && turnstileRequested && !turnstileToken)}
           >
             <Upload className="w-4 h-4 mr-2" />
             Create Drop

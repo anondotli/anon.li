@@ -80,7 +80,8 @@ export function SuccessView({
         </div>
       </div>
 
-      <div className="flex gap-2">
+      {/* ph-no-capture: the share URL fragment is the Drop key — keep it out of analytics autocapture. */}
+      <div className="flex gap-2 ph-no-capture">
         <Input
           value={shareUrl}
           readOnly
@@ -97,7 +98,7 @@ export function SuccessView({
       </div>
 
       <div className="grid grid-cols-2 gap-3">
-        <Button variant="secondary" className="rounded-full h-11" asChild>
+        <Button variant="secondary" className="rounded-full h-11 ph-no-capture" asChild>
           <a href={mailto}><Mail className="w-4 h-4 mr-2" /> Email link</a>
         </Button>
         <Button variant="outline" className="rounded-full h-11 border-border/50" onClick={onReset}>

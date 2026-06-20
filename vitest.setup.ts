@@ -39,6 +39,16 @@ vi.mock('@/lib/resend', () => ({
 // module load time) gets valid values regardless of import order across test files.
 process.env.NEXT_PUBLIC_APP_URL ??= 'http://localhost:3000'
 process.env.RESEND_API_KEY ??= 're_123456789'
+// Infra/crypto config is required in all environments (see lib/env.ts). Seed
+// fake-but-valid values so modules that read them at import/use don't break. The
+// Upstash REST client makes no network call at construction, and tests that
+// exercise rate limiting / Redis idempotency mock @upstash/redis or @/lib/rate-limit.
+process.env.UPSTASH_REDIS_REST_URL ??= 'https://test.upstash.io'
+process.env.UPSTASH_REDIS_REST_TOKEN ??= 'test_token'
+process.env.TURNSTILE_SECRET_KEY ??= 'test_turnstile_secret'
+process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ??= 'test_turnstile_site_key'
+process.env.REPORT_ENCRYPTION_KEY ??= 'a'.repeat(64)
+process.env.DKIM_ENCRYPTION_KEY ??= 'b'.repeat(64)
 process.env.STRIPE_BUNDLE_PLUS_MONTHLY_PRICE_ID ??= 'price_bundle_plus_monthly'
 process.env.STRIPE_BUNDLE_PLUS_YEARLY_PRICE_ID ??= 'price_bundle_plus_yearly'
 process.env.STRIPE_BUNDLE_PRO_MONTHLY_PRICE_ID ??= 'price_bundle_pro_monthly'

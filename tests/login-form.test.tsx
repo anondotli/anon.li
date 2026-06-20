@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 
 const authMocks = vi.hoisted(() => ({
@@ -13,8 +13,6 @@ const analyticsMocks = vi.hoisted(() => ({
     registrationStarted: vi.fn(),
     loginStarted: vi.fn(),
 }))
-
-const originalTurnstileSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY
 
 vi.mock("@/lib/auth-client", () => ({
     authClient: {
@@ -41,7 +39,6 @@ vi.mock("@/components/ui/turnstile", () => ({
 }))
 
 beforeEach(() => {
-    delete process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY
     vi.resetModules()
     authMocks.signInSocial.mockResolvedValue({ data: {}, error: null })
     authMocks.signInMagicLink.mockResolvedValue({ data: {}, error: null })
@@ -50,14 +47,6 @@ beforeEach(() => {
 afterEach(() => {
     cleanup()
     vi.clearAllMocks()
-})
-
-afterAll(() => {
-    if (originalTurnstileSiteKey === undefined) {
-        delete process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY
-    } else {
-        process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY = originalTurnstileSiteKey
-    }
 })
 
 describe("LoginForm", () => {
@@ -84,12 +73,16 @@ describe("LoginForm", () => {
             target: { value: " user@example.com " },
         })
         fireEvent.click(screen.getByRole("button", { name: "Send magic link" }))
+        fireEvent.click(screen.getByRole("button", { name: "Complete captcha" }))
 
         await waitFor(() => {
             expect(authMocks.signInMagicLink).toHaveBeenCalledWith({
                 email: "user@example.com",
                 callbackURL: "/dashboard/alias",
                 newUserCallbackURL: "/dashboard/alias",
+                fetchOptions: {
+                    headers: { "x-captcha-response": "captcha-token" },
+                },
             })
         })
 
@@ -110,6 +103,7 @@ describe("LoginForm", () => {
             target: { value: "new@example.com" },
         })
         fireEvent.click(screen.getByRole("button", { name: "Create account" }))
+        fireEvent.click(screen.getByRole("button", { name: "Complete captcha" }))
 
         await waitFor(() => {
             expect(authMocks.signInMagicLink).toHaveBeenCalledWith({
@@ -117,6 +111,9 @@ describe("LoginForm", () => {
                 name: "anon.li user",
                 callbackURL: "/dashboard/drop",
                 newUserCallbackURL: "/dashboard/drop",
+                fetchOptions: {
+                    headers: { "x-captcha-response": "captcha-token" },
+                },
             })
         })
 
@@ -140,40 +137,31 @@ describe("LoginForm", () => {
         expect(analyticsMocks.loginStarted).toHaveBeenCalledWith("google")
     })
 
-    it("sends turnstile response header with magic link requests when configured", async () => {
-        process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY = "site-key"
-        vi.resetModules()
+    it("requires the captcha before sending a magic link", async () => {
+        const { LoginForm } = await import("@/components/auth/login-form")
 
-        try {
-            const { LoginForm } = await import("@/components/auth/login-form")
+        render(<LoginForm mode="login" />)
 
-            render(<LoginForm mode="login" />)
-
-            fireEvent.change(screen.getByLabelText("Email address"), {
-                target: { value: "user@example.com" },
-            })
+        fireEvent.change(screen.getByLabelText("Email address"), {
+            target: { value: "user@example.com" },
+        })
+        expect(screen.queryByRole("button", { name: "Complete captcha" })).toBeNull()
+        fireEvent.click(screen.getByRole("button", { name: "Send magic link" }))
+        expect(authMocks.signInMagicLink).not.toHaveBeenCalled()
+        fireEvent.click(screen.getByRole("button", { name: "Complete captcha" }))
+        await waitFor(() => {
             expect(screen.queryByRole("button", { name: "Complete captcha" })).toBeNull()
-            fireEvent.click(screen.getByRole("button", { name: "Send magic link" }))
-            expect(authMocks.signInMagicLink).not.toHaveBeenCalled()
-            expect(screen.queryByText("Please complete the verification challenge.")).toBeNull()
-            fireEvent.click(screen.getByRole("button", { name: "Complete captcha" }))
-            await waitFor(() => {
-                expect(screen.queryByRole("button", { name: "Complete captcha" })).toBeNull()
-            })
+        })
 
-            await waitFor(() => {
-                expect(authMocks.signInMagicLink).toHaveBeenCalledWith({
-                    email: "user@example.com",
-                    callbackURL: "/dashboard/alias",
-                    newUserCallbackURL: "/dashboard/alias",
-                    fetchOptions: {
-                        headers: { "x-captcha-response": "captcha-token" },
-                    },
-                })
+        await waitFor(() => {
+            expect(authMocks.signInMagicLink).toHaveBeenCalledWith({
+                email: "user@example.com",
+                callbackURL: "/dashboard/alias",
+                newUserCallbackURL: "/dashboard/alias",
+                fetchOptions: {
+                    headers: { "x-captcha-response": "captcha-token" },
+                },
             })
-        } finally {
-            delete process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY
-            vi.resetModules()
-        }
+        })
     })
 })

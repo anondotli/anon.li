@@ -48,7 +48,7 @@ export function verifyUnsubscribeToken(token: string): string | null {
 }
 
 export function unsubscribeUrl(userId: string): string {
-    const base = process.env.NEXT_PUBLIC_APP_URL || "https://anon.li";
+    const base = process.env.NEXT_PUBLIC_APP_URL;
     const token = signUnsubscribeToken(userId);
     return `${base}/api/email/unsubscribe?token=${encodeURIComponent(token)}`;
 }

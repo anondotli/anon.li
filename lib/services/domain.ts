@@ -104,9 +104,7 @@ export class DomainService {
                     : `Domain limit reached (${domainsLimit}). Upgrade to increase.`
                 throw new ForbiddenError(message)
             }
-            const encryptedPrivateKey = process.env.DKIM_ENCRYPTION_KEY
-                ? encryptField(dkimKeys.privateKey, "DKIM_ENCRYPTION_KEY")
-                : dkimKeys.privateKey
+            const encryptedPrivateKey = encryptField(dkimKeys.privateKey, "DKIM_ENCRYPTION_KEY")
 
             return tx.domain.create({
                 data: {
@@ -248,9 +246,7 @@ export class DomainService {
         assertCanAccess(domain, scope)
 
         const keys = await generateDkimKeys()
-        const encryptedPrivateKey = process.env.DKIM_ENCRYPTION_KEY
-            ? encryptField(keys.privateKey, "DKIM_ENCRYPTION_KEY")
-            : keys.privateKey
+        const encryptedPrivateKey = encryptField(keys.privateKey, "DKIM_ENCRYPTION_KEY")
 
         const updatedDomain = await prisma.domain.update({
             where: { id: domainId },

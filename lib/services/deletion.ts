@@ -240,6 +240,8 @@ export class DeletionService {
         const requests = await prisma.deletionRequest.findMany({
             where: { status: "pending" },
             select: { id: true },
+            // Bound the scan; any remainder is retried on the next run.
+            take: 500,
         })
 
         return requests.map((r) => r.id)

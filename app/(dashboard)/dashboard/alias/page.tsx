@@ -138,7 +138,7 @@ export default async function DashboardPage() {
     // Referral stats double as code provisioning: getReferralStats lazily creates
     // and persists the user's code, so simply landing here mints a shareable link.
     const referral = await getReferralStats(user.id)
-    const referralLink = `${process.env.NEXT_PUBLIC_APP_URL ?? ""}/?ref=${referral.code}`
+    const referralLink = `${process.env.NEXT_PUBLIC_APP_URL}/?ref=${referral.code}`
 
     return (
         <div className="flex flex-col gap-8">

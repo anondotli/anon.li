@@ -16,14 +16,12 @@ const MAX_PER_RUN = 100;
 
 let redis: Redis | null = null;
 
-function getRedis(): Redis | null {
+function getRedis(): Redis {
     if (redis) return redis;
-    if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
-        redis = new Redis({
-            url: process.env.UPSTASH_REDIS_REST_URL,
-            token: process.env.UPSTASH_REDIS_REST_TOKEN,
-        });
-    }
+    redis = new Redis({
+        url: process.env.UPSTASH_REDIS_REST_URL!,
+        token: process.env.UPSTASH_REDIS_REST_TOKEN!,
+    });
     return redis;
 }
 
@@ -34,11 +32,6 @@ export async function handleCryptoRecoveryCron(): Promise<{
     errors: number;
 }> {
     const redisClient = getRedis();
-    if (!redisClient) {
-        logger.warn("Redis unavailable - skipping crypto recovery cron to prevent duplicates");
-        return { remindersSent: 0, expired: 0, expiredEmailsSent: 0, errors: 0 };
-    }
-
     const now = Date.now();
     const reminderCutoff = new Date(now - REMINDER_THRESHOLD_HOURS * HOUR_MS);
     const expiryCutoff = new Date(now - EXPIRY_THRESHOLD_DAYS * DAY_MS);

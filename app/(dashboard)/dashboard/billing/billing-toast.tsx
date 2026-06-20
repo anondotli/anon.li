@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import { toast } from "sonner"
+import { analytics } from "@/lib/analytics"
 
 export function BillingToast() {
     const searchParams = useSearchParams()
@@ -13,6 +14,7 @@ export function BillingToast() {
         if (toastShown.current) return
 
         if (searchParams.get("success") === "true") {
+            analytics.checkoutCompleted("card")
             toast.success("Subscription updated!", {
                 description: "Thank you for your purchase. Your plan has been upgraded."
             })
@@ -21,6 +23,7 @@ export function BillingToast() {
         }
 
         if (searchParams.get("crypto-success") === "true") {
+            analytics.checkoutCompleted("crypto")
             toast.success("Plan activated via crypto payment!", {
                 description: "Your subscription is now active. Thank you!"
             })

@@ -14,7 +14,7 @@ import { VaultAuthShell, type VaultAuthTone } from "@/components/vault/vault-aut
 import { VaultPasswordInput } from "@/components/vault/vault-password-input"
 import { AlertCircle, AlertTriangle, CheckCircle2, ArrowLeft, KeyRound, Mail } from "lucide-react"
 
-const turnstileSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY
+const turnstileSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY!
 
 function ErrorBanner({ message }: { message: string }) {
     return (
@@ -52,7 +52,7 @@ export function ResetPasswordContent() {
         }
 
         const tokenForSubmit = verifiedTurnstileToken ?? turnstileToken
-        if (turnstileSiteKey && !tokenForSubmit) {
+        if (!tokenForSubmit) {
             setTurnstileRequested(true)
             setError(null)
             return
@@ -62,9 +62,7 @@ export function ResetPasswordContent() {
         setError(null)
 
         try {
-            const result = turnstileSiteKey
-                ? await requestPasswordResetAction(normalizedEmail, tokenForSubmit!)
-                : await requestPasswordResetAction(normalizedEmail)
+            const result = await requestPasswordResetAction(normalizedEmail, tokenForSubmit)
             if (result.error) {
                 throw new Error(result.error)
             }
@@ -186,7 +184,7 @@ export function ResetPasswordContent() {
 
                     {error && <ErrorBanner message={error} />}
 
-                    {turnstileSiteKey && turnstileRequested && (
+                    {turnstileRequested && (
                         <Turnstile
                             key={turnstileRenderKey}
                             siteKey={turnstileSiteKey}
@@ -200,7 +198,7 @@ export function ResetPasswordContent() {
                         type="submit"
                         size="lg"
                         className="h-12 w-full rounded-xl text-sm font-medium"
-                        disabled={isSubmitting || (!!turnstileSiteKey && turnstileRequested && !turnstileToken)}
+                        disabled={isSubmitting || (turnstileRequested && !turnstileToken)}
                     >
                         {isSubmitting ? (
                             <>

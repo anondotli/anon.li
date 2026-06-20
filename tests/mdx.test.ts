@@ -13,7 +13,7 @@ test("getFile returns correct content", async () => {
     expect(file).toBeDefined()
     expect(file?.slug).toBe("getting-started")
     expect(file?.content).toBeDefined()
-    expect(file?.content).toContain("Welcome to anon.li")
+    expect(file?.content).toContain("Quick Start")
 })
 
 test("getAllFilesFrontMatter returns all frontmatter", async () => {

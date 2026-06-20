@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { validateCronAuth } from "@/lib/cron-auth";
 import { createLogger } from "@/lib/logger";
+import { withCronLock } from "@/lib/cron-lock";
 import { handleDripCron } from "@/lib/services/cron-drip";
 
 const logger = createLogger("CronDrip");
@@ -11,7 +12,12 @@ async function handleCron(req: NextRequest) {
     }
 
     try {
-        const results = await handleDripCron();
+        // Share the "daily" lock so a manual trigger can't race the scheduled
+        // daily run, which executes this same handler under that lock.
+        const results = await withCronLock("daily", 15 * 60, () => handleDripCron());
+        if (results === null) {
+            return NextResponse.json({ success: true, skipped: "lock-held" });
+        }
         return NextResponse.json({ success: true, results });
     } catch (error) {
         logger.error("Drip cron failed", error);

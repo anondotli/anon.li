@@ -3,6 +3,15 @@ import crypto from 'crypto'
 
 vi.mock('server-only', () => ({}))
 
+vi.mock('@/lib/posthog.server', () => ({
+    captureServerEvent: vi.fn(),
+    flushPostHog: vi.fn(),
+}))
+vi.mock('next/server', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('next/server')>()
+    return { ...actual, after: (fn: () => unknown) => { void fn() } }
+})
+
 vi.mock('@/lib/prisma', () => {
     const mockPrisma = {
         cryptoPayment: {
