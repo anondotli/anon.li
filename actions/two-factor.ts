@@ -8,7 +8,6 @@ import { TwoFactorService } from "@/lib/services/two-factor"
 import { rateLimit } from "@/lib/rate-limit"
 import { prisma } from "@/lib/prisma"
 import { APIError } from "@better-auth/core/error"
-import { getVaultSchemaState } from "@/lib/vault/schema"
 
 /**
  * These actions intentionally DO NOT use the runSecureAction/runScopedAction
@@ -305,15 +304,11 @@ export async function verifyTwoFactorLogin(
     })
     await clearSessionCacheCookie()
 
-    const vaultSchema = await getVaultSchemaState()
-    let redirectTo = "/dashboard/alias"
-    if (vaultSchema.userSecurity) {
-        const security = await prisma.userSecurity.findUnique({
-            where: { userId: updatedSession.userId },
-            select: { id: true },
-        })
-        if (!security) redirectTo = "/setup"
-    }
+    const security = await prisma.userSecurity.findUnique({
+        where: { userId: updatedSession.userId },
+        select: { id: true },
+    })
+    const redirectTo = security ? "/dashboard/alias" : "/setup"
 
     return { success: true, redirectTo }
 }

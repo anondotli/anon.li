@@ -77,9 +77,6 @@ const serverEnvSchema = z.object({
     STRIPE_BUSINESS_MONTHLY_PRICE_ID: z.string().optional(),
     STRIPE_BUSINESS_YEARLY_PRICE_ID: z.string().optional(),
 
-    // DKIM key file path (alternative to database-stored keys)
-    DKIM_KEY_PATH: z.string().optional(),
-
     // Analytics & observability — PostHog (optional). The project token is read
     // from NEXT_PUBLIC_POSTHOG_KEY; this is the server (posthog-node) host.
     POSTHOG_HOST: z.string().optional(),

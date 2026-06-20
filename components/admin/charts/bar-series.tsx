@@ -11,7 +11,7 @@ import {
     Legend,
 } from "recharts"
 
-export interface BarSeriesDef {
+interface BarSeriesDef {
     key: string
     label: string
     color: string

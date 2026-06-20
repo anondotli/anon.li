@@ -7,7 +7,6 @@ import {
     DropOwnerKeyConflictError,
     persistOwnedDropKey,
 } from "@/lib/vault/drop-owner-keys"
-import { getVaultSchemaState, VAULT_SCHEMA_UNAVAILABLE_MESSAGE } from "@/lib/vault/schema"
 import {
     vaultGenerationSchema,
     vaultIdSchema,
@@ -31,16 +30,6 @@ export const GET = withPolicy(
     async (ctx) => {
         if (!ctx.userId) {
             return withNoStore(apiError("Unauthorized", ErrorCodes.UNAUTHORIZED, ctx.requestId, 401))
-        }
-
-        const vaultSchema = await getVaultSchemaState()
-        if (!vaultSchema.userSecurity || !vaultSchema.dropOwnerKeys) {
-            return withNoStore(apiError(
-                VAULT_SCHEMA_UNAVAILABLE_MESSAGE,
-                ErrorCodes.SERVICE_UNAVAILABLE,
-                ctx.requestId,
-                503,
-            ))
         }
 
         const url = new URL(ctx.request.url)
@@ -94,16 +83,6 @@ export const POST = withPolicy(
     async (ctx) => {
         if (!ctx.userId) {
             return withNoStore(apiError("Unauthorized", ErrorCodes.UNAUTHORIZED, ctx.requestId, 401))
-        }
-
-        const vaultSchema = await getVaultSchemaState()
-        if (!vaultSchema.userSecurity || !vaultSchema.dropOwnerKeys) {
-            return withNoStore(apiError(
-                VAULT_SCHEMA_UNAVAILABLE_MESSAGE,
-                ErrorCodes.SERVICE_UNAVAILABLE,
-                ctx.requestId,
-                503,
-            ))
         }
 
         const body = await ctx.request.json().catch(() => null)

@@ -25,8 +25,6 @@ const statusBadgeVariants = cva(
     }
 )
 
-export type StatusTone = NonNullable<VariantProps<typeof statusBadgeVariants>["tone"]>
-
 interface StatusBadgeProps extends VariantProps<typeof statusBadgeVariants> {
     label: string
     icon?: LucideIcon
@@ -43,11 +41,4 @@ export function StatusBadge({ label, icon: Icon, dot, tone, className }: StatusB
             {label}
         </span>
     )
-}
-
-/** Maps a ToS-strike count to a status tone + label (replaces getStrikesBadge). */
-export function strikeTone(violations: number): { tone: StatusTone; label: string } {
-    if (violations === 0) return { tone: "success", label: "0 strikes" }
-    if (violations <= 2) return { tone: "warning", label: `${violations} strike${violations > 1 ? "s" : ""}` }
-    return { tone: "danger", label: `${violations} strikes` }
 }

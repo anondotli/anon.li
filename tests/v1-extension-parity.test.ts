@@ -26,7 +26,6 @@ const getEffectiveTier = vi.fn()
 const getDisplayPlanLimits = vi.fn()
 const getDropLimits = vi.fn()
 const getProductFromPriceId = vi.fn()
-const getVaultSchemaState = vi.fn()
 const persistOwnedDropKey = vi.fn()
 
 class DropOwnerKeyConflictError extends Error {}
@@ -83,11 +82,6 @@ vi.mock("@/config/plans", () => ({
     },
 }))
 
-vi.mock("@/lib/vault/schema", () => ({
-    getVaultSchemaState,
-    VAULT_SCHEMA_UNAVAILABLE_MESSAGE: "Vault schema unavailable",
-}))
-
 vi.mock("@/lib/vault/drop-owner-keys", () => ({
     persistOwnedDropKey,
     DropOwnerKeyConflictError,
@@ -130,10 +124,6 @@ describe("extension parity routes", () => {
         })
         getProductFromPriceId.mockReturnValue("bundle")
 
-        getVaultSchemaState.mockResolvedValue({
-            userSecurity: true,
-            dropOwnerKeys: true,
-        })
         persistOwnedDropKey.mockResolvedValue(undefined)
 
         prisma.user.findUnique.mockResolvedValue({

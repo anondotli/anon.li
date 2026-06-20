@@ -2,7 +2,6 @@ import { prisma } from "@/lib/prisma"
 import { apiError, apiSuccess, ErrorCodes, generateRequestId, withNoStore } from "@/lib/api-response"
 import { logVaultError, logVaultWarn } from "@/lib/vault/api"
 import { getVaultSession } from "@/lib/vault/server"
-import { getVaultSchemaState, VAULT_SCHEMA_UNAVAILABLE_MESSAGE } from "@/lib/vault/schema"
 import { enforceVaultRequestGuards } from "@/lib/vault/http"
 
 const ROUTE_NAME = "unlock-materials"
@@ -23,15 +22,6 @@ export async function GET() {
             route: ROUTE_NAME,
         })
         if (blocked) return blocked
-
-        const vaultSchema = await getVaultSchemaState()
-        if (!vaultSchema.userSecurity) {
-            logVaultError(ROUTE_NAME, "Vault schema unavailable during unlock", undefined, {
-                requestId,
-                userId: session.user.id,
-            })
-            return withNoStore(apiError(VAULT_SCHEMA_UNAVAILABLE_MESSAGE, ErrorCodes.SERVICE_UNAVAILABLE, requestId, 503))
-        }
 
         const security = await prisma.userSecurity.findUnique({
             where: { userId: session.user.id },

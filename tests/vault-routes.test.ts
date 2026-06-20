@@ -14,7 +14,6 @@ const verifyCredentialSecret = vi.fn()
 const createFakeAuthSalt = vi.fn()
 const normalizeEmail = vi.fn()
 const enforceVaultRequestGuards = vi.fn()
-const getVaultSchemaState = vi.fn()
 const persistOwnedDropKey = vi.fn()
 
 const prisma = {
@@ -58,11 +57,6 @@ vi.mock("@/lib/vault/server", () => ({
 
 vi.mock("@/lib/vault/http", () => ({
     enforceVaultRequestGuards,
-}))
-
-vi.mock("@/lib/vault/schema", () => ({
-    getVaultSchemaState,
-    VAULT_SCHEMA_UNAVAILABLE_MESSAGE: "Vault schema unavailable",
 }))
 
 vi.mock("@/lib/vault/drop-owner-keys", () => ({
@@ -109,7 +103,6 @@ describe("vault routes", () => {
         createFakeAuthSalt.mockImplementation((email: string) => `fake-${email}`)
         normalizeEmail.mockImplementation((email: string) => email.trim().toLowerCase())
         enforceVaultRequestGuards.mockResolvedValue(null)
-        getVaultSchemaState.mockResolvedValue({ userSecurity: true, dropOwnerKeys: true })
         persistOwnedDropKey.mockResolvedValue(undefined)
 
         prisma.user.findUnique.mockResolvedValue({
@@ -220,25 +213,6 @@ describe("vault routes", () => {
         expect(payload.error?.code).toBe(ErrorCodes.UNAUTHORIZED)
     })
 
-    it("returns service unavailable when vault setup schema is missing", async () => {
-        getVaultSchemaState.mockResolvedValueOnce({ userSecurity: false, dropOwnerKeys: false })
-        const { POST } = await import("@/app/api/vault/setup/route")
-
-        const response = await POST(new Request("http://localhost/api/vault/setup", {
-            method: "POST",
-            body: JSON.stringify({
-                authSecret: "a".repeat(32),
-                authSalt: "b".repeat(43),
-                vaultSalt: "c".repeat(43),
-                passwordWrappedVaultKey: "d".repeat(64),
-            }),
-        }))
-
-        const payload = await readJson(response)
-        expect(response.status).toBe(503)
-        expect(payload.error?.code).toBe(ErrorCodes.SERVICE_UNAVAILABLE)
-    })
-
     it("surfaces CSRF rejection for vault setup", async () => {
         enforceVaultRequestGuards.mockResolvedValueOnce(
             apiError("Invalid CSRF token", ErrorCodes.FORBIDDEN, "req-csrf", 403),
@@ -331,7 +305,6 @@ describe("vault routes", () => {
                 vaultSalt: "c".repeat(43),
                 passwordWrappedVaultKey: "d".repeat(64),
                 kdfVersion: 1,
-                migrationState: "complete",
             },
             select: { id: true, vaultGeneration: true },
         })
@@ -346,17 +319,6 @@ describe("vault routes", () => {
         const payload = await readJson(response)
         expect(response.status).toBe(401)
         expect(payload.error?.code).toBe(ErrorCodes.UNAUTHORIZED)
-    })
-
-    it("returns service unavailable when unlock-materials schema is missing", async () => {
-        getVaultSchemaState.mockResolvedValueOnce({ userSecurity: false, dropOwnerKeys: false })
-        const { GET } = await import("@/app/api/vault/unlock/route")
-
-        const response = await GET()
-
-        const payload = await readJson(response)
-        expect(response.status).toBe(503)
-        expect(payload.error?.code).toBe(ErrorCodes.SERVICE_UNAVAILABLE)
     })
 
     it("surfaces rate-limit rejection for unlock-materials", async () => {
@@ -394,26 +356,6 @@ describe("vault routes", () => {
         expect(payload.error?.code).toBe(ErrorCodes.UNAUTHORIZED)
     })
 
-    it("returns service unavailable when change-password schema is missing", async () => {
-        getVaultSchemaState.mockResolvedValueOnce({ userSecurity: false, dropOwnerKeys: false })
-        const { POST } = await import("@/app/api/vault/change-password/route")
-
-        const response = await POST(new Request("http://localhost/api/vault/change-password", {
-            method: "POST",
-            body: JSON.stringify({
-                currentAuthSecret: "a".repeat(32),
-                newAuthSecret: "b".repeat(32),
-                newAuthSalt: "c".repeat(43),
-                newVaultSalt: "d".repeat(43),
-                newPasswordWrappedVaultKey: "e".repeat(64),
-            }),
-        }))
-
-        const payload = await readJson(response)
-        expect(response.status).toBe(503)
-        expect(payload.error?.code).toBe(ErrorCodes.SERVICE_UNAVAILABLE)
-    })
-
     it("changes the vault password and rotates vault generation", async () => {
         const { POST } = await import("@/app/api/vault/change-password/route")
 
@@ -442,17 +384,6 @@ describe("vault routes", () => {
         const payload = await readJson(response)
         expect(response.status).toBe(401)
         expect(payload.error?.code).toBe(ErrorCodes.UNAUTHORIZED)
-    })
-
-    it("returns service unavailable when drop-key schema is missing", async () => {
-        getVaultSchemaState.mockResolvedValueOnce({ userSecurity: true, dropOwnerKeys: false })
-        const { GET } = await import("@/app/api/vault/drop-keys/route")
-
-        const response = await GET(new Request("http://localhost/api/vault/drop-keys?dropId=drop-123"))
-
-        const payload = await readJson(response)
-        expect(response.status).toBe(503)
-        expect(payload.error?.code).toBe(ErrorCodes.SERVICE_UNAVAILABLE)
     })
 
     it("surfaces CSRF rejection for drop-key writes", async () => {
@@ -509,18 +440,6 @@ describe("vault routes", () => {
         expect(payload.error?.code).toBe(ErrorCodes.UNAUTHORIZED)
     })
 
-    it("returns an unavailable migration state when the schema is not ready", async () => {
-        getVaultSchemaState.mockResolvedValueOnce({ userSecurity: false, dropOwnerKeys: false })
-        const { GET } = await import("@/app/api/vault/migration-status/route")
-
-        const response = await GET()
-
-        const payload = await readJson(response)
-        expect(response.status).toBe(200)
-        expect(payload.data?.vaultAvailable).toBe(false)
-        expect(payload.data?.migrationState).toBe("unavailable")
-    })
-
     it("surfaces rate-limit rejection for migration-status", async () => {
         enforceVaultRequestGuards.mockResolvedValueOnce(
             apiError("Too many requests", ErrorCodes.RATE_LIMITED, "req-rate", 429),
@@ -557,6 +476,5 @@ describe("vault routes", () => {
         expect(payload.data?.hasPassword).toBe(true)
         expect(payload.data?.hasVault).toBe(false)
         expect(payload.data?.needsPassword).toBe(true)
-        expect(payload.data?.migrationState).toBe("pending")
     })
 })

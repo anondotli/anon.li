@@ -46,7 +46,7 @@ export interface SubmissionMeta {
     hasAttachedDrop: boolean
 }
 
-export interface AttachmentFile {
+interface AttachmentFile {
     fieldId: string
     fieldLabel?: string
     fileId: string

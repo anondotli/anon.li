@@ -10,10 +10,9 @@
  */
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-const { getVaultSession, enforceVaultRequestGuards, getVaultSchemaState, audit, prisma } = vi.hoisted(() => ({
+const { getVaultSession, enforceVaultRequestGuards, audit, prisma } = vi.hoisted(() => ({
     getVaultSession: vi.fn(),
     enforceVaultRequestGuards: vi.fn(),
-    getVaultSchemaState: vi.fn(),
     audit: vi.fn(),
     prisma: {
         member: { findUnique: vi.fn(), findMany: vi.fn() },
@@ -28,7 +27,6 @@ const { getVaultSession, enforceVaultRequestGuards, getVaultSchemaState, audit, 
 vi.mock("@/lib/prisma", () => ({ prisma }))
 vi.mock("@/lib/vault/server", () => ({ getVaultSession }))
 vi.mock("@/lib/vault/http", () => ({ enforceVaultRequestGuards }))
-vi.mock("@/lib/vault/schema", () => ({ getVaultSchemaState, VAULT_SCHEMA_UNAVAILABLE_MESSAGE: "Vault schema unavailable" }))
 vi.mock("@/lib/vault/api", () => ({ logVaultError: vi.fn(), logVaultWarn: vi.fn() }))
 vi.mock("@/lib/services/audit", () => ({ audit }))
 
@@ -65,7 +63,6 @@ function runTx(impl: (tx: typeof prisma) => Promise<unknown>) {
 beforeEach(() => {
     vi.clearAllMocks()
     enforceVaultRequestGuards.mockResolvedValue(null)
-    getVaultSchemaState.mockResolvedValue({ organizationMemberKeys: true, dropOwnerKeys: true, formOwnerKeys: true })
     getVaultSession.mockResolvedValue({ user: { id: "owner-1" } })
     prisma.member.findUnique.mockResolvedValue({ role: "owner" })
     prisma.member.findMany.mockResolvedValue([{ userId: "owner-1" }, { userId: "u2" }])

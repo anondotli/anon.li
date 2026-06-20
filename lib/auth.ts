@@ -21,7 +21,6 @@ import {
 import { getOrgSeatLimit } from "@/lib/org-seats"
 import { validateOrganizationName } from "@/lib/validations/organization"
 import { rateLimit } from "@/lib/rate-limit"
-import { getVaultSchemaState } from "@/lib/vault/schema"
 import { MCP_DEFAULT_SCOPE, MCP_OAUTH_SCOPES } from "@/lib/mcp/oauth-metadata"
 
 const ACCOUNT_DELETION_PENDING_MESSAGE = "Account deletion is already in progress for this user."
@@ -64,20 +63,10 @@ export const auth = betterAuth({
             await sendPasswordResetEmail(user.email, url)
         },
         onPasswordReset: async ({ user }) => {
-            const vaultSchema = await getVaultSchemaState()
-            const operations = []
-
-            if (vaultSchema.dropOwnerKeys) {
-                operations.push(prisma.dropOwnerKey.deleteMany({ where: { userId: user.id } }))
-            }
-
-            if (vaultSchema.userSecurity) {
-                operations.push(prisma.userSecurity.deleteMany({ where: { userId: user.id } }))
-            }
-
-            if (operations.length > 0) {
-                await prisma.$transaction(operations)
-            }
+            await prisma.$transaction([
+                prisma.dropOwnerKey.deleteMany({ where: { userId: user.id } }),
+                prisma.userSecurity.deleteMany({ where: { userId: user.id } }),
+            ])
         },
     },
 

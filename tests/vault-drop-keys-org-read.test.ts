@@ -9,10 +9,9 @@
  */
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-const { getVaultSession, enforceVaultRequestGuards, getVaultSchemaState, prisma } = vi.hoisted(() => ({
+const { getVaultSession, enforceVaultRequestGuards, prisma } = vi.hoisted(() => ({
     getVaultSession: vi.fn(),
     enforceVaultRequestGuards: vi.fn(),
-    getVaultSchemaState: vi.fn(),
     prisma: {
         dropOwnerKey: { findUnique: vi.fn(), findMany: vi.fn() },
         member: { findUnique: vi.fn(), findMany: vi.fn() },
@@ -22,22 +21,16 @@ const { getVaultSession, enforceVaultRequestGuards, getVaultSchemaState, prisma 
 vi.mock("@/lib/prisma", () => ({ prisma }))
 vi.mock("@/lib/vault/server", () => ({ getVaultSession }))
 vi.mock("@/lib/vault/http", () => ({ enforceVaultRequestGuards }))
-vi.mock("@/lib/vault/schema", () => ({
-    getVaultSchemaState,
-    VAULT_SCHEMA_UNAVAILABLE_MESSAGE: "Vault schema unavailable",
-}))
 vi.mock("@/lib/vault/api", () => ({ logVaultError: vi.fn(), logVaultWarn: vi.fn() }))
 
 import { GET } from "@/app/api/vault/drop-keys/route"
 
-const SCHEMA_OK = { userSecurity: true, dropOwnerKeys: true }
 const single = (dropId: string) => new Request(`https://x/api/vault/drop-keys?dropId=${dropId}`, { method: "GET" })
 const list = () => new Request("https://x/api/vault/drop-keys", { method: "GET" })
 
 beforeEach(() => {
     vi.clearAllMocks()
     enforceVaultRequestGuards.mockResolvedValue(null)
-    getVaultSchemaState.mockResolvedValue(SCHEMA_OK)
     getVaultSession.mockResolvedValue({ user: { id: "member" } })
 })
 

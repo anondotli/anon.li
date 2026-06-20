@@ -10,7 +10,6 @@
 import { prisma } from "@/lib/prisma"
 import { eraseUserDrops } from "@/lib/services/erasure"
 import { createLogger } from "@/lib/logger"
-import { getVaultSchemaState } from "@/lib/vault/schema"
 
 const logger = createLogger("DeletionService")
 
@@ -104,8 +103,6 @@ export class DeletionService {
         const userId = request.userId
 
         try {
-            const vaultSchema = await getVaultSchemaState()
-
             // All resource deletions below are scoped to PERSONAL rows
             // (organizationId: null). Org-owned resources the user created belong
             // to the org, not the user — their FK userId is SetNull on user
@@ -174,23 +171,15 @@ export class DeletionService {
                 })
             }
 
-            const authCleanupOperations = [
+            await prisma.$transaction([
                 prisma.account.deleteMany({ where: { userId } }),
                 prisma.twoFactor.deleteMany({ where: { userId } }),
-            ]
-
-            if (vaultSchema.dropOwnerKeys) {
                 // Personal owner keys only: an org owner key is the sole copy of
                 // the key sealed to the org vault key (shared with the team) and
                 // must survive — its userId is SetNull on user deletion.
-                authCleanupOperations.push(prisma.dropOwnerKey.deleteMany({ where: { userId, organizationId: null } }))
-            }
-
-            if (vaultSchema.userSecurity) {
-                authCleanupOperations.push(prisma.userSecurity.deleteMany({ where: { userId } }))
-            }
-
-            await prisma.$transaction(authCleanupOperations)
+                prisma.dropOwnerKey.deleteMany({ where: { userId, organizationId: null } }),
+                prisma.userSecurity.deleteMany({ where: { userId } }),
+            ])
 
             // Delete other resources (personal only — org-owned rows belong to
             // the org and are retained via FK SetNull).

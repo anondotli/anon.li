@@ -35,7 +35,6 @@ interface User {
         completedAt: Date | null
     } | null
     security: {
-        migrationState: string
         vaultGeneration: number
         passwordSetAt: Date
     } | null
@@ -143,10 +142,7 @@ export function UserTable({ users, total, page, totalPages, search, filter }: Us
             accessor: (user) => (
                 <div className="text-sm">
                     {user.security ? (
-                        <>
-                            <span className="capitalize">{user.security.migrationState}</span>
-                            <span className="text-muted-foreground"> · gen {user.security.vaultGeneration}</span>
-                        </>
+                        <span>Generation {user.security.vaultGeneration}</span>
                     ) : (
                         <span className="text-muted-foreground">Not set</span>
                     )}

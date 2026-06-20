@@ -1,7 +1,6 @@
 import { redirect } from "next/navigation"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
-import { getVaultSchemaState } from "@/lib/vault/schema"
 import { sanitizeAuthCallbackUrl } from "@/lib/safe-callback-url"
 import { SetupPasswordPageContent } from "./setup-password-content"
 
@@ -25,11 +24,6 @@ export default async function SetupPasswordPage({ searchParams }: SetupPageProps
 
     if (session.user.twoFactorEnabled && !session.twoFactorVerified) {
         redirect("/2fa")
-    }
-
-    const vaultSchema = await getVaultSchemaState()
-    if (!vaultSchema.userSecurity) {
-        redirect(callbackUrl)
     }
 
     const security = await prisma.userSecurity.findUnique({

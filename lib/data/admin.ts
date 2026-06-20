@@ -84,7 +84,7 @@ type AdminUserListRow = {
         createdAt: Date
     }>
     deletionRequest: { id: string; status: string; requestedAt: Date; completedAt: Date | null } | null
-    security: { migrationState: string; vaultGeneration: number; passwordSetAt: Date } | null
+    security: { vaultGeneration: number; passwordSetAt: Date } | null
     _count: { aliases: number; drops: number; recipients: number; domains: number; apiKeys: number }
 }
 
@@ -332,7 +332,7 @@ type AdminUserDetailRow = {
         requestedAt: Date
         completedAt: Date | null
     } | null
-    security: { migrationState: string; vaultGeneration: number; passwordSetAt: Date; updatedAt: Date } | null
+    security: { vaultGeneration: number; passwordSetAt: Date; updatedAt: Date } | null
     twoFactor: { verified: boolean } | null
     memberships: Array<{ role: string; organization: { id: string; name: string; slug: string } }>
     _count: { aliases: number; drops: number; recipients: number; domains: number; apiKeys: number; sessions: number }
@@ -718,7 +718,7 @@ export async function getAdminUsers(params: { search?: string; filter?: string; 
                     select: { id: true, status: true, requestedAt: true, completedAt: true },
                 },
                 security: {
-                    select: { migrationState: true, vaultGeneration: true, passwordSetAt: true },
+                    select: { vaultGeneration: true, passwordSetAt: true },
                 },
                 _count: {
                     select: {
@@ -1329,7 +1329,6 @@ export async function getAdminUserDetail(userId: string) {
             deletionRequest: true,
             security: {
                 select: {
-                    migrationState: true,
                     vaultGeneration: true,
                     passwordSetAt: true,
                     updatedAt: true,

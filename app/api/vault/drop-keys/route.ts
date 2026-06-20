@@ -7,7 +7,6 @@ import {
     persistOwnedDropKey,
 } from "@/lib/vault/drop-owner-keys"
 import { getVaultSession } from "@/lib/vault/server"
-import { getVaultSchemaState, VAULT_SCHEMA_UNAVAILABLE_MESSAGE } from "@/lib/vault/schema"
 import { enforceVaultRequestGuards } from "@/lib/vault/http"
 import { getMemberOrgIds, isOrgMember } from "@/lib/vault/org-access"
 import {
@@ -42,15 +41,6 @@ export async function GET(request: Request) {
             rateLimitKey: "vaultDropKeysRead",
         })
         if (blocked) return blocked
-
-        const vaultSchema = await getVaultSchemaState()
-        if (!vaultSchema.userSecurity || !vaultSchema.dropOwnerKeys) {
-            logVaultError(ROUTE_NAME, "Vault schema unavailable during drop key lookup", undefined, {
-                requestId,
-                userId: session.user.id,
-            })
-            return withNoStore(apiError(VAULT_SCHEMA_UNAVAILABLE_MESSAGE, ErrorCodes.SERVICE_UNAVAILABLE, requestId, 503))
-        }
 
         const url = new URL(request.url)
         const dropId = url.searchParams.get("dropId")
@@ -136,15 +126,6 @@ export async function POST(request: Request) {
             csrf: true,
         })
         if (blocked) return blocked
-
-        const vaultSchema = await getVaultSchemaState()
-        if (!vaultSchema.userSecurity || !vaultSchema.dropOwnerKeys) {
-            logVaultError(ROUTE_NAME, "Vault schema unavailable during drop key store", undefined, {
-                requestId,
-                userId: session.user.id,
-            })
-            return withNoStore(apiError(VAULT_SCHEMA_UNAVAILABLE_MESSAGE, ErrorCodes.SERVICE_UNAVAILABLE, requestId, 503))
-        }
 
         const body = await request.json().catch(() => null)
         const validation = storeDropKeySchema.safeParse(body)

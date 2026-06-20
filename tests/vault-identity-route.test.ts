@@ -9,10 +9,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 // vi.hoisted so these exist before the (hoisted) route import triggers the mocks.
-const { getVaultSession, enforceVaultRequestGuards, getVaultSchemaState, prisma } = vi.hoisted(() => ({
+const { getVaultSession, enforceVaultRequestGuards, prisma } = vi.hoisted(() => ({
     getVaultSession: vi.fn(),
     enforceVaultRequestGuards: vi.fn(),
-    getVaultSchemaState: vi.fn(),
     prisma: {
         userSecurity: {
             findUnique: vi.fn(),
@@ -24,10 +23,6 @@ const { getVaultSession, enforceVaultRequestGuards, getVaultSchemaState, prisma 
 vi.mock("@/lib/prisma", () => ({ prisma }))
 vi.mock("@/lib/vault/server", () => ({ getVaultSession }))
 vi.mock("@/lib/vault/http", () => ({ enforceVaultRequestGuards }))
-vi.mock("@/lib/vault/schema", () => ({
-    getVaultSchemaState,
-    VAULT_SCHEMA_UNAVAILABLE_MESSAGE: "Vault schema unavailable",
-}))
 vi.mock("@/lib/vault/api", () => ({
     logVaultError: vi.fn(),
     logVaultWarn: vi.fn(),
@@ -58,7 +53,6 @@ const validPayload = {
 beforeEach(() => {
     vi.clearAllMocks()
     enforceVaultRequestGuards.mockResolvedValue(null) // not blocked
-    getVaultSchemaState.mockResolvedValue({ userSecurity: true, dropOwnerKeys: true, formOwnerKeys: true })
 })
 
 describe("POST /api/vault/identity (publish own identity keypair)", () => {
@@ -72,12 +66,6 @@ describe("POST /api/vault/identity (publish own identity keypair)", () => {
         const blocked = new Response("blocked", { status: 429 })
         enforceVaultRequestGuards.mockResolvedValue(blocked)
         expect(await POST(postReq(validPayload))).toBe(blocked)
-    })
-
-    it("503 when the vault schema is unavailable", async () => {
-        getVaultSession.mockResolvedValue({ user: { id: "u1" } })
-        getVaultSchemaState.mockResolvedValue({ userSecurity: false, dropOwnerKeys: false, formOwnerKeys: false })
-        expect((await POST(postReq(validPayload))).status).toBe(503)
     })
 
     it("400 on an invalid public key", async () => {

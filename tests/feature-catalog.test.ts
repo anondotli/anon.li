@@ -5,7 +5,6 @@ import {
     DASHBOARD_FEATURE_PROMPTS,
     DROP_PRO_LIMIT_LABELS,
     FEATURE_CATALOG,
-    IMPORTANT_FEATURE_IDS,
     getFeatureById,
 } from "@/config/features"
 import { PLAN_ENTITLEMENTS } from "@/config/plans"
@@ -27,16 +26,6 @@ describe("feature presentation catalog", () => {
         }
     })
 
-    it("keeps important feature coverage focused on core privacy value", () => {
-        const important = IMPORTANT_FEATURE_IDS.map((id) => getFeatureById(id))
-
-        expect(important.every(Boolean)).toBe(true)
-        expect(new Set(important.map((feature) => feature?.product))).toEqual(
-            new Set(["alias", "drop", "trust"])
-        )
-        expect(important.every((feature) => feature?.priority === "primary")).toBe(true)
-    })
-
     it("keeps developer tools discoverable but not primary", () => {
         const developerFeatures = FEATURE_CATALOG.filter((feature) => feature.product === "developer")
 
@@ -47,7 +36,6 @@ describe("feature presentation catalog", () => {
             "developer_mcp",
         ])
         expect(developerFeatures.every((feature) => feature.priority === "tertiary")).toBe(true)
-        expect(IMPORTANT_FEATURE_IDS.some((id) => id.startsWith("developer_"))).toBe(false)
     })
 
     it("keeps dashboard prompt ids resolvable", () => {

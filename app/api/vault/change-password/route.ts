@@ -7,7 +7,6 @@ import {
     verifyCredentialSecret,
 } from "@/lib/vault/server"
 import { logVaultError, logVaultWarn } from "@/lib/vault/api"
-import { getVaultSchemaState, VAULT_SCHEMA_UNAVAILABLE_MESSAGE } from "@/lib/vault/schema"
 import { enforceVaultRequestGuards } from "@/lib/vault/http"
 import {
     authSaltSchema,
@@ -46,15 +45,6 @@ export async function POST(request: Request) {
             csrf: true,
         })
         if (blocked) return blocked
-
-        const vaultSchema = await getVaultSchemaState()
-        if (!vaultSchema.userSecurity) {
-            logVaultError(ROUTE_NAME, "Vault schema unavailable during password change", undefined, {
-                requestId,
-                userId: session.user.id,
-            })
-            return withNoStore(apiError(VAULT_SCHEMA_UNAVAILABLE_MESSAGE, ErrorCodes.SERVICE_UNAVAILABLE, requestId, 503))
-        }
 
         const body = await request.json().catch(() => null)
         const validation = changePasswordSchema.safeParse(body)
@@ -111,7 +101,6 @@ export async function POST(request: Request) {
                     vaultSalt: validation.data.newVaultSalt,
                     passwordWrappedVaultKey: validation.data.newPasswordWrappedVaultKey,
                     passwordSetAt: new Date(),
-                    migrationState: "complete",
                     vaultGeneration: { increment: 1 },
                 },
                 select: { id: true, vaultGeneration: true },

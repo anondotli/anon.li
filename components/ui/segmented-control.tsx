@@ -2,7 +2,7 @@
 
 import { cn } from "@/lib/utils"
 
-export interface SegmentedItem<T extends string> {
+interface SegmentedItem<T extends string> {
     value: T
     label: string
     count?: number

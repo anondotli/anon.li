@@ -23,7 +23,6 @@ const mocks = vi.hoisted(() => ({
     subscriptionDeleteMany: vi.fn(),
     transaction: vi.fn(),
     eraseUserDrops: vi.fn(),
-    getVaultSchemaState: vi.fn(),
 }))
 
 vi.mock("@/lib/prisma", () => ({
@@ -58,10 +57,6 @@ vi.mock("@/lib/services/erasure", () => ({
     eraseUserDrops: mocks.eraseUserDrops,
 }))
 
-vi.mock("@/lib/vault/schema", () => ({
-    getVaultSchemaState: mocks.getVaultSchemaState,
-}))
-
 import { DeletionService } from "@/lib/services/deletion"
 
 describe("DeletionService", () => {
@@ -72,10 +67,6 @@ describe("DeletionService", () => {
         mocks.memberFindMany.mockResolvedValue([])
         mocks.organizationFindMany.mockResolvedValue([])
         mocks.eraseUserDrops.mockResolvedValue({ failedKeys: 0 })
-        mocks.getVaultSchemaState.mockResolvedValue({
-            dropOwnerKeys: true,
-            userSecurity: true,
-        })
         mocks.deletionRequestUpdate.mockResolvedValue(undefined)
         mocks.deletionRequestFindMany.mockResolvedValue([])
         mocks.deletionRequestUpsert.mockResolvedValue({ id: "dr_123" })

@@ -96,7 +96,6 @@ model UserSecurity {
   kdfVersion                Int      @default(1) @map("kdf_version")
   vaultGeneration           Int      @default(1) @map("vault_generation")
   passwordSetAt             DateTime @default(now()) @map("password_set_at")
-  migrationState            String   @default("complete") @map("migration_state")
   // Org shared-E2EE identity keypair (see lib/vault/ORG-E2EE-DESIGN.md §3a):
   // public key plaintext; private key wrapped to the vault key; generation = the
   // vaultGeneration at wrap time, so a stale wrap after rotation is detectable.

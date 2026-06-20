@@ -372,17 +372,6 @@ export const FEATURE_CATALOG: readonly FeaturePresentation[] = [
     },
 ] as const
 
-export const IMPORTANT_FEATURE_IDS = [
-    "alias_private_aliases",
-    "alias_reply_privately",
-    "alias_pause_block",
-    "drop_browser_encryption",
-    "drop_zero_knowledge_links",
-    "drop_no_account_download",
-    "trust_open_source",
-    "trust_claim_transparency",
-] as const
-
 export const DASHBOARD_FEATURE_PROMPTS = {
     alias: [
         "alias_recipients",

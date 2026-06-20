@@ -4,7 +4,6 @@ import { getClientIp, rateLimit } from "@/lib/rate-limit"
 import { apiError, apiSuccess, ErrorCodes, generateRequestId, withNoStore } from "@/lib/api-response"
 import { logVaultError, logVaultWarn } from "@/lib/vault/api"
 import { createFakeAuthSalt, normalizeEmail, VAULT_KDF_VERSION } from "@/lib/vault/server"
-import { getVaultSchemaState } from "@/lib/vault/schema"
 
 const bootstrapSchema = z.object({
     email: z.email(),
@@ -37,17 +36,9 @@ export async function POST(request: Request) {
         }
 
         const fakeAuthSalt = createFakeAuthSalt(email)
-        const vaultSchema = await getVaultSchemaState()
 
         // CSRF-exempt: read-only, public salt lookup. Returns deterministic fake salt
         // for unknown emails to avoid enumeration.
-        if (!vaultSchema.userSecurity) {
-            return withNoStore(apiSuccess({
-                authSalt: fakeAuthSalt,
-                kdfVersion: VAULT_KDF_VERSION,
-            }, requestId))
-        }
-
         const user = await prisma.user.findUnique({
             where: { email },
             select: {

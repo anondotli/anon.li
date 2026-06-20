@@ -11,7 +11,7 @@ import {
     Legend,
 } from "recharts"
 
-export interface AreaSeries {
+interface AreaSeries {
     key: string
     label: string
     /** CSS color (e.g. "hsl(var(--foreground))"). */

@@ -12,7 +12,6 @@ const cookies = vi.fn()
 const sessionUpdate = vi.fn()
 const revalidatePath = vi.fn()
 const userSecurityFindUnique = vi.fn()
-const getVaultSchemaState = vi.fn()
 const twoFactorIsEnabled = vi.fn()
 
 vi.mock("@/auth", () => ({
@@ -53,10 +52,6 @@ vi.mock("@/lib/prisma", () => ({
     },
 }))
 
-vi.mock("@/lib/vault/schema", () => ({
-    getVaultSchemaState,
-}))
-
 vi.mock("@/lib/services/two-factor", () => ({
     TwoFactorService: {
         isEnabled: twoFactorIsEnabled,
@@ -83,7 +78,6 @@ describe("verifyTwoFactorLogin", () => {
         rateLimit.mockResolvedValue(null)
         sessionUpdate.mockResolvedValue({ userId: "user-1" })
         userSecurityFindUnique.mockResolvedValue({ id: "security-1" })
-        getVaultSchemaState.mockResolvedValue({ userSecurity: true, dropOwnerKeys: true })
         twoFactorIsEnabled.mockResolvedValue(true)
     })
 

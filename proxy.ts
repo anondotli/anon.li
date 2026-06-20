@@ -226,6 +226,6 @@ export default async function proxy(req: NextRequest) {
 // ran on every uptime probe, sitemap fetch, robots fetch, and asset request.
 export const config = {
     matcher: [
-        '/((?!_next/static|_next/image|_next/data|favicon\\.ico|favicon-\\d+x\\d+\\.png|apple-touch-icon\\.png|android-chrome-\\d+x\\d+\\.png|icon-\\d+\\.png|og-image\\.png|noise\\.svg|black-square\\.svg|white-square\\.svg|site\\.webmanifest|canary\\.json|robots\\.txt|llms\\.txt|sitemap\\.xml|sitemap-\\d+\\.xml|fonts/.*|videos/.*|blog/.*|cli/.*|docs/.*|\\.well-known/.*|ingest/.*|api/health).*)',
+        '/((?!_next/static|_next/image|_next/data|favicon\\.ico|favicon-\\d+x\\d+\\.png|apple-touch-icon\\.png|android-chrome-\\d+x\\d+\\.png|icon-\\d+\\.png|og-image\\.png|noise\\.svg|site\\.webmanifest|canary\\.json|robots\\.txt|llms\\.txt|sitemap\\.xml|sitemap-\\d+\\.xml|fonts/.*|videos/.*|blog/.*|cli/.*|docs/.*|\\.well-known/.*|ingest/.*|api/health).*)',
     ],
 };

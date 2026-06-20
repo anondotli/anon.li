@@ -87,40 +87,9 @@ const VaultContext = React.createContext<VaultContextValue | null>(null)
 
 export function VaultProvider({
     children,
-    enabled = true,
 }: {
     children: React.ReactNode
-    enabled?: boolean
 }) {
-    const disabledValue = React.useMemo<VaultContextValue>(() => ({
-        status: "unlocked",
-        error: null,
-        vaultGeneration: null,
-        vaultId: null,
-        unlockWithPassword: async () => {
-            throw new Error("Vault features are unavailable until the database migration is applied.")
-        },
-        lock: () => {},
-        wrapDropKey: async () => {
-            throw new Error("Vault features are unavailable until the database migration is applied.")
-        },
-        unwrapDropKey: async () => {
-            throw new Error("Vault features are unavailable until the database migration is applied.")
-        },
-        wrapDropKeyForOrg: async () => {
-            throw new Error("Vault features are unavailable until the database migration is applied.")
-        },
-        unwrapOrgManagedKey: async () => {
-            throw new Error("Vault features are unavailable until the database migration is applied.")
-        },
-        getOrgVaultKeyHandle: async () => null,
-        getVaultKey: () => null,
-    }), [])
-
-    if (!enabled) {
-        return <VaultContext.Provider value={disabledValue}>{children}</VaultContext.Provider>
-    }
-
     return <EnabledVaultProvider>{children}</EnabledVaultProvider>
 }
 

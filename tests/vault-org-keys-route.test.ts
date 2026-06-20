@@ -7,10 +7,9 @@
  */
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-const { getVaultSession, enforceVaultRequestGuards, getVaultSchemaState, audit, prisma } = vi.hoisted(() => ({
+const { getVaultSession, enforceVaultRequestGuards, audit, prisma } = vi.hoisted(() => ({
     getVaultSession: vi.fn(),
     enforceVaultRequestGuards: vi.fn(),
-    getVaultSchemaState: vi.fn(),
     audit: vi.fn(),
     prisma: {
         member: { findUnique: vi.fn() },
@@ -22,10 +21,6 @@ const { getVaultSession, enforceVaultRequestGuards, getVaultSchemaState, audit, 
 vi.mock("@/lib/prisma", () => ({ prisma }))
 vi.mock("@/lib/vault/server", () => ({ getVaultSession }))
 vi.mock("@/lib/vault/http", () => ({ enforceVaultRequestGuards }))
-vi.mock("@/lib/vault/schema", () => ({
-    getVaultSchemaState,
-    VAULT_SCHEMA_UNAVAILABLE_MESSAGE: "Vault schema unavailable",
-}))
 vi.mock("@/lib/vault/api", () => ({ logVaultError: vi.fn(), logVaultWarn: vi.fn() }))
 vi.mock("@/lib/services/audit", () => ({ audit }))
 
@@ -43,12 +38,9 @@ const postReq = (body: unknown) =>
         body: JSON.stringify(body),
     })
 
-const SCHEMA_OK = { userSecurity: true, dropOwnerKeys: true, formOwnerKeys: true, organizationMemberKeys: true }
-
 beforeEach(() => {
     vi.clearAllMocks()
     enforceVaultRequestGuards.mockResolvedValue(null)
-    getVaultSchemaState.mockResolvedValue(SCHEMA_OK)
     // Default org is seeded at generation 1 (matches validGrant.orgKeyGeneration).
     prisma.organization.findUnique.mockResolvedValue({ orgKeyGeneration: 1 })
 })
@@ -57,12 +49,6 @@ describe("GET /api/vault/org-keys (own member key)", () => {
     it("401 when unauthenticated", async () => {
         getVaultSession.mockResolvedValue(null)
         expect((await GET(getReq())).status).toBe(401)
-    })
-
-    it("503 when the org-member-keys table is unavailable", async () => {
-        getVaultSession.mockResolvedValue({ user: { id: "u1" } })
-        getVaultSchemaState.mockResolvedValue({ ...SCHEMA_OK, organizationMemberKeys: false })
-        expect((await GET(getReq())).status).toBe(503)
     })
 
     it("400 when organizationId is missing", async () => {

@@ -1,6 +1,6 @@
 import { cn } from "@/lib/utils"
 
-export type FormStatusKind = "live" | "paused" | "closed" | "limit" | "taken-down"
+type FormStatusKind = "live" | "paused" | "closed" | "limit" | "taken-down"
 
 export interface FormDisplayStatus {
     kind: FormStatusKind

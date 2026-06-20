@@ -7,7 +7,6 @@ import { VaultGate } from "@/components/vault/vault-gate"
 import { redirect } from "next/navigation"
 import { prisma } from "@/lib/prisma"
 import { AlertTriangle } from "lucide-react"
-import { getVaultSchemaState, VAULT_SCHEMA_UNAVAILABLE_MESSAGE } from "@/lib/vault/schema"
 import { ReferralClaim } from "@/components/referral/referral-claim"
 import { PostHogIdentify } from "@/components/shared/posthog-identify"
 
@@ -21,8 +20,6 @@ export default async function DashboardLayout({ children }: { children: React.Re
     if (session.user.twoFactorEnabled && !session.twoFactorVerified) {
         redirect("/2fa")
     }
-
-    const vaultSchema = await getVaultSchemaState()
 
     const user = await prisma.user.findUnique({
         where: { id: session.user.id },
@@ -40,20 +37,18 @@ export default async function DashboardLayout({ children }: { children: React.Re
         redirect("/login")
     }
 
-    if (vaultSchema.userSecurity) {
-        const security = await prisma.userSecurity.findUnique({
-            where: { userId: session.user.id },
-            select: { id: true },
-        })
+    const security = await prisma.userSecurity.findUnique({
+        where: { userId: session.user.id },
+        select: { id: true },
+    })
 
-        if (!security) {
-            redirect("/setup")
-        }
+    if (!security) {
+        redirect("/setup")
     }
 
     return (
         <FileDropProvider>
-        <VaultProvider enabled={vaultSchema.userSecurity}>
+        <VaultProvider>
         <ReferralClaim />
         <PostHogIdentify />
         <div className="flex min-h-screen flex-col bg-background">
@@ -80,12 +75,6 @@ export default async function DashboardLayout({ children }: { children: React.Re
                             ].filter(Boolean).join(" & ")} blocked.`
                         }
                     </span>
-                </div>
-            )}
-
-            {!vaultSchema.userSecurity && (
-                <div className="border-b border-amber-500/20 bg-amber-500/10 px-4 py-3 text-center text-sm text-amber-700 dark:text-amber-300">
-                    {VAULT_SCHEMA_UNAVAILABLE_MESSAGE} Existing dashboard features remain available.
                 </div>
             )}
 

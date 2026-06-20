@@ -2,7 +2,6 @@ import { prisma } from "@/lib/prisma"
 import { apiError, apiSuccess, ErrorCodes, generateRequestId, withNoStore } from "@/lib/api-response"
 import { logVaultError, logVaultWarn } from "@/lib/vault/api"
 import { getCredentialAccount, getVaultSession } from "@/lib/vault/server"
-import { getVaultSchemaState } from "@/lib/vault/schema"
 import { enforceVaultRequestGuards } from "@/lib/vault/http"
 
 const ROUTE_NAME = "migration-status"
@@ -24,26 +23,12 @@ export async function GET() {
         })
         if (blocked) return blocked
 
-        const vaultSchema = await getVaultSchemaState()
         const credentialAccount = await getCredentialAccount(session.user.id)
-
-        if (!vaultSchema.userSecurity) {
-            return withNoStore(apiSuccess({
-                vaultAvailable: false,
-                needsPassword: false,
-                hasPassword: Boolean(credentialAccount),
-                hasVault: false,
-                migrationState: "unavailable",
-                vaultId: null,
-                vaultGeneration: null,
-            }, requestId))
-        }
 
         const security = await prisma.userSecurity.findUnique({
             where: { userId: session.user.id },
             select: {
                 id: true,
-                migrationState: true,
                 vaultGeneration: true,
             },
         })
@@ -53,7 +38,6 @@ export async function GET() {
             needsPassword: !security,
             hasPassword: Boolean(credentialAccount),
             hasVault: Boolean(security),
-            migrationState: security?.migrationState ?? "pending",
             vaultId: security?.id ?? null,
             vaultGeneration: security?.vaultGeneration ?? null,
         }, requestId))

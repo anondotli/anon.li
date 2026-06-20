@@ -3,7 +3,6 @@ import { z } from "zod"
 import { apiError, apiSuccess, ErrorCodes, withNoStore, zodErrorToDetails } from "@/lib/api-response"
 import { prisma } from "@/lib/prisma"
 import { withPolicy } from "@/lib/route-policy"
-import { getVaultSchemaState, VAULT_SCHEMA_UNAVAILABLE_MESSAGE } from "@/lib/vault/schema"
 import { verifyCredentialSecret } from "@/lib/vault/server"
 import { authSecretSchema } from "@/lib/vault/validation"
 
@@ -32,16 +31,6 @@ export const POST = withPolicy(
                 ctx.requestId,
                 400,
                 zodErrorToDetails(validation.error),
-            ))
-        }
-
-        const vaultSchema = await getVaultSchemaState()
-        if (!vaultSchema.userSecurity) {
-            return withNoStore(apiError(
-                VAULT_SCHEMA_UNAVAILABLE_MESSAGE,
-                ErrorCodes.SERVICE_UNAVAILABLE,
-                ctx.requestId,
-                503,
             ))
         }
 

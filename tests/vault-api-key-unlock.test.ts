@@ -9,7 +9,6 @@ const auth = vi.fn()
 const validateApiKey = vi.fn()
 const hasExplicitApiKey = vi.fn()
 const rateLimit = vi.fn()
-const getVaultSchemaState = vi.fn()
 const verifyCredentialSecret = vi.fn()
 
 const prisma = {
@@ -38,11 +37,6 @@ vi.mock("@/lib/rate-limit", () => ({
 
 vi.mock("@/lib/prisma", () => ({
     prisma,
-}))
-
-vi.mock("@/lib/vault/schema", () => ({
-    getVaultSchemaState,
-    VAULT_SCHEMA_UNAVAILABLE_MESSAGE: "Vault schema unavailable",
 }))
 
 vi.mock("@/lib/vault/server", () => ({
@@ -81,7 +75,6 @@ describe("POST /api/v1/vault/unlock", () => {
             },
         })
         rateLimit.mockResolvedValue(null)
-        getVaultSchemaState.mockResolvedValue({ userSecurity: true, dropOwnerKeys: true })
         verifyCredentialSecret.mockResolvedValue(true)
         prisma.userSecurity.findUnique.mockResolvedValue({
             id: "cmau000000000000000000001",
@@ -141,20 +134,6 @@ describe("POST /api/v1/vault/unlock", () => {
         const payload = await readJson(response)
         expect(response.status).toBe(404)
         expect(payload.error?.code).toBe(ErrorCodes.NOT_FOUND)
-    })
-
-    it("returns service unavailable when the vault schema is missing", async () => {
-        getVaultSchemaState.mockResolvedValueOnce({ userSecurity: false, dropOwnerKeys: false })
-        const { POST } = await import("@/app/api/v1/vault/unlock/route")
-
-        const response = await POST(new Request("http://localhost/api/v1/vault/unlock", {
-            method: "POST",
-            body: JSON.stringify({ auth_secret: "a".repeat(32) }),
-        }))
-
-        const payload = await readJson(response)
-        expect(response.status).toBe(503)
-        expect(payload.error?.code).toBe(ErrorCodes.SERVICE_UNAVAILABLE)
     })
 
     it("surfaces rate limits before checking the vault password", async () => {

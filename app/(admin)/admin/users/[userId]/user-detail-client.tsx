@@ -108,7 +108,6 @@ interface UserDetailClientProps {
             completedAt: Date | null
         } | null
         security: {
-            migrationState: string
             vaultGeneration: number
             passwordSetAt: Date
             updatedAt: Date
@@ -520,10 +519,7 @@ export function UserDetailClient({ user }: UserDetailClientProps) {
                         <div>
                             <Label className="text-muted-foreground">Vault</Label>
                             {user.security ? (
-                                <p>
-                                    <span className="capitalize">{user.security.migrationState}</span>
-                                    <span className="text-muted-foreground"> · generation {user.security.vaultGeneration}</span>
-                                </p>
+                                <p>Generation {user.security.vaultGeneration}</p>
                             ) : (
                                 <p className="text-muted-foreground">Not configured</p>
                             )}

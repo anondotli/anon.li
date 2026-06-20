@@ -20,7 +20,7 @@ import {
     type LucideIcon,
 } from "lucide-react"
 
-export interface NavItem {
+interface NavItem {
     title: string
     href: string
     icon: LucideIcon
@@ -95,9 +95,6 @@ export const navGroups: NavGroup[] = [
         ],
     },
 ]
-
-/** Flat list of every nav item, for the command palette. */
-export const navItems: NavItem[] = navGroups.flatMap((group) => group.items)
 
 /** True when `pathname` should highlight `href` as active in the nav. */
 export function isNavItemActive(pathname: string, href: string): boolean {

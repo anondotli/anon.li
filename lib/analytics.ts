@@ -1,7 +1,6 @@
 /**
  * Client-side analytics event tracking via PostHog.
- * Safe to call server-side (no-ops gracefully). The public `analytics` API is
- * unchanged from the previous Umami implementation — only the transport moved.
+ * Safe to call server-side (no-ops gracefully).
  */
 
 import posthog from "posthog-js"
