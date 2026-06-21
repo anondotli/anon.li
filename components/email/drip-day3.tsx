@@ -1,4 +1,5 @@
 import { EmailLayout } from "./layout";
+import { emailUrl } from "./styles";
 import {
     EmailSimpleHeader,
     EmailDivider,
@@ -54,7 +55,7 @@ export function DripDay3Email({ unsubscribeUrl }: DripDay3EmailProps) {
                 />
             </Section>
 
-            <EmailCTAInline href="https://anon.li/dashboard/drop" text="Upload your first drop" />
+            <EmailCTAInline href={emailUrl("/dashboard/drop")} text="Upload your first drop" />
 
             <FooterNote>
                 Free includes 5 GB bandwidth and 3-day expiry. No registration required for downloaders.

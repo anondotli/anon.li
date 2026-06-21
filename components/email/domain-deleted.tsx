@@ -1,4 +1,5 @@
 import { EmailLayout } from "./layout";
+import { emailUrl } from "./styles";
 import { EmailHeader, ContentRow, EmailCTA, emailColors } from "./primitives";
 
 interface DomainDeletedEmailProps {
@@ -19,7 +20,7 @@ export function DomainDeletedEmail({ domain }: DomainDeletedEmailProps) {
                     This happened because the domain was not verified within 24 hours. You can add it again at any time.
                 </p>
             </ContentRow>
-            <EmailCTA href="https://anon.li/dashboard/domains" text="Manage Domains" />
+            <EmailCTA href={emailUrl("/dashboard/domains")} text="Manage Domains" />
         </EmailLayout>
     );
 }

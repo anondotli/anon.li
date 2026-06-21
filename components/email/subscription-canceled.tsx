@@ -1,4 +1,5 @@
 import { EmailLayout } from "./layout";
+import { emailUrl } from "./styles";
 import { EmailHeader, InfoBox, ContentRow, EmailCTA, emailColors } from "./primitives";
 
 interface SubscriptionCanceledEmailProps {
@@ -28,7 +29,7 @@ export function SubscriptionCanceledEmail({ expiryDate }: SubscriptionCanceledEm
                     Restore your Pro features by updating your payment method before the deadline.
                 </p>
             </ContentRow>
-            <EmailCTA href="https://anon.li/dashboard/billing" text="Renew Subscription" />
+            <EmailCTA href={emailUrl("/dashboard/billing")} text="Renew Subscription" />
         </EmailLayout>
     );
 }

@@ -37,6 +37,12 @@ vi.mock("@/lib/services/drop-cleanup", () => ({
     },
 }));
 
+// Run the wrapped job inline instead of acquiring the real Upstash Redis lock,
+// which would make a network call (the cron handlers' "200" path).
+vi.mock("@/lib/cron-lock", () => ({
+    withCronLock: vi.fn(async (_name: string, _ttl: number, fn: () => unknown) => fn()),
+}));
+
 const originalEnv = process.env;
 
 describe("Cron Route Auth", () => {

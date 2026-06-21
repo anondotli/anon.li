@@ -1,4 +1,5 @@
 import { EmailLayout } from "./layout";
+import { emailUrl } from "./styles";
 import { EmailHeader, ContentRow, EmailCTA, emailColors } from "./primitives";
 
 interface DomainUnverifiedEmailProps {
@@ -19,7 +20,7 @@ export function DomainUnverifiedEmail({ domain }: DomainUnverifiedEmailProps) {
                     Please ensure your DNS records are configured correctly. If verification fails repeatedly, the domain will be removed from your account to prevent abuse.
                 </p>
             </ContentRow>
-            <EmailCTA href="https://anon.li/dashboard/domains" text="Verify Domain" />
+            <EmailCTA href={emailUrl("/dashboard/domains")} text="Verify Domain" />
         </EmailLayout>
     );
 }

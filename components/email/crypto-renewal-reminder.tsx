@@ -1,4 +1,5 @@
 import { EmailLayout } from "./layout";
+import { emailUrl } from "./styles";
 import { EmailHeader, InfoBox, ContentRow, EmailCTA, emailColors } from "./primitives";
 
 interface CryptoRenewalReminderEmailProps {
@@ -32,7 +33,7 @@ export function CryptoRenewalReminderEmail({ daysRemaining, product, tier }: Cry
                     Crypto subscriptions do not auto-renew. Visit your billing page to renew with crypto or card.
                 </p>
             </ContentRow>
-            <EmailCTA href="https://anon.li/dashboard/billing" text="Renew Subscription" />
+            <EmailCTA href={emailUrl("/dashboard/billing")} text="Renew Subscription" />
         </EmailLayout>
     );
 }

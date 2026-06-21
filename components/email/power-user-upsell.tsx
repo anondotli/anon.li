@@ -1,4 +1,5 @@
 import { EmailLayout } from "./layout";
+import { emailUrl } from "./styles";
 import {
     EmailSimpleHeader,
     EmailDivider,
@@ -91,7 +92,7 @@ export function PowerUserUpsellEmail({
             </Section>
 
             <EmailCTAInline
-                href={`https://anon.li/pricing?highlight=alias_${suggestedTier}`}
+                href={emailUrl(`/pricing?highlight=bundle_${suggestedTier}`)}
                 text={`Upgrade to ${planLabel} — ${price}`}
             />
 

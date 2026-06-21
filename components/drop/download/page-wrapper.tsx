@@ -40,7 +40,7 @@ export function PageWrapper({ children, showBranding = true }: PageWrapperProps)
           </p>
           <p className="text-xs">
             <Link href="/drop" prefetch={false} className="font-medium text-primary/80 hover:text-primary transition-colors">
-              Share your own files securely — free &rarr;
+              Share your own files securely - free &rarr;
             </Link>
           </p>
         </footer>

@@ -1,4 +1,5 @@
 import { EmailLayout } from "./layout";
+import { emailUrl } from "./styles";
 import { EmailHeader, EmailCTA, emailColors } from "./primitives";
 
 interface DownloadLimitReachedEmailProps {
@@ -14,7 +15,7 @@ export function DownloadLimitReachedEmail({ downloads }: DownloadLimitReachedEma
                 title="Download Limit Reached"
                 subtitle={<>Your drop has been downloaded <strong style={{ color: emailColors.error }}>{downloads} times</strong> and is now scheduled for permanent deletion.</>}
             />
-            <EmailCTA href="https://anon.li/dashboard/drop" text="View My Drops" />
+            <EmailCTA href={emailUrl("/dashboard/drop")} text="View My Drops" />
         </EmailLayout>
     );
 }

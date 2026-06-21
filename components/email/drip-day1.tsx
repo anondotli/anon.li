@@ -1,4 +1,5 @@
 import { EmailLayout } from "./layout";
+import { emailUrl } from "./styles";
 import {
     EmailSimpleHeader,
     EmailDivider,
@@ -54,7 +55,7 @@ export function DripDay1Email({ unsubscribeUrl }: DripDay1EmailProps) {
                 />
             </Section>
 
-            <EmailCTAInline href="https://anon.li/dashboard/alias" text="Create your first alias" />
+            <EmailCTAInline href={emailUrl("/dashboard/alias")} text="Create your first alias" />
 
             <FooterNote>
                 You have 10 free random aliases and 1 custom alias to start.

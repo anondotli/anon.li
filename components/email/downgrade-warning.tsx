@@ -1,4 +1,5 @@
 import { EmailLayout } from "./layout";
+import { emailUrl } from "./styles";
 import { EmailHeader, InfoBox, ContentRow, EmailCTA, emailColors } from "./primitives";
 
 interface DowngradeWarningEmailProps {
@@ -60,7 +61,7 @@ export function DowngradeWarningEmail({
                     <strong style={{ color: emailColors.text }}>{deletionDate}</strong> unless you renew your subscription.
                 </p>
             </ContentRow>
-            <EmailCTA href="https://anon.li/dashboard/billing" text="Renew Subscription" />
+            <EmailCTA href={emailUrl("/dashboard/billing")} text="Renew Subscription" />
             <ContentRow padding="24px 48px 0">
                 <p style={{ margin: 0, fontSize: "13px", lineHeight: 1.6, color: emailColors.textLighter, textAlign: "center" }}>
                     You can also manually remove resources to stay within free tier limits.

@@ -1,4 +1,5 @@
 import { EmailLayout } from "./layout";
+import { emailUrl } from "./styles";
 import {
     EmailSimpleHeader,
     EmailDivider,
@@ -53,7 +54,7 @@ export function DripDay7Email({ unsubscribeUrl }: DripDay7EmailProps) {
                 />
             </Section>
 
-            <EmailCTAInline href="https://anon.li/docs/cli" text="Install the CLI" />
+            <EmailCTAInline href={emailUrl("/docs/cli")} text="Install the CLI" />
 
             <FooterNote>
                 All three share the same API key &mdash; find it at anon.li/dashboard/settings/api.

@@ -89,7 +89,7 @@ export class AdminService {
                     await getResend().emails.send({
                         from: SYSTEM_EMAIL_FROM,
                         to: drop.user.email,
-                        subject: "Content Takedown Notice",
+                        subject: "Your anon.li drop was removed",
                         react: DropTakedownEmail({
                             fileId: dropId,
                             reason,
@@ -147,7 +147,7 @@ export class AdminService {
                     await getResend().emails.send({
                         from: SYSTEM_EMAIL_FROM,
                         to: form.user.email,
-                        subject: "Content Takedown Notice",
+                        subject: "Your anon.li form was removed",
                         react: FormTakedownEmail({
                             formId,
                             formTitle: form.title,

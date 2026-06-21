@@ -38,7 +38,7 @@ export async function sendWelcomeEmail(email: string) {
         const { data, error } = await resend.emails.send({
             from: "anon.li <hi@anon.li>",
             to: email,
-            subject: "Welcome to anon.li - Your Privacy Journey Starts Now",
+            subject: "Welcome to anon.li — your privacy toolkit is ready",
             react: React.createElement(WelcomeEmail),
         })
 
@@ -57,12 +57,14 @@ export async function sendWelcomeEmail(email: string) {
 export async function sendAccountVerificationEmail(email: string, url: string) {
     try {
         const resend = getResendClient()
+        const { AccountVerificationEmail } = await import("@/components/email/account-verification")
 
         const { data, error } = await resend.emails.send({
             from: "anon.li <hi@anon.li>",
             to: email,
             subject: "Verify your anon.li email address",
             text: `Verify your email address to finish setting up your anon.li account.\n\n${url}\n\nIf you didn't create this account, you can ignore this email.`,
+            react: React.createElement(AccountVerificationEmail, { url }),
         })
 
         if (error) {
@@ -134,12 +136,14 @@ export async function sendSubscriptionCanceledEmail(email: string, expiryDate: D
 export async function sendPaymentActionRequiredEmail(email: string, paymentUrl: string) {
     try {
         const resend = getResendClient()
+        const { PaymentActionRequiredEmail } = await import("@/components/email/payment-action-required")
 
         const { data, error } = await resend.emails.send({
             from: "anon.li <billing@anon.li>",
             to: email,
             subject: "Action Required: Complete your anon.li payment",
             text: `Your recent payment requires additional authentication.\n\nPlease complete your payment by visiting:\n${paymentUrl}\n\nThis is required to continue your anon.li subscription.\n\nIf you didn't make this purchase, please ignore this email.`,
+            react: React.createElement(PaymentActionRequiredEmail, { paymentUrl }),
         })
 
         if (error) {

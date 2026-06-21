@@ -1,4 +1,5 @@
 import { EmailLayout } from "./layout";
+import { emailUrl } from "./styles";
 import { EmailHeader, InfoBox, FileInfoCard, AccentCard, EmailCTA, ContentRow, emailColors } from "./primitives";
 
 interface DropTakedownEmailProps {
@@ -43,7 +44,7 @@ export function DropTakedownEmail({ fileId, reason, strikeCount, isBanned }: Dro
                 <p style={{ margin: "0 0 20px", fontSize: "14px", color: emailColors.textLight, lineHeight: 1.6 }}>
                     Please review our Acceptable Use Policy to understand our content guidelines.
                 </p>
-                <EmailCTA href="https://anon.li/docs/legal/aup" variant="secondary">
+                <EmailCTA href={emailUrl("/docs/legal/aup")} variant="secondary">
                     View Acceptable Use Policy
                 </EmailCTA>
             </ContentRow>

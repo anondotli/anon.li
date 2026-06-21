@@ -1,3 +1,16 @@
+/**
+ * Builds an absolute anon.li URL for use in emails.
+ *
+ * Links in emails must be absolute and should point at the environment that
+ * sent them, so derive the origin from NEXT_PUBLIC_APP_URL (falling back to the
+ * production domain). The web-font @font-face URLs below intentionally keep the
+ * canonical anon.li origin (they're static assets with a system-font fallback).
+ */
+export function emailUrl(path = ""): string {
+    const base = (process.env.NEXT_PUBLIC_APP_URL ?? "https://anon.li").replace(/\/$/, "");
+    return `${base}${path}`;
+}
+
 export const EMAIL_FONT_STYLES = `
     @font-face {
         font-family: 'Geist';

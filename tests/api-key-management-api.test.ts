@@ -31,6 +31,19 @@ vi.mock("@/lib/csrf", () => ({
     validateCsrf,
 }))
 
+// withPolicy applies a named limiter via @/lib/rate-limit, which talks to the
+// real Upstash Redis. Partially mock the module (api-rate-limit imports
+// monthlyApiLimiters from it) and override only rateLimit so the per-request
+// limiter always allows and no network call is made. Client construction itself
+// makes no network call.
+vi.mock("@/lib/rate-limit", async (importOriginal) => {
+    const actual = await importOriginal<typeof import("@/lib/rate-limit")>()
+    return {
+        ...actual,
+        rateLimit: vi.fn().mockResolvedValue(null),
+    }
+})
+
 describe("API key management API", () => {
     beforeEach(() => {
         vi.clearAllMocks()

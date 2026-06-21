@@ -1,6 +1,6 @@
 /* eslint-disable @next/next/no-head-element */
 /* eslint-disable @next/next/no-img-element */
-import { EMAIL_FONT_STYLES, emailStyles } from "./styles";
+import { EMAIL_FONT_STYLES, emailStyles, emailUrl } from "./styles";
 
 interface EmailLayoutProps {
     children: React.ReactNode;
@@ -62,7 +62,7 @@ export function EmailLayout({ children, title, preheader, unsubscribeUrl }: Emai
                                                         <tr>
                                                             <td style={{ verticalAlign: "middle" }}>
                                                                 <img
-                                                                    src="https://anon.li/favicon-32x32.png"
+                                                                    src={emailUrl("/favicon-32x32.png")}
                                                                     alt="logo"
                                                                     width="28"
                                                                     height="28"

@@ -41,6 +41,15 @@ vi.mock('@/lib/api-rate-limit', () => ({
     createRateLimitHeaders: () => new Headers(),
 }))
 
+// withPolicy applies a named limiter via @/lib/rate-limit, which talks to the
+// real Upstash Redis. Stub it so the per-request limiter always allows (null)
+// and no network call is made.
+vi.mock('@/lib/rate-limit', () => ({
+    rateLimit: vi.fn().mockResolvedValue(null),
+    rateLimiters: {},
+    getClientIp: vi.fn().mockResolvedValue('127.0.0.1'),
+}))
+
 describe('POST /api/v1/alias Validation', () => {
   beforeEach(() => {
     vi.clearAllMocks();

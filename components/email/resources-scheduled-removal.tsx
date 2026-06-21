@@ -1,4 +1,5 @@
 import { EmailLayout } from "./layout";
+import { emailUrl } from "./styles";
 import { EmailHeader, InfoBox, ContentRow, EmailCTA, emailColors } from "./primitives";
 
 interface ResourcesScheduledRemovalEmailProps {
@@ -68,13 +69,13 @@ export function ResourcesScheduledRemovalEmail({
                     <tbody>
                         <tr>
                             <td align="center" style={{ paddingBottom: "12px" }}>
-                                <EmailCTA href="https://anon.li/dashboard/billing" text="Upgrade Plan" />
+                                <EmailCTA href={emailUrl("/dashboard/billing")} text="Upgrade Plan" />
                             </td>
                         </tr>
                         <tr>
                             <td align="center">
                                 <a
-                                    href="https://anon.li/dashboard"
+                                    href={emailUrl("/dashboard")}
                                     style={{
                                         fontSize: "14px",
                                         color: emailColors.textMuted,

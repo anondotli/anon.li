@@ -1,4 +1,5 @@
 import { EmailLayout } from "./layout";
+import { emailUrl } from "./styles";
 import { EmailHeader, EmailCTA, emailColors } from "./primitives";
 
 interface FileExpiringEmailProps {
@@ -16,7 +17,7 @@ export function FileExpiringEmail({ hoursRemaining }: FileExpiringEmailProps) {
                 title="Drop Expiring Soon"
                 subtitle={<>Your drop will be permanently deleted in <strong style={{ color: emailColors.warning }}>{timeText}</strong></>}
             />
-            <EmailCTA href="https://anon.li/dashboard/drop" text="View My Drops" />
+            <EmailCTA href={emailUrl("/dashboard/drop")} text="View My Drops" />
         </EmailLayout>
     );
 }

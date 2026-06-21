@@ -1,4 +1,5 @@
 import { EmailLayout } from "./layout";
+import { emailUrl } from "./styles";
 import { EmailHeader, ContentRow, EmailCTA, emailColors } from "./primitives";
 
 interface CryptoInvoiceExpiredEmailProps {
@@ -32,7 +33,7 @@ export function CryptoInvoiceExpiredEmail({ product, tier, priceUsd }: CryptoInv
                     You can also retry crypto from the same page.
                 </p>
             </ContentRow>
-            <EmailCTA href="https://anon.li/dashboard/billing" text="Finish with a card" />
+            <EmailCTA href={emailUrl("/dashboard/billing")} text="Finish with a card" />
         </EmailLayout>
     );
 }

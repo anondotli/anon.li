@@ -1,4 +1,5 @@
 import { EmailLayout } from "./layout";
+import { emailUrl } from "./styles";
 import { EmailHeader, StatBox, EmailCTA, emailColors } from "./primitives";
 
 interface FileDownloadedEmailProps {
@@ -21,7 +22,7 @@ export function FileDownloadedEmail({ downloadCount, downloadTime }: FileDownloa
                 color={emailColors.success}
                 bgColor={emailColors.successBg}
             />
-            <EmailCTA href="https://anon.li/dashboard/drop" text="View My Drops" />
+            <EmailCTA href={emailUrl("/dashboard/drop")} text="View My Drops" />
         </EmailLayout>
     );
 }

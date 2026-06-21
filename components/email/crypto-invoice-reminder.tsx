@@ -1,4 +1,5 @@
 import { EmailLayout } from "./layout";
+import { emailUrl } from "./styles";
 import { EmailHeader, ContentRow, EmailCTA, InfoBox, emailColors } from "./primitives";
 
 interface CryptoInvoiceReminderEmailProps {
@@ -42,7 +43,7 @@ export function CryptoInvoiceReminderEmail({
                     Crypto invoices expire after 7 days. If you already sent the payment, you can ignore this &mdash; confirmations can take a while on congested networks.
                 </p>
             </InfoBox>
-            <EmailCTA href="https://anon.li/dashboard/billing" text="Open billing" />
+            <EmailCTA href={emailUrl("/dashboard/billing")} text="Open billing" />
         </EmailLayout>
     );
 }

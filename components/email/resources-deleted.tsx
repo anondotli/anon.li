@@ -1,4 +1,5 @@
 import { EmailLayout } from "./layout";
+import { emailUrl } from "./styles";
 import { EmailHeader, InfoBox, ContentRow, EmailCTA, emailColors } from "./primitives";
 
 interface ResourcesDeletedEmailProps {
@@ -63,7 +64,7 @@ export function ResourcesDeletedEmail({
                     Upgrade your plan to restore access to higher limits and premium features.
                 </p>
             </ContentRow>
-            <EmailCTA href="https://anon.li/dashboard/billing" text="Upgrade Plan" />
+            <EmailCTA href={emailUrl("/dashboard/billing")} text="Upgrade Plan" />
         </EmailLayout>
     );
 }

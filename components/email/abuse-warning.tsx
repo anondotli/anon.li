@@ -1,4 +1,5 @@
 import { EmailLayout } from "./layout";
+import { emailUrl } from "./styles";
 import { EmailHeader, InfoBox, AccentCard, ContentRow, EmailCTA, emailColors } from "./primitives";
 
 interface AbuseWarningEmailProps {
@@ -27,7 +28,7 @@ export function AbuseWarningEmail({ reason }: AbuseWarningEmailProps) {
                     Please review our Acceptable Use Policy to ensure your content complies with our guidelines.
                     Repeated violations may result in content removal or account restrictions.
                 </p>
-                <EmailCTA href="https://anon.li/docs/legal/aup" variant="secondary">
+                <EmailCTA href={emailUrl("/docs/legal/aup")} variant="secondary">
                     View Acceptable Use Policy
                 </EmailCTA>
             </ContentRow>

@@ -1,4 +1,5 @@
 import { EmailLayout } from "./layout";
+import { emailUrl } from "./styles";
 import {
     EmailSimpleHeader,
     EmailDivider,
@@ -18,7 +19,7 @@ export function DripDay14Email({ unsubscribeUrl }: DripDay14EmailProps) {
     return (
         <EmailLayout
             title="Free is great. Here's when Plus earns its keep."
-            preheader="Custom domains, PGP encryption, more aliases, bigger drops."
+            preheader="Custom domains, PGP encryption, more aliases, bigger drops, private forms."
             unsubscribeUrl={unsubscribeUrl}
         >
             <EmailSimpleHeader
@@ -35,7 +36,7 @@ export function DripDay14Email({ unsubscribeUrl }: DripDay14EmailProps) {
                 </p>
             </ContentRow>
 
-            <Section title="What you get on Plus for $3.99/mo">
+            <Section title="What you get on Plus for $6.99/mo">
                 <FeatureRow
                     icon="&#127760;"
                     title="Custom domains"
@@ -55,11 +56,16 @@ export function DripDay14Email({ unsubscribeUrl }: DripDay14EmailProps) {
                     icon="&#128272;"
                     title="Password-protected drops"
                     description="Add an extra passphrase layer on top of E2EE."
+                />
+                <FeatureRow
+                    icon="&#128203;"
+                    title="Private encrypted forms"
+                    description="Collect responses only you can decrypt &mdash; 10 forms, 1,000 submissions/mo, 90-day retention."
                     isLast
                 />
             </Section>
 
-            <EmailCTAInline href="https://anon.li/pricing" text="See all plans" />
+            <EmailCTAInline href={emailUrl("/pricing")} text="See all plans" />
 
             <FooterNote>
                 If Free is working for you, keep using it &mdash; no pressure. This is the only
