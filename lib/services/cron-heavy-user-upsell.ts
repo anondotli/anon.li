@@ -1,5 +1,5 @@
 import { Redis } from "@upstash/redis";
-import { BUNDLE_PLANS, PLAN_ENTITLEMENTS } from "@/config/plans";
+import { ALIAS_PLANS, BUNDLE_PLANS, PLAN_ENTITLEMENTS } from "@/config/plans";
 import { getHeavyFreeUsers } from "@/lib/data/user";
 import { createLogger } from "@/lib/logger";
 import { sendPowerUserUpsellEmail } from "@/lib/resend";
@@ -38,9 +38,16 @@ export async function handleHeavyUserUpsellCron(): Promise<{ sent: number; skipp
         limit: MAX_PER_RUN * 4,
     });
 
-    const plusLimit = PLAN_ENTITLEMENTS.alias.plus.random;
-    const plusMonthly = BUNDLE_PLANS.plus.price.monthly;
-    const price = `$${plusMonthly.toFixed(2)}/mo`;
+    // Anchor on the cheapest plan that removes their actual constraint — Alias
+    // Plus (more aliases) — and bill in EUR. The previous copy quoted the €6.99
+    // Bundle rendered as "$6.99": ~2.8x the price these alias-only power users
+    // need, in the wrong currency, which suppressed conversion. The Bundle is now
+    // offered as a secondary upsell inside the email rather than the headline.
+    const suggestedTier = "plus" as const;
+    const aliasLimit = PLAN_ENTITLEMENTS.alias[suggestedTier].random;
+    const eur = (n: number) => `€${n.toFixed(2)}/mo`;
+    const price = eur(ALIAS_PLANS[suggestedTier].price.monthly);
+    const bundlePrice = eur(BUNDLE_PLANS[suggestedTier].price.monthly);
 
     let sent = 0;
     let skipped = 0;
@@ -66,9 +73,10 @@ export async function handleHeavyUserUpsellCron(): Promise<{ sent: number; skipp
             const result = await sendPowerUserUpsellEmail(user.email, user.id, {
                 aliasCount: user.aliasCount,
                 emailsForwarded: user.emailsForwarded,
-                suggestedTier: "plus",
-                aliasLimit: plusLimit,
+                suggestedTier,
+                aliasLimit,
                 price,
+                bundlePrice,
             });
 
             if (!result.success) {

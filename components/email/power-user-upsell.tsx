@@ -18,6 +18,7 @@ interface PowerUserUpsellEmailProps {
     suggestedTier: "plus" | "pro";
     aliasLimit: number;
     price: string;
+    bundlePrice: string;
     unsubscribeUrl?: string;
 }
 
@@ -27,6 +28,7 @@ export function PowerUserUpsellEmail({
     suggestedTier,
     aliasLimit,
     price,
+    bundlePrice,
     unsubscribeUrl,
 }: PowerUserUpsellEmailProps) {
     const planLabel = suggestedTier === "pro" ? "Pro" : "Plus";
@@ -84,16 +86,16 @@ export function PowerUserUpsellEmail({
                     description="Attach your public key and have inbound mail encrypted before it reaches your inbox."
                 />
                 <FeatureRow
-                    icon="&#128190;"
-                    title="More drop bandwidth & longer expiry"
-                    description="Bigger E2EE file drops that live for longer, with password protection and no branding."
+                    icon="&#128230;"
+                    title={`Need Drop & Forms too? Go Bundle — ${bundlePrice}`}
+                    description={`Bundle ${planLabel} adds encrypted file sharing and private forms on top of everything above. Upgrade anytime — start with Alias ${planLabel} below.`}
                     isLast
                 />
             </Section>
 
             <EmailCTAInline
-                href={emailUrl(`/pricing?highlight=bundle_${suggestedTier}`)}
-                text={`Upgrade to ${planLabel} — ${price}`}
+                href={emailUrl(`/pricing?highlight=alias_${suggestedTier}`)}
+                text={`Get Alias ${planLabel} — ${price}`}
             />
 
             <FooterNote>

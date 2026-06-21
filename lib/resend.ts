@@ -676,7 +676,7 @@ export async function sendCryptoInvoiceExpiredEmail(
 export async function sendPowerUserUpsellEmail(
     email: string,
     userId: string,
-    details: { aliasCount: number; emailsForwarded: number; suggestedTier: "plus" | "pro"; aliasLimit: number; price: string }
+    details: { aliasCount: number; emailsForwarded: number; suggestedTier: "plus" | "pro"; aliasLimit: number; price: string; bundlePrice: string }
 ) {
     try {
         const resend = getResendClient()
