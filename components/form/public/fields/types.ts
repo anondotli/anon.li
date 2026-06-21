@@ -23,6 +23,12 @@ export function getFieldBehavior(field: FormField): FieldBehavior {
             return { enterAdvances: true, autoAdvances: false, acceptsLetterKeys: true, acceptsNumberKeys: false }
         case "rating":
             return { enterAdvances: true, autoAdvances: true, acceptsLetterKeys: false, acceptsNumberKeys: true }
+        case "linear_scale":
+            return { enterAdvances: true, autoAdvances: true, acceptsLetterKeys: false, acceptsNumberKeys: true }
+        case "ranking":
+            return { enterAdvances: true, autoAdvances: false, acceptsLetterKeys: false, acceptsNumberKeys: false }
+        case "address":
+            return { enterAdvances: false, autoAdvances: false, acceptsLetterKeys: false, acceptsNumberKeys: false }
         case "file":
             return { enterAdvances: false, autoAdvances: false, acceptsLetterKeys: false, acceptsNumberKeys: false }
         default:

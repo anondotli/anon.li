@@ -45,8 +45,12 @@ function fieldForType(
         case "multi_select":
         case "dropdown":
             return { ...base, type, options: ["Option 1", "Option 2"] }
+        case "ranking":
+            return { ...base, type, options: ["Option 1", "Option 2", "Option 3"] }
         case "rating":
             return { ...base, type, max: 5 }
+        case "linear_scale":
+            return { ...base, type, min: 1, max: 5 }
         case "file":
             return {
                 ...base,

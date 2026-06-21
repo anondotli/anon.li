@@ -28,15 +28,34 @@ interface SetupPasswordPageContentProps {
     callbackUrl: string
 }
 
+// Storage support depends on browser-only APIs, so it must not be read during
+// the initial render — doing so makes the server (no `window`) and client HTML
+// diverge and triggers a hydration mismatch. Resolve it post-hydration via
+// useSyncExternalStore, mirroring the unlock screen.
+const subscribeStorageSupport = () => () => {}
+let cachedStorageSupport: VaultStorageSupport | null = null
+const getClientStorageSupport = (): VaultStorageSupport => {
+    if (!cachedStorageSupport) cachedStorageSupport = getVaultStorageSupport()
+    return cachedStorageSupport
+}
+const getServerStorageSupport = (): VaultStorageSupport | null => null
+
 export function SetupPasswordPageContent({ callbackUrl }: SetupPasswordPageContentProps) {
     const router = useRouter()
-    const [support] = React.useState<VaultStorageSupport>(() => getVaultStorageSupport())
+    const support = React.useSyncExternalStore(
+        subscribeStorageSupport,
+        getClientStorageSupport,
+        getServerStorageSupport,
+    )
     const [isSubmitting, setIsSubmitting] = React.useState(false)
     const [password, setPassword] = React.useState("")
     const [confirmPassword, setConfirmPassword] = React.useState("")
     const [isPasswordFocused, setIsPasswordFocused] = React.useState(false)
-    const [trustBrowser, setTrustBrowser] = React.useState(() => support.trustedBrowser)
+    const [trustBrowserOverride, setTrustBrowserOverride] = React.useState<boolean | null>(null)
     const [error, setError] = React.useState<string | null>(null)
+
+    const trustBrowser = trustBrowserOverride ?? (support?.trustedBrowser ?? true)
+    const setTrustBrowser = (next: boolean) => setTrustBrowserOverride(next)
 
     const showConfirmPassword = isPasswordFocused || password.length > 0
     const meetsLength = password.length >= 12
@@ -80,7 +99,7 @@ export function SetupPasswordPageContent({ callbackUrl }: SetupPasswordPageConte
             const vaultId = result.vaultId
             setVaultRuntime(vaultKey, gen, vaultId)
 
-            if (trustBrowser && support.trustedBrowser) {
+            if (trustBrowser && support?.trustedBrowser) {
                 await persistTrustedBrowser(vaultKey, gen, vaultId)
             }
 
@@ -167,7 +186,7 @@ export function SetupPasswordPageContent({ callbackUrl }: SetupPasswordPageConte
                     id="setup-trust-browser"
                     checked={trustBrowser}
                     onCheckedChange={setTrustBrowser}
-                    available={support.trustedBrowser}
+                    available={support?.trustedBrowser ?? true}
                     disabled={isSubmitting}
                 />
 

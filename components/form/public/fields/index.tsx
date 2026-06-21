@@ -5,6 +5,9 @@ import type { FormField } from "@/lib/form-schema"
 import { SingleLineField, LongTextField } from "./text-fields"
 import { SingleSelectField, MultiSelectField, DropdownField } from "./choice-fields"
 import { RatingField } from "./rating-field"
+import { LinearScaleField } from "./linear-scale-field"
+import { RankingField } from "./ranking-field"
+import { AddressField } from "./address-field"
 import { FileField } from "./file-field"
 import type { FieldPresentation } from "./types"
 
@@ -47,6 +50,12 @@ export const FieldInput = forwardRef<FieldHandle, Props>(function FieldInput(pro
             return <DropdownField ref={innerRef} {...props} field={field} />
         case "rating":
             return <RatingField ref={innerRef} {...props} field={field} />
+        case "linear_scale":
+            return <LinearScaleField ref={innerRef} {...props} field={field} />
+        case "ranking":
+            return <RankingField ref={innerRef} {...props} field={field} />
+        case "address":
+            return <AddressField ref={innerRef} {...props} field={field} />
         case "file":
             return <FileField ref={innerRef} {...props} field={field} />
     }

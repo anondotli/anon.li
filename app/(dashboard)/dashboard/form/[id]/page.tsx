@@ -54,7 +54,11 @@ export default async function FormDetailPage({ params }: PageProps) {
                     label: field.label,
                     type: field.type,
                     options: "options" in field ? field.options : undefined,
-                    max: field.type === "rating" ? field.max : undefined,
+                    min: field.type === "linear_scale" ? field.min : undefined,
+                    max:
+                        field.type === "rating" || field.type === "linear_scale"
+                            ? field.max
+                            : undefined,
                 })),
             }}
             submissions={submissions.submissions.map((s) => ({

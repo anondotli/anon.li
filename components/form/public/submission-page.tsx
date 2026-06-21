@@ -9,7 +9,13 @@ import { Turnstile } from "@/components/ui/turnstile"
 import { cryptoService } from "@/lib/crypto.client"
 import { encryptForForm } from "@/lib/crypto/asymmetric"
 import type { FormField, FormSchemaDoc } from "@/lib/form-schema"
-import { isFieldVisible, validateAnswersAgainstSchema } from "@/lib/form-schema"
+import {
+    isFieldVisible,
+    isBlankObject,
+    validateAnswersAgainstSchema,
+    missingRequiredAddressParts,
+    describeAddressParts,
+} from "@/lib/form-schema"
 import {
     uploadFormAttachments,
     type FormAttachmentProgress,
@@ -344,12 +350,10 @@ function isFile(v: unknown): v is File {
 }
 
 function isAnswerEmpty(value: unknown): boolean {
-    return (
-        value === undefined ||
-        value === null ||
-        value === "" ||
-        (Array.isArray(value) && value.length === 0)
-    )
+    if (value === undefined || value === null || value === "") return true
+    if (Array.isArray(value)) return value.length === 0
+    if (typeof value === "object") return isBlankObject(value as Record<string, unknown>)
+    return false
 }
 
 function validateFieldAnswer(field: FormField, value: unknown): string | null {
@@ -381,6 +385,21 @@ function validateFieldAnswer(field: FormField, value: unknown): string | null {
         case "rating": {
             const num = typeof value === "number" ? value : Number(value)
             if (!Number.isInteger(num) || num < 1 || num > field.max) return `Must be 1–${field.max}`
+            return null
+        }
+        case "linear_scale": {
+            const num = typeof value === "number" ? value : Number(value)
+            if (!Number.isInteger(num) || num < field.min || num > field.max) {
+                return `Must be ${field.min}–${field.max}`
+            }
+            return null
+        }
+        case "ranking":
+            if (!Array.isArray(value) || value.length !== field.options.length) return "Rank every option"
+            return null
+        case "address": {
+            const missing = missingRequiredAddressParts(field, value)
+            if (missing.length > 0) return `Enter ${describeAddressParts(missing)}`
             return null
         }
         case "single_select":

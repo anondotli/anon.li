@@ -70,6 +70,12 @@ function SummaryBody({ field, rows, answered }: { field: FormFieldMeta; rows: Re
     if (field.type === "rating") {
         return <RatingSummary field={field} rows={rows} />
     }
+    if (field.type === "linear_scale") {
+        return <LinearScaleSummary field={field} rows={rows} />
+    }
+    if (field.type === "ranking" && field.options) {
+        return <RankingSummary field={field} rows={rows} />
+    }
     if (field.type === "number") {
         return <NumberSummary field={field} rows={rows} />
     }
@@ -165,6 +171,93 @@ function RatingSummary({ field, rows }: { field: FormFieldMeta; rows: ReadyRow[]
                         />
                     ))}
             </div>
+        </div>
+    )
+}
+
+function LinearScaleSummary({ field, rows }: { field: FormFieldMeta; rows: ReadyRow[] }) {
+    const { values, average, min, max } = useMemo(() => {
+        const min = field.min ?? 1
+        const max = field.max ?? 5
+        const values = rows
+            .map((r) => r.answers[field.id])
+            .filter((v): v is number => typeof v === "number")
+        const average = values.length ? values.reduce((a, b) => a + b, 0) / values.length : 0
+        return { values, average, min, max }
+    }, [field, rows])
+
+    const histogram = useMemo(() => {
+        const buckets = Array.from({ length: max - min + 1 }, (_, i) => ({ score: min + i, count: 0 }))
+        for (const v of values) {
+            const b = buckets[v - min]
+            if (b) b.count += 1
+        }
+        return buckets
+    }, [values, min, max])
+
+    return (
+        <div className="space-y-4">
+            <div className="flex items-baseline gap-2">
+                <span className="font-mono text-3xl font-medium tabular-nums">{average.toFixed(1)}</span>
+                <span className="text-sm text-muted-foreground">avg · {min}–{max}</span>
+            </div>
+            <div className="space-y-2">
+                {histogram.map((bucket) => (
+                    <Bar key={bucket.score} label={String(bucket.score)} count={bucket.count} total={values.length} />
+                ))}
+            </div>
+        </div>
+    )
+}
+
+function RankingSummary({ field, rows }: { field: FormFieldMeta; rows: ReadyRow[] }) {
+    const ranked = useMemo(() => {
+        const options = field.options ?? []
+        const sums = new Map<string, { total: number; count: number }>(options.map((o) => [o, { total: 0, count: 0 }]))
+        for (const row of rows) {
+            const value = row.answers[field.id]
+            if (!Array.isArray(value)) continue
+            value.forEach((opt, index) => {
+                const entry = sums.get(String(opt))
+                if (entry) {
+                    entry.total += index + 1
+                    entry.count += 1
+                }
+            })
+        }
+        return options
+            .map((option) => {
+                const entry = sums.get(option)!
+                const avg = entry.count > 0 ? entry.total / entry.count : 0
+                return { option, avg, count: entry.count }
+            })
+            .filter((r) => r.count > 0)
+            .sort((a, b) => a.avg - b.avg)
+    }, [field, rows])
+
+    const n = field.options?.length ?? 1
+
+    return (
+        <div className="space-y-3">
+            {ranked.map(({ option, avg }) => {
+                // Best possible avg rank is 1 → full bar; worst is n → empty.
+                const pct = n > 1 ? Math.round((1 - (avg - 1) / (n - 1)) * 100) : 100
+                return (
+                    <div key={option} className="space-y-1">
+                        <div className="flex items-center justify-between gap-3 text-sm">
+                            <span className="min-w-0 flex-1 truncate" title={option}>
+                                {option}
+                            </span>
+                            <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">
+                                avg {avg.toFixed(2)}
+                            </span>
+                        </div>
+                        <div className="h-2 overflow-hidden rounded-full bg-secondary">
+                            <div className="h-full rounded-full bg-primary/70 transition-all" style={{ width: `${pct}%` }} />
+                        </div>
+                    </div>
+                )
+            })}
         </div>
     )
 }

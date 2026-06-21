@@ -22,6 +22,7 @@ import {
     ArrowUp,
     Asterisk,
     Calendar,
+    Check,
     ChevronDown,
     ChevronsUpDown,
     Circle,
@@ -30,12 +31,15 @@ import {
     GripVertical,
     Hash,
     ListChecks,
+    ListOrdered,
     Mail,
+    MapPin,
     MoreHorizontal,
     Paperclip,
     Phone,
     Plus,
     Settings2,
+    SlidersHorizontal,
     Square,
     Star,
     Trash2,
@@ -48,6 +52,16 @@ import type {
     FormFieldVisibility,
     FormFieldVisibilityOp,
     FormSchemaDoc,
+    AddressPart,
+    AddressPartsConfig,
+    AddressPartConfig,
+} from "@/lib/form-schema"
+import {
+    ADDRESS_PARTS,
+    ADDRESS_PART_META,
+    getAddressParts,
+    enabledAddressParts,
+    minifyAddressParts,
 } from "@/lib/form-schema"
 import {
     createField,
@@ -75,7 +89,10 @@ const FIELD_TYPES: FieldTypeInfo[] = [
     { value: "multi_select", label: "Multiple choice", description: "Pick many with checkboxes", icon: ListChecks },
     { value: "dropdown", label: "Dropdown", description: "Pick one from a list", icon: ChevronsUpDown },
     { value: "rating", label: "Rating", description: "1–10 star rating", icon: Star },
+    { value: "linear_scale", label: "Linear scale", description: "Opinion scale with end labels", icon: SlidersHorizontal },
     { value: "date", label: "Date", description: "Calendar date picker", icon: Calendar },
+    { value: "ranking", label: "Ranking", description: "Drag options into order", icon: ListOrdered },
+    { value: "address", label: "Address", description: "Postal address fields", icon: MapPin },
     { value: "file", label: "File upload", description: "Accept encrypted file uploads", icon: Paperclip },
 ]
 
@@ -368,9 +385,9 @@ function BetweenInsert({
 }
 
 const FIELD_TYPE_GROUPS: { label: string; types: FormFieldType[] }[] = [
-    { label: "Text", types: ["short_text", "long_text", "email", "phone"] },
-    { label: "Choice", types: ["single_select", "multi_select", "dropdown"] },
-    { label: "Number & date", types: ["number", "rating", "date"] },
+    { label: "Text", types: ["short_text", "long_text", "email", "phone", "address"] },
+    { label: "Choice", types: ["single_select", "multi_select", "dropdown", "ranking"] },
+    { label: "Number & date", types: ["number", "rating", "linear_scale", "date"] },
     { label: "File", types: ["file"] },
 ]
 
@@ -968,7 +985,10 @@ function VisibilityValueInput({
     disabled?: boolean
 }) {
     const isNumericOp = op === "gt" || op === "lt"
-    const isNumericField = targetField?.type === "number" || targetField?.type === "rating"
+    const isNumericField =
+        targetField?.type === "number" ||
+        targetField?.type === "rating" ||
+        targetField?.type === "linear_scale"
 
     if (
         targetField &&
@@ -1182,9 +1202,57 @@ function TypeSpecificOptions({
                     />
                 </div>
             )
+        case "linear_scale":
+            return (
+                <div className="grid gap-4 md:grid-cols-2">
+                    <NumberSetting
+                        label="Scale start"
+                        hint="0 or 1."
+                        value={field.min}
+                        min={0}
+                        max={1}
+                        onChange={(value) => onChange({ min: value === 0 ? 0 : 1 } as Partial<FormField>)}
+                        disabled={disabled}
+                    />
+                    <NumberSetting
+                        label="Scale end"
+                        hint="Between 2 and 11."
+                        value={field.max}
+                        min={2}
+                        max={11}
+                        onChange={(value) => onChange({ max: value ?? 5 } as Partial<FormField>)}
+                        disabled={disabled}
+                    />
+                    <TextInputSetting
+                        label="Left label"
+                        hint="Shown under the lowest value."
+                        value={field.minLabel ?? ""}
+                        onChange={(value) => onChange({ minLabel: value || undefined } as Partial<FormField>)}
+                        disabled={disabled}
+                    />
+                    <TextInputSetting
+                        label="Right label"
+                        hint="Shown under the highest value."
+                        value={field.maxLabel ?? ""}
+                        onChange={(value) => onChange({ maxLabel: value || undefined } as Partial<FormField>)}
+                        disabled={disabled}
+                    />
+                </div>
+            )
+        case "address":
+            return (
+                <AddressPartsEditor
+                    parts={getAddressParts(field)}
+                    onChange={(parts) =>
+                        onChange({ parts: minifyAddressParts(parts) } as Partial<FormField>)
+                    }
+                    disabled={disabled}
+                />
+            )
         case "single_select":
         case "multi_select":
         case "dropdown":
+        case "ranking":
             return (
                 <OptionEditor
                     fieldType={field.type}
@@ -1198,16 +1266,20 @@ function TypeSpecificOptions({
     }
 }
 
-const OPTION_BULLET: Record<"single_select" | "multi_select" | "dropdown", LucideIcon> = {
+type OptionFieldType = "single_select" | "multi_select" | "dropdown" | "ranking"
+
+const OPTION_BULLET: Record<OptionFieldType, LucideIcon> = {
     single_select: Circle,
     multi_select: Square,
     dropdown: ChevronsUpDown,
+    ranking: ListOrdered,
 }
 
-const OPTION_LIMIT: Record<"single_select" | "multi_select" | "dropdown", number> = {
+const OPTION_LIMIT: Record<OptionFieldType, number> = {
     single_select: 50,
     multi_select: 50,
     dropdown: 100,
+    ranking: 20,
 }
 
 function OptionEditor({
@@ -1216,7 +1288,7 @@ function OptionEditor({
     onChange,
     disabled,
 }: {
-    fieldType: "single_select" | "multi_select" | "dropdown"
+    fieldType: OptionFieldType
     options: string[]
     onChange: (opts: string[]) => void
     disabled?: boolean
@@ -1347,6 +1419,101 @@ function OptionEditor({
                     </span>
                 </button>
             </div>
+        </div>
+    )
+}
+
+function AddressPartsEditor({
+    parts,
+    onChange,
+    disabled,
+}: {
+    parts: AddressPartsConfig
+    onChange: (parts: AddressPartsConfig) => void
+    disabled?: boolean
+}) {
+    const enabledCount = enabledAddressParts(parts).length
+    const setPart = (part: AddressPart, patch: Partial<AddressPartConfig>) => {
+        onChange({ ...parts, [part]: { ...parts[part], ...patch } })
+    }
+
+    return (
+        <div className="space-y-2.5">
+            <div className="flex items-baseline justify-between">
+                <Label>Address fields</Label>
+                <span className="text-xs tabular-nums text-muted-foreground">
+                    {enabledCount}
+                    <span className="text-muted-foreground/60"> / {ADDRESS_PARTS.length}</span> collected
+                </span>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2">
+                {ADDRESS_PARTS.map((part) => {
+                    const cfg = parts[part]
+                    // Don't let the builder turn off the only remaining field.
+                    const lockEnabled = cfg.enabled && enabledCount <= 1
+                    const label = ADDRESS_PART_META[part].label
+                    return (
+                        <div
+                            key={part}
+                            className={cn(
+                                "flex items-center gap-2.5 rounded-lg border px-3 py-2.5 transition-colors",
+                                cfg.enabled
+                                    ? "border-border/60 bg-background"
+                                    : "border-dashed border-border/50 bg-secondary/20",
+                            )}
+                        >
+                            <button
+                                type="button"
+                                role="checkbox"
+                                aria-checked={cfg.enabled}
+                                aria-label={`Collect ${label}`}
+                                onClick={() => setPart(part, { enabled: !cfg.enabled })}
+                                disabled={disabled || lockEnabled}
+                                className={cn(
+                                    "flex h-5 w-5 shrink-0 items-center justify-center rounded-md border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                                    cfg.enabled
+                                        ? "border-foreground bg-foreground text-background"
+                                        : "border-border/70 bg-background text-transparent hover:border-foreground/40",
+                                    "disabled:cursor-not-allowed disabled:opacity-50",
+                                )}
+                            >
+                                <Check className="h-3.5 w-3.5" strokeWidth={3} />
+                            </button>
+
+                            <span
+                                className={cn(
+                                    "min-w-0 flex-1 truncate text-sm",
+                                    !cfg.enabled && "text-muted-foreground/60",
+                                )}
+                            >
+                                {label}
+                            </span>
+
+                            {cfg.enabled ? (
+                                <button
+                                    type="button"
+                                    aria-pressed={cfg.required}
+                                    aria-label={`Require ${label}`}
+                                    onClick={() => setPart(part, { required: !cfg.required })}
+                                    disabled={disabled}
+                                    className={cn(
+                                        "shrink-0 rounded-md border px-2 py-0.5 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                                        cfg.required
+                                            ? "border-destructive/30 bg-destructive/10 text-destructive"
+                                            : "border-border/60 bg-background text-muted-foreground hover:border-foreground/30 hover:text-foreground",
+                                        "disabled:cursor-not-allowed disabled:opacity-50",
+                                    )}
+                                >
+                                    Required
+                                </button>
+                            ) : null}
+                        </div>
+                    )
+                })}
+            </div>
+            <p className="text-xs text-muted-foreground">
+                Fields marked required show a red star on the form and must be filled in.
+            </p>
         </div>
     )
 }

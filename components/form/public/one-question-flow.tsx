@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import type { FormField, FormSchemaDoc } from "@/lib/form-schema"
+import { isBlankObject, missingRequiredAddressParts, describeAddressParts } from "@/lib/form-schema"
 import { useVisibleFormFields } from "@/components/form/use-visible-form-fields"
 import { QuestionFrame, type QuestionFrameHandle } from "./question-frame"
 import { ProgressRail } from "./progress-rail"
@@ -19,12 +20,10 @@ interface Props {
 }
 
 function isAnswerEmpty(value: unknown): boolean {
-    return (
-        value === undefined ||
-        value === null ||
-        value === "" ||
-        (Array.isArray(value) && value.length === 0)
-    )
+    if (value === undefined || value === null || value === "") return true
+    if (Array.isArray(value)) return value.length === 0
+    if (typeof value === "object") return isBlankObject(value as Record<string, unknown>)
+    return false
 }
 
 function validateAnswer(field: FormField, value: unknown): string | null {
@@ -49,6 +48,14 @@ function validateAnswer(field: FormField, value: unknown): string | null {
                 return `Keep this under ${field.maxLength} characters`
             }
             return null
+        case "ranking":
+            if (!Array.isArray(value) || value.length !== field.options.length) return "Rank every option"
+            return null
+        case "address": {
+            const missing = missingRequiredAddressParts(field, value)
+            if (missing.length > 0) return `Enter ${describeAddressParts(missing)}`
+            return null
+        }
         default:
             return null
     }
@@ -177,11 +184,16 @@ export function OneQuestionFlow({
                 return
             }
 
-            // Number keys 1–9 → rating shortcut. Skip when typing in a real input.
-            if (behavior.acceptsNumberKeys && !isInInput && /^[1-9]$/.test(e.key)) {
+            // Number keys → rating / linear-scale shortcut. Skip when typing in a real input.
+            if (behavior.acceptsNumberKeys && !isInInput && /^[0-9]$/.test(e.key)) {
+                const n = Number(e.key)
                 if (current.type === "rating") {
-                    const n = Number(e.key)
                     if (n >= 1 && n <= current.max) {
+                        e.preventDefault()
+                        setAnswer(current.id, n)
+                    }
+                } else if (current.type === "linear_scale") {
+                    if (n >= current.min && n <= current.max) {
                         e.preventDefault()
                         setAnswer(current.id, n)
                     }

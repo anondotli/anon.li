@@ -1,4 +1,5 @@
-import type { FormFieldType } from "@/lib/form-schema"
+import type { FormFieldType, AddressValue } from "@/lib/form-schema"
+import { formatAddress, isBlankObject } from "@/lib/form-schema"
 
 // Canonical byte formatter — single source of truth in lib/format.
 export { formatBytes } from "@/lib/format"
@@ -13,6 +14,7 @@ export interface FormFieldMeta {
     label: string
     type: FormFieldType
     options?: string[]
+    min?: number
     max?: number
 }
 
@@ -82,6 +84,7 @@ export function isEmptyAnswer(value: unknown): boolean {
     if (value === null || value === undefined) return true
     if (Array.isArray(value)) return value.length === 0
     if (typeof value === "string") return value.trim() === ""
+    if (typeof value === "object") return isBlankObject(value as Record<string, unknown>)
     return false
 }
 
@@ -93,6 +96,7 @@ export function formatAnswerText(value: unknown): string {
     if (isEmptyAnswer(value)) return ""
     if (Array.isArray(value)) return value.map(String).join(", ")
     if (typeof value === "boolean") return value ? "Yes" : "No"
+    if (typeof value === "object" && value !== null) return formatAddress(value as AddressValue)
     return String(value)
 }
 
@@ -128,6 +132,7 @@ function serializeAnswerForCsv(value: unknown): string {
     if (value === null || value === undefined) return ""
     if (Array.isArray(value)) return value.map(String).join("; ")
     if (typeof value === "boolean") return value ? "true" : "false"
+    if (typeof value === "object") return formatAddress(value as AddressValue)
     return String(value)
 }
 
