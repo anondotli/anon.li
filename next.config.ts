@@ -46,6 +46,15 @@ const xFrameOptionsHeader = {
 const nextConfig: NextConfig = {
   poweredByHeader: false,
   reactCompiler: true,
+  // The OG image routes (app/(public)/{d,f}/[id]/{opengraph,twitter}-image.tsx)
+  // read brand fonts from assets/og via fs at request time. @vercel/nft doesn't
+  // reliably trace process.cwd()-relative reads, so include them explicitly to
+  // guarantee the fonts ship in the serverless bundle. Bracket-free keys avoid
+  // picomatch treating the [id] segment as a character class.
+  outputFileTracingIncludes: {
+    "/d/**": ["./assets/og/**"],
+    "/f/**": ["./assets/og/**"],
+  },
   // Reverse-proxy PostHog (EU) so analytics ingestion is first-party and
   // ad-blocker resistant; posthog-js points api_host at /ingest. Static/array
   // asset rewrites must precede the catch-all. Trailing-slash redirects break
