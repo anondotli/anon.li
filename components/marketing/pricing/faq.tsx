@@ -68,7 +68,11 @@ const FAQ_CATEGORIES: FAQCategory[] = [
             },
             {
                 question: "Can I use anon.li for my team?",
-                answer: "Currently individual accounts only. Team features with shared domains and admin controls are in development."
+                answer: (
+                    <>
+                        Yes. The <a href="/business" className="text-primary hover:underline">Business</a> plan adds shared aliases and custom domains, shared encrypted Drops and Forms, role-based member management, and centralized per-seat billing. Need volume pricing, audit logs, or a DPA? <a href="mailto:hi@anon.li?subject=anon.li%20Enterprise" className="text-primary hover:underline">Talk to us about Enterprise</a>.
+                    </>
+                )
             },
             {
                 question: "How do I delete my account?",

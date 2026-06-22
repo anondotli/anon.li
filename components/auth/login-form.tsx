@@ -32,6 +32,15 @@ function mapAuthError(error: { code?: string; message?: string } | null): string
     }
 }
 
+function describeRequestError(error: unknown): string {
+    // A network-level failure (offline, blocked request, CORS) rejects fetch
+    // with a TypeError ("Failed to fetch") rather than an auth error payload.
+    if (error instanceof TypeError) {
+        return "Couldn't reach the server. Check your connection and try again."
+    }
+    return error instanceof Error && error.message ? error.message : "Authentication failed"
+}
+
 function getDefaultUserName() {
     return "anon.li user"
 }
@@ -85,6 +94,8 @@ export function LoginForm({
                 provider,
                 callbackURL: destination,
             })
+        } catch (error) {
+            setFormError(describeRequestError(error))
         } finally {
             setProviderLoading(null)
         }
@@ -138,7 +149,7 @@ export function LoginForm({
         try {
             await sendMagicLink(verifiedTurnstileToken)
         } catch (error) {
-            setFormError(error instanceof Error ? error.message : fallbackMessage)
+            setFormError(error instanceof Error ? describeRequestError(error) : fallbackMessage)
         } finally {
             setIsLoading(false)
         }

@@ -11,12 +11,25 @@
  *    attribution allowlist; resource IDs in paths are masked to `[id]`.
  *  - Autocaptured element hrefs are scrubbed the same way (a displayed Drop
  *    share link must not leak its key via autocapture).
+ *  - Known third-party noise `$exception` events (browser extensions / antivirus
+ *    / email link-scanners) are dropped — they carry no app frames and are pure
+ *    false positives in error tracking.
  */
 
 export interface PostHogEventLike {
     event?: string
     properties?: Record<string, unknown>
 }
+
+// Unhandled rejections injected by software *outside* the page — Microsoft
+// Outlook/Office "SafeLink" link-scanners, antivirus, and browser extensions.
+// They surface as synthetic rejections with no app stack frames and are a
+// well-known error-tracking false positive, so we never want to capture them.
+const NOISE_EXCEPTION_PATTERNS = [
+    // "Object Not Found Matching Id:N, MethodName:update, ParamCount:4" — the
+    // canonical Outlook SafeLink / antivirus injected-script rejection.
+    /Object Not Found Matching Id:\d+, MethodName:/i,
+]
 
 // Pages whose URL can carry a secret (Drop key fragment, auth/verify token) or
 // are internal-only — never emit ANY event from these.
@@ -73,6 +86,28 @@ function sanitizeUrl(raw: string): string {
     }
 }
 
+// True when an `$exception` event matches a known third-party noise signature.
+// Checks both the normalized `$exception_list[].value` and the flat
+// `$exception_values` array so it works regardless of payload shape.
+function isNoiseException(props: Record<string, unknown>): boolean {
+    const messages: string[] = []
+
+    const list = props.$exception_list
+    if (Array.isArray(list)) {
+        for (const ex of list) {
+            const value = ex && typeof ex === "object" ? (ex as Record<string, unknown>).value : null
+            if (typeof value === "string") messages.push(value)
+        }
+    }
+
+    const values = props.$exception_values
+    if (Array.isArray(values)) {
+        for (const value of values) if (typeof value === "string") messages.push(value)
+    }
+
+    return messages.some((message) => NOISE_EXCEPTION_PATTERNS.some((pattern) => pattern.test(message)))
+}
+
 function pathFromProps(props: Record<string, unknown>): string {
     const pathname = props.$pathname
     if (typeof pathname === "string") return pathname
@@ -93,6 +128,9 @@ function pathFromProps(props: Record<string, unknown>): string {
 export function scrubPostHogEvent(event: PostHogEventLike | null): PostHogEventLike | null {
     if (!event || !event.properties) return event
     const props = event.properties
+
+    // Drop known third-party noise rejections before anything else.
+    if (event.event === "$exception" && isNoiseException(props)) return null
 
     const pathname = pathFromProps(props)
     if (pathname && matchesDropPrefix(pathname)) return null

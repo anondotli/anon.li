@@ -57,6 +57,38 @@ describe("scrubPostHogEvent", () => {
         expect(out!.properties!.$pathname).toBe("/blog/introducing-anon-li")
     })
 
+    it("drops known third-party noise rejections (Outlook SafeLink / antivirus)", () => {
+        const event: PostHogEventLike = {
+            event: "$exception",
+            properties: {
+                $current_url: "https://anon.li/docs/legal/aup",
+                $exception_list: [
+                    {
+                        type: "UnhandledRejection",
+                        value: "Non-Error promise rejection captured with value: Object Not Found Matching Id:4, MethodName:update, ParamCount:4",
+                        mechanism: { handled: false, synthetic: true, type: "generic" },
+                    },
+                ],
+                $exception_values: [
+                    "Non-Error promise rejection captured with value: Object Not Found Matching Id:4, MethodName:update, ParamCount:4",
+                ],
+            },
+        }
+        expect(scrubPostHogEvent(event)).toBeNull()
+    })
+
+    it("keeps genuine $exception events", () => {
+        const event: PostHogEventLike = {
+            event: "$exception",
+            properties: {
+                $current_url: "https://anon.li/login",
+                $exception_list: [{ type: "TypeError", value: "Failed to fetch" }],
+                $exception_values: ["Failed to fetch"],
+            },
+        }
+        expect(scrubPostHogEvent(event)).not.toBeNull()
+    })
+
     it("strips fragments from autocaptured element hrefs", () => {
         const out = scrubPostHogEvent({
             event: "$autocapture",
