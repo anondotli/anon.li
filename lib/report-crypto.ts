@@ -72,9 +72,20 @@ function decryptReportKey(encrypted: string): string {
 export function safeDecryptReportKey(value: string): string {
     try {
         return decryptReportKey(value)
-    } catch {
-        // If decryption fails, it's likely a plaintext key from before encryption was enabled
-        logger.warn("Failed to decrypt report key, returning as-is (likely plaintext)")
+    } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        // Distinguish a benign legacy plaintext key (stored before encryption was
+        // enabled) from a real key-management failure. A value that base64-decodes
+        // to at least our IV+authTag overhead is in ciphertext format, so a decrypt
+        // failure means a rotated/misconfigured REPORT_ENCRYPTION_KEY or corrupted
+        // data — log it at error level so it can be alerted on. Otherwise abuse
+        // investigators would silently receive an undecryptable key with no signal.
+        const looksLikeCiphertext = Buffer.from(value, "base64").length >= IV_LENGTH + AUTH_TAG_LENGTH
+        if (looksLikeCiphertext) {
+            logger.error("Report key failed to decrypt despite ciphertext format; check REPORT_ENCRYPTION_KEY", { error: message })
+        } else {
+            logger.warn("Report key not in encrypted format, returning as-is (legacy plaintext)")
+        }
         return value
     }
 }

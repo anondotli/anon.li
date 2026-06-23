@@ -99,15 +99,6 @@ export function getDisplayPlanLimits(user?: UserSub | null): AliasEntitlements {
     return getPlanLimits(user)
 }
 
-/**
- * Async alias limits resolution via Subscription table.
- */
-export async function getPlanLimitsAsync(userId: string): Promise<AliasEntitlements> {
-    const { getEffectiveTiers } = await import("@/lib/entitlements")
-    const tiers = await getEffectiveTiers(userId)
-    return PLAN_ENTITLEMENTS.alias[tiers.alias]
-}
-
 export function getDropLimits(user?: UserSub | null): DropLimits {
     const tier = resolveTierForProduct(user, 'drop')
     if (tier === 'free') {

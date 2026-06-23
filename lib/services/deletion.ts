@@ -9,6 +9,7 @@
 
 import { prisma } from "@/lib/prisma"
 import { eraseUserDrops } from "@/lib/services/erasure"
+import { purgePersonalVaultKeysOps } from "@/lib/vault/personal-purge"
 import { createLogger } from "@/lib/logger"
 
 const logger = createLogger("DeletionService")
@@ -174,11 +175,11 @@ export class DeletionService {
             await prisma.$transaction([
                 prisma.account.deleteMany({ where: { userId } }),
                 prisma.twoFactor.deleteMany({ where: { userId } }),
-                // Personal owner keys only: an org owner key is the sole copy of
-                // the key sealed to the org vault key (shared with the team) and
-                // must survive — its userId is SetNull on user deletion.
-                prisma.dropOwnerKey.deleteMany({ where: { userId, organizationId: null } }),
-                prisma.userSecurity.deleteMany({ where: { userId } }),
+                // Personal owner keys + userSecurity only. An org owner key is the
+                // sole copy of the key sealed to the org vault key (shared with the
+                // team) and must survive — purgePersonalVaultKeysOps enforces the
+                // organizationId: null scoping (shared with the password-reset hook).
+                ...purgePersonalVaultKeysOps(userId),
             ])
 
             // Delete other resources (personal only — org-owned rows belong to

@@ -146,6 +146,7 @@ export function SessionManagement({ sessions }: SessionManagementProps) {
                                     <Button
                                         variant="ghost"
                                         size="icon"
+                                        aria-label="Revoke session"
                                         className="text-muted-foreground hover:text-destructive"
                                         onClick={() => handleRevoke(session.id)}
                                         disabled={revokingId === session.id}

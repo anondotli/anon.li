@@ -14,7 +14,6 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { QrCode, Copy, Check, Download } from "lucide-react"
-import QRCode from "qrcode"
 import { toast } from "sonner"
 
 interface QRCodeShareProps {
@@ -43,6 +42,9 @@ export function QRCodeShare({ url, title = "Share", variant = "icon", disabled =
                 // This ensures the key is never sent to the server
                 const completeUrl = encryptionKey ? `${url}#${encryptionKey}` : url
 
+                // Lazy-load the qrcode library only when the dialog actually opens,
+                // so it stays out of the drop page's initial client bundle.
+                const { default: QRCode } = await import("qrcode")
                 const dataUrl = await QRCode.toDataURL(completeUrl, {
                     width: 256,
                     margin: 2,
@@ -92,7 +94,7 @@ export function QRCodeShare({ url, title = "Share", variant = "icon", disabled =
         <Dialog open={isOpen} onOpenChange={setIsOpen}>
             <DialogTrigger asChild>
                 {variant === "icon" ? (
-                    <Button variant="ghost" size="icon" className="h-8 w-8" disabled={disabled}>
+                    <Button variant="ghost" size="icon" aria-label="Show QR code" className="h-8 w-8" disabled={disabled}>
                         <QrCode className="h-4 w-4" />
                     </Button>
                 ) : (
@@ -140,6 +142,7 @@ export function QRCodeShare({ url, title = "Share", variant = "icon", disabled =
                         <Button
                             variant="outline"
                             size="icon"
+                            aria-label="Copy link"
                             onClick={handleCopy}
                         >
                             {copied ? (

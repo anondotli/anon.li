@@ -97,7 +97,7 @@ describe("MCP alias tools", () => {
 
         expect(invokeTool).toHaveBeenCalledWith(
             session,
-            { quota: "alias", rateLimit: "api" },
+            { scope: "anon.li:aliases", quota: "alias", rateLimit: "api" },
             expect.any(Function),
         )
         const alias = out.structuredContent.aliases[0] as Record<string, unknown>
@@ -131,7 +131,7 @@ describe("MCP alias tools", () => {
 
         expect(invokeTool).toHaveBeenCalledWith(
             session,
-            { quota: "alias", checkBan: "alias", rateLimit: "aliasCreate" },
+            { scope: "anon.li:aliases", quota: "alias", checkBan: "alias", rateLimit: "aliasCreate" },
             expect.any(Function),
         )
         expect(createAlias).toHaveBeenCalledWith(personalScope("user-1"), {

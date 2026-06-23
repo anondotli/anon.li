@@ -10,7 +10,17 @@ import type { McpSession, McpUser } from "./types"
 
 const logger = createLogger("MCP")
 
+/** OAuth scopes that gate the MCP tools (the `offline_access` scope is not a gate). */
+type McpToolScope = "anon.li:aliases" | "anon.li:drops" | "anon.li:forms"
+
 interface InvokeOptions {
+    /**
+     * OAuth scope the bearer token must carry to call this tool. Enforced
+     * fail-closed: a token that lacks the scope is rejected before any work,
+     * even though it authenticated successfully. Tokens issued via the consent
+     * flow always carry a space-separated scope string.
+     */
+    scope?: McpToolScope
     /** Monthly quota bucket to charge — mirrors `apiQuota` in route-policy. */
     quota?: ApiQuotaType
     /** Ban flag to check before invoking the handler. */
@@ -46,6 +56,16 @@ export async function invokeTool<T>(
         const scopeBan = banFlags && evaluateBan(banFlags, opts.checkBan)
         if (scopeBan) {
             throw new McpError(-32001, scopeBan.reason, { code: scopeBan.code })
+        }
+    }
+
+    if (opts.scope) {
+        const grantedScopes = new Set((session.scopes ?? "").split(/\s+/).filter(Boolean))
+        if (!grantedScopes.has(opts.scope)) {
+            throw new McpError(-32001, `Token is missing the '${opts.scope}' scope`, {
+                code: "INSUFFICIENT_SCOPE",
+                requiredScope: opts.scope,
+            })
         }
     }
 
@@ -107,9 +127,10 @@ export async function invokeTool<T>(
 }
 
 /**
- * Render a handler result as an MCP tool result (stringified JSON in a text
- * block plus a mirrored `structuredContent` payload so clients that understand
- * the output schema get typed access).
+ * Render a handler result as an MCP tool result: stringified JSON in a text
+ * block plus a mirrored `structuredContent` payload. Each tool declares an
+ * `outputSchema`, so SDK-aware clients validate `structuredContent` against it
+ * and get typed access; text-only clients still get the readable JSON.
  */
 export function toolResult<T>(data: T) {
     return {

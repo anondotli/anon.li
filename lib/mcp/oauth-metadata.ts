@@ -1,6 +1,7 @@
 export const MCP_OAUTH_SCOPES = [
     "anon.li:aliases",
     "anon.li:drops",
+    "anon.li:forms",
     "offline_access",
 ] as const
 

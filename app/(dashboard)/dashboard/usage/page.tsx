@@ -35,8 +35,8 @@ export default async function UsagePage() {
     const [aliases, domains, formCount, recentSubmissions, formLimits] = await Promise.all([
         // Personal usage view: personal resources vs personal plan limits.
         // (Org/team usage belongs in a dedicated team-billing view.)
-        prisma.alias.findMany({ where: { userId: user.id, organizationId: null }, select: { id: true, format: true } }) as unknown as Promise<Array<{ id: string; format: string }>>,
-        prisma.domain.findMany({ where: { userId: user.id, organizationId: null, verified: true }, select: { id: true } }) as unknown as Promise<Array<{ id: string }>>,
+        prisma.alias.findMany({ where: { userId: user.id, organizationId: null }, select: { id: true, format: true } }),
+        prisma.domain.findMany({ where: { userId: user.id, organizationId: null, verified: true }, select: { id: true } }),
         FormService.countActiveForms(user.id),
         FormService.countRecentSubmissionsForOwner(user.id),
         getFormLimitsAsync(user.id),

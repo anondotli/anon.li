@@ -23,8 +23,9 @@ const SCOPE_DESCRIPTIONS: Record<string, string> = {
     profile: "Read your public profile.",
     email: "Read your email address.",
     offline_access: "Stay connected while you're not actively using the app (refresh tokens).",
-    "anon.li:aliases": "Create, list, toggle, and delete your email aliases.",
+    "anon.li:aliases": "Create, list, toggle, and delete your email aliases, and manage their forwarding recipients.",
     "anon.li:drops": "List, toggle, and delete your encrypted file drops (cannot read file contents).",
+    "anon.li:forms": "List, toggle, and delete your encrypted forms (cannot read submission contents).",
 }
 
 export default async function OAuthConsentPage({ searchParams }: ConsentPageProps) {

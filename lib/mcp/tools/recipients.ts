@@ -11,9 +11,21 @@ export function registerRecipientTools(server: McpServer, session: McpSession) {
         {
             title: "List recipients",
             description: "List recipient email addresses that aliases can forward to. Only verified recipients can be used as alias destinations.",
+            annotations: { readOnlyHint: true, openWorldHint: false },
             inputSchema: {},
+            outputSchema: {
+                total: z.number(),
+                recipients: z.array(z.object({
+                    id: z.string(),
+                    email: z.string(),
+                    verified: z.boolean(),
+                    is_default: z.boolean(),
+                    has_pgp: z.boolean(),
+                    created_at: z.string(),
+                })),
+            },
         },
-        async () => invokeTool(session, { rateLimit: "recipientOps" }, async (user) => {
+        async () => invokeTool(session, { scope: "anon.li:aliases", rateLimit: "recipientOps" }, async (user) => {
             const recipients = await RecipientService.getRecipients(personalScope(user.id))
             return toolResult({
                 total: recipients.length,
@@ -34,11 +46,19 @@ export function registerRecipientTools(server: McpServer, session: McpSession) {
         {
             title: "Add recipient",
             description: "Add a new recipient email. The user will receive a verification email at that address; the recipient cannot be used for aliases until they click the verification link.",
+            annotations: { openWorldHint: false },
             inputSchema: {
                 email: z.string().email().max(254),
             },
+            outputSchema: {
+                id: z.string(),
+                email: z.string(),
+                verified: z.boolean(),
+                verification_sent: z.boolean(),
+                message: z.string(),
+            },
         },
-        async ({ email }) => invokeTool(session, { rateLimit: "recipientOps" }, async (user) => {
+        async ({ email }) => invokeTool(session, { scope: "anon.li:aliases", rateLimit: "recipientOps" }, async (user) => {
             const recipient = await RecipientService.addRecipient(personalScope(user.id), email)
             return toolResult({
                 id: recipient.id,

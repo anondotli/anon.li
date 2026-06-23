@@ -57,6 +57,7 @@ export function DomainOwnershipStep({ verified, verificationToken }: DomainOwner
                                     <Button
                                         variant="ghost"
                                         size="icon"
+                                        aria-label="Copy verification token"
                                         className="h-6 w-6 shrink-0 opacity-0 group-hover/value:opacity-100 transition-opacity"
                                         onClick={() => copyToClipboard(`anon.li=${verificationToken}`, "Verification Token")}
                                     >

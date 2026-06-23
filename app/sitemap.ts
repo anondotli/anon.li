@@ -40,6 +40,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
         { path: "/cli", priority: 0.8, changeFrequency: "weekly" as const },
         { path: "/extension", priority: 0.8, changeFrequency: "weekly" as const },
         { path: "/pricing", priority: 0.8, changeFrequency: "weekly" as const },
+        { path: "/business", priority: 0.8, changeFrequency: "weekly" as const },
         { path: "/drop/upload", priority: 0.7, changeFrequency: "weekly" as const },
         { path: "/about", priority: 0.7, changeFrequency: "monthly" as const },
         { path: "/security", priority: 0.7, changeFrequency: "monthly" as const },
@@ -52,6 +53,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
         { path: "/docs", priority: 0.8, changeFrequency: "weekly" as const },
         { path: "/privacy", priority: 0.4, changeFrequency: "yearly" as const },
         { path: "/terms", priority: 0.4, changeFrequency: "yearly" as const },
+        { path: "/sub-processors", priority: 0.4, changeFrequency: "yearly" as const },
     ].map((route) => ({
         url: `https://anon.li${route.path}`,
         lastModified: new Date().toISOString(),

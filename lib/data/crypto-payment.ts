@@ -50,7 +50,7 @@ export async function getWaitingCryptoInvoices(opts: {
         orderBy: { createdAt: "asc" },
         take: opts.limit,
     })
-    return rows as unknown as WaitingCryptoInvoice[]
+    return rows
 }
 
 /**
