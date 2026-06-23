@@ -44,7 +44,7 @@ export default async function RecipientsPage() {
                 <div className="flex flex-col gap-4 border-b border-border/40 pb-6">
                     <div className="space-y-1">
                         <div className="flex items-center gap-3">
-                            <Button variant="ghost" size="icon" asChild className="h-8 w-8">
+                            <Button variant="ghost" size="icon" asChild className="h-8 w-8" aria-label="Back to aliases">
                                 <Link href="/dashboard/alias">
                                     <ArrowLeft className="h-4 w-4" />
                                 </Link>
@@ -72,7 +72,7 @@ export default async function RecipientsPage() {
             <div className="flex flex-col gap-4 border-b border-border/40 pb-6 sm:flex-row sm:items-center sm:justify-between">
                 <div className="space-y-1">
                     <div className="flex items-center gap-3">
-                        <Button variant="ghost" size="icon" asChild className="h-8 w-8">
+                        <Button variant="ghost" size="icon" asChild className="h-8 w-8" aria-label="Back to aliases">
                             <Link href="/dashboard/alias">
                                 <ArrowLeft className="h-4 w-4" />
                             </Link>

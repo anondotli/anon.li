@@ -198,7 +198,7 @@ export function DomainItem({ domain }: DomainItemProps) {
 
                     <AlertDialog>
                         <AlertDialogTrigger asChild>
-                            <Button variant="ghost" size="icon" className="h-9 w-9 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors" disabled={deleting}>
+                            <Button variant="ghost" size="icon" aria-label="Delete domain" className="h-9 w-9 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors" disabled={deleting}>
                                 {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
                             </Button>
                         </AlertDialogTrigger>

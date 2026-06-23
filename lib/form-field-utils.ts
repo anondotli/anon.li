@@ -82,7 +82,3 @@ export function bytesToMegabytes(bytes: number): number {
 export function megabytesToBytes(megabytes: number): number {
     return Math.max(1, Math.round(megabytes * 1024 * 1024))
 }
-
-export function formatFormAnswerLabel(fieldId: string, fieldLabels: Record<string, string>): string {
-    return fieldLabels[fieldId] || `Field ${fieldId}`
-}

@@ -70,6 +70,7 @@ export function ApiKeyList({ apiKeys }: ApiKeyListProps) {
                     <Button
                         variant="ghost"
                         size="icon"
+                        aria-label="Delete API key"
                         className="text-muted-foreground hover:text-destructive"
                         onClick={() => handleDelete(key.id)}
                         disabled={deletingId === key.id}

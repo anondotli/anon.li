@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest"
 
 import { assertCanManage, personalScope, orgScope } from "@/lib/ownership"
 import { ForbiddenError, NotFoundError } from "@/lib/api-error-utils"
-import { orgRequiresTwoFactorSetup, orgTwoFactorBlock, requiresTwoFactorChallenge } from "@/lib/access-policy"
+import { orgRequiresTwoFactorSetup, requiresTwoFactorChallenge } from "@/lib/access-policy"
 
 const orgRow = { userId: "creator", organizationId: "org-1" }
 const personalRow = { userId: "owner", organizationId: null }
@@ -52,18 +52,9 @@ describe("org-wide 2FA policy", () => {
         expect(orgRequiresTwoFactorSetup(state({ enforce: false, enabled: false }))).toBe(false)
     })
 
-    it("orgTwoFactorBlock distinguishes setup vs challenge under enforcement", () => {
-        expect(orgTwoFactorBlock(state({ enforce: true, enabled: false }))).toBe("setup-required")
-        expect(orgTwoFactorBlock(state({ enforce: true, enabled: true, verified: false }))).toBe("challenge-required")
-        expect(orgTwoFactorBlock(state({ enforce: true, enabled: true, verified: true }))).toBeNull()
-    })
-
-    it("orgTwoFactorBlock falls back to the standard challenge gate when not enforcing", () => {
-        // Enrolled-but-unverified is still challenged outside org enforcement.
-        expect(orgTwoFactorBlock(state({ enforce: false, enabled: true, verified: false }))).toBe("challenge-required")
-        // Not enrolled + no enforcement → no block.
-        expect(orgTwoFactorBlock(state({ enforce: false, enabled: false }))).toBeNull()
-        // Consistency with the base predicate.
+    it("requiresTwoFactorChallenge: enrolled-but-unverified is always challenged", () => {
         expect(requiresTwoFactorChallenge(state({ enabled: true, verified: false }))).toBe(true)
+        expect(requiresTwoFactorChallenge(state({ enabled: true, verified: true }))).toBe(false)
+        expect(requiresTwoFactorChallenge(state({ enabled: false }))).toBe(false)
     })
 })

@@ -71,7 +71,7 @@ export function defaultAddressParts(): AddressPartsConfig {
 }
 
 /** Shared read-only fallback for address fields stored before parts existed. */
-export const DEFAULT_ADDRESS_PARTS: AddressPartsConfig = defaultAddressParts()
+const DEFAULT_ADDRESS_PARTS: AddressPartsConfig = defaultAddressParts()
 
 const FormFieldSchema = z.discriminatedUnion("type", [
     BaseField.extend({

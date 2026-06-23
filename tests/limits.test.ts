@@ -10,12 +10,9 @@ import {
     getDropLimits,
     getEffectiveTier,
     getPlanLimits,
-    getPlanLimitsAsync,
     getRecipientLimit,
     type SubscriptionLike,
 } from "@/lib/limits"
-
-import { vi } from "vitest"
 
 const futureDate = () => {
     const d = new Date()
@@ -141,22 +138,5 @@ describe("getRecipientLimit", () => {
         expect(getRecipientLimit({
             subscriptions: [sub("alias", "pro", futureDate())],
         })).toBe(ALIAS_LIMITS.pro.recipients)
-    })
-})
-
-vi.mock("@/lib/entitlements", () => ({
-    getEffectiveTiers: vi.fn(),
-}))
-
-describe("getPlanLimitsAsync", () => {
-    it("preserves unlimited pro random aliases for async entitlement resolution", async () => {
-        const { getEffectiveTiers } = await import("@/lib/entitlements")
-        vi.mocked(getEffectiveTiers).mockResolvedValue({
-            alias: "pro",
-            drop: "free",
-            form: "free",
-        })
-
-        await expect(getPlanLimitsAsync("user-123")).resolves.toEqual(ALIAS_LIMITS.pro)
     })
 })

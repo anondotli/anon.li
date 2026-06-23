@@ -30,20 +30,3 @@ export interface OrgTwoFactorState extends TwoFactorState {
 export function orgRequiresTwoFactorSetup(session: OrgTwoFactorState): boolean {
     return session.activeOrgEnforce2FA && !session.user.twoFactorEnabled
 }
-
-/**
- * Combined org-2FA gate for org-scoped work: blocked when the org enforces 2FA
- * and the user either hasn't enrolled OR hasn't verified this session. Returns a
- * machine-friendly reason so callers can show the right message/redirect.
- */
-export function orgTwoFactorBlock(
-    session: OrgTwoFactorState,
-): "setup-required" | "challenge-required" | null {
-    if (!session.activeOrgEnforce2FA) {
-        // Outside org enforcement, only the standard enrolled-not-verified gate applies.
-        return requiresTwoFactorChallenge(session) ? "challenge-required" : null
-    }
-    if (!session.user.twoFactorEnabled) return "setup-required"
-    if (!session.twoFactorVerified) return "challenge-required"
-    return null
-}

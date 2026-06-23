@@ -22,6 +22,7 @@ import { getOrgSeatLimit } from "@/lib/org-seats"
 import { validateOrganizationName } from "@/lib/validations/organization"
 import { rateLimit } from "@/lib/rate-limit"
 import { MCP_DEFAULT_SCOPE, MCP_OAUTH_SCOPES } from "@/lib/mcp/oauth-metadata"
+import { purgePersonalVaultKeysOps } from "@/lib/vault/personal-purge"
 
 const ACCOUNT_DELETION_PENDING_MESSAGE = "Account deletion is already in progress for this user."
 
@@ -63,10 +64,12 @@ export const auth = betterAuth({
             await sendPasswordResetEmail(user.email, url)
         },
         onPasswordReset: async ({ user }) => {
-            await prisma.$transaction([
-                prisma.dropOwnerKey.deleteMany({ where: { userId: user.id } }),
-                prisma.userSecurity.deleteMany({ where: { userId: user.id } }),
-            ])
+            // A reset re-derives the user's vault key, so their personal owner
+            // keys and userSecurity row are unrecoverable and must be cleared.
+            // Org-owned owner keys are sealed to the org vault key (not this
+            // user's) and are the sole copy — purgePersonalVaultKeysOps excludes
+            // them so a member's reset never bricks the team's org drops.
+            await prisma.$transaction(purgePersonalVaultKeysOps(user.id))
         },
     },
 

@@ -357,6 +357,7 @@ export function TwoFactorSettings() {
                                         <Button
                                             variant="outline"
                                             size="icon"
+                                            aria-label="Copy secret key"
                                             onClick={copySecret}
                                             className="shrink-0 h-9 w-9"
                                         >

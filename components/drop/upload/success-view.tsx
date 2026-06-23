@@ -90,6 +90,7 @@ export function SuccessView({
         <Button
           variant="outline"
           size="icon"
+          aria-label="Copy link"
           onClick={copyLink}
           className="h-11 w-11 rounded-xl shrink-0 border-border/50 hover:border-primary/30 hover:bg-primary/5"
         >

@@ -6,6 +6,14 @@ import { invokeTool, toolResult } from "@/lib/mcp/invoke"
 import { personalScope } from "@/lib/ownership"
 import type { McpSession } from "@/lib/mcp/types"
 
+const aliasShape = {
+    id: z.string(),
+    email: z.string(),
+    active: z.boolean(),
+    created_at: z.string(),
+    updated_at: z.string(),
+}
+
 export function registerAliasTools(server: McpServer, session: McpSession) {
     server.registerTool(
         "list_aliases",
@@ -13,9 +21,19 @@ export function registerAliasTools(server: McpServer, session: McpSession) {
             title: "List aliases",
             description:
                 "List all email aliases owned by the authenticated user. Returns an array of aliases with id, email, active state, received/blocked counters, and timestamps. Labels and notes are omitted because they are vault-encrypted client-side and cannot be read by a third-party client.",
+            annotations: { readOnlyHint: true, openWorldHint: false },
             inputSchema: {},
+            outputSchema: {
+                total: z.number(),
+                aliases: z.array(z.object({
+                    ...aliasShape,
+                    emails_received: z.number(),
+                    emails_blocked: z.number(),
+                    last_email_at: z.string().nullable(),
+                })),
+            },
         },
-        async () => invokeTool(session, { quota: "alias", rateLimit: "api" }, async (user) => {
+        async () => invokeTool(session, { scope: "anon.li:aliases", quota: "alias", rateLimit: "api" }, async (user) => {
             const aliases = await AliasService.getAliases(personalScope(user.id))
             return toolResult({
                 total: aliases.length,
@@ -43,6 +61,7 @@ export function registerAliasTools(server: McpServer, session: McpSession) {
             title: "Create alias",
             description:
                 "Create a new email alias. Use format=\"random\" to auto-generate the local part, or format=\"custom\" with `local_part`. Labels and notes cannot be set here (they are vault-encrypted client-side); the user can edit them from the anon.li web UI.",
+            annotations: { openWorldHint: false },
             inputSchema: {
                 domain: z.string().max(253).default("anon.li").describe("Domain to use (default: anon.li)"),
                 format: z.enum(["random", "custom"]).default("random"),
@@ -52,8 +71,10 @@ export function registerAliasTools(server: McpServer, session: McpSession) {
                 recipient_email: z.string().email().max(254).optional()
                     .describe("Alternative to recipient_ids: an existing verified recipient email address."),
             },
+            outputSchema: aliasShape,
         },
         async (args) => invokeTool(session, {
+            scope: "anon.li:aliases",
             quota: "alias",
             checkBan: "alias",
             rateLimit: "aliasCreate",
@@ -80,11 +101,17 @@ export function registerAliasTools(server: McpServer, session: McpSession) {
         {
             title: "Toggle alias active state",
             description: "Flip an alias between active (forwards mail) and inactive (silently discards). Accepts either the alias ID or the full email address.",
+            annotations: { openWorldHint: false },
             inputSchema: {
                 id: z.string().min(1).describe("Alias ID or full email address"),
             },
+            outputSchema: {
+                id: z.string(),
+                email: z.string(),
+                active: z.boolean(),
+            },
         },
-        async ({ id }) => invokeTool(session, { quota: "alias", rateLimit: "api" }, async (user) => {
+        async ({ id }) => invokeTool(session, { scope: "anon.li:aliases", quota: "alias", rateLimit: "api" }, async (user) => {
             const existing = await resolveAlias(id, personalScope(user.id))
             if (!existing) {
                 return { content: [{ type: "text" as const, text: "Alias not found" }], isError: true }
@@ -103,11 +130,17 @@ export function registerAliasTools(server: McpServer, session: McpSession) {
         {
             title: "Delete alias",
             description: "Permanently delete an alias. This cannot be undone — future mail to the address is rejected. Accepts either the alias ID or the full email address.",
+            annotations: { destructiveHint: true, openWorldHint: false },
             inputSchema: {
                 id: z.string().min(1).describe("Alias ID or full email address"),
             },
+            outputSchema: {
+                deleted: z.boolean(),
+                id: z.string(),
+                email: z.string(),
+            },
         },
-        async ({ id }) => invokeTool(session, { quota: "alias", rateLimit: "api" }, async (user) => {
+        async ({ id }) => invokeTool(session, { scope: "anon.li:aliases", quota: "alias", rateLimit: "api" }, async (user) => {
             const existing = await resolveAlias(id, personalScope(user.id))
             if (!existing) {
                 return { content: [{ type: "text" as const, text: "Alias not found" }], isError: true }

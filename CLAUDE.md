@@ -60,7 +60,7 @@ Memory or older notes may say NextAuth — that is outdated. Auth is **better-au
 
 ## Zero-knowledge vault (`lib/vault/`)
 
-E2EE for user-side secrets — encrypted alias labels/notes and the per-Drop/per-Form owner keys. Client code (`*.client.ts`, `crypto.ts`) encrypts in the browser; server (`server.ts`, `api.ts`, `app/api/vault/*`) only stores ciphertext and wrapped keys. A password reset deletes `dropOwnerKey`/`userSecurity` rows because the data is unrecoverable by design. The vault schema can be partially provisioned — code checks `getVaultSchemaState()` before touching vault tables.
+E2EE for user-side secrets — encrypted alias labels/notes and the per-Drop/per-Form owner keys. Client code (`*.client.ts`, `crypto.ts`) encrypts in the browser; server (`server.ts`, `api.ts`, `app/api/vault/*`) only stores ciphertext and wrapped keys. A password reset re-derives the vault key, so the user's **personal** `dropOwnerKey`/`userSecurity` rows are unrecoverable and get deleted — but **org-owned** owner keys (`organizationId` set) are the sole copy sealed to the org vault key and MUST survive. Both the reset hook (`lib/auth.ts`) and account deletion (`lib/services/deletion.ts`) enforce this via the shared `purgePersonalVaultKeysOps()` (`lib/vault/personal-purge.ts`), which scopes the owner-key delete to `organizationId: null`.
 
 Note: `lib/field-encryption.ts` is **server-side** AES-256-GCM at-rest encryption (`enc:` prefix, hex key envs) — distinct from the client-side vault. Don't conflate the two.
 

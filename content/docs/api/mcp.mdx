@@ -58,7 +58,7 @@ Key facts a client will read:
 
 ## Tools
 
-The server exposes nine tools. Each call counts against the same monthly API
+The server exposes twelve tools. Each call counts against the same monthly API
 quota as the REST API for your tier (see [Pricing](/pricing) for tier limits).
 
 ### Aliases
@@ -84,6 +84,27 @@ quota as the REST API for your tier (see [Pricing](/pricing) for tier limits).
 | `list_drops` | List file drops with metadata only — size, expiry, downloads, max downloads, disabled/taken-down state. **Filenames and file contents are end-to-end encrypted** and cannot be returned through this API. |
 | `toggle_drop` | Disable or re-enable a drop. Disabled drops reject all downloads until toggled back on. |
 | `delete_drop` | Permanently delete a drop and reclaim its storage quota. |
+
+### Forms
+
+| Tool | What it does |
+|------|--------------|
+| `list_forms` | List your forms with metadata only — title, submission counts, max submissions, close date, active/disabled/taken-down state. **Submission contents are end-to-end encrypted** and cannot be returned through this API. |
+| `toggle_form` | Disable or re-enable a form. Disabled forms reject all new submissions until toggled back on. |
+| `delete_form` | Permanently delete a form along with all its submissions and any attached file drops. |
+
+## Scopes
+
+Tools are gated by OAuth scopes. The token your client receives carries a
+space-separated scope string; calling a tool without its scope returns an
+`INSUFFICIENT_SCOPE` error. Requesting no scope grants all of them.
+
+| Scope | Grants |
+|-------|--------|
+| `anon.li:aliases` | All `*_alias` tools plus `list_recipients` / `add_recipient`. |
+| `anon.li:drops` | All `*_drop` tools. |
+| `anon.li:forms` | All `*_form` tools. |
+| `offline_access` | Refresh tokens (stay connected without re-consenting). |
 
 ## What the AI cannot see
 

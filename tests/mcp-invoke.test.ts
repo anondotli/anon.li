@@ -64,6 +64,42 @@ describe("invokeTool", () => {
         expect(aliasCreateLimit).toHaveBeenCalledWith("user-1")
     })
 
+    it("runs the handler when the token carries the required scope", async () => {
+        const { invokeTool } = await import("@/lib/mcp/invoke")
+        const handler = vi.fn().mockResolvedValue("ok")
+        await expect(
+            invokeTool(
+                { userId: "user-1", clientId: "c", scopes: "anon.li:aliases anon.li:drops offline_access" },
+                { scope: "anon.li:drops" },
+                handler,
+            ),
+        ).resolves.toBe("ok")
+        expect(handler).toHaveBeenCalled()
+    })
+
+    it("rejects with INSUFFICIENT_SCOPE when the token lacks the required scope", async () => {
+        const { invokeTool } = await import("@/lib/mcp/invoke")
+        const handler = vi.fn()
+        await expect(
+            invokeTool(
+                { userId: "user-1", clientId: "c", scopes: "anon.li:aliases offline_access" },
+                { scope: "anon.li:forms" },
+                handler,
+            ),
+        ).rejects.toMatchObject({ code: -32001, data: { code: "INSUFFICIENT_SCOPE", requiredScope: "anon.li:forms" } })
+        expect(handler).not.toHaveBeenCalled()
+        expect(checkApiQuota).not.toHaveBeenCalled()
+    })
+
+    it("fails closed for a scoped tool when the token has no scopes at all", async () => {
+        const { invokeTool } = await import("@/lib/mcp/invoke")
+        const handler = vi.fn()
+        await expect(
+            invokeTool({ userId: "user-1", clientId: "c" }, { scope: "anon.li:aliases" }, handler),
+        ).rejects.toMatchObject({ data: { code: "INSUFFICIENT_SCOPE" } })
+        expect(handler).not.toHaveBeenCalled()
+    })
+
     it("rejects when the user no longer exists", async () => {
         getAuthUserState.mockResolvedValueOnce(null)
         const { invokeTool } = await import("@/lib/mcp/invoke")

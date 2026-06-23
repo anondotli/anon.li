@@ -53,7 +53,7 @@ export function RecordRow({
                         {value}
                     </code>
                 </div>
-                <Button variant="ghost" size="icon" className="h-6 w-6 flex-shrink-0" onClick={onCopy}>
+                <Button variant="ghost" size="icon" aria-label="Copy value" className="h-6 w-6 flex-shrink-0" onClick={onCopy}>
                     <Copy className="h-3 w-3" />
                 </Button>
             </div>

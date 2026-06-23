@@ -79,6 +79,11 @@ export const GET = withPolicy<RouteParams>(
         const rangeHeader = request.headers.get("Range")
         const isResumeRange = Boolean(rangeHeader) && rangeHeader !== "bytes=0-"
 
+        // Counting model (intentional): this per-file route consumes one download
+        // per file fetched, while the batch route (POST /api/v1/drop/[id]/download,
+        // used by "download all as ZIP") consumes one for the whole drop. The two
+        // map to the two access patterns — pulling a single file vs. the whole drop.
+        //
         // For download-limited drops, every issuance of a working presigned URL
         // must consume a download. The Range header we receive is NOT forwarded to
         // R2 (we redirect to a full-object presigned URL), so gating the counter on

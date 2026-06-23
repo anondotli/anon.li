@@ -67,7 +67,7 @@ export function CreateApiKeyForm() {
                             <code className="flex-1 bg-background p-2 rounded-lg border border-border font-mono text-sm break-all">
                                 {newKey}
                             </code>
-                            <Button size="icon" variant="ghost" onClick={copyToClipboard}>
+                            <Button size="icon" variant="ghost" aria-label="Copy API key" onClick={copyToClipboard}>
                                 {hasCopied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                             </Button>
                         </div>

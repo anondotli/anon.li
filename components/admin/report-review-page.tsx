@@ -82,7 +82,7 @@ export function ReportReviewPage({ data }: ReportReviewPageProps) {
         <div className="space-y-6">
             {/* Header */}
             <div className="flex items-center gap-4">
-                <Button variant="ghost" size="icon" asChild>
+                <Button variant="ghost" size="icon" asChild aria-label="Back to reports">
                     <Link href="/admin/reports">
                         <ArrowLeft className="h-4 w-4" />
                     </Link>
