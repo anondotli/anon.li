@@ -56,3 +56,29 @@ export const addFileActionSchema = z.object({
         message: "Declared size is inconsistent with chunkCount and chunkSize",
         path: ["size"],
     });
+
+/**
+ * A single drop recipient. The decryption key is never sent here — the server
+ * only mints an access token; the client assembles the share link with the key.
+ */
+export const recipientInputSchema = z.object({
+    email: z.string().email().max(254),
+    label: z.string().max(120).optional(),
+    maxDownloads: z.number().int().positive().max(100_000).optional(),
+    expiresAt: z.string().datetime().optional(),
+});
+
+/**
+ * Add recipients to a drop and/or toggle "restrict downloads to named recipients".
+ * Used by: actions/drop.ts and app/api/v1/drop/[id]/recipients/route.ts
+ */
+export const addRecipientsSchema = z.object({
+    dropId: z.string().min(1),
+    recipients: z.array(recipientInputSchema).max(50).default([]),
+    restrict: z.boolean().optional(),
+    /** Email each new recipient their keyless access link (never carries the key). */
+    notify: z.boolean().optional(),
+}).refine((d) => d.recipients.length > 0 || d.restrict !== undefined, {
+    message: "Provide at least one recipient or change the restriction setting",
+    path: ["recipients"],
+});

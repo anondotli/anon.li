@@ -56,5 +56,8 @@ export function generateMetadata(): Metadata {
     // Private, ephemeral links — keep them out of search engines. Social
     // crawlers ignore robots meta, so previews still unfurl.
     robots: { index: false, follow: false },
+    // Defense in depth: never leak the `?r=` recipient token (or the URL) to R2
+    // or any third party via the Referer header.
+    referrer: "no-referrer",
   };
 }

@@ -166,13 +166,14 @@ export async function getDrop(
  */
 export async function recordDownload(
     dropId: string,
+    recipientToken?: string,
     signal?: AbortSignal
 ): Promise<Record<string, string>> {
     if (signal?.aborted) {
         throw new Error("Request cancelled");
     }
 
-    const result: RecordDownloadActionResult = await recordDownloadAction(dropId);
+    const result: RecordDownloadActionResult = await recordDownloadAction(dropId, recipientToken);
 
     if (result.error) {
         throw new Error(result.error);

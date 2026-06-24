@@ -71,6 +71,7 @@ export function DropDashboardClient({ userTier, initialDrops, initialStorage }: 
                         storage={storage}
                         onDropsChange={handleDropsChange}
                         isRefreshing={isRefreshing}
+                        userTier={userTier}
                     />
                 </CardContent>
             </Card>

@@ -417,6 +417,9 @@ model Drop {
   downloads    Int       @default(0)
   disabled     Boolean   @default(false)
   disabledAt   DateTime?
+  // When true, only a holder of a valid per-recipient access token may download —
+  // the bare anonymous link is rejected. Default false preserves legacy link sharing.
+  restrictToRecipients Boolean @default(false)
 
   // Customization
   hideBranding Boolean @default(false)
@@ -443,6 +446,8 @@ model Drop {
   uploadTokens   UploadToken[]
   ownerKey       DropOwnerKey?
   formSubmission FormSubmission? @relation("FormSubmissionDrop")
+  recipients     DropRecipient[]
+  accessEvents   DropAccessEvent[]
   userId         String?
   // SetNull (not Cascade) so deleting the creating user keeps an org-owned drop
   // (owned by organizationId). Personal drops have organizationId null and are
@@ -487,6 +492,81 @@ model UploadToken {
   @@index([formId])
   @@index([expiresAt])
   @@map("upload_tokens")
+}
+
+// A named recipient of a drop. Each recipient gets a unique, revocable access
+// token (stored only as a SHA-256 hash) that gates the server's release of the
+// presigned download URL — it does NOT carry the decryption key, which stays in
+// the URL fragment and never reaches the server. This keeps per-recipient access
+// control fully compatible with the zero-knowledge model: the server gates access
+// to ciphertext, it never decrypts.
+model DropRecipient {
+  id String @id @default(cuid())
+
+  dropId String
+  drop   Drop   @relation(fields: [dropId], references: [id], onDelete: Cascade)
+
+  email String
+  label String?
+
+  // SHA-256 of the raw access token. The raw token only ever travels in the
+  // emailed share link (`/d/{id}?r=...`), so a DB leak does not expose live tokens.
+  tokenHash String @unique
+
+  // Optional per-recipient download cap, independent of the drop-wide maxDownloads.
+  maxDownloads Int?
+  downloads    Int  @default(0)
+
+  expiresAt    DateTime?
+  // Soft revocation: a non-null revokedAt blocks all future downloads for this
+  // recipient. It cannot un-share data the recipient already downloaded.
+  revokedAt    DateTime?
+  lastAccessAt DateTime?
+
+  // Phase 2 hook: require the recipient to verify control of `email` (one-time
+  // code) before the server releases a presigned URL.
+  requireVerification Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  accessEvents DropAccessEvent[]
+
+  @@index([dropId])
+  @@index([tokenHash])
+  @@map("drop_recipients")
+}
+
+// Per-download access log for a drop — the end-user trail an owner can review
+// ("who accessed this, when"). Distinct from the admin/org AuditLog (which records
+// staff/management actions). The decryption key is never seen here either; an
+// event only records that the ciphertext was released.
+model DropAccessEvent {
+  id String @id @default(cuid())
+
+  dropId String
+  drop   Drop   @relation(fields: [dropId], references: [id], onDelete: Cascade)
+
+  // Null for anonymous "anyone with the link" access (no recipient token present).
+  recipientId String?
+  recipient   DropRecipient? @relation(fields: [recipientId], references: [id], onDelete: SetNull)
+
+  // Null for whole-drop events (e.g. "download all" as a ZIP). Not a FK so the
+  // log survives single-file removal.
+  fileId String?
+
+  // "download" | "zip_all" | "view"
+  eventType String
+
+  // Peppered SHA-256 of the client IP (not reversible). Stored for dedup/abuse
+  // only; never displayed to the drop owner.
+  ipHash    String?
+  userAgent String?
+
+  createdAt DateTime @default(now())
+
+  @@index([dropId, createdAt])
+  @@index([recipientId])
+  @@map("drop_access_events")
 }
 
 model UploadChunk {

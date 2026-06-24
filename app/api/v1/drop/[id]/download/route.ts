@@ -8,6 +8,7 @@ import { NextResponse } from "next/server"
 import { getClientIp } from "@/lib/rate-limit"
 import { withPolicy } from "@/lib/route-policy"
 import { DropService } from "@/lib/services/drop"
+import { resolveDownloadAccess, consumeRecipientDownload, recordAccessEvent } from "@/lib/services/drop-recipient"
 import { getPresignedDownloadUrl, LIMITED_DROP_PRESIGNED_URL_EXPIRES } from "@/lib/storage"
 import { prisma } from "@/lib/prisma"
 
@@ -21,7 +22,7 @@ export const POST = withPolicy<RouteParams>(
         rateLimit: "dropDownload",
         rateLimitIdentifier: async () => getClientIp(),
     },
-    async (_ctx, routeContext) => {
+    async (ctx, routeContext) => {
         const { id: dropId } = await routeContext.params
 
         const drop = await prisma.drop.findUnique({
@@ -41,6 +42,20 @@ export const POST = withPolicy<RouteParams>(
             return NextResponse.json({ error: "This drop has expired." }, { status: 404 })
         }
 
+        // Per-recipient access gate (zero-knowledge: token gates ciphertext only).
+        const recipientToken =
+            ctx.request.headers.get("x-drop-recipient") ?? new URL(ctx.request.url).searchParams.get("r")
+        const access = await resolveDownloadAccess(dropId, drop.restrictToRecipients, recipientToken)
+        if (!access.allowed) {
+            return NextResponse.json({ error: "This drop is not available." }, { status: 404 })
+        }
+        if (access.recipientId) {
+            const ok = await consumeRecipientDownload(access.recipientId)
+            if (!ok) {
+                return NextResponse.json({ error: "Download limit reached." }, { status: 404 })
+            }
+        }
+
         if (drop.maxDownloads) {
             const counted = await DropService.incrementDownloadCount(dropId)
             if (!counted) {
@@ -58,6 +73,17 @@ export const POST = withPolicy<RouteParams>(
         for (const file of drop.files) {
             downloadUrls[file.id] = await getPresignedDownloadUrl(file.storageKey, expiresIn)
         }
+
+        // Owner-facing access log: one event for the whole-drop (ZIP) download.
+        const userAgent = ctx.request.headers.get("user-agent")
+        const clientIp = await getClientIp()
+        void recordAccessEvent({
+            dropId,
+            recipientId: access.recipientId,
+            eventType: "zip_all",
+            ip: clientIp,
+            userAgent,
+        })
 
         return NextResponse.json({ success: true, downloadUrls })
     },

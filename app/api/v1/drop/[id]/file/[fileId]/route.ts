@@ -14,9 +14,15 @@ import { prisma } from "@/lib/prisma"
 import { withPolicy } from "@/lib/route-policy"
 import { DropService } from "@/lib/services/drop"
 import { decrementStorageUsed } from "@/lib/services/drop-storage"
+import { resolveDownloadAccess, consumeRecipientDownload, recordAccessEvent } from "@/lib/services/drop-recipient"
 import { resolveTokenUploadAccess } from "@/lib/services/form-upload"
 import { getPresignedDownloadUrl, abortMultipartUpload, LIMITED_DROP_PRESIGNED_URL_EXPIRES } from "@/lib/storage"
 import { getClientIp } from "@/lib/rate-limit"
+
+/** Per-recipient access token: header (set by the web client) or `?r=` fallback. */
+function getRecipientToken(request: NextRequest): string | null {
+    return request.headers.get("x-drop-recipient") ?? new URL(request.url).searchParams.get("r")
+}
 
 interface RouteParams {
     params: Promise<{
@@ -55,6 +61,7 @@ export const GET = withPolicy<RouteParams>(
                         uploadComplete: true,
                         takenDown: true,
                         customKey: true,
+                        restrictToRecipients: true,
                     },
                 },
             },
@@ -76,6 +83,16 @@ export const GET = withPolicy<RouteParams>(
             return new NextResponse("This file is not available.", { status: 404 })
         }
 
+        // Per-recipient access gate. Anonymous (non-restricted) drops are
+        // unaffected; restricted drops require a valid, non-revoked recipient
+        // token. The token never carries the decryption key — it only authorizes
+        // release of the ciphertext URL, so zero-knowledge is preserved.
+        const recipientToken = getRecipientToken(request)
+        const access = await resolveDownloadAccess(dropId, file.drop.restrictToRecipients, recipientToken)
+        if (!access.allowed) {
+            return new NextResponse("This file is not available.", { status: 404 })
+        }
+
         const rangeHeader = request.headers.get("Range")
         const isResumeRange = Boolean(rangeHeader) && rangeHeader !== "bytes=0-"
 
@@ -94,10 +111,30 @@ export const GET = withPolicy<RouteParams>(
         const shouldCount = file.drop.maxDownloads ? true : !isResumeRange
 
         if (shouldCount) {
+            // Per-recipient cap (atomic) is consumed first as the cheaper guard;
+            // it also stamps the recipient's lastAccessAt.
+            if (access.recipientId) {
+                const ok = await consumeRecipientDownload(access.recipientId)
+                if (!ok) {
+                    return new NextResponse("Download limit reached.", { status: 404 })
+                }
+            }
             const counted = await DropService.incrementDownloadCount(dropId)
             if (!counted) {
                 return new NextResponse("Download limit reached.", { status: 404 })
             }
+
+            // Owner-facing access log (fire-and-forget; mirrors lib/services/audit).
+            const userAgent = request.headers.get("user-agent")
+            const clientIp = await getClientIp()
+            void recordAccessEvent({
+                dropId,
+                recipientId: access.recipientId,
+                fileId,
+                eventType: "download",
+                ip: clientIp,
+                userAgent,
+            })
         }
 
         // Limited drops get a short-lived URL so an issued download can't be
@@ -110,6 +147,8 @@ export const GET = withPolicy<RouteParams>(
             status: 302,
             headers: {
                 "Cache-Control": "no-store, no-cache, must-revalidate",
+                // Defense in depth: never leak a `?r=` token to R2 via Referer.
+                "Referrer-Policy": "no-referrer",
             },
         })
     },
