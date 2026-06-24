@@ -85,6 +85,7 @@ function createDrop(overrides: Partial<DropData>): DropData {
         takenDown: false,
         takedownReason: null,
         uploadComplete: true,
+        restrictToRecipients: false,
         createdAt: "2026-04-15T00:00:00.000Z",
         files: [
             {

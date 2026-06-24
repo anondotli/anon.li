@@ -41,7 +41,9 @@ import { useVault } from "@/components/vault/vault-provider";
 import { toggleDropAction, deleteDropAction } from "@/actions/drop";
 import type { DropData, StorageData } from "@/actions/drop";
 import { DropListActions } from "@/components/drop/drop-list-actions";
+import { RecipientsDialog, type ManagedDrop } from "@/components/drop/recipients-dialog";
 import { formatDropExpiry, getDropFileIcon, isDropExpired } from "@/components/drop/drop-list-utils";
+import { DROP_FEATURES } from "@/config/plans";
 
 interface DropFileItem {
   id: string;
@@ -69,16 +71,22 @@ interface DropListProps {
   storage: StorageData;
   onDropsChange?: () => void;
   isRefreshing?: boolean;
+  userTier?: "free" | "plus" | "pro" | string | null;
 }
 
-export function DropList({ initialDrops, storage, onDropsChange }: DropListProps) {
+export function DropList({ initialDrops, storage, onDropsChange, userTier }: DropListProps) {
   const { unwrapDropKey, unwrapOrgManagedKey } = useVault();
   const [drops, setDrops] = useState<DropItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [deleteItem, setDeleteItem] = useState<DropItem | null>(null);
+  const [recipientsDrop, setRecipientsDrop] = useState<ManagedDrop | null>(null);
   const [expandedDrops, setExpandedDrops] = useState<Set<string>>(new Set());
   const [isPending, startTransition] = useTransition();
   const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  // UI gate only — the server is authoritative and returns an upsell otherwise.
+  const featureTier = userTier === "plus" || userTier === "pro" ? userTier : "free";
+  const dropFeatures = DROP_FEATURES[featureTier];
 
   const resolveDropKeys = useCallback(async (dropsToDecrypt: DropData[]) => {
     const wrappedKeys = await fetchWrappedDropKeys();
@@ -401,6 +409,12 @@ export function DropList({ initialDrops, storage, onDropsChange }: DropListProps
                           onDelete={() => setDeleteItem(drop)}
                           onDownload={() => handleDownload(drop)}
                           onToggleLink={() => handleToggleLink(drop)}
+                          onManageRecipients={unavailable ? undefined : () => setRecipientsDrop({
+                            id: drop.id,
+                            customKey: drop.customKey,
+                            keyString: drop.keyString,
+                            restrictToRecipients: drop.restrictToRecipients,
+                          })}
                         />
                       </TableCell>
                     </TableRow>
@@ -435,6 +449,17 @@ export function DropList({ initialDrops, storage, onDropsChange }: DropListProps
           </Table>
         </div>
       )}
+
+      {/* Recipients & access dialog */}
+      <RecipientsDialog
+        key={recipientsDrop?.id ?? "closed"}
+        drop={recipientsDrop}
+        origin={typeof window !== "undefined" ? window.location.origin : ""}
+        canManage={dropFeatures.recipientControls}
+        canViewLogs={dropFeatures.accessLogs}
+        onClose={() => setRecipientsDrop(null)}
+        onChange={onDropsChange}
+      />
 
       {/* Delete confirmation dialog */}
       <AlertDialog open={!!deleteItem} onOpenChange={() => setDeleteItem(null)}>

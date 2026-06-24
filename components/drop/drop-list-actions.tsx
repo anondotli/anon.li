@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Copy, Download, Link2Off, Trash2 } from "lucide-react";
+import { Check, Copy, Download, Link2Off, Trash2, Users } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -25,6 +25,7 @@ interface DropListActionsProps {
   onDelete: () => void;
   onDownload: () => void;
   onToggleLink: () => void;
+  onManageRecipients?: () => void;
 }
 
 export function DropListActions({
@@ -41,6 +42,7 @@ export function DropListActions({
   onDelete,
   onDownload,
   onToggleLink,
+  onManageRecipients,
 }: DropListActionsProps) {
   const unavailableLabel = takenDown ? "Drop unavailable" : expired ? "Drop expired" : disabled ? "Link disabled" : null;
   const linkActionLabel = unavailableLabel ?? linkUnavailableReason;
@@ -88,6 +90,23 @@ export function DropListActions({
           </TooltipTrigger>
           <TooltipContent>{linkActionLabel ?? "Open / Download"}</TooltipContent>
         </Tooltip>
+
+        {onManageRecipients && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                onClick={onManageRecipients}
+                aria-label="Recipients & access"
+              >
+                <Users className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Recipients &amp; access</TooltipContent>
+          </Tooltip>
+        )}
 
         <Tooltip>
           <TooltipTrigger asChild>

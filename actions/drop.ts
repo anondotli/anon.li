@@ -1,7 +1,9 @@
 "use server"
 
 import { revalidatePath } from "next/cache"
-import { DropService } from "@/lib/services/drop"
+import { headers } from "next/headers"
+import { DropService, type CreatedRecipient, type RecipientListItem, type AccessEventItem } from "@/lib/services/drop"
+import { resolveDownloadAccess, consumeRecipientDownload, recordAccessEvent } from "@/lib/services/drop-recipient"
 import { rateLimit, getClientIp } from "@/lib/rate-limit"
 import { getChunkPresignedUrls, getPresignedDownloadUrl, LIMITED_DROP_PRESIGNED_URL_EXPIRES } from "@/lib/storage"
 import { prisma } from "@/lib/prisma"
@@ -10,7 +12,7 @@ import { getPublicDropMetadata } from "@/lib/drop-metadata"
 import { z } from "zod"
 import { createLogger } from "@/lib/logger"
 import { type ActionState, runScopedAction } from "@/lib/safe-action"
-import { addFileActionSchema } from "@/lib/validations/drop"
+import { addFileActionSchema, addRecipientsSchema } from "@/lib/validations/drop"
 import { assertVaultIdentity } from "@/lib/vault/identity"
 import type { UpgradeRequiredDetails } from "@/lib/api-error-utils"
 import {
@@ -51,6 +53,7 @@ export interface DropData {
     takenDown: boolean
     takedownReason: string | null
     uploadComplete: boolean
+    restrictToRecipients: boolean
     createdAt: string
     files: DropFileData[]
     fileCount: number
@@ -320,6 +323,79 @@ export async function deleteDropAction(dropId: string): Promise<ActionState> {
 }
 
 // ============================================================================
+// Server Actions for Recipients & Access Log
+// ============================================================================
+
+export type AddRecipientsActionResult = {
+    error?: string
+    code?: string
+    upgrade?: UpgradeRequiredDetails
+    recipients?: CreatedRecipient[]
+}
+
+/**
+ * Add named recipients to a drop (and optionally restrict downloads to them).
+ * Returns each recipient's raw access token ONCE so the client can build the
+ * share link with the decryption key in the fragment — the server never sees it.
+ */
+export async function addDropRecipientsAction(
+    input: z.infer<typeof addRecipientsSchema>
+): Promise<AddRecipientsActionResult> {
+    const result = await runScopedAction(
+        { schema: addRecipientsSchema, data: input, rateLimitKey: "dropOps" },
+        async (validated, scope): Promise<AddRecipientsActionResult> => {
+            const recipients = await DropService.addRecipients(
+                scope,
+                validated.dropId,
+                validated.recipients.map((r) => ({
+                    email: r.email,
+                    label: r.label ?? null,
+                    maxDownloads: r.maxDownloads ?? null,
+                    expiresAt: r.expiresAt ? new Date(r.expiresAt) : null,
+                })),
+                { restrict: validated.restrict, notify: validated.notify },
+            )
+            revalidatePath("/dashboard/drop")
+            return { recipients }
+        }
+    )
+
+    if (result.error) return { error: result.error, code: result.code, upgrade: result.upgrade }
+    return result.data ?? { error: "Failed to add recipients" }
+}
+
+/** List a drop's recipients (owner only). */
+export async function listDropRecipientsAction(
+    dropId: string
+): Promise<ActionState<{ recipients: RecipientListItem[] }>> {
+    return runScopedAction({ rateLimitKey: "dropOps" }, async (_, scope) => {
+        const recipients = await DropService.listRecipients(scope, dropId)
+        return { recipients }
+    })
+}
+
+/** Revoke a single recipient's future access (owner only). */
+export async function revokeDropRecipientAction(
+    dropId: string,
+    recipientId: string
+): Promise<ActionState> {
+    return runScopedAction({ rateLimitKey: "dropOps" }, async (_, scope) => {
+        await DropService.revokeRecipient(scope, dropId, recipientId)
+        revalidatePath("/dashboard/drop")
+    })
+}
+
+/** List a drop's per-download access log (owner only; requires accessLogs entitlement). */
+export async function listDropAccessEventsAction(
+    dropId: string
+): Promise<ActionState<{ events: AccessEventItem[] }>> {
+    return runScopedAction({ rateLimitKey: "dropOps" }, async (_, scope) => {
+        const events = await DropService.listAccessEvents(scope, dropId)
+        return { events }
+    })
+}
+
+// ============================================================================
 // Server Actions for Download Flow
 // ============================================================================
 
@@ -366,7 +442,10 @@ export async function getDropAction(dropId: string): Promise<GetDropActionResult
  * Record a download and return signed URLs for all files.
  * No auth required - rate-limited by IP.
  */
-export async function recordDownloadAction(dropId: string): Promise<RecordDownloadActionResult> {
+export async function recordDownloadAction(
+    dropId: string,
+    recipientToken?: string,
+): Promise<RecordDownloadActionResult> {
     try {
         // Rate limiting by IP
         const clientIp = await getClientIp()
@@ -409,6 +488,18 @@ export async function recordDownloadAction(dropId: string): Promise<RecordDownlo
             return { error: "This drop has expired." }
         }
 
+        // Per-recipient access gate (zero-knowledge: token gates ciphertext only).
+        const access = await resolveDownloadAccess(dropId, drop.restrictToRecipients, recipientToken ?? null)
+        if (!access.allowed) {
+            return { error: "This drop is not available." }
+        }
+        if (access.recipientId) {
+            const ok = await consumeRecipientDownload(access.recipientId)
+            if (!ok) {
+                return { error: "Download limit reached." }
+            }
+        }
+
         const incremented = await DropService.incrementDownloadCount(dropId)
         if (!incremented) {
             return { error: "Download limit reached." }
@@ -422,6 +513,16 @@ export async function recordDownloadAction(dropId: string): Promise<RecordDownlo
         for (const file of drop.files) {
             downloadUrls[file.id] = await getPresignedDownloadUrl(file.storageKey, expiresIn)
         }
+
+        // Owner-facing access log: one event for the whole-drop (ZIP) download.
+        const userAgent = (await headers()).get("user-agent")
+        void recordAccessEvent({
+            dropId,
+            recipientId: access.recipientId,
+            eventType: "zip_all",
+            ip: clientIp,
+            userAgent,
+        })
 
         return { downloadUrls }
     } catch (error) {

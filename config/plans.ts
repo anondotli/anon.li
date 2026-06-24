@@ -46,6 +46,10 @@ interface DropEntitlements {
     noBranding: boolean;
     downloadNotifications: boolean;
     filePreview: boolean;
+    /** Add named recipients to a drop, each with a revocable per-recipient link. */
+    recipientControls: boolean;
+    /** View the per-download access log (who accessed a drop, and when). */
+    accessLogs: boolean;
     apiRequests: number;
 }
 
@@ -106,6 +110,8 @@ export const PLAN_ENTITLEMENTS = {
             noBranding: false,
             downloadNotifications: false,
             filePreview: true,
+            recipientControls: false,
+            accessLogs: false,
             apiRequests: 0,
         },
         free: {
@@ -117,6 +123,8 @@ export const PLAN_ENTITLEMENTS = {
             noBranding: false,
             downloadNotifications: false,
             filePreview: true,
+            recipientControls: false,
+            accessLogs: false,
             apiRequests: 500,
         },
         plus: {
@@ -128,6 +136,8 @@ export const PLAN_ENTITLEMENTS = {
             noBranding: false,
             downloadNotifications: false,
             filePreview: true,
+            recipientControls: true,
+            accessLogs: false,
             apiRequests: 25_000,
         },
         pro: {
@@ -139,6 +149,8 @@ export const PLAN_ENTITLEMENTS = {
             noBranding: true,
             downloadNotifications: true,
             filePreview: true,
+            recipientControls: true,
+            accessLogs: true,
             apiRequests: 100_000,
         },
     },
@@ -209,6 +221,8 @@ export const DROP_FEATURES = {
         noBranding: PLAN_ENTITLEMENTS.drop.guest.noBranding,
         downloadNotifications: PLAN_ENTITLEMENTS.drop.guest.downloadNotifications,
         filePreview: PLAN_ENTITLEMENTS.drop.guest.filePreview,
+        recipientControls: PLAN_ENTITLEMENTS.drop.guest.recipientControls,
+        accessLogs: PLAN_ENTITLEMENTS.drop.guest.accessLogs,
     },
     free: {
         customKey: PLAN_ENTITLEMENTS.drop.free.customKey,
@@ -216,6 +230,8 @@ export const DROP_FEATURES = {
         noBranding: PLAN_ENTITLEMENTS.drop.free.noBranding,
         downloadNotifications: PLAN_ENTITLEMENTS.drop.free.downloadNotifications,
         filePreview: PLAN_ENTITLEMENTS.drop.free.filePreview,
+        recipientControls: PLAN_ENTITLEMENTS.drop.free.recipientControls,
+        accessLogs: PLAN_ENTITLEMENTS.drop.free.accessLogs,
     },
     plus: {
         customKey: PLAN_ENTITLEMENTS.drop.plus.customKey,
@@ -223,6 +239,8 @@ export const DROP_FEATURES = {
         noBranding: PLAN_ENTITLEMENTS.drop.plus.noBranding,
         downloadNotifications: PLAN_ENTITLEMENTS.drop.plus.downloadNotifications,
         filePreview: PLAN_ENTITLEMENTS.drop.plus.filePreview,
+        recipientControls: PLAN_ENTITLEMENTS.drop.plus.recipientControls,
+        accessLogs: PLAN_ENTITLEMENTS.drop.plus.accessLogs,
     },
     pro: {
         customKey: PLAN_ENTITLEMENTS.drop.pro.customKey,
@@ -230,6 +248,8 @@ export const DROP_FEATURES = {
         noBranding: PLAN_ENTITLEMENTS.drop.pro.noBranding,
         downloadNotifications: PLAN_ENTITLEMENTS.drop.pro.downloadNotifications,
         filePreview: PLAN_ENTITLEMENTS.drop.pro.filePreview,
+        recipientControls: PLAN_ENTITLEMENTS.drop.pro.recipientControls,
+        accessLogs: PLAN_ENTITLEMENTS.drop.pro.accessLogs,
     },
 } as const;
 

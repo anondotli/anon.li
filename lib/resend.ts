@@ -321,6 +321,45 @@ export async function sendOrganizationInvitationEmail(
     }
 }
 
+/**
+ * Notify a named drop recipient that files were shared with them. The `url` MUST
+ * be keyless (`/d/{id}?r={token}`) — the decryption key never travels through
+ * email, preserving zero-knowledge.
+ */
+export async function sendDropSharedEmail(
+    email: string,
+    url: string,
+    senderName: string,
+    passwordProtected: boolean,
+) {
+    try {
+        const resend = getResendClient()
+        const { DropSharedEmail } = await import("@/components/email/drop-shared")
+
+        // senderName is user-controlled; defang it so mail clients can't auto-link
+        // a domain-shaped name into a phishing link.
+        const safeSender = sanitizeEmailUserContent(senderName)
+
+        const { data, error } = await resend.emails.send({
+            from: "anon.li <hi@anon.li>",
+            to: email,
+            subject: sanitizeEmailSubject(`${safeSender} shared encrypted files with you`),
+            text: `${safeSender} shared encrypted files with you on anon.li.\nOpen them: ${url}\n\n`,
+            react: React.createElement(DropSharedEmail, { url, senderName: safeSender, passwordProtected }),
+        })
+
+        if (error) {
+            logger.error("Failed to send drop shared email", error)
+            throw error
+        }
+
+        return { success: true, data }
+    } catch (error) {
+        logger.error("Failed to send drop shared email", error)
+        throw error
+    }
+}
+
 interface SendEmailProps {
     to: string;
     subject: string;

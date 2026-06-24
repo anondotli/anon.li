@@ -36,6 +36,7 @@ import { ValidationError, NotFoundError, ForbiddenError, RateLimitError, Upgrade
 import { ownerWhere, assertCanManage, isWithinScope, type OwnerScope } from "@/lib/ownership";
 import { decrementStorageUsed } from "@/lib/services/drop-storage";
 import { revokeUploadTokens } from "@/lib/services/drop-upload-token";
+import { generateRecipientToken } from "@/lib/services/drop-recipient";
 import {
     DROP_FEATURES,
     GUEST_MAX_DROP_BYTES,
@@ -148,6 +149,42 @@ export interface DropListItem {
     }[];
     fileCount: number;
     totalSize: string;
+}
+
+export interface RecipientInput {
+    email: string;
+    label?: string | null;
+    maxDownloads?: number | null;
+    expiresAt?: Date | null;
+}
+
+export interface CreatedRecipient {
+    id: string;
+    email: string;
+    label: string | null;
+    /** Raw access token — returned ONCE so the client can build the share link. */
+    token: string;
+}
+
+export interface RecipientListItem {
+    id: string;
+    email: string;
+    label: string | null;
+    maxDownloads: number | null;
+    downloads: number;
+    expiresAt: Date | null;
+    revokedAt: Date | null;
+    lastAccessAt: Date | null;
+    createdAt: Date;
+}
+
+export interface AccessEventItem {
+    id: string;
+    eventType: string;
+    fileId: string | null;
+    createdAt: Date;
+    recipientEmail: string | null;
+    recipientLabel: string | null;
 }
 
 export class DropService {
@@ -1142,6 +1179,204 @@ export class DropService {
             })),
             total,
         };
+    }
+
+    // ─── Recipients & access log ────────────────────────────────────────────
+
+    /**
+     * Resolve the drop feature flags + effective tier for a scope (personal or
+     * org). Read-style: it does NOT ban-check, so a downgraded/limited owner can
+     * still view and revoke recipients they created.
+     */
+    private static async resolveDropFeatures(
+        scope: OwnerScope,
+    ): Promise<{ features: (typeof DROP_FEATURES)[keyof typeof DROP_FEATURES]; tier: "free" | "plus" | "pro" }> {
+        if (scope.organizationId) {
+            const orgCtx = await getOrgLimitContext(scope.organizationId);
+            return { features: getDropLimits(orgCtx).features, tier: getEffectiveTier(orgCtx) };
+        }
+        const user = await prisma.user.findUnique({
+            where: { id: scope.userId },
+            select: {
+                referralPlusUntil: true,
+                subscriptions: {
+                    where: { status: { in: ["active", "trialing"] } },
+                    select: { status: true, product: true, tier: true, currentPeriodEnd: true },
+                },
+            },
+        });
+        return { features: getDropLimits(user).features, tier: getEffectiveTier(user) };
+    }
+
+    /**
+     * Add named recipients to a drop. Each gets a unique, revocable access token
+     * (returned once as `token`) so the CLIENT can assemble the share link with the
+     * decryption key in the fragment — the server never sees the key. Requires the
+     * recipientControls entitlement (Plus+). Adding to a shared org drop is admin+.
+     */
+    static async addRecipients(
+        scope: OwnerScope,
+        dropId: string,
+        inputs: RecipientInput[],
+        options: { restrict?: boolean; notify?: boolean } = {},
+    ): Promise<CreatedRecipient[]> {
+        const drop = await prisma.drop.findUnique({ where: { id: dropId } });
+        if (!drop) throw new NotFoundError("Drop not found");
+        assertCanManage(drop, scope);
+
+        const { features, tier } = await this.resolveDropFeatures(scope);
+        if (!features.recipientControls) {
+            throw new UpgradeRequiredError(
+                "Adding named recipients requires a Plus or Pro plan.",
+                { scope: "drop_file_size", currentTier: tier, suggestedTier: "plus" },
+            );
+        }
+
+        // Toggle "only named recipients can download" when requested.
+        if (options.restrict !== undefined && options.restrict !== drop.restrictToRecipients) {
+            await prisma.drop.update({
+                where: { id: dropId },
+                data: { restrictToRecipients: options.restrict },
+            });
+        }
+
+        if (inputs.length === 0) return [];
+
+        const prepared = inputs.map((input) => ({ input, ...generateRecipientToken() }));
+
+        const created = await prisma.$transaction(
+            prepared.map(({ input, tokenHash }) =>
+                prisma.dropRecipient.create({
+                    data: {
+                        dropId,
+                        email: input.email,
+                        label: input.label ?? null,
+                        tokenHash,
+                        maxDownloads: input.maxDownloads ?? null,
+                        expiresAt: input.expiresAt ?? null,
+                    },
+                    select: { id: true, email: true, label: true },
+                }),
+            ),
+        );
+
+        const result = created.map((row, i) => ({
+            id: row.id,
+            email: row.email,
+            label: row.label,
+            token: prepared[i]!.raw,
+        }));
+
+        // Optional keyless email notification. The link carries only the access
+        // token (`?r=`), never the decryption key — anon.li stays zero-knowledge.
+        if (options.notify) {
+            try {
+                const [{ sendDropSharedEmail }, sender] = await Promise.all([
+                    import("@/lib/resend"),
+                    prisma.user.findUnique({ where: { id: scope.userId }, select: { name: true, email: true } }),
+                ]);
+                const senderName = sender?.name || sender?.email || "Someone";
+                const base = process.env.NEXT_PUBLIC_APP_URL ?? "";
+                await Promise.allSettled(
+                    result.map((r) =>
+                        sendDropSharedEmail(r.email, `${base}/d/${dropId}?r=${r.token}`, senderName, drop.customKey),
+                    ),
+                );
+            } catch (error) {
+                // Email is best-effort; never fail recipient creation over it.
+                logger.error("Failed to send recipient notification emails", error);
+            }
+        }
+
+        return result;
+    }
+
+    /** List a drop's recipients. No feature gate — a downgraded owner can still revoke. */
+    static async listRecipients(scope: OwnerScope, dropId: string): Promise<RecipientListItem[]> {
+        const drop = await prisma.drop.findUnique({ where: { id: dropId } });
+        if (!drop) throw new NotFoundError("Drop not found");
+        assertCanManage(drop, scope);
+
+        return prisma.dropRecipient.findMany({
+            where: { dropId },
+            orderBy: { createdAt: "desc" },
+            select: {
+                id: true,
+                email: true,
+                label: true,
+                maxDownloads: true,
+                downloads: true,
+                expiresAt: true,
+                revokedAt: true,
+                lastAccessAt: true,
+                createdAt: true,
+            },
+        });
+    }
+
+    /** Revoke a single recipient's future access (idempotent). Always allowed for the owner. */
+    static async revokeRecipient(scope: OwnerScope, dropId: string, recipientId: string): Promise<void> {
+        const drop = await prisma.drop.findUnique({ where: { id: dropId } });
+        if (!drop) throw new NotFoundError("Drop not found");
+        assertCanManage(drop, scope);
+
+        const result = await prisma.dropRecipient.updateMany({
+            where: { id: recipientId, dropId, revokedAt: null },
+            data: { revokedAt: new Date() },
+        });
+        if (result.count === 0) {
+            const exists = await prisma.dropRecipient.findFirst({
+                where: { id: recipientId, dropId },
+                select: { id: true },
+            });
+            if (!exists) throw new NotFoundError("Recipient not found");
+            // Otherwise already revoked — treat as success (idempotent).
+        }
+    }
+
+    /**
+     * List a drop's per-download access events (owner-facing audit trail).
+     * Requires the accessLogs entitlement (Pro+). The hashed IP is never returned.
+     */
+    static async listAccessEvents(
+        scope: OwnerScope,
+        dropId: string,
+        options: { limit?: number } = {},
+    ): Promise<AccessEventItem[]> {
+        const { limit = 200 } = options;
+        const drop = await prisma.drop.findUnique({ where: { id: dropId } });
+        if (!drop) throw new NotFoundError("Drop not found");
+        assertCanManage(drop, scope);
+
+        const { features, tier } = await this.resolveDropFeatures(scope);
+        if (!features.accessLogs) {
+            throw new UpgradeRequiredError("Access logs require a Pro plan.", {
+                scope: "drop_file_size",
+                currentTier: tier,
+                suggestedTier: "pro",
+            });
+        }
+
+        const events = await prisma.dropAccessEvent.findMany({
+            where: { dropId },
+            orderBy: { createdAt: "desc" },
+            take: Math.min(limit, 500),
+            select: {
+                id: true,
+                eventType: true,
+                fileId: true,
+                createdAt: true,
+                recipient: { select: { email: true, label: true } },
+            },
+        });
+        return events.map((e) => ({
+            id: e.id,
+            eventType: e.eventType,
+            fileId: e.fileId,
+            createdAt: e.createdAt,
+            recipientEmail: e.recipient?.email ?? null,
+            recipientLabel: e.recipient?.label ?? null,
+        }));
     }
 
 }

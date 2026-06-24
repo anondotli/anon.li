@@ -65,6 +65,9 @@ export function useDropDownload({
 
     const [keyString, setKeyString] = useState<string | null>(null);
     const [hasKeyFromUrl, setHasKeyFromUrl] = useState(false);
+    // Per-recipient access token from the share link (`?r=...`). Server-visible
+    // (unlike the decryption key in the fragment); gates restricted drops.
+    const [recipientToken, setRecipientToken] = useState<string | null>(null);
     const [manualKeyInput, setManualKeyInput] = useState("");
     const [manualKeyError, setManualKeyError] = useState<string | null>(null);
 
@@ -83,6 +86,10 @@ export function useDropDownload({
             if (hash) {
                 setKeyString(hash);
                 setHasKeyFromUrl(true);
+            }
+            const r = new URLSearchParams(window.location.search).get("r");
+            if (r) {
+                setRecipientToken(r);
             }
         }, 0);
 
@@ -256,7 +263,9 @@ export function useDropDownload({
             const key = await cryptoService.importKey(keyString);
             const iv = new Uint8Array(cryptoService.base64UrlToArrayBuffer(file.iv));
 
-            const response = await fetch(`/api/v1/drop/${dropId}/file/${fileId}`);
+            const response = await fetch(`/api/v1/drop/${dropId}/file/${fileId}`, {
+                headers: recipientToken ? { "X-Drop-Recipient": recipientToken } : undefined,
+            });
             if (!response.ok) {
                  const errorText = await response.text();
                  try {
@@ -342,7 +351,7 @@ export function useDropDownload({
             setCurrentFile(null);
             setDownloadProgress(0);
         }
-    }, [drop, keyString, dropId]);
+    }, [drop, keyString, dropId, recipientToken]);
 
     // Download all files as ZIP
     const downloadAll = useCallback(async () => {
@@ -370,7 +379,7 @@ export function useDropDownload({
 
         try {
             // Record download and get signed URLs
-            const downloadUrls = await recordDownload(dropId);
+            const downloadUrls = await recordDownload(dropId, recipientToken ?? undefined);
 
             const key = await cryptoService.importKey(keyString);
             const zipFiles: { [key: string]: Uint8Array } = {};
@@ -452,7 +461,7 @@ export function useDropDownload({
             setDownloading(false);
             setCurrentFile(null);
         }
-    }, [drop, keyString, downloadFile, dropId]);
+    }, [drop, keyString, downloadFile, dropId, recipientToken]);
 
     // Utility functions
     const getTotalSize = useCallback(() => {

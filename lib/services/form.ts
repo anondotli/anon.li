@@ -13,6 +13,7 @@ import { prisma } from "@/lib/prisma"
 import { customAlphabet } from "nanoid"
 import crypto from "node:crypto"
 import { createLogger } from "@/lib/logger"
+import { hashIp } from "@/lib/ip-hash"
 import { ownerWhere, assertCanAccess, assertCanManage, personalScope, type OwnerScope } from "@/lib/ownership"
 import { Prisma } from "@prisma/client"
 import type { Form, FormSubmission, FormOwnerKey } from "@prisma/client"
@@ -878,8 +879,3 @@ function hashCustomKeyProof(proof: string): string {
     return crypto.createHash("sha256").update(proof).digest("base64url")
 }
 
-function hashIp(ip: string): string {
-    const pepper = process.env.IP_HASH_PEPPER
-    if (!pepper) throw new Error("IP_HASH_PEPPER environment variable is missing")
-    return crypto.createHash("sha256").update(`${ip}${pepper}`).digest("hex")
-}

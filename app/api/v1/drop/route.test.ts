@@ -143,6 +143,8 @@ describe("GET /api/v1/drop limits", () => {
                 noBranding: false,
                 downloadNotifications: false,
                 filePreview: true,
+                recipientControls: true,
+                accessLogs: false,
             }
         });
 

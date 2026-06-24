@@ -5,6 +5,7 @@ import { validateTurnstileToken } from "@/lib/turnstile";
 import { prisma } from "@/lib/prisma";
 import { createLogger } from "@/lib/logger";
 import { encryptReportKey } from "@/lib/report-crypto";
+import { hashIp } from "@/lib/ip-hash";
 import { Resend } from "resend";
 import { ReportConfirmationEmail } from "@/components/email/report-confirmation";
 import crypto from "crypto";
@@ -133,16 +134,8 @@ export async function POST(req: Request) {
             }
         }
 
-        // Hash reporter IP
-        const pepper = process.env.IP_HASH_PEPPER;
-        if (!pepper) {
-            throw new Error("IP_HASH_PEPPER environment variable is missing");
-        }
-
-        const ipHash = crypto
-            .createHash("sha256")
-            .update(`${ip}${pepper}`)
-            .digest("hex");
+        // Hash reporter IP (never stored raw)
+        const ipHash = hashIp(ip);
 
         // Deduplicate: same IP + same resource within 24h
         const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);

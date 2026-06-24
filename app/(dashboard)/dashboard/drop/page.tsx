@@ -96,6 +96,7 @@ export default async function DropDashboardPage() {
     takenDown: boolean
     takedownReason: string | null
     uploadComplete: boolean
+    restrictToRecipients: boolean
     createdAt: Date
     files: Array<{ id: string; encryptedName: string | null; size: bigint | null; mimeType: string | null; iv: string }>
   }>;
@@ -119,6 +120,7 @@ export default async function DropDashboardPage() {
       takenDown: drop.takenDown,
       takedownReason: drop.takedownReason,
       uploadComplete: drop.uploadComplete,
+      restrictToRecipients: drop.restrictToRecipients,
       createdAt: drop.createdAt.toISOString(),
       files: drop.files.map((f) => ({
         id: f.id,
