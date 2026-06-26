@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AUTH_TAG_SIZE } from "@/lib/constants";
 
 // Shared refinement validators
 function chunkSizeValid(data: { chunkCount: number; chunkSize: number }) {
@@ -8,8 +9,9 @@ function chunkSizeValid(data: { chunkCount: number; chunkSize: number }) {
 
 function chunkConsistencyValid(data: { chunkCount: number; chunkSize: number; size: number }) {
     if (data.chunkCount === 1) return true;
-    const min = (data.chunkCount - 1) * data.chunkSize;
-    const max = data.chunkCount * data.chunkSize;
+    const encryptedChunkSize = data.chunkSize + AUTH_TAG_SIZE;
+    const min = (data.chunkCount - 1) * encryptedChunkSize + (AUTH_TAG_SIZE + 1);
+    const max = data.chunkCount * encryptedChunkSize;
     return data.size >= min && data.size <= max;
 }
 
