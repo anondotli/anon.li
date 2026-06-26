@@ -147,4 +147,32 @@ describe("POST /api/v1/drop/[id]/file validation", () => {
 
         expect(validateCsrf).toHaveBeenCalledWith(request);
     });
+
+    it("should pass validation for a multi-chunk upload with GCM encryption overhead", async () => {
+        const { POST } = await import("./route");
+        const { DropService } = await import("@/lib/services/drop");
+        (auth as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ user: { id: "user-123" } });
+        (DropService.addFile as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+            storageKey: "test-key",
+            s3UploadId: "test-upload-id",
+            fileId: "test-file-id",
+        });
+
+        const request = new Request("http://localhost/api/v1/drop/drop-123/file", {
+            method: "POST",
+            body: JSON.stringify({
+                size: 104857632, // Encrypted size for 100MB original file size (100MB + 2 * 16 bytes auth tag)
+                encryptedName: "test",
+                iv: "1234567890123456",
+                mimeType: "text/plain",
+                chunkCount: 2,
+                chunkSize: 52428800, // 50MB (MIN_CHUNK_SIZE)
+            }),
+            headers: { "content-type": "application/json", origin: "http://localhost" },
+        });
+
+        const response = await POST(request, { params: Promise.resolve({ id: "drop-123" }) });
+
+        expect(response.status).not.toBe(400); // Should not fail schema validation
+    });
 });
