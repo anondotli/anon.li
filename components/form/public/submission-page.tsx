@@ -29,6 +29,7 @@ import { ThankYouScreen } from "./thank-you-screen"
 import { OneQuestionFlow } from "./one-question-flow"
 import { ClassicFlow } from "./classic-flow"
 import { Notice } from "./notice"
+import Link from "next/link"
 
 const turnstileSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY!
 
@@ -488,7 +489,7 @@ function FocusedFooter({
             ) : null}
             <p className={cn("inline-flex items-center gap-1.5 text-xs text-muted-foreground")}>
                 <Shield className="h-3 w-3" />
-                Encrypted in your browser before it leaves your device.
+                Encrypted in your browser before it leaves your device. Powered by <Link href="/form" target="_blank" rel="noopener noreferrer">anon.li Form</Link>.
             </p>
         </div>
     )
@@ -563,7 +564,7 @@ function ClassicFooter({
             </Button>
             <p className="inline-flex w-full items-center justify-center gap-1.5 text-center text-xs text-muted-foreground">
                 <Shield className="h-3 w-3" />
-                Encrypted in your browser before it leaves your device.
+                Encrypted in your browser before it leaves your device. Powered by <Link href="/form" target="_blank" rel="noopener noreferrer">anon.li Form</Link>.
             </p>
         </div>
     )
