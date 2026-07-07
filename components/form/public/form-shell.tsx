@@ -20,12 +20,12 @@ export function FormShell({ children, showBranding, showFooter = true, className
 
             {showBranding ? (
                 <Link
-                    href="/"
+                    href="/form"
                     prefetch={false}
                     className="absolute left-4 top-4 z-30 inline-flex items-center gap-2 rounded-full border border-border/50 bg-background/70 px-3 py-1.5 text-sm text-muted-foreground backdrop-blur-sm transition-colors hover:text-foreground sm:left-6 sm:top-6"
                 >
                     <Icons.logo className="h-4 w-4" />
-                    <span className="font-serif text-base">anon.li</span>
+                    <span className="font-serif text-base">anon.li Form</span>
                 </Link>
             ) : null}
 
