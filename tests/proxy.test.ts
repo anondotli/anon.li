@@ -31,8 +31,20 @@ describe("proxy auth guard", () => {
         const csp = response.headers.get("content-security-policy")
 
         expect(csp).toContain("script-src")
-        expect(csp).toContain("frame-src https://challenges.cloudflare.com")
+        expect(csp).toContain("frame-src 'self' https://challenges.cloudflare.com")
         expect(csp).toMatch(/connect-src[^;]*https:\/\/challenges\.cloudflare\.com/)
+    })
+
+    it("allows public form pages to be framed", async () => {
+        const response = await proxy(new NextRequest("http://localhost/f/public-form"))
+
+        expect(response.headers.get("content-security-policy")).toContain("frame-ancestors *")
+    })
+
+    it("forbids framing non-public pages", async () => {
+        const response = await proxy(new NextRequest("http://localhost/"))
+
+        expect(response.headers.get("content-security-policy")).toContain("frame-ancestors 'none'")
     })
 
     it("pins the THEME_INIT_SCRIPT_SHA256 to the actual script content", () => {

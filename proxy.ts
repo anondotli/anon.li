@@ -95,7 +95,9 @@ function buildCsp(
         r2DirectOrigin,
     ].filter((value): value is string => Boolean(value)).join(" ")
 
-    const frameSrc = TURNSTILE_ORIGIN
+    // Forms can be embedded from pages served by this app (for example, an
+    // internal preview) as well as loading a Turnstile challenge iframe.
+    const frameSrc = ["'self'", TURNSTILE_ORIGIN].join(" ")
     const frameAncestors = allowEmbed ? "*" : "'none'"
 
     return [
