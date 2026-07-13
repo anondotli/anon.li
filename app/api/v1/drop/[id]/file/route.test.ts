@@ -31,9 +31,22 @@ vi.mock("@/lib/rate-limit", () => ({
         dropPro: null,
     },
 }));
-vi.mock("@/lib/services/drop", () => ({ DropService: { addFile: vi.fn() } }));
+vi.mock("@/lib/services/drop", () => ({
+    DropService: {
+        addFile: vi.fn(),
+        rollbackProvisionedFile: vi.fn(),
+    },
+}));
 vi.mock("@/lib/storage", () => ({
     abortMultipartUpload: vi.fn(),
+    buildMultipartUploadParts: vi.fn((encryptedSize: number, chunkSize: number, chunkCount: number) =>
+        Array.from({ length: chunkCount }, (_, index) => ({
+            partNumber: index + 1,
+            contentLength: index === chunkCount - 1
+                ? encryptedSize - (chunkCount - 1) * (chunkSize + 16)
+                : chunkSize + 16,
+        })),
+    ),
     getChunkPresignedUrls: vi.fn(),
     getPresignedDownloadUrl: vi.fn(),
 }));
@@ -151,6 +164,7 @@ describe("POST /api/v1/drop/[id]/file validation", () => {
     it("should pass validation for a multi-chunk upload with GCM encryption overhead", async () => {
         const { POST } = await import("./route");
         const { DropService } = await import("@/lib/services/drop");
+        const { buildMultipartUploadParts, getChunkPresignedUrls } = await import("@/lib/storage");
         (auth as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ user: { id: "user-123" } });
         (DropService.addFile as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
             storageKey: "test-key",
@@ -174,5 +188,44 @@ describe("POST /api/v1/drop/[id]/file validation", () => {
         const response = await POST(request, { params: Promise.resolve({ id: "drop-123" }) });
 
         expect(response.status).not.toBe(400); // Should not fail schema validation
+        expect(buildMultipartUploadParts).toHaveBeenCalledWith(104857632, 52428800, 2)
+        expect(getChunkPresignedUrls).toHaveBeenCalledWith("test-key", "test-upload-id", [
+            { partNumber: 1, contentLength: 52428816 },
+            { partNumber: 2, contentLength: 52428816 },
+        ])
+    });
+
+    it("rolls back the file reservation if URL signing fails", async () => {
+        const { POST } = await import("./route");
+        const { DropService } = await import("@/lib/services/drop");
+        const { getChunkPresignedUrls } = await import("@/lib/storage");
+        (auth as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ user: { id: "user-123" } });
+        (DropService.addFile as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+            storageKey: "test-key",
+            s3UploadId: "test-upload-id",
+            fileId: "test-file-id",
+        });
+        (getChunkPresignedUrls as unknown as ReturnType<typeof vi.fn>)
+            .mockRejectedValue(new Error("signing unavailable"));
+
+        const response = await POST(new Request("http://localhost/api/v1/drop/drop-123/file", {
+            method: "POST",
+            body: JSON.stringify({
+                size: 104857632,
+                encryptedName: "test",
+                iv: "1234567890123456",
+                mimeType: "text/plain",
+                chunkCount: 2,
+                chunkSize: 52428800,
+            }),
+            headers: { "content-type": "application/json", origin: "http://localhost" },
+        }), { params: Promise.resolve({ id: "drop-123" }) });
+
+        expect(response.status).toBe(500);
+        expect(DropService.rollbackProvisionedFile).toHaveBeenCalledWith({
+            storageKey: "test-key",
+            s3UploadId: "test-upload-id",
+            fileId: "test-file-id",
+        });
     });
 });

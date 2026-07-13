@@ -1,11 +1,6 @@
 import type { NextConfig } from "next";
 import { HOMEPAGE_LINK_HEADER } from "./config/agent-discovery"
 
-// Production build uses Turbopack (the Next.js 16 default). An earlier note
-// (2026-04-16) had pinned the build to `--webpack` after a Turbopack build
-// timed out; re-verified on 2026-06-19 that `next build` (Turbopack) completes
-// cleanly and faster (~32s vs ~63s on webpack), so the `--webpack` pin was
-// removed.
 
 const securityHeaders = [
   {

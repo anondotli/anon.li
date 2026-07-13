@@ -18,6 +18,7 @@ import { personalScope, type OwnerScope } from "@/lib/ownership"
 import { DropService } from "@/lib/services/drop"
 import { resolveTokenUploadAccess } from "@/lib/services/form-upload"
 import { getPublicDropMetadata } from "@/lib/drop-metadata"
+import { MAX_CHUNKS_PER_FILE } from "@/lib/constants"
 
 interface RouteParams {
     params: Promise<{ id: string }>
@@ -30,8 +31,8 @@ const finishDropSchema = z.object({
         fileId: z.string().min(1),
         chunks: z.array(z.object({
             chunkIndex: z.number().int().min(0),
-            etag: z.string().min(1),
-        })).min(1).max(10_000),
+            etag: z.string().min(1).max(256),
+        })).min(1).max(MAX_CHUNKS_PER_FILE),
     })).min(1).max(100),
 })
 
@@ -64,6 +65,7 @@ export const GET = getHandler
 export const DELETE = withPolicy<RouteParams>(
     {
         auth: "api_key_or_session",
+        organizationAccess: "subscribed",
         apiQuota: "drop",
         requireCsrf: true,
         rateLimit: "dropOps",
@@ -80,6 +82,7 @@ export const DELETE = withPolicy<RouteParams>(
 const completeHandler = withPolicy<RouteParams>(
     {
         auth: "api_key_or_session",
+        organizationAccess: "subscribed",
         apiQuota: "drop",
         requireCsrf: true,
         checkBan: "upload",
@@ -102,6 +105,7 @@ const completeHandler = withPolicy<RouteParams>(
 const finishHandler = withPolicy<RouteParams>(
     {
         auth: "optional_api_key_or_session",
+        organizationAccess: "subscribed",
         apiQuota: "drop",
         requireCsrf: true,
         checkBan: "upload",
@@ -139,6 +143,7 @@ const finishHandler = withPolicy<RouteParams>(
 const toggleHandler = withPolicy<RouteParams>(
     {
         auth: "api_key_or_session",
+        organizationAccess: "subscribed",
         apiQuota: "drop",
         requireCsrf: true,
         rateLimit: "dropOps",

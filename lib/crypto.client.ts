@@ -44,31 +44,37 @@ export const CryptoConfig = {
   SALT_LENGTH: 32,
 
   getChunkParams(fileSize: number): { chunkSize: number; chunkCount: number } {
+    if (!Number.isSafeInteger(fileSize) || fileSize < 0) {
+      throw new RangeError("File size must be a non-negative safe integer");
+    }
+
     // Small files: single chunk
     if (fileSize <= MIN_CHUNK_SIZE) {
       return { chunkSize: fileSize || 1, chunkCount: 1 };
     }
 
-    // Calculate minimum chunks needed with 50MB size
-    const chunksNeeded = Math.ceil(fileSize / MIN_CHUNK_SIZE);
+    // Keep parts at the 50 MiB target instead of spreading a file over a small
+    // fixed number of ever-larger chunks. A 250 GiB file is therefore 5,120
+    // parts, not 100 multi-gigabyte buffers in the browser.
+    let chunkSize = MIN_CHUNK_SIZE;
+    let chunkCount = Math.ceil(fileSize / chunkSize);
 
-    if (chunksNeeded <= MAX_CHUNKS_PER_FILE) {
-      // Fits within limit - use even distribution
-      return {
-        chunkSize: Math.ceil(fileSize / chunksNeeded),
-        chunkCount: chunksNeeded,
-      };
-    } else {
-      // Exceeds limit - use max chunks with larger size
-      return {
-        chunkSize: Math.ceil(fileSize / MAX_CHUNKS_PER_FILE),
-        chunkCount: MAX_CHUNKS_PER_FILE,
-      };
+    // This branch is outside today's 250 GiB product cap, but keeps the helper
+    // protocol-safe if that cap grows: increase the part size just enough to
+    // remain within S3/R2's 10,000-part ceiling.
+    if (chunkCount > MAX_CHUNKS_PER_FILE) {
+      chunkSize = Math.ceil(fileSize / MAX_CHUNKS_PER_FILE);
+      chunkCount = Math.ceil(fileSize / chunkSize);
     }
+
+    return { chunkSize, chunkCount };
   },
 
   getConcurrency(fileSize: number): number {
-    return fileSize < FILE_SIZE_THRESHOLD_1GB ? 3 : 5;
+    // Each worker can temporarily retain both a plaintext and encrypted chunk
+    // while fetch owns the request body. At the 50 MiB target, two large-file
+    // workers bound that working set to roughly 200 MiB plus browser overhead.
+    return fileSize < FILE_SIZE_THRESHOLD_1GB ? 3 : 2;
   }
 };
 
@@ -174,33 +180,71 @@ class FileEncryptionService {
     );
   }
 
-  async encryptFilename(filename: string, key: CryptoKey, iv: Uint8Array): Promise<string> {
+  private async encryptMetadataValue(
+    value: string,
+    key: CryptoKey,
+    iv: Uint8Array,
+    domainIndex: number,
+  ): Promise<string> {
     const encoder = new TextEncoder();
-    const filenameBuffer = encoder.encode(filename);
+    const valueBuffer = encoder.encode(value);
 
-    // Reserved chunk index 0xFFFFFFFF for filenames to prevent collision with data chunks
-    const filenameIv = this.generateChunkIv(iv, 0xFFFFFFFF);
+    const metadataIv = this.generateChunkIv(iv, domainIndex);
 
     const encrypted = await crypto.subtle.encrypt(
-      { name: "AES-GCM", iv: this.getView(filenameIv) },
+      { name: "AES-GCM", iv: this.getView(metadataIv) },
       key,
-      filenameBuffer
+      valueBuffer
     );
 
     return this.arrayBufferToBase64Url(encrypted);
   }
 
-  async decryptFilename(encryptedFilename: string, key: CryptoKey, iv: Uint8Array): Promise<string> {
-    const encrypted = this.base64UrlToArrayBuffer(encryptedFilename);
-    const filenameIv = this.generateChunkIv(iv, 0xFFFFFFFF);
+  private async decryptMetadataValue(
+    encryptedValue: string,
+    key: CryptoKey,
+    iv: Uint8Array,
+    domainIndex: number,
+  ): Promise<string> {
+    const encrypted = this.base64UrlToArrayBuffer(encryptedValue);
+    const metadataIv = this.generateChunkIv(iv, domainIndex);
 
     const decrypted = await crypto.subtle.decrypt(
-      { name: "AES-GCM", iv: this.getView(filenameIv) },
+      { name: "AES-GCM", iv: this.getView(metadataIv) },
       key,
       encrypted
     );
 
     return new TextDecoder().decode(decrypted);
+  }
+
+  async encryptFilename(filename: string, key: CryptoKey, iv: Uint8Array): Promise<string> {
+    // Reserved domain 0xFFFFFFFF for filenames/titles, distinct from file data
+    // chunks (0..MAX_CHUNKS_PER_FILE-1).
+    return this.encryptMetadataValue(filename, key, iv, 0xFFFFFFFF);
+  }
+
+  async decryptFilename(encryptedFilename: string, key: CryptoKey, iv: Uint8Array): Promise<string> {
+    return this.decryptMetadataValue(encryptedFilename, key, iv, 0xFFFFFFFF);
+  }
+
+  /**
+   * Drop title and message share a base IV. AES-GCM must never reuse a nonce
+   * under the same key, so messages use their own reserved domain rather than
+   * the filename/title domain above.
+   */
+  async encryptMessage(message: string, key: CryptoKey, iv: Uint8Array): Promise<string> {
+    return this.encryptMetadataValue(message, key, iv, 0xFFFFFFFE);
+  }
+
+  async decryptMessage(encryptedMessage: string, key: CryptoKey, iv: Uint8Array): Promise<string> {
+    try {
+      return await this.decryptMetadataValue(encryptedMessage, key, iv, 0xFFFFFFFE);
+    } catch {
+      // Older clients encrypted messages with the filename domain. Retain read
+      // compatibility while ensuring every newly created drop is nonce-safe.
+      return this.decryptFilename(encryptedMessage, key, iv);
+    }
   }
 
   generateSalt(): string {

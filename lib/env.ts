@@ -22,15 +22,16 @@ const serverEnvSchema = z.object({
     // R2 S3-compatible endpoint: https://<account_id>.r2.cloudflarestorage.com
     R2_ENDPOINT: z.string().url("R2_ENDPOINT must be a valid URL"),
     R2_BUCKET_NAME: z.string().min(1, "R2_BUCKET_NAME is required"),
-    // Public custom domain for R2 bucket (e.g. https://r2.anon.li).
-    // Presigned download URLs are signed against this host so browser traffic
-    // flows directly through R2 with zero egress fees, bypassing our Next.js
-    // servers entirely.
-    R2_PUBLIC_ENDPOINT: z.string().url("R2_PUBLIC_ENDPOINT must be a valid URL"),
 
     // Rate Limiting (Upstash Redis)
     UPSTASH_REDIS_REST_URL: z.string().min(1, "UPSTASH_REDIS_REST_URL is required"),
     UPSTASH_REDIS_REST_TOKEN: z.string().min(1, "UPSTASH_REDIS_REST_TOKEN is required"),
+    // Vercel is detected automatically. Set this only for a self-hosted origin
+    // whose network/firewall accepts requests exclusively from Cloudflare.
+    TRUSTED_PROXY_PROVIDER: z.preprocess(
+        (value) => value === "" ? undefined : value,
+        z.enum(["vercel", "cloudflare"]).optional(),
+    ),
 
     // Cron Protection
     CRON_SECRET: z.string().min(1, "CRON_SECRET is required"),

@@ -14,7 +14,7 @@ import {
     resolveTokenUploadAccess,
     validateFormDropFile,
 } from "@/lib/services/form-upload"
-import { getChunkPresignedUrls } from "@/lib/storage"
+import { buildMultipartUploadParts, getChunkPresignedUrls } from "@/lib/storage"
 import { addFileApiSchema } from "@/lib/validations/drop"
 
 interface RouteParams {
@@ -24,6 +24,7 @@ interface RouteParams {
 export const POST = withPolicy<RouteParams>(
     {
         auth: "optional_api_key_or_session",
+        organizationAccess: "subscribed",
         apiQuota: "drop",
         requireCsrf: true,
         checkBan: "upload",
@@ -62,6 +63,12 @@ export const POST = withPolicy<RouteParams>(
             return NextResponse.json({ error: "Invalid request body" }, { status: 400 })
         }
 
+        const uploadParts = buildMultipartUploadParts(
+            validation.data.size,
+            validation.data.chunkSize,
+            validation.data.chunkCount,
+        )
+
         let quotaOverride: Awaited<ReturnType<typeof getFormUploadQuotaOverride>> | undefined
         if (formId) {
             await validateFormDropFile(formId, {
@@ -85,8 +92,15 @@ export const POST = withPolicy<RouteParams>(
                   ...dropFileInput,
               })
 
-        const partNumbers = Array.from({ length: validation.data.chunkCount }, (_, index) => index + 1)
-        const uploadUrls = await getChunkPresignedUrls(result.storageKey, result.s3UploadId, partNumbers)
+        let uploadUrls: Record<number, string>
+        try {
+            uploadUrls = await getChunkPresignedUrls(result.storageKey, result.s3UploadId, uploadParts)
+        } catch (error) {
+            // No identifiers have reached the client, so compensate here or the
+            // multipart upload and ciphertext quota would remain stranded.
+            await DropService.rollbackProvisionedFile(result)
+            throw error
+        }
 
         return NextResponse.json({
             fileId: result.fileId,

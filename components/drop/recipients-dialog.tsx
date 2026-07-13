@@ -244,17 +244,19 @@ export function RecipientsDialog({ drop, origin, canManage, canViewLogs, onClose
               </div>
 
               {newLinks.length > 0 && (
-                <div className="space-y-2 rounded-md border bg-muted/40 p-3">
+                <div className="w-full space-y-2 rounded-md border bg-muted/40 p-3">
                   <p className="text-xs font-medium">Share these links (each is unique &amp; revocable):</p>
-                  {newLinks.map((l) => (
-                    <div key={l.url} className="flex items-center gap-2">
-                      <span className="w-28 shrink-0 truncate text-xs text-muted-foreground" title={l.email}>{l.email}</span>
-                      <code className="flex-1 truncate rounded bg-background px-2 py-1 text-xs">{l.url}</code>
-                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => copy(l.url, l.url)} aria-label="Copy link">
-                        {copied === l.url ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
-                      </Button>
-                    </div>
-                  ))}
+                  <div className="space-y-2">
+                    {newLinks.map((l) => (
+                      <div key={l.url} className="flex items-start gap-2">
+                        <span className="w-28 shrink-0 truncate text-xs text-muted-foreground pt-1.5" title={l.email}>{l.email}</span>
+                        <code className="flex-1 break-all rounded bg-background px-2 py-1 text-xs">{l.url}</code>
+                        <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0 mt-1" onClick={() => copy(l.url, l.url)} aria-label="Copy link">
+                          {copied === l.url ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
 

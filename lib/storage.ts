@@ -13,6 +13,12 @@ import {
 } from "@aws-sdk/client-s3";
 import { createLogger } from "@/lib/logger";
 import { ServiceUnavailableError } from "@/lib/api-error-utils";
+import {
+  AUTH_TAG_SIZE,
+  MAX_CHUNKS_PER_FILE,
+  MIN_MULTIPART_PART_SIZE,
+} from "@/lib/constants";
+import { pMapLimit } from "@/lib/async-utils";
 
 const storageLogger = createLogger("Storage");
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
@@ -20,7 +26,6 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 interface StorageEnv {
   bucketName: string;
   r2Endpoint: string;
-  r2PublicBucketEndpoint: string;
   credentials: {
     accessKeyId: string;
     secretAccessKey: string;
@@ -29,8 +34,7 @@ interface StorageEnv {
 
 let storageEnvCache: StorageEnv | null = null;
 let r2Client: S3Client | null = null;
-let r2UploadPresignClient: S3Client | null = null;
-let r2DownloadPresignClient: S3Client | null = null;
+let r2PresignClient: S3Client | null = null;
 let storageEnvSignature: string | null = null;
 
 function currentStorageEnvSignature(): string {
@@ -38,7 +42,6 @@ function currentStorageEnvSignature(): string {
     process.env.R2_ACCESS_KEY_ID || "",
     process.env.R2_SECRET_ACCESS_KEY || "",
     process.env.R2_ENDPOINT || "",
-    process.env.R2_PUBLIC_ENDPOINT || "",
     process.env.R2_BUCKET_NAME || "",
   ].join("|");
 }
@@ -46,8 +49,7 @@ function currentStorageEnvSignature(): string {
 function resetStorageClients(): void {
   storageEnvCache = null;
   r2Client = null;
-  r2UploadPresignClient = null;
-  r2DownloadPresignClient = null;
+  r2PresignClient = null;
 }
 
 function syncStorageEnvCache(): void {
@@ -73,19 +75,9 @@ function getStorageEnv(): StorageEnv {
     return storageEnvCache;
   }
 
-  const r2PublicEndpoint = requireEnv("R2_PUBLIC_ENDPOINT");
-  let r2PublicBucketEndpoint: string;
-
-  try {
-    r2PublicBucketEndpoint = new URL(r2PublicEndpoint).origin;
-  } catch {
-    throw new ServiceUnavailableError("R2_PUBLIC_ENDPOINT must be a valid URL for storage operations");
-  }
-
   storageEnvCache = {
     bucketName: requireEnv("R2_BUCKET_NAME"),
     r2Endpoint: requireEnv("R2_ENDPOINT"),
-    r2PublicBucketEndpoint,
     credentials: {
       accessKeyId: requireEnv("R2_ACCESS_KEY_ID"),
       secretAccessKey: requireEnv("R2_SECRET_ACCESS_KEY"),
@@ -115,39 +107,74 @@ function getR2Client(): S3Client {
   return r2Client;
 }
 
-function getR2UploadPresignClient(): S3Client {
-  if (r2UploadPresignClient) {
-    return r2UploadPresignClient;
+function getR2PresignClient(): S3Client {
+  if (r2PresignClient) {
+    return r2PresignClient;
   }
 
   const env = getStorageEnv();
-  r2UploadPresignClient = new S3Client({
+  r2PresignClient = new S3Client({
     region: "auto",
     endpoint: env.r2Endpoint,
     credentials: env.credentials,
     forcePathStyle: true,
   });
 
-  return r2UploadPresignClient;
+  return r2PresignClient;
 }
 
-function getR2DownloadPresignClient(): S3Client {
-  if (r2DownloadPresignClient) {
-    return r2DownloadPresignClient;
+const DOWNLOAD_PRESIGNED_URL_EXPIRES = 3600; // 1 hour
+// R2 follows the S3 maximum of seven days. Large uploads receive all part URLs
+// up front, so a one-hour lifetime made the advertised 250 GiB transfer size
+// impossible on ordinary connections.
+export const UPLOAD_PRESIGNED_URL_EXPIRES = 7 * 24 * 60 * 60;
+export const UPLOAD_URL_SIGNING_CONCURRENCY = 32;
+const MAX_MULTIPART_PART_SIZE = 5 * 1024 * 1024 * 1024;
+
+export interface MultipartUploadPart {
+  partNumber: number;
+  contentLength: number;
+}
+
+/**
+ * Build the exact encrypted byte length for every multipart part.
+ *
+ * `chunkSize` is the plaintext chunk size stored with the Drop file, while
+ * `encryptedSize` includes one AES-GCM authentication tag per part. Keeping
+ * this calculation on the server lets the presigned URL bind each PUT to the
+ * bytes the application reserved quota for.
+ */
+export function buildMultipartUploadParts(
+  encryptedSize: number,
+  chunkSize: number,
+  chunkCount: number
+): MultipartUploadPart[] {
+  if (
+    !Number.isSafeInteger(encryptedSize) || encryptedSize <= 0 ||
+    !Number.isSafeInteger(chunkSize) || chunkSize <= 0 ||
+    !Number.isSafeInteger(chunkCount) || chunkCount <= 0 || chunkCount > MAX_CHUNKS_PER_FILE
+  ) {
+    throw new RangeError("Invalid multipart upload shape");
   }
 
-  const env = getStorageEnv();
-  r2DownloadPresignClient = new S3Client({
-    region: "auto",
-    endpoint: env.r2PublicBucketEndpoint,
-    credentials: env.credentials,
-    bucketEndpoint: true,
-  });
+  const fullPartSize = chunkSize + AUTH_TAG_SIZE;
+  const finalPartSize = encryptedSize - ((chunkCount - 1) * fullPartSize);
 
-  return r2DownloadPresignClient;
+  if (
+    !Number.isSafeInteger(fullPartSize) ||
+    finalPartSize <= AUTH_TAG_SIZE ||
+    finalPartSize > fullPartSize ||
+    fullPartSize > MAX_MULTIPART_PART_SIZE ||
+    (chunkCount > 1 && fullPartSize < MIN_MULTIPART_PART_SIZE)
+  ) {
+    throw new RangeError("Invalid multipart upload shape");
+  }
+
+  return Array.from({ length: chunkCount }, (_, index) => ({
+    partNumber: index + 1,
+    contentLength: index === chunkCount - 1 ? finalPartSize : fullPartSize,
+  }));
 }
-
-const PRESIGNED_URL_EXPIRES = 3600; // 1 hour
 
 /**
  * Short presigned-URL lifetime for download-limited drops ("burn after N").
@@ -187,17 +214,18 @@ export async function initiateMultipartUpload(
 async function getChunkPresignedUrl(
   storageKey: string,
   uploadId: string,
-  partNumber: number
+  part: MultipartUploadPart
 ): Promise<string> {
   const { bucketName } = getStorageEnv();
   const command = new UploadPartCommand({
     Bucket: bucketName,
     Key: storageKey,
     UploadId: uploadId,
-    PartNumber: partNumber,
+    PartNumber: part.partNumber,
+    ContentLength: part.contentLength,
   });
 
-  return getSignedUrl(getR2UploadPresignClient(), command, { expiresIn: PRESIGNED_URL_EXPIRES });
+  return getSignedUrl(getR2PresignClient(), command, { expiresIn: UPLOAD_PRESIGNED_URL_EXPIRES });
 }
 
 /**
@@ -206,17 +234,30 @@ async function getChunkPresignedUrl(
 export async function getChunkPresignedUrls(
   storageKey: string,
   uploadId: string,
-  partNumbers: number[]
+  parts: readonly MultipartUploadPart[]
 ): Promise<Record<number, string>> {
-  const urls: Record<number, string> = {};
+  const seenPartNumbers = new Set<number>();
+  for (const part of parts) {
+    if (
+      !Number.isSafeInteger(part.partNumber) ||
+      part.partNumber < 1 ||
+      part.partNumber > MAX_CHUNKS_PER_FILE ||
+      !Number.isSafeInteger(part.contentLength) ||
+      part.contentLength <= AUTH_TAG_SIZE ||
+      seenPartNumbers.has(part.partNumber)
+    ) {
+      throw new RangeError("Invalid multipart upload part");
+    }
+    seenPartNumbers.add(part.partNumber);
+  }
 
-  await Promise.all(
-    partNumbers.map(async (partNumber) => {
-      urls[partNumber] = await getChunkPresignedUrl(storageKey, uploadId, partNumber);
-    })
+  const signedParts = await pMapLimit(
+    parts,
+    UPLOAD_URL_SIGNING_CONCURRENCY,
+    async (part) => [part.partNumber, await getChunkPresignedUrl(storageKey, uploadId, part)] as const,
   );
 
-  return urls;
+  return Object.fromEntries(signedParts);
 }
 
 /**
@@ -262,22 +303,21 @@ export async function abortMultipartUpload(
 
 /**
  * Generate a presigned URL for downloading a file.
- * Signed against the R2 custom domain so the browser fetches bytes
- * directly from R2 with native Range support.
+ * The bucket must remain private. Cloudflare only supports S3 presigned URLs
+ * on the account's R2 S3 API endpoint; signing a public/custom domain would
+ * either fail or let callers bypass application expiry and download limits.
  */
 export async function getPresignedDownloadUrl(
   storageKey: string,
-  expiresIn: number = PRESIGNED_URL_EXPIRES
+  expiresIn: number = DOWNLOAD_PRESIGNED_URL_EXPIRES
 ): Promise<string> {
-  const { r2PublicBucketEndpoint } = getStorageEnv();
+  const { bucketName } = getStorageEnv();
   const command = new GetObjectCommand({
-    // With bucketEndpoint=true, the AWS SDK expects Bucket to be the full
-    // bucket endpoint URL, not the logical bucket name.
-    Bucket: r2PublicBucketEndpoint,
+    Bucket: bucketName,
     Key: storageKey,
   });
 
-  return getSignedUrl(getR2DownloadPresignClient(), command, { expiresIn });
+  return getSignedUrl(getR2PresignClient(), command, { expiresIn });
 }
 
 /**
@@ -313,9 +353,24 @@ export async function getObjectMetadata(storageKey: string): Promise<{
       contentLength: response.ContentLength || 0,
       contentType: response.ContentType || "application/octet-stream",
     };
-  } catch {
-    // Object doesn't exist
-    return null;
+  } catch (error) {
+    // Smithy service errors include the HTTP response status in `$metadata`.
+    // Only an actual 404 means the object is absent. Authentication failures,
+    // R2 outages, timeouts, and other transport errors must remain observable so
+    // callers do not mistake a transient failure for a missing object.
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "$metadata" in error &&
+      typeof error.$metadata === "object" &&
+      error.$metadata !== null &&
+      "httpStatusCode" in error.$metadata &&
+      error.$metadata.httpStatusCode === 404
+    ) {
+      return null;
+    }
+
+    throw error;
   }
 }
 

@@ -8,7 +8,7 @@ import { NextResponse } from "next/server"
 import { getClientIp } from "@/lib/rate-limit"
 import { withPolicy } from "@/lib/route-policy"
 import { DropService } from "@/lib/services/drop"
-import { resolveDownloadAccess, consumeRecipientDownload, recordAccessEvent } from "@/lib/services/drop-recipient"
+import { resolveDownloadAccess, recordAccessEvent } from "@/lib/services/drop-recipient"
 import { getPresignedDownloadUrl, LIMITED_DROP_PRESIGNED_URL_EXPIRES } from "@/lib/storage"
 import { prisma } from "@/lib/prisma"
 
@@ -49,29 +49,19 @@ export const POST = withPolicy<RouteParams>(
         if (!access.allowed) {
             return NextResponse.json({ error: "This drop is not available." }, { status: 404 })
         }
-        if (access.recipientId) {
-            const ok = await consumeRecipientDownload(access.recipientId)
-            if (!ok) {
-                return NextResponse.json({ error: "Download limit reached." }, { status: 404 })
-            }
-        }
-
-        if (drop.maxDownloads) {
-            const counted = await DropService.incrementDownloadCount(dropId)
-            if (!counted) {
-                return NextResponse.json({ error: "Download limit reached." }, { status: 404 })
-            }
-        } else {
-            await DropService.incrementDownloadCount(dropId)
-        }
-
-        // Limited drops get short-lived URLs so the issued batch can't be replayed
-        // long after the count was spent (the byte transfer happens at R2, which
-        // we can't count). Unlimited drops keep the default TTL.
-        const expiresIn = drop.maxDownloads ? LIMITED_DROP_PRESIGNED_URL_EXPIRES : undefined
+        // Generate every URL before spending either allowance. Nothing is
+        // returned until the subsequent atomic counter transaction commits.
+        const expiresIn = drop.maxDownloads != null || access.recipientId != null
+            ? LIMITED_DROP_PRESIGNED_URL_EXPIRES
+            : undefined
         const downloadUrls: Record<string, string> = {}
         for (const file of drop.files) {
             downloadUrls[file.id] = await getPresignedDownloadUrl(file.storageKey, expiresIn)
+        }
+
+        const counted = await DropService.consumeDownload(dropId, access.recipientId)
+        if (!counted) {
+            return NextResponse.json({ error: "Download limit reached." }, { status: 404 })
         }
 
         // Owner-facing access log: one event for the whole-drop (ZIP) download.

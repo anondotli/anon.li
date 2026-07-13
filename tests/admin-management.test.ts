@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi, type Mock } from "vitest"
 import { AdminService } from "@/lib/services/admin"
 import { prisma } from "@/lib/prisma"
 import { ValidationError } from "@/lib/api-error-utils"
+import { deleteDropFilesAndReleaseQuota } from "@/lib/services/drop-storage"
 
 vi.mock("resend", () => ({
     Resend: class {
@@ -12,7 +13,7 @@ vi.mock("resend", () => ({
 vi.mock("@/lib/prisma", () => {
     const mock = {
         organization: { findUnique: vi.fn(), update: vi.fn(), delete: vi.fn() },
-        drop: { findMany: vi.fn(), findUnique: vi.fn(), delete: vi.fn() },
+        drop: { findMany: vi.fn(), findUnique: vi.fn(), delete: vi.fn(), deleteMany: vi.fn() },
         orphanedFile: { createMany: vi.fn() },
         member: { findUnique: vi.fn(), count: vi.fn(), delete: vi.fn(), update: vi.fn() },
         organizationMemberKey: { deleteMany: vi.fn() },
@@ -29,6 +30,16 @@ vi.mock("@/lib/prisma", () => {
     }
     return { prisma: mock }
 })
+
+vi.mock("@/lib/services/drop-storage", () => ({
+    deleteDropFilesAndReleaseQuota: vi.fn().mockResolvedValue({
+        files: [],
+        deletedFiles: 0,
+        releasedBytes: BigInt(0),
+    }),
+}))
+
+vi.mock("@/lib/storage", () => ({ abortMultipartUpload: vi.fn() }))
 
 type MethodName = "findUnique" | "update" | "delete" | "deleteMany" | "createMany" | "findMany" | "count"
 type Model = Record<MethodName, Mock>
@@ -76,9 +87,23 @@ describe("AdminService — organization management", () => {
     it("enqueues orphaned-file cleanup for org-owned drops before deleting the org", async () => {
         db.organization.findUnique.mockResolvedValue({ id: "org_1" })
         db.drop.findMany.mockResolvedValue([
-            { files: [{ storageKey: "k1" }, { storageKey: "k2" }] },
-            { files: [{ storageKey: "k3" }] },
+            { id: "drop_1" },
+            { id: "drop_2" },
         ])
+        ;(deleteDropFilesAndReleaseQuota as Mock)
+            .mockResolvedValueOnce({
+                files: [
+                    { storageKey: "k1", s3UploadId: null, size: BigInt(1) },
+                    { storageKey: "k2", s3UploadId: null, size: BigInt(1) },
+                ],
+                deletedFiles: 2,
+                releasedBytes: BigInt(2),
+            })
+            .mockResolvedValueOnce({
+                files: [{ storageKey: "k3", s3UploadId: null, size: BigInt(1) }],
+                deletedFiles: 1,
+                releasedBytes: BigInt(1),
+            })
 
         const result = await AdminService.deleteOrganization("org_1")
 
@@ -86,6 +111,9 @@ describe("AdminService — organization management", () => {
             data: [{ storageKey: "k1" }, { storageKey: "k2" }, { storageKey: "k3" }],
         })
         expect(db.organization.delete).toHaveBeenCalledWith({ where: { id: "org_1" } })
+        expect(deleteDropFilesAndReleaseQuota).toHaveBeenCalledTimes(2)
+        expect(deleteDropFilesAndReleaseQuota).toHaveBeenNthCalledWith(1, "drop_1")
+        expect(deleteDropFilesAndReleaseQuota).toHaveBeenNthCalledWith(2, "drop_2")
         expect(result).toEqual({ success: true, orphanedFiles: 3 })
     })
 
@@ -179,13 +207,18 @@ describe("AdminService — form parity", () => {
         // hardDeleteDrop loads the attached drop
         db.drop.findUnique.mockResolvedValue({
             id: "drop_1",
-            files: [{ size: BigInt(10), storageKey: "k1" }],
-            user: { id: "user_1", storageUsed: BigInt(100) },
+        })
+        ;(deleteDropFilesAndReleaseQuota as Mock).mockResolvedValueOnce({
+            files: [{ storageKey: "k1", s3UploadId: null, size: BigInt(10) }],
+            deletedFiles: 1,
+            releasedBytes: BigInt(10),
         })
 
         const result = await AdminService.hardDeleteForm("form_1")
 
-        expect(db.drop.delete).toHaveBeenCalledWith({ where: { id: "drop_1" } })
+        expect(deleteDropFilesAndReleaseQuota).toHaveBeenCalledWith("drop_1")
+        expect(db.drop.deleteMany).toHaveBeenCalledWith({ where: { id: "drop_1" } })
+        expect(db.user.update).not.toHaveBeenCalled()
         expect(db.form.delete).toHaveBeenCalledWith({ where: { id: "form_1" } })
         expect(result).toEqual({ success: true, attachedDropsDeleted: 1 })
     })

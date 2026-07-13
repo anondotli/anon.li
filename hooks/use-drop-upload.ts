@@ -16,13 +16,14 @@ import {
     abortGuestFileUpload,
 } from "@/lib/drop.actions.guest";
 import type { UpgradeRequiredDetails } from "@/lib/api-error-utils";
-import { DROP_FEATURES, PLAN_ENTITLEMENTS } from "@/config/plans";
+import { DROP_FEATURES, GUEST_MAX_FILES_PER_DROP, PLAN_ENTITLEMENTS } from "@/config/plans";
 import { DROP_PASSWORD_MIN_LENGTH } from "@/lib/constants";
 import { extractStoredKeyMaterial } from "@/lib/vault/crypto";
 import { upsertCachedWrappedDropKey } from "@/lib/vault/drop-keys-client";
 import { useOptionalVault } from "@/components/vault/vault-provider";
 import { authClient } from "@/lib/auth-client";
 import { analytics } from "@/lib/analytics";
+import { getUploadFilePath } from "@/lib/drop-file-selection";
 
 type UploadPhase = "idle" | "encrypting" | "uploading" | "finalizing" | "complete" | "error";
 
@@ -65,6 +66,26 @@ interface ActiveUpload {
     storageKey: string;
 }
 
+interface FileChunkManifest {
+    fileId: string;
+    chunks: { chunkIndex: number; etag: string }[];
+}
+
+interface PendingFinalization {
+    dropId: string;
+    guest: boolean;
+    uploadToken: string | null;
+    files: FileChunkManifest[];
+    keyString: string;
+    customKey: boolean;
+    keyCache: {
+        wrappedKey: string;
+        vaultGeneration: number;
+        organizationId: string | null;
+        orgKeyGeneration?: number;
+    } | null;
+}
+
 export function useDropUpload({
     userTier,
     remainingStorage,
@@ -83,11 +104,17 @@ export function useDropUpload({
     const [shareUrl, setShareUrl] = useState<string | null>(null);
     const [dropMeta, setDropMeta] = useState<{ expiresAt?: string; maxDownloads?: number } | null>(null);
     const [abortController, setAbortController] = useState<AbortController | null>(null);
+    const [hasPendingFinalization, setHasPendingFinalization] = useState(false);
 
     // Track active uploads for cleanup - use ref to avoid stale closures
     const activeUploadsRef = useRef<ActiveUpload[]>([]);
     // Guest upload token — kept only in memory for the duration of the session.
     const uploadTokenRef = useRef<string | null>(null);
+    // Once every encrypted part is in R2, keep everything needed to retry only
+    // the idempotent server-side finalization step. Re-encrypting at this point
+    // would produce a new key/drop and could strand an already completed object.
+    const pendingFinalizationRef = useRef<PendingFinalization | null>(null);
+    const finalizationInFlightRef = useRef(false);
 
     const tier = guest
         ? "guest" as const
@@ -99,7 +126,11 @@ export function useDropUpload({
         setProgress(null);
         setShareUrl(null);
         setDropMeta(null);
+        activeUploadsRef.current = [];
         uploadTokenRef.current = null;
+        pendingFinalizationRef.current = null;
+        finalizationInFlightRef.current = false;
+        setHasPendingFinalization(false);
         abortController?.abort();
         setAbortController(null);
     }, [abortController]);
@@ -113,6 +144,10 @@ export function useDropUpload({
         const uploads = activeUploadsRef.current;
         activeUploadsRef.current = [];
         const token = uploadTokenRef.current;
+        uploadTokenRef.current = null;
+        pendingFinalizationRef.current = null;
+        finalizationInFlightRef.current = false;
+        setHasPendingFinalization(false);
 
         // Parallel cleanup — don't block on sequential fetches
         await Promise.allSettled(
@@ -136,6 +171,107 @@ export function useDropUpload({
         // Clear progress after cleanup completes so UI doesn't flash prematurely
         setProgress(null);
     }, [abortController, guest]);
+
+    const prepareRetry = useCallback(() => {
+        // Keep the selected File objects/configuration, but leave the error
+        // screen so guest uploads can render a fresh Turnstile challenge.
+        setProgress((current) => current?.phase === "error" ? null : current);
+    }, []);
+
+    const finishPendingFinalization = useCallback(async (
+        pending: PendingFinalization,
+        signal: AbortSignal,
+    ): Promise<void> => {
+        if (pending.guest) {
+            if (!pending.uploadToken) {
+                throw new Error("Upload authorization expired");
+            }
+            await finishGuestDrop(pending.dropId, pending.files, pending.uploadToken, signal);
+        } else {
+            await finishDrop(pending.dropId, pending.files, signal);
+        }
+
+        // Explicit cancel/start-over may have retired this attempt while the
+        // request was in flight. In that case, do not resurrect its success UI.
+        if (pendingFinalizationRef.current !== pending) return;
+
+        pendingFinalizationRef.current = null;
+        activeUploadsRef.current = [];
+        uploadTokenRef.current = null;
+        setHasPendingFinalization(false);
+
+        if (pending.keyCache) {
+            try {
+                upsertCachedWrappedDropKey({
+                    dropId: pending.dropId,
+                    wrappedKey: pending.keyCache.wrappedKey,
+                    vaultGeneration: pending.keyCache.vaultGeneration,
+                    ...(pending.keyCache.organizationId
+                        ? {
+                            organizationId: pending.keyCache.organizationId,
+                            orgKeyGeneration: pending.keyCache.orgKeyGeneration,
+                        }
+                        : {}),
+                });
+            } catch {
+                // Finalization already succeeded. A cache miss is recoverable
+                // from the server and must not turn success into another retry.
+            }
+        }
+
+        const baseUrl = window.location.origin;
+        const url = pending.customKey
+            ? `${baseUrl}/d/${pending.dropId}`
+            : `${baseUrl}/d/${pending.dropId}#${pending.keyString}`;
+
+        setShareUrl(url);
+        setProgress((current) => current ? { ...current, phase: "complete", error: undefined } : current);
+
+        try {
+            analytics.dropUploadCompleted();
+        } catch {
+            // Analytics is non-critical after a committed upload.
+        }
+
+        toast.success(
+            pending.files.length === 1
+                ? "File uploaded successfully!"
+                : `${pending.files.length} files uploaded successfully!`
+        );
+
+        try {
+            onComplete?.(pending.dropId, url);
+        } catch {
+            // Consumer callbacks must not convert a committed upload to failure.
+        }
+    }, [onComplete]);
+
+    const retryFinalization = useCallback(async (): Promise<void> => {
+        const pending = pendingFinalizationRef.current;
+        if (!pending || finalizationInFlightRef.current) return;
+
+        const controller = new AbortController();
+        const signal = controller.signal;
+        finalizationInFlightRef.current = true;
+        setAbortController(controller);
+        setProgress((current) => current ? {
+            ...current,
+            phase: "finalizing",
+            error: undefined,
+        } : current);
+
+        try {
+            await finishPendingFinalization(pending, signal);
+        } catch (error) {
+            if (signal.aborted) return;
+            const message = error instanceof Error ? error.message : "Upload failed";
+            setProgress((current) => current ? { ...current, phase: "error", error: message } : current);
+            toast.error(message);
+        } finally {
+            finalizationInFlightRef.current = false;
+            setAbortController((current) => current === controller ? null : current);
+        }
+    }, [finishPendingFinalization]);
 
     const upload = useCallback(async (
         options: UploadOptions = {},
@@ -212,7 +348,7 @@ export function useDropUpload({
                 encryptedTitle = await cryptoService.encryptFilename(options.title, key, dropIv);
             }
             if (options.message) {
-                encryptedMessage = await cryptoService.encryptFilename(options.message, key, dropIv);
+                encryptedMessage = await cryptoService.encryptMessage(options.message, key, dropIv);
             }
 
             const commonDropFields = {
@@ -265,7 +401,7 @@ export function useDropUpload({
             );
 
             // Collect etags for batched finalization
-            const fileChunkRecords: { fileId: string; chunks: { chunkIndex: number; etag: string }[] }[] = [];
+            const fileChunkRecords: FileChunkManifest[] = [];
 
             for (let fileIndex = 0; fileIndex < files.length; fileIndex++) {
                 const file = files[fileIndex];
@@ -288,7 +424,7 @@ export function useDropUpload({
                 const fileIv = new Uint8Array(cryptoService.base64UrlToArrayBuffer(fileIvString));
 
                 // Encrypt filename with per-file IV
-                const encryptedName = await cryptoService.encryptFilename(file.name, key, fileIv);
+                const encryptedName = await cryptoService.encryptFilename(getUploadFilePath(file), key, fileIv);
 
                 const addFilePayload = {
                     size: encryptedSize,  // Send encrypted size (includes GCM auth tags)
@@ -351,69 +487,62 @@ export function useDropUpload({
                 fileChunkRecords.push({ fileId, chunks });
             }
 
-            // Batch finalize: record chunks + complete files + complete drop
-            setProgress(p => p ? { ...p, phase: "finalizing" } : null);
-            if (guest) {
-                await finishGuestDrop(dropId, fileChunkRecords, uploadTokenRef.current!, signal);
-            } else {
-                await finishDrop(dropId, fileChunkRecords, signal);
-            }
-            activeUploadsRef.current = [];
-            uploadTokenRef.current = null;
-            if (!guest) {
-                upsertCachedWrappedDropKey({
-                    dropId,
+            // Batch finalize: record chunks + complete files + complete drop.
+            // Save the full success context before the request so a timeout can
+            // retry this exact manifest instead of creating a second drop.
+            const pendingFinalization: PendingFinalization = {
+                dropId,
+                guest,
+                uploadToken: uploadTokenRef.current,
+                files: fileChunkRecords,
+                keyString,
+                customKey,
+                keyCache: guest ? null : {
                     wrappedKey: wrappedOwnerKey!,
                     vaultGeneration: vault!.vaultGeneration!,
-                    ...(organizationId ? { organizationId, orgKeyGeneration } : {}),
-                });
-            }
-
-            const baseUrl = window.location.origin;
-            const url = customKey
-                ? `${baseUrl}/d/${dropId}`
-                : `${baseUrl}/d/${dropId}#${keyString}`;
-
-            setShareUrl(url);
-            setProgress(p => p ? { ...p, phase: "complete" } : null);
-            analytics.dropUploadCompleted();
-
-            toast.success(
-                files.length === 1
-                    ? "File uploaded successfully!"
-                    : `${files.length} files uploaded successfully!`
-            );
-
-            onComplete?.(dropId, url);
+                    organizationId,
+                    ...(orgKeyGeneration ? { orgKeyGeneration } : {}),
+                },
+            };
+            pendingFinalizationRef.current = pendingFinalization;
+            setHasPendingFinalization(true);
+            finalizationInFlightRef.current = true;
+            setProgress(p => p ? { ...p, phase: "finalizing" } : null);
+            await finishPendingFinalization(pendingFinalization, signal);
 
         } catch (error) {
-            if (error instanceof Error && error.message === "Upload cancelled") {
+            if (signal.aborted || (error instanceof Error && error.message === "Upload cancelled")) {
                 toast.info("Upload cancelled");
                 setProgress(null);
             } else {
-                // Clean up any active multipart uploads to prevent orphaned S3 parts
-                const uploads = activeUploadsRef.current;
-                activeUploadsRef.current = [];
-                const token = uploadTokenRef.current;
-                if (uploads.length > 0) {
-                    Promise.allSettled(
-                        uploads.map((upload) => {
-                            if (guest) {
-                                return abortGuestFileUpload(upload.dropId, upload.fileId, upload.s3UploadId, token ?? "");
-                            }
-                            return fetch(`/api/v1/drop/${upload.dropId}/file/${upload.fileId}`, {
-                                method: 'DELETE',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({
-                                    s3UploadId: upload.s3UploadId,
-                                }),
-                                credentials: 'include',
-                            }).catch(() => {});
-                        })
-                    );
+                // Before all chunks are uploaded, retain the existing best-effort
+                // cleanup. Once finalization starts, preserve the rows, token, key,
+                // and ETags: the server outcome may be ambiguous and is retryable.
+                if (!pendingFinalizationRef.current) {
+                    const uploads = activeUploadsRef.current;
+                    activeUploadsRef.current = [];
+                    const token = uploadTokenRef.current;
+                    uploadTokenRef.current = null;
+                    if (uploads.length > 0) {
+                        Promise.allSettled(
+                            uploads.map((upload) => {
+                                if (guest) {
+                                    return abortGuestFileUpload(upload.dropId, upload.fileId, upload.s3UploadId, token ?? "");
+                                }
+                                return fetch(`/api/v1/drop/${upload.dropId}/file/${upload.fileId}`, {
+                                    method: 'DELETE',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({
+                                        s3UploadId: upload.s3UploadId,
+                                    }),
+                                    credentials: 'include',
+                                }).catch(() => {});
+                            })
+                        );
+                    }
                 }
 
-                if (error instanceof UpgradeRequiredClientError) {
+                if (error instanceof UpgradeRequiredClientError && !pendingFinalizationRef.current) {
                     setProgress(null);
                     onUpgradeRequired?.(error.details);
                 } else {
@@ -423,9 +552,10 @@ export function useDropUpload({
                 }
             }
         } finally {
+            finalizationInFlightRef.current = false;
             setAbortController(null);
         }
-    }, [files, features, guest, onComplete, onUpgradeRequired, vault, organizationId]);
+    }, [files, features, guest, onUpgradeRequired, vault, organizationId, finishPendingFinalization]);
 
     return {
         files,
@@ -434,13 +564,17 @@ export function useDropUpload({
         shareUrl,
         dropMeta,
 
-        maxFileSize: Math.max(0, remainingStorage ?? 0),
+        maxFileSize: Math.max(0, remainingStorage ?? PLAN_ENTITLEMENTS.drop[tier].maxFileSize),
+        maxFiles: guest ? GUEST_MAX_FILES_PER_DROP : 50,
         maxExpiry: PLAN_ENTITLEMENTS.drop[tier].maxExpiryDays,
         features,
-        isUploading: progress !== null && progress.phase !== "complete" && progress.phase !== "error",
+        isUploading: hasPendingFinalization || (progress !== null && progress.phase !== "complete" && progress.phase !== "error"),
+        hasPendingFinalization,
 
         upload,
         cancel,
+        prepareRetry,
+        retryFinalization,
         reset,
     };
 }

@@ -16,9 +16,10 @@ export function buildDropShareUrl(
 }
 
 /**
- * Build a per-recipient share URL: the access token rides in the query string
- * (`?r=`, server-visible) while the decryption key stays in the fragment
- * (`#`, server-blind). For password drops the key is omitted, as in
+ * Build a per-recipient share URL. Both the bearer access token and optional
+ * decryption key stay in the fragment, which browsers never send to the
+ * server. The client extracts the token and sends it only to the download
+ * authorization endpoint. For password drops the key is omitted, as in
  * buildDropShareUrl.
  */
 export function buildRecipientShareUrl(
@@ -28,7 +29,8 @@ export function buildRecipientShareUrl(
     keyString: string | null,
     customKey: boolean,
 ): string {
-    const base = `${origin}/d/${dropId}?r=${encodeURIComponent(token)}`;
-    if (customKey || !keyString) return base;
-    return `${base}#${keyString}`;
+    const fragment = new URLSearchParams();
+    if (!customKey && keyString) fragment.set("k", keyString);
+    fragment.set("r", token);
+    return `${origin}/d/${dropId}#${fragment.toString()}`;
 }

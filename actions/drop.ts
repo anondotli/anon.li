@@ -3,12 +3,18 @@
 import { revalidatePath } from "next/cache"
 import { headers } from "next/headers"
 import { DropService, type CreatedRecipient, type RecipientListItem, type AccessEventItem } from "@/lib/services/drop"
-import { resolveDownloadAccess, consumeRecipientDownload, recordAccessEvent } from "@/lib/services/drop-recipient"
+import { resolveDownloadAccess, recordAccessEvent } from "@/lib/services/drop-recipient"
 import { rateLimit, getClientIp } from "@/lib/rate-limit"
-import { getChunkPresignedUrls, getPresignedDownloadUrl, LIMITED_DROP_PRESIGNED_URL_EXPIRES } from "@/lib/storage"
+import {
+    buildMultipartUploadParts,
+    getChunkPresignedUrls,
+    getPresignedDownloadUrl,
+    LIMITED_DROP_PRESIGNED_URL_EXPIRES,
+} from "@/lib/storage"
 import { prisma } from "@/lib/prisma"
 import type { DropMetadata } from "@/lib/drop.client"
 import { getPublicDropMetadata } from "@/lib/drop-metadata"
+import { MAX_CHUNKS_PER_FILE } from "@/lib/constants"
 import { z } from "zod"
 import { createLogger } from "@/lib/logger"
 import { type ActionState, runScopedAction } from "@/lib/safe-action"
@@ -109,9 +115,9 @@ const finishDropSchema = z.object({
         fileId: z.string().min(1),
         chunks: z.array(z.object({
             chunkIndex: z.number().int().min(0),
-            etag: z.string().min(1),
-        })).min(1),
-    })).min(1),
+            etag: z.string().min(1).max(256),
+        })).min(1).max(MAX_CHUNKS_PER_FILE),
+    })).min(1).max(50),
 });
 
 // ============================================================================
@@ -252,18 +258,26 @@ export async function addFileToDropAction(
     const result = await runScopedAction(
         { schema: addFileSchema, data: input, rateLimitKey: "fileUploadAuth" },
         async (validated, scope): Promise<AddFileActionResult> => {
+            const uploadParts = buildMultipartUploadParts(
+                validated.size,
+                validated.chunkSize,
+                validated.chunkCount,
+            )
             const result = await DropService.addFile(scope, validated)
 
-            // Generate presigned URLs for chunk uploads
-            const partNumbers = Array.from(
-                { length: validated.chunkCount },
-                (_, i) => i + 1
-            )
-            const uploadUrls = await getChunkPresignedUrls(
-                result.storageKey,
-                result.s3UploadId,
-                partNumbers
-            )
+            let uploadUrls: Record<number, string>
+            try {
+                uploadUrls = await getChunkPresignedUrls(
+                    result.storageKey,
+                    result.s3UploadId,
+                    uploadParts,
+                )
+            } catch (error) {
+                // The client has not received fileId/uploadId yet, so only the
+                // server can release this reservation when batch signing fails.
+                await DropService.rollbackProvisionedFile(result)
+                throw error
+            }
 
             return {
                 fileId: result.fileId,
@@ -493,25 +507,20 @@ export async function recordDownloadAction(
         if (!access.allowed) {
             return { error: "This drop is not available." }
         }
-        if (access.recipientId) {
-            const ok = await consumeRecipientDownload(access.recipientId)
-            if (!ok) {
-                return { error: "Download limit reached." }
-            }
-        }
-
-        const incremented = await DropService.incrementDownloadCount(dropId)
-        if (!incremented) {
-            return { error: "Download limit reached." }
-        }
-
-        // Limited drops get short-lived URLs so an issued download can't be
-        // replayed long after the count was spent (the byte transfer happens at
-        // R2, which we can't count). Unlimited drops keep the default TTL.
-        const expiresIn = drop.maxDownloads ? LIMITED_DROP_PRESIGNED_URL_EXPIRES : undefined
+        // Presign the complete batch before consuming either allowance. These
+        // URLs remain private to this process unless the atomic transaction below
+        // succeeds, so storage/signing failures do not burn a download.
+        const expiresIn = drop.maxDownloads != null || access.recipientId != null
+            ? LIMITED_DROP_PRESIGNED_URL_EXPIRES
+            : undefined
         const downloadUrls: Record<string, string> = {}
         for (const file of drop.files) {
             downloadUrls[file.id] = await getPresignedDownloadUrl(file.storageKey, expiresIn)
+        }
+
+        const incremented = await DropService.consumeDownload(dropId, access.recipientId)
+        if (!incremented) {
+            return { error: "Download limit reached." }
         }
 
         // Owner-facing access log: one event for the whole-drop (ZIP) download.

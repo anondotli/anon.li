@@ -5,6 +5,7 @@ import { X, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getFileIcon } from "@/lib/file-icons";
 import { formatBytes } from "@/lib/format";
+import { getUploadFilePath, prepareSelectedFiles } from "@/lib/drop-file-selection";
 
 interface FileListProps {
   files: File[];
@@ -17,7 +18,7 @@ export function FileList({ files, onRemove, onAddMore }: FileListProps) {
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
-      onAddMore(Array.from(e.target.files));
+      onAddMore(prepareSelectedFiles(e.target.files));
     }
     // Reset input
     if (fileInputRef.current) {
@@ -28,6 +29,7 @@ export function FileList({ files, onRemove, onAddMore }: FileListProps) {
   return (
     <div className="space-y-2 animate-in slide-in-from-bottom-2 duration-300">
       {files.map((f, i) => {
+        const displayName = getUploadFilePath(f);
         const Icon = getFileIcon(f.name, f.type);
         return (
           <div key={`${f.name}-${i}`} className="flex items-center gap-3 p-4 bg-secondary/50 rounded-xl group transition-colors hover:bg-secondary/80">
@@ -35,15 +37,15 @@ export function FileList({ files, onRemove, onAddMore }: FileListProps) {
               <Icon className="w-5 h-5 text-muted-foreground" />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium truncate">{f.name}</p>
+              <p className="text-sm font-medium truncate" title={displayName}>{displayName}</p>
               <p className="text-xs text-muted-foreground">{formatBytes(f.size)}</p>
             </div>
             <Button
               variant="ghost"
               size="icon"
-              className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
               onClick={() => onRemove(i)}
-              aria-label={`Remove ${f.name}`}
+              aria-label={`Remove ${displayName}`}
+              className="h-8 w-8 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
             >
               <X className="w-4 h-4" />
             </Button>

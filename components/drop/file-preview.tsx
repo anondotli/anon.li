@@ -11,6 +11,7 @@ import {
   MAX_AUDIO_PREVIEW_SIZE,
   MAX_TEXT_PREVIEW_SIZE,
 } from "@/lib/constants";
+import { fetchAuthorizedDropFile } from "@/lib/drop-download.client";
 
 interface FilePreviewProps {
     dropId: string;
@@ -22,6 +23,8 @@ interface FilePreviewProps {
     size: number;
     chunkSize: number;
     chunkCount: number;
+    recipientToken?: string | null;
+    disabled?: boolean;
     children?: React.ReactNode;
 }
 
@@ -43,6 +46,8 @@ export function FilePreview({
     size,
     chunkSize,
     chunkCount,
+    recipientToken = null,
+    disabled = false,
     children,
 }: FilePreviewProps) {
     const [loading, setLoading] = useState(false);
@@ -69,7 +74,10 @@ export function FilePreview({
 
         try {
             // Fetch encrypted file via proxy to avoid CORS
-            const response = await fetch(`/api/v1/drop/${dropId}/file/${fileId}?preview=1`);
+            const response = await fetchAuthorizedDropFile(dropId, fileId, {
+                recipientToken,
+                preview: true,
+            });
             if (!response.ok) throw new Error("Failed to fetch file");
 
             const encryptedData = await response.arrayBuffer();
@@ -113,7 +121,7 @@ export function FilePreview({
         } finally {
             setLoading(false);
         }
-    }, [mimeType, size, fileId, dropId, keyString, ivString, chunkSize, chunkCount]);
+    }, [mimeType, size, fileId, dropId, keyString, ivString, chunkSize, chunkCount, recipientToken]);
 
     const closePreview = useCallback(() => {
         setShowPreview(false);
@@ -125,8 +133,8 @@ export function FilePreview({
     }, [previewUrl]);
 
     // Can't preview
-    if (!canPreview(mimeType, size)) {
-        return null;
+    if (disabled || !canPreview(mimeType, size)) {
+        return children ?? null;
     }
 
     if (loading) {

@@ -34,6 +34,7 @@ export function FileUploader({ onUploadComplete, userTier, maxStorage, usedStora
 
   const [config, setConfig] = useState<DropConfig>({
     title: "",
+    message: "",
     protectionMode: "key",
     password: "",
     expiryDays: null,
@@ -58,8 +59,8 @@ export function FileUploader({ onUploadComplete, userTier, maxStorage, usedStora
   const {
     files, setFiles,
     progress, shareUrl, dropMeta,
-    features, maxFileSize, maxExpiry,
-    upload, cancel,
+    features, maxFileSize, maxFiles, maxExpiry,
+    isUploading, hasPendingFinalization, upload, cancel, prepareRetry, retryFinalization,
     reset: resetUploadState,
   } = useDropUpload({
     userTier,
@@ -81,24 +82,38 @@ export function FileUploader({ onUploadComplete, userTier, maxStorage, usedStora
 
 
   const totalSize = useMemo(() => files.reduce((sum, f) => sum + f.size, 0), [files]);
-
   const addFiles = useCallback((newFiles: File[]) => {
     const valid: File[] = [];
+    // Plan limits are plaintext limits. The server still reserves the exact
+    // ciphertext bytes, with only the bounded per-part auth-tag allowance.
     let currentTotal = totalSize;
+    let currentCount = files.length;
+    let rejectedForCapacity = false;
 
     for (const f of newFiles) {
-      if (currentTotal + f.size > maxFileSize) {
-        toast.error(`Total size exceeds ${formatBytes(maxFileSize)}`);
+      if (currentCount >= maxFiles) {
+        toast.error(`A drop can contain up to ${maxFiles} files`);
         break;
       }
+
+      if (currentTotal + f.size > maxFileSize) {
+        rejectedForCapacity = true;
+        continue;
+      }
+
       valid.push(f);
       currentTotal += f.size;
+      currentCount++;
+    }
+
+    if (rejectedForCapacity) {
+      toast.error(`The upload exceeds your remaining ${formatBytes(maxFileSize)} capacity`);
     }
 
     if (valid.length > 0) {
       setFiles(prev => [...prev, ...valid]);
     }
-  }, [totalSize, maxFileSize, setFiles]);
+  }, [files.length, totalSize, maxFileSize, maxFiles, setFiles]);
 
   const removeFile = useCallback((index: number) => {
     setFiles(prev => prev.filter((_, i) => i !== index));
@@ -112,10 +127,27 @@ export function FileUploader({ onUploadComplete, userTier, maxStorage, usedStora
     }
   }, [droppedFiles, setDroppedFiles, addFiles]);
 
+  // A reload or tab close destroys the in-memory encryption key and selected
+  // File objects. Warn while work is active so a long transfer is not lost by
+  // an accidental refresh; deliberate cancellation remains available in-app.
+  useEffect(() => {
+    if (!isUploading) return;
+
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [isUploading]);
+
   const reset = useCallback(() => {
+    void cancel();
     resetUploadState();
     setConfig({
       title: "",
+      message: "",
       protectionMode: "key",
       password: "",
       expiryDays: null,
@@ -125,7 +157,7 @@ export function FileUploader({ onUploadComplete, userTier, maxStorage, usedStora
     });
     setTurnstileRequested(false);
     resetTurnstile();
-  }, [resetUploadState, resetTurnstile]);
+  }, [cancel, resetUploadState, resetTurnstile]);
 
   const startUpload = useCallback((verifiedTurnstileToken?: string) => {
     if (files.length === 0) return;
@@ -144,6 +176,7 @@ export function FileUploader({ onUploadComplete, userTier, maxStorage, usedStora
 
     upload({
       title: config.title || undefined,
+      message: config.message || undefined,
       expiryDays: expiryValue,
       maxDownloads: maxDlValue,
       password: config.protectionMode === "password" ? config.password : undefined,
@@ -157,6 +190,24 @@ export function FileUploader({ onUploadComplete, userTier, maxStorage, usedStora
       resetTurnstile();
     }
   }, [files.length, guest, turnstileToken, upload, config, effectiveExpiryDays, resetTurnstile]);
+
+  const retryUpload = useCallback(() => {
+    if (hasPendingFinalization) {
+      void retryFinalization();
+      return;
+    }
+
+    if (guest) {
+      // Guest upload tokens and Turnstile responses are single-use. Return to
+      // the file view and obtain a new challenge before creating a fresh drop.
+      prepareRetry();
+      setTurnstileRequested(true);
+      resetTurnstile();
+      return;
+    }
+
+    startUpload();
+  }, [guest, hasPendingFinalization, prepareRetry, resetTurnstile, retryFinalization, startUpload]);
 
   // Calculate progress percentage
   const pct = progress
@@ -205,7 +256,7 @@ export function FileUploader({ onUploadComplete, userTier, maxStorage, usedStora
           progress={progress}
           pct={pct}
           onCancel={cancel}
-          onRetry={() => startUpload()}
+          onRetry={retryUpload}
           onReset={reset}
         />
         {upgradeDialog}
@@ -237,15 +288,6 @@ export function FileUploader({ onUploadComplete, userTier, maxStorage, usedStora
             />
           )}
 
-          <Button
-            className="w-full h-12 rounded-full text-base font-medium shadow-lg shadow-primary/10 hover:shadow-xl hover:shadow-primary/15 transition-all hover:scale-[1.02]"
-            onClick={() => startUpload()}
-            disabled={(config.protectionMode === "password" && config.password.length < DROP_PASSWORD_MIN_LENGTH) || (guest && turnstileRequested && !turnstileToken)}
-          >
-            <Upload className="w-4 h-4 mr-2" />
-            Create Drop
-          </Button>
-
           <DropSettings
             config={{
                 ...config,
@@ -256,6 +298,15 @@ export function FileUploader({ onUploadComplete, userTier, maxStorage, usedStora
             maxExpiry={maxExpiry}
             features={features}
           />
+
+          <Button
+            className="w-full h-12 rounded-full text-base font-medium shadow-lg shadow-primary/10 hover:shadow-xl hover:shadow-primary/15 transition-all hover:scale-[1.02]"
+            onClick={() => startUpload()}
+            disabled={(config.protectionMode === "password" && config.password.length < DROP_PASSWORD_MIN_LENGTH) || (guest && turnstileRequested && !turnstileToken)}
+          >
+            <Upload className="w-4 h-4 mr-2" />
+            Create Drop
+          </Button>
         </div>
         {upgradeDialog}
       </div>

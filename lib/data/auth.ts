@@ -59,6 +59,41 @@ export async function isOrgSubscribed(organizationId: string): Promise<boolean> 
     return Boolean(sub)
 }
 
+export interface OrganizationAccessState {
+    exists: boolean
+    suspended: boolean
+    subscribed: boolean
+}
+
+/**
+ * Resolve the server-enforced access state for an organization in one query.
+ *
+ * Route policies use this at the authenticated trust boundary instead of
+ * relying on dashboard-only subscription checks. A missing organization is
+ * represented explicitly so stale session/API-key org context fails closed.
+ */
+export async function getOrganizationAccessState(
+    organizationId: string,
+): Promise<OrganizationAccessState> {
+    const organization = await prisma.organization.findUnique({
+        where: { id: organizationId },
+        select: {
+            suspendedAt: true,
+            subscriptions: {
+                where: { status: { in: ["active", "trialing"] } },
+                take: 1,
+                select: { id: true },
+            },
+        },
+    })
+
+    return {
+        exists: Boolean(organization),
+        suspended: Boolean(organization?.suspendedAt),
+        subscribed: Boolean(organization?.subscriptions.length),
+    }
+}
+
 /**
  * Staff-suspension state for an organization. When `suspended` is true the org
  * is frozen: runScopedAction rejects org-scoped writes and the dashboard shows a

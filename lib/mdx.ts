@@ -1,6 +1,6 @@
 import fs from "fs"
 import path from "path"
-import matter from "gray-matter"
+import { parseFrontmatter } from "@/lib/frontmatter"
 
 
 const root = process.cwd()
@@ -61,7 +61,7 @@ export async function getFile(type: string, slug: string | string[]): Promise<Md
     }
 
     const source = await fs.promises.readFile(filePath, "utf8")
-    const { data, content } = matter(source)
+    const { data, content } = parseFrontmatter(source)
 
     return {
         slug: slugString,
@@ -84,7 +84,7 @@ export async function getAllFilesFrontMatter<T extends FrontMatter = FrontMatter
             path.join(root, "content", type, relativePath),
             "utf8"
         )
-        const { data } = matter(source)
+        const { data } = parseFrontmatter(source)
 
         return {
             slug,

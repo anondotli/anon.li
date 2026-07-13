@@ -4,6 +4,13 @@ import crypto from "crypto";
 
 const logger = createLogger("CronLock");
 
+const RELEASE_IF_OWNER_SCRIPT = `
+if redis.call("get", KEYS[1]) == ARGV[1] then
+  return redis.call("del", KEYS[1])
+end
+return 0
+`;
+
 /**
  * Run `fn` under a distributed Redis lock keyed on `name`.
  * If the lock is already held, returns `null` without running `fn`.
@@ -24,8 +31,11 @@ export async function withCronLock<T>(
   try {
     acquired = await redis.set(key, token, { nx: true, ex: ttlSeconds })
   } catch (error) {
-    logger.error("Failed to acquire cron lock, running unlocked", error, { name })
-    return await fn()
+    // These jobs delete data and reconcile billing. If mutual exclusion cannot
+    // be established, surface a failed cron run so the scheduler can retry and
+    // monitoring can alert; never execute destructive work unlocked.
+    logger.error("Failed to acquire cron lock; refusing to run unlocked", error, { name })
+    throw error
   }
 
   if (acquired !== "OK") {
@@ -36,12 +46,10 @@ export async function withCronLock<T>(
   try {
     return await fn();
   } finally {
-    // Release only if we still own the token (avoid releasing a re-acquired lock).
+    // Compare-and-delete atomically. A GET followed by DEL has a race where the
+    // TTL can expire and a new worker can acquire the key between those calls.
     try {
-      const current = await redis.get<string>(key);
-      if (current === token) {
-        await redis.del(key);
-      }
+      await redis.eval(RELEASE_IF_OWNER_SCRIPT, [key], [token]);
     } catch (e) {
       logger.error("Failed to release cron lock", e, { name });
     }

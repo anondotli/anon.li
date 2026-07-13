@@ -25,7 +25,7 @@
 import { auth } from "@/auth"
 import { validateApiKey, hasExplicitApiKey } from "@/lib/api-auth"
 import { createRateLimitHeaders, type ApiQuotaType } from "@/lib/api-rate-limit"
-import { getAuthUserState } from "@/lib/data/auth"
+import { getAuthUserState, getOrganizationAccessState } from "@/lib/data/auth"
 import { evaluateBan } from "@/lib/data/user-bans"
 import { prisma } from "@/lib/prisma"
 import { rateLimiters, rateLimit } from "@/lib/rate-limit"
@@ -73,6 +73,12 @@ interface RoutePolicy {
     organization?: "required" | "optional"
     /** Minimum org role required (implies organization: "required"). */
     minOrgRole?: OrgRole
+    /**
+     * Server-enforced access state for a resolved org context. Opt-in keeps
+     * personal and billing/recovery routes available while resource APIs can
+     * require a non-suspended organization with an active subscription.
+     */
+    organizationAccess?: "not_suspended" | "subscribed"
 }
 
 // ─── Request context passed to handlers ─────────────────────────────────────
@@ -278,6 +284,29 @@ export function withPolicy<TRouteContext = void>(policy: RoutePolicy, handler: P
             }
             if (policy.minOrgRole && !meetsMinRole(orgRole, policy.minOrgRole)) {
                 return apiError("Insufficient organization role", ErrorCodes.FORBIDDEN, requestId, 403)
+            }
+
+            if (policy.organizationAccess && organizationId) {
+                const organization = await getOrganizationAccessState(organizationId)
+                if (!organization.exists) {
+                    return apiError("Organization is no longer available", ErrorCodes.FORBIDDEN, requestId, 403)
+                }
+                if (organization.suspended) {
+                    return apiError(
+                        "This organization has been suspended. Please contact support.",
+                        ErrorCodes.FORBIDDEN,
+                        requestId,
+                        403,
+                    )
+                }
+                if (policy.organizationAccess === "subscribed" && !organization.subscribed) {
+                    return apiError(
+                        "An active Business subscription is required for this organization.",
+                        ErrorCodes.PAYMENT_REQUIRED,
+                        requestId,
+                        402,
+                    )
+                }
             }
 
             // ── Ban checks ──────────────────────────────────────────────

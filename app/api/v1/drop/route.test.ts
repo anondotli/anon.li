@@ -73,13 +73,22 @@ vi.mock("@/lib/services/drop", () => ({
 
 vi.mock("@/lib/rate-limit", () => ({
     rateLimit: vi.fn().mockResolvedValue(null),
+    checkRateLimit: vi.fn().mockResolvedValue(null),
     getClientIp: vi.fn().mockResolvedValue("127.0.0.1"),
-    rateLimiters: {},
+    rateLimiters: { dropCreateGuest: {} },
     monthlyApiLimiters: {
         dropFree: null,
         dropPlus: null,
         dropPro: null,
     },
+}));
+
+vi.mock("@/lib/turnstile", () => ({
+    getTurnstileError: vi.fn().mockResolvedValue(null),
+}));
+
+vi.mock("@/lib/services/drop-upload-token", () => ({
+    issueUploadToken: vi.fn().mockResolvedValue("guest-upload-token"),
 }));
 
 vi.mock("@/lib/api-rate-limit", () => ({
@@ -303,5 +312,36 @@ describe("POST /api/v1/drop validation", () => {
         const data = await response.json();
         expect(data.error.message).toBe("Validation failed");
         expect(data.error.details.some((d: { field: string }) => d.field === "encryptedTitle")).toBe(true);
+    });
+
+    it("fails closed when the guest allocation limiter is unavailable", async () => {
+        const { POST } = await import("./route");
+        const { checkRateLimit } = await import("@/lib/rate-limit");
+        const { DropService } = await import("@/lib/services/drop");
+
+        (auth as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+        (checkRateLimit as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+            Response.json({ error: "Service temporarily unavailable" }, { status: 503 }),
+        );
+
+        const request = new Request("http://localhost/api/v1/drop", {
+            method: "POST",
+            body: JSON.stringify({
+                iv: "1234567890123456",
+                fileCount: 1,
+                turnstileToken: "verified-token",
+            }),
+            headers: { Origin: validUrl },
+        });
+
+        const response = await POST(request);
+
+        expect(response.status).toBe(503);
+        expect(checkRateLimit).toHaveBeenCalledWith(
+            expect.anything(),
+            "127.0.0.1",
+            true,
+        );
+        expect(DropService.createDrop).not.toHaveBeenCalled();
     });
 });

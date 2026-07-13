@@ -4,6 +4,10 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
+const { cleanupExpiredDropsMock } = vi.hoisted(() => ({
+    cleanupExpiredDropsMock: vi.fn().mockResolvedValue({ found: 0, deleted: 0, errors: [] }),
+}));
+
 vi.mock("@/lib/prisma", () => ({
     prisma: {
         domain: {
@@ -12,6 +16,9 @@ vi.mock("@/lib/prisma", () => ({
         },
         drop: {
             findMany: vi.fn().mockResolvedValue([]),
+        },
+        session: {
+            deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
         },
     },
 }));
@@ -28,12 +35,19 @@ vi.mock("@/lib/drop-utils", () => ({
 
 vi.mock("@/lib/services/drop-cleanup", () => ({
     DropCleanupService: {
-        cleanupExpiredDrops: vi.fn().mockResolvedValue({ found: 0, deleted: 0, errors: [] }),
+        cleanupExpiredDrops: cleanupExpiredDropsMock,
         cleanupIncompleteUploads: vi.fn().mockResolvedValue({ found: 0, deleted: 0, errors: [] }),
         cleanupDownloadLimitExceededDrops: vi.fn().mockResolvedValue({ found: 0, deleted: 0, errors: [] }),
         cleanupSoftDeletedDrops: vi.fn().mockResolvedValue({ found: 0, deleted: 0, errors: [] }),
         cleanupOrphanedFiles: vi.fn().mockResolvedValue({ found: 0, deleted: 0, errors: [] }),
         cleanupIncompleteFiles: vi.fn().mockResolvedValue({ found: 0, deleted: 0, errors: [] }),
+    },
+}));
+
+vi.mock("@/lib/services/form-cleanup", () => ({
+    FormCleanupService: {
+        cleanupExpiredSubmissions: vi.fn().mockResolvedValue({ found: 0, deleted: 0, errors: [] }),
+        cleanupDeletedForms: vi.fn().mockResolvedValue({ found: 0, deleted: 0, errors: [] }),
     },
 }));
 
@@ -48,6 +62,7 @@ const originalEnv = process.env;
 describe("Cron Route Auth", () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        cleanupExpiredDropsMock.mockResolvedValue({ found: 0, deleted: 0, errors: [] });
         process.env = {
             ...originalEnv,
             CRON_SECRET: "test-cron-secret",
@@ -84,6 +99,26 @@ describe("Cron Route Auth", () => {
             });
             const res = await POST(req as never);
             expect(res.status).toBe(200);
+        });
+
+        it("returns a failed run when a cleanup task reports partial errors", async () => {
+            cleanupExpiredDropsMock.mockResolvedValue({
+                found: 1,
+                deleted: 0,
+                errors: ["drop-1: storage deletion failed"],
+            });
+
+            const { GET } = await import("@/app/api/cron/cleanup/route");
+            const req = new Request("http://localhost/api/cron/cleanup", {
+                method: "GET",
+                headers: { Authorization: "Bearer test-cron-secret" },
+            });
+            const res = await GET(req as never);
+            const body = await res.json();
+
+            expect(res.status).toBe(500);
+            expect(body.success).toBe(false);
+            expect(body.errors).toContain("drop-1: storage deletion failed");
         });
     });
 

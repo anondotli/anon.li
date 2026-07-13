@@ -84,12 +84,12 @@ The server can never derive or recover this key on its own. The one documented e
 
 - **Base IV**: 12 bytes of cryptographically random data, generated per file
 - **Chunk IVs**: Derived deterministically from the base IV - the first 8 bytes of the base IV form a 64-bit random nonce prefix, and the chunk index is appended as a 4-byte big-endian counter. This gives every chunk within a file a unique IV without additional random generation. Because each file is encrypted under a fresh, random 256-bit key, the (key, IV) pair is unique for every chunk, which is the property AES-GCM requires
-- **Chunk size**: Minimum 50 MB per chunk, up to 100 chunks per file
+- **Chunk size**: Approximately 50 MiB of plaintext per part (the final part may be smaller), up to the S3/R2 limit of 10,000 parts per file. A 250 GiB file uses 5,120 bounded-size parts rather than multi-gigabyte browser buffers
 - **Authentication**: Each chunk carries a 16-byte GCM authentication tag, providing per-chunk integrity verification. Any tampering with individual chunks is detected immediately on decryption
 
-### Filename Encryption
+### Filename and Metadata Encryption
 
-Filenames are encrypted using the same AES-256-GCM key with a reserved chunk index of `0xFFFFFFFF`, guaranteeing the filename IV never collides with any data chunk IV. The server stores only the encrypted filename - it cannot determine what files you're sharing.
+Filenames and drop titles use the reserved domain `0xFFFFFFFF`; drop messages use the distinct domain `0xFFFFFFFE`. File contents only use chunk indexes starting at zero. Together with an independent random base IV for each file and for drop metadata, those domains prevent AES-GCM nonce reuse. The server stores only encrypted filenames and metadata, so it cannot determine what you are sharing.
 
 ### Password Protection
 
@@ -180,7 +180,7 @@ Unauthenticated abuse reports are protected by [Cloudflare Turnstile](https://ww
 
 ### Transport Security
 
-Connections to the hosted service use TLS. Encrypted file data is stored in Cloudflare R2 and served directly to clients through an R2 custom domain with zero egress fees, so blob traffic bypasses our Next.js servers entirely. Uploads and downloads use short-lived presigned URLs.
+Connections to the hosted service use TLS. Encrypted file data is stored in a private Cloudflare R2 bucket and served directly to clients through the R2 S3 API endpoint, so blob traffic bypasses our Next.js servers entirely. Downloads use short-lived presigned URLs. Multipart upload URLs are bound to an upload ID, part number, and exact encrypted byte length, and may remain valid for up to seven days so a 250 GiB transfer can finish on an ordinary connection. Public bucket URLs and custom domains are disabled so application expiry, revocation, recipient, and download-limit checks cannot be bypassed.
 
 ### Log Redaction
 

@@ -60,6 +60,7 @@ const createDropSchema = z.object({
 export const GET = withPolicy(
     {
         auth: "api_key_or_session",
+        organizationAccess: "subscribed",
         apiQuota: "drop",
         rateLimit: "dropList",
     },
@@ -114,6 +115,7 @@ export const GET = withPolicy(
 export const POST = withPolicy(
     {
         auth: "optional_api_key_or_session",
+        organizationAccess: "subscribed",
         apiQuota: "drop",
         requireCsrf: true,
         checkBan: "upload",
@@ -143,7 +145,14 @@ export const POST = withPolicy(
             }
             // Per-IP daily ceiling for anonymous drops, on top of the hourly
             // dropCreate burst limit — bounds anonymous bandwidth cost/abuse.
-            const guestLimited = await checkRateLimit(rateLimiters.dropCreateGuest, await getClientIp())
+            // Anonymous storage allocation fails closed when Redis is
+            // unavailable; otherwise an outage would remove the only daily
+            // bandwidth ceiling and allow unbounded guest R2 writes.
+            const guestLimited = await checkRateLimit(
+                rateLimiters.dropCreateGuest,
+                await getClientIp(),
+                true,
+            )
             if (guestLimited) return guestLimited
         }
 

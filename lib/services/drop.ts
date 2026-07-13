@@ -31,11 +31,17 @@ import {
     deleteObjects,
     getObjectMetadata,
 } from "@/lib/storage";
-import type { Drop, DropFile, UploadChunk } from "@prisma/client";
-import { ValidationError, NotFoundError, ForbiddenError, RateLimitError, UpgradeRequiredError } from "@/lib/api-error-utils";
+import type { Drop, Prisma } from "@prisma/client";
+import {
+    ValidationError,
+    NotFoundError,
+    ForbiddenError,
+    RateLimitError,
+    ServiceUnavailableError,
+    UpgradeRequiredError,
+} from "@/lib/api-error-utils";
 import { ownerWhere, assertCanManage, isWithinScope, type OwnerScope } from "@/lib/ownership";
-import { decrementStorageUsed } from "@/lib/services/drop-storage";
-import { revokeUploadTokens } from "@/lib/services/drop-upload-token";
+import { deleteDropFileAndReleaseQuota, deleteDropFilesAndReleaseQuota } from "@/lib/services/drop-storage";
 import { generateRecipientToken } from "@/lib/services/drop-recipient";
 import {
     DROP_FEATURES,
@@ -43,6 +49,8 @@ import {
     GUEST_MAX_FILES_PER_DROP,
     PLAN_ENTITLEMENTS,
 } from "@/config/plans";
+import { pMapLimit } from "@/lib/async-utils";
+import { encryptedStorageLimit, plaintextSizeFromEncrypted } from "@/lib/drop-size";
 
 // ID generator: lowercase alphanumeric, 16 chars = ~83 bits of entropy
 const generateDropId = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", 16);
@@ -50,8 +58,8 @@ const generateFileId = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", 10
 
 const logger = createLogger("DropService");
 
-// Type for file with drop relation
-type DropFileWithDropAndChunks = DropFile & { drop: { userId: string | null; organizationId: string | null; id: string }; chunks: UploadChunk[] };
+/** Internal sentinel used to roll back an interactive download transaction. */
+class DownloadAccessDeniedError extends Error {}
 
 // Type for drop with files relation
 type DropWithFilesRelation = Drop & { files: { id: string; encryptedName: string; size: bigint; mimeType: string; iv: string }[] };
@@ -98,6 +106,245 @@ interface AddFileOptions {
         storageLimit: bigint;
         currentTier: "free" | "plus" | "pro";
     };
+}
+
+const MAX_PENDING_FILES_PER_DROP = 50;
+const MAX_INCOMPLETE_DROPS_PER_USER = 10;
+const UPLOAD_CHUNK_INSERT_BATCH_SIZE = 1_000;
+const CHUNK_FINALIZATION_BATCH_SIZE = 500;
+const FILE_COMPLETION_CONCURRENCY = 4;
+const FILE_FINALIZATION_TRANSACTION_TIMEOUT_MS = 120_000;
+const FILE_FINALIZATION_TRANSACTION_MAX_WAIT_MS = 10_000;
+const GUEST_ENCRYPTED_STORAGE_LIMIT = encryptedStorageLimit(
+    BigInt(GUEST_MAX_DROP_BYTES),
+    GUEST_MAX_FILES_PER_DROP,
+);
+
+interface FileReservationInput extends AddFileInput {
+    fileId: string;
+    storageKey: string;
+    s3UploadId: string;
+}
+
+interface AuthenticatedFileReservationInput extends FileReservationInput {
+    ownerUserId: string;
+    organizationId: string | null;
+    storageLimit: bigint;
+    quotaExceededError: UpgradeRequiredError;
+}
+
+interface LockedUploadDrop {
+    id: string;
+    maxFileCount: number | null;
+    uploadComplete: boolean;
+    deletedAt: Date | null;
+    userId: string | null;
+    organizationId: string | null;
+}
+
+interface LockedFinalizationFile {
+    id: string;
+    declaredSize: bigint;
+    storageKey: string;
+    s3UploadId: string | null;
+    uploadComplete: boolean;
+    dropId: string;
+    ownerUserId: string | null;
+    organizationId: string | null;
+    dropDeletedAt: Date | null;
+}
+
+type FileFinalizationResult =
+    | { status: "already_complete" | "completed" }
+    | {
+        status: "invalid_size";
+        message: string;
+        storageKey: string;
+        s3UploadId: string;
+    };
+
+interface FinishDropPreparation {
+    alreadyComplete: boolean;
+    pendingFileIds: string[];
+}
+
+/**
+ * Keep multipart reservation inserts below database bind-parameter limits.
+ * A 250 GiB file has 5,120 rows; building one enormous createMany statement is
+ * needlessly fragile and the enclosing parent transaction preserves atomicity.
+ */
+async function createUploadChunkReservations(
+    tx: Prisma.TransactionClient,
+    input: Pick<FileReservationInput, "fileId" | "chunkCount" | "chunkSize">,
+): Promise<void> {
+    for (let start = 0; start < input.chunkCount; start += UPLOAD_CHUNK_INSERT_BATCH_SIZE) {
+        const batchSize = Math.min(UPLOAD_CHUNK_INSERT_BATCH_SIZE, input.chunkCount - start);
+        await tx.uploadChunk.createMany({
+            data: Array.from({ length: batchSize }, (_, offset) => ({
+                fileId: input.fileId,
+                chunkIndex: start + offset,
+                size: BigInt(input.chunkSize),
+                completed: false,
+            })),
+        });
+    }
+}
+
+/**
+ * Serialize the final authenticated DropFile insert against whole-drop
+ * deletion. The quota update and DropFile/chunk inserts share this transaction,
+ * so a crash or failed insert cannot leave charged bytes with no row to reclaim.
+ */
+async function createAuthenticatedFileReservation(
+    input: AuthenticatedFileReservationInput,
+): Promise<void> {
+    await prisma.$transaction(async (tx) => {
+        const rows = await tx.$queryRaw<LockedUploadDrop[]>`
+            SELECT
+                "id",
+                "maxFileCount",
+                "uploadComplete",
+                "deletedAt",
+                "userId",
+                "organizationId"
+            FROM "drops"
+            WHERE "id" = ${input.dropId}
+            FOR UPDATE
+        `;
+        const drop = rows[0];
+
+        if (!drop || drop.deletedAt) throw new NotFoundError("Drop not found");
+        if (drop.uploadComplete) throw new ValidationError("Drop upload already completed");
+        if (
+            drop.userId !== input.ownerUserId
+            || drop.organizationId !== input.organizationId
+        ) {
+            throw new ForbiddenError("Access denied");
+        }
+
+        const [fileCount, pendingFiles] = await Promise.all([
+            tx.dropFile.count({ where: { dropId: input.dropId } }),
+            tx.dropFile.count({ where: { dropId: input.dropId, uploadComplete: false } }),
+        ]);
+        if (drop.maxFileCount !== null && fileCount >= drop.maxFileCount) {
+            throw new ValidationError(`Drop already has maximum number of files (${drop.maxFileCount})`);
+        }
+        if (pendingFiles >= MAX_PENDING_FILES_PER_DROP) {
+            throw new RateLimitError("Too many pending uploads for this drop");
+        }
+
+        const reserved = await tx.$executeRaw`
+            UPDATE "users"
+            SET "storageUsed" = "storageUsed" + ${BigInt(input.size)}
+            WHERE "id" = ${input.ownerUserId}
+              AND "storageUsed" + ${BigInt(input.size)} <= ${input.storageLimit}
+        `;
+        if (reserved === 0) {
+            throw input.quotaExceededError;
+        }
+
+        await tx.dropFile.create({
+            data: {
+                id: input.fileId,
+                dropId: input.dropId,
+                storageKey: input.storageKey,
+                s3UploadId: input.s3UploadId,
+                encryptedName: input.encryptedName,
+                iv: input.iv,
+                size: BigInt(input.size),
+                mimeType: input.mimeType,
+                chunkCount: input.chunkCount,
+                chunkSize: input.chunkSize,
+                uploadComplete: false,
+            },
+        });
+
+        await createUploadChunkReservations(tx, input);
+    }, { isolationLevel: "ReadCommitted" });
+}
+
+/**
+ * Atomically reserve a file slot and bytes for a guest drop.
+ *
+ * Guest drops have no owner quota row that can be incremented conditionally, so
+ * concurrent upload-token requests are serialized on the parent drop row. The
+ * aggregate runs only after the row lock is acquired, giving each transaction a
+ * fresh READ COMMITTED view of reservations made by the previous request.
+ */
+async function createGuestFileReservation(input: FileReservationInput): Promise<void> {
+    await prisma.$transaction(async (tx) => {
+        const rows = await tx.$queryRaw<LockedUploadDrop[]>`
+            SELECT
+                "id",
+                "maxFileCount",
+                "uploadComplete",
+                "deletedAt",
+                "userId",
+                "organizationId"
+            FROM "drops"
+            WHERE "id" = ${input.dropId}
+            FOR UPDATE
+        `;
+        const drop = rows[0];
+
+        if (!drop || drop.deletedAt) {
+            throw new NotFoundError("Drop not found");
+        }
+        if (drop.uploadComplete) {
+            throw new ValidationError("Drop upload already completed");
+        }
+        if (drop.userId !== null || drop.organizationId !== null) {
+            throw new ForbiddenError("Access denied");
+        }
+
+        const usage = await tx.dropFile.aggregate({
+            where: { dropId: input.dropId },
+            _count: { _all: true },
+            _sum: { size: true },
+        });
+        const fileCount = usage._count._all;
+        const existingBytes = usage._sum.size ?? BigInt(0);
+        const maxFileCount = Math.min(
+            drop.maxFileCount ?? GUEST_MAX_FILES_PER_DROP,
+            GUEST_MAX_FILES_PER_DROP,
+        );
+
+        if (fileCount >= maxFileCount) {
+            throw new ValidationError(`Drop already has maximum number of files (${maxFileCount})`);
+        }
+
+        const requestedBytes = existingBytes + BigInt(input.size);
+        if (requestedBytes > GUEST_ENCRYPTED_STORAGE_LIMIT) {
+            throw new UpgradeRequiredError(
+                "Guest drops are limited to 100MB total.",
+                {
+                    scope: "drop_bandwidth",
+                    currentTier: "guest",
+                    suggestedTier: "plus",
+                    currentValue: Number(requestedBytes),
+                    limitValue: GUEST_MAX_DROP_BYTES,
+                }
+            );
+        }
+
+        await tx.dropFile.create({
+            data: {
+                id: input.fileId,
+                dropId: input.dropId,
+                storageKey: input.storageKey,
+                s3UploadId: input.s3UploadId,
+                encryptedName: input.encryptedName,
+                iv: input.iv,
+                size: BigInt(input.size),
+                mimeType: input.mimeType,
+                chunkCount: input.chunkCount,
+                chunkSize: input.chunkSize,
+                uploadComplete: false,
+            },
+        });
+
+        await createUploadChunkReservations(tx, input);
+    }, { isolationLevel: "ReadCommitted" });
 }
 
 interface DropWithFiles {
@@ -218,29 +465,43 @@ export class DropService {
     }
 
     /**
-     * Delete files from storage and reclaim quota for the owning user.
-     * Only decrements quota for files that were actually deleted from storage.
-     * Records failed deletions as orphaned files for later retry.
+     * Delete files from storage and atomically reclaim the drop's quota.
+     * Failed object deletions are tracked as system orphans; once the user has
+     * deleted the drop, those inaccessible bytes no longer consume their quota.
      */
     private static async deleteFilesAndReclaimQuota(
-        files: { id: string; storageKey: string; size: bigint }[],
-        userId: string
+        dropId: string,
     ): Promise<void> {
-        if (files.length === 0) return;
+        // Mark the parent and claim its rows before touching storage. A losing
+        // concurrent deleter receives no files and therefore cannot race an R2
+        // delete against a pending completion.
+        const claim = await deleteDropFilesAndReleaseQuota(dropId);
+        const files = claim.files;
+        let failedKeys: string[] = [];
 
-        const keys = files.map(f => f.storageKey);
-        let failedKeys: string[];
-        try {
-            failedKeys = await deleteObjects(keys);
-        } catch (e) {
-            logger.error("Batch delete failed, falling back to per-file deletion", e);
-            failedKeys = [];
+        if (files.length > 0) {
             for (const file of files) {
+                if (!file.s3UploadId) continue;
                 try {
-                    await deleteObject(file.storageKey);
-                } catch (fileErr) {
-                    logger.error(`Failed to delete file from storage`, fileErr, { fileId: file.id });
-                    failedKeys.push(file.storageKey);
+                    await abortMultipartUpload(file.storageKey, file.s3UploadId);
+                } catch {
+                    // It may already be completed or aborted; object deletion below
+                    // is the authoritative cleanup for completed uploads.
+                }
+            }
+
+            const keys = files.map(f => f.storageKey);
+            try {
+                failedKeys = await deleteObjects(keys);
+            } catch (e) {
+                logger.error("Batch delete failed, falling back to per-file deletion", e);
+                for (const file of files) {
+                    try {
+                        await deleteObject(file.storageKey);
+                    } catch (fileErr) {
+                        logger.error(`Failed to delete file from storage`, fileErr, { storageKey: file.storageKey });
+                        failedKeys.push(file.storageKey);
+                    }
                 }
             }
         }
@@ -257,13 +518,6 @@ export class DropService {
             }
         }
 
-        // Reclaim quota for successfully deleted files
-        const reclaimSize = files
-            .filter(f => !failedKeySet.has(f.storageKey))
-            .reduce((sum, f) => sum + f.size, BigInt(0));
-        if (reclaimSize > BigInt(0)) {
-            await decrementStorageUsed(userId, reclaimSize);
-        }
     }
 
     /**
@@ -367,6 +621,11 @@ export class DropService {
         input: AddFileInput,
         options: AddFileOptions = {}
     ): Promise<AddFileResult> {
+        const plaintextSize = plaintextSizeFromEncrypted(input.size, input.chunkCount);
+        if (!Number.isSafeInteger(plaintextSize) || plaintextSize <= 0) {
+            throw new ValidationError("Invalid encrypted file size");
+        }
+
         // Validate IV format (must be exactly 16 base64url characters)
         if (!/^[A-Za-z0-9_-]{16}$/.test(input.iv)) {
             throw new ValidationError("Invalid IV format: must be 16 characters base64url");
@@ -395,10 +654,6 @@ export class DropService {
             throw new ValidationError(`Drop already has maximum number of files (${drop.maxFileCount})`);
         }
 
-        // Resource exhaustion limits
-        const MAX_PENDING_FILES_PER_DROP = 50;
-        const MAX_INCOMPLETE_DROPS_PER_USER = 10;
-
         // Count pending files for this drop
         const pendingFiles = await prisma.dropFile.count({
             where: { dropId: input.dropId, uploadComplete: false }
@@ -420,6 +675,14 @@ export class DropService {
 
         // Verify caller mode matches drop ownership
         DropService.verifyDropAccess(drop, scope);
+        const quotaUserId = scope ? drop.userId : null;
+        if (scope && !quotaUserId) {
+            throw new ForbiddenError("This drop no longer has a storage owner");
+        }
+        let authenticatedQuota: Pick<
+            AuthenticatedFileReservationInput,
+            "storageLimit" | "quotaExceededError"
+        > | null = null;
 
         if (scope) {
             // Authenticated path: validate against plan limits and reserve
@@ -442,7 +705,10 @@ export class DropService {
             //   4. Add pooling + concurrency/drift tests across those paths.
             // Missing any reclaim path leaks the org counter, so do it as one
             // coordinated change.
-            const userLimits = await getUserAndLimits(scope.userId);
+            // Org members may collaborate on the same drop, but until org-pooled
+            // storage exists every file must be charged to Drop.userId (the
+            // creator). Reclaim derives that same owner from the parent row.
+            const userLimits = await getUserAndLimits(quotaUserId!);
             const storageUsed = userLimits.storageUsed;
             let limits = userLimits.limits;
             let tier = userLimits.tier;
@@ -451,10 +717,11 @@ export class DropService {
                 limits = getDropLimits(orgCtx);
                 tier = getEffectiveTier(orgCtx);
             }
-            const storageLimit = options.quotaOverride?.storageLimit ?? BigInt(limits.maxStorage);
+            const plaintextStorageLimit = options.quotaOverride?.storageLimit ?? BigInt(limits.maxStorage);
+            const storageLimit = encryptedStorageLimit(plaintextStorageLimit, MAX_PENDING_FILES_PER_DROP);
 
             if (options.quotaOverride) {
-                if (input.size > options.quotaOverride.maxFileSize) {
+                if (plaintextSize > options.quotaOverride.maxFileSize) {
                     throw new UpgradeRequiredError(
                         "Attachment size exceeds this form's file upload limit.",
                         {
@@ -465,7 +732,7 @@ export class DropService {
                                 : options.quotaOverride.currentTier === "plus"
                                   ? "pro"
                                   : "plus",
-                            currentValue: input.size,
+                            currentValue: plaintextSize,
                             limitValue: options.quotaOverride.maxFileSize,
                         }
                     );
@@ -482,23 +749,25 @@ export class DropService {
                                   ? "pro"
                                   : "plus",
                             currentValue: Number(storageUsed + BigInt(input.size)),
-                            limitValue: Number(storageLimit),
+                            limitValue: Number(plaintextStorageLimit),
                         }
                     );
                 }
             } else {
-                validateFileSize(input.size, storageUsed, storageLimit, limits.maxFileSize, tier);
+                validateFileSize(
+                    input.size,
+                    storageUsed,
+                    storageLimit,
+                    limits.maxFileSize,
+                    tier,
+                    plaintextSize,
+                );
             }
 
-            const reserved = await prisma.$executeRaw`
-                UPDATE "users"
-                SET "storageUsed" = "storageUsed" + ${BigInt(input.size)}
-                WHERE "id" = ${scope.userId}
-                  AND "storageUsed" + ${BigInt(input.size)} <= ${storageLimit}
-            `;
-            if (reserved === 0) {
-                if (options.quotaOverride) {
-                    throw new UpgradeRequiredError(
+            authenticatedQuota = {
+                storageLimit,
+                quotaExceededError: options.quotaOverride
+                    ? new UpgradeRequiredError(
                         "Attachment storage limit reached for this form plan.",
                         {
                             scope: "form_file_uploads",
@@ -509,32 +778,31 @@ export class DropService {
                                   ? "pro"
                                   : "plus",
                             currentValue: Number(storageUsed + BigInt(input.size)),
-                            limitValue: Number(storageLimit),
+                            limitValue: Number(plaintextStorageLimit),
                         }
-                    );
-                }
-                throw new UpgradeRequiredError(
-                    "Bandwidth limit reached. Upgrade for more headroom.",
-                    {
-                        scope: "drop_bandwidth",
-                        currentTier: tier,
-                        suggestedTier: tier === "pro" ? "pro" : tier === "plus" ? "pro" : "plus",
-                        currentValue: Number(storageUsed + BigInt(input.size)),
-                        limitValue: Number(storageLimit),
-                    }
-                );
-            }
+                    )
+                    : new UpgradeRequiredError(
+                        "Bandwidth limit reached. Upgrade for more headroom.",
+                        {
+                            scope: "drop_bandwidth",
+                            currentTier: tier,
+                            suggestedTier: tier === "pro" ? "pro" : tier === "plus" ? "pro" : "plus",
+                            currentValue: Number(storageUsed + BigInt(input.size)),
+                            limitValue: Number(plaintextStorageLimit),
+                        }
+                    ),
+            };
         } else {
             // Guest path: enforce per-file and per-drop caps inline. No user
             // storageUsed reservation because there is no user row.
-            if (input.size > GUEST_MAX_DROP_BYTES) {
+            if (plaintextSize > GUEST_MAX_DROP_BYTES) {
                 throw new UpgradeRequiredError(
                     `File size exceeds guest limit of ${GUEST_MAX_DROP_BYTES / (1024 * 1024)}MB. Sign up for a larger quota.`,
                     {
                         scope: "drop_file_size",
                         currentTier: "guest",
                         suggestedTier: "plus",
-                        currentValue: input.size,
+                        currentValue: plaintextSize,
                         limitValue: GUEST_MAX_DROP_BYTES,
                     }
                 );
@@ -545,7 +813,7 @@ export class DropService {
                 _sum: { size: true },
             });
             const existingBytes = existing._sum.size ?? BigInt(0);
-            if (existingBytes + BigInt(input.size) > BigInt(GUEST_MAX_DROP_BYTES)) {
+            if (existingBytes + BigInt(input.size) > GUEST_ENCRYPTED_STORAGE_LIMIT) {
                 throw new UpgradeRequiredError(
                     "Guest drops are limited to 100MB total.",
                     {
@@ -559,61 +827,42 @@ export class DropService {
             }
         }
 
-        // Create file record and initiate upload.
-        // Quota has already been reserved atomically above. If any of the
-        // following steps fail we must compensate (release quota, abort B2
-        // multipart, delete the orphan DropFile row) so quota doesn't leak.
+        // Initiate storage first, then atomically reserve quota and create all DB
+        // rows under the parent lock. If the transaction fails, only the
+        // multipart upload needs compensation.
         const fileId = generateFileId();
         const storageKey = generateStorageKey(fileId);
 
         let s3UploadId: string | null = null;
-        let fileCreated = false;
         try {
             s3UploadId = await initiateMultipartUpload(storageKey, "application/octet-stream");
 
-            await prisma.dropFile.create({
-                data: {
-                    id: fileId,
-                    dropId: input.dropId,
+            if (scope) {
+                await createAuthenticatedFileReservation({
+                    ...input,
+                    fileId,
                     storageKey,
                     s3UploadId,
-                    encryptedName: input.encryptedName,
-                    iv: input.iv,
-                    size: BigInt(input.size),
-                    mimeType: input.mimeType,
-                    chunkCount: input.chunkCount,
-                    chunkSize: input.chunkSize,
-                    uploadComplete: false,
-                },
-            });
-            fileCreated = true;
-
-            // Create chunk tracking records
-            const partNumbers = Array.from({ length: input.chunkCount }, (_, i) => i + 1);
-            await prisma.uploadChunk.createMany({
-                data: partNumbers.map((partNumber) => ({
+                    ownerUserId: quotaUserId!,
+                    organizationId: drop.organizationId,
+                    ...authenticatedQuota!,
+                });
+            } else {
+                // Re-check and reserve guest caps while holding the parent row
+                // lock. The earlier count/aggregate checks are only fast-path
+                // feedback and are not trusted for concurrency enforcement.
+                await createGuestFileReservation({
+                    ...input,
                     fileId,
-                    chunkIndex: partNumber - 1,
-                    size: BigInt(input.chunkSize),
-                    completed: false,
-                })),
-            });
+                    storageKey,
+                    s3UploadId,
+                });
+            }
         } catch (err) {
             logger.error("addFile setup failed, compensating", err, { dropId: input.dropId, fileId });
-            // Compensate in reverse order — best-effort, never throw from here.
-            if (fileCreated) {
-                await prisma.dropFile.delete({ where: { id: fileId } }).catch((e) =>
-                    logger.error("Compensation: failed to delete DropFile row", e, { fileId })
-                );
-            }
             if (s3UploadId) {
                 await abortMultipartUpload(storageKey, s3UploadId).catch((e) =>
                     logger.error("Compensation: failed to abort multipart upload", e, { fileId, storageKey })
-                );
-            }
-            if (scope) {
-                await decrementStorageUsed(scope.userId, BigInt(input.size)).catch((e) =>
-                    logger.error("Compensation: failed to release reserved quota", e, { userId: scope.userId, size: input.size })
                 );
             }
             throw err;
@@ -627,6 +876,31 @@ export class DropService {
     }
 
     /**
+     * Roll back a provisioned file when the caller cannot receive its upload
+     * URLs (for example, one of thousands of signing operations fails). The
+     * DELETE CTE makes quota release idempotent if another cleanup races us.
+     */
+    static async rollbackProvisionedFile(file: {
+        fileId: string;
+        s3UploadId: string;
+        storageKey: string;
+    }): Promise<void> {
+        await abortMultipartUpload(file.storageKey, file.s3UploadId).catch((error) =>
+            logger.error("Failed to abort multipart upload after URL signing failure", error, {
+                fileId: file.fileId,
+                storageKey: file.storageKey,
+            })
+        );
+
+        await deleteDropFileAndReleaseQuota(file.fileId).catch((error) =>
+            logger.error("Failed to release file reservation after URL signing failure", error, {
+                fileId: file.fileId,
+                storageKey: file.storageKey,
+            })
+        );
+    }
+
+    /**
      * Complete a file upload (finalize multipart upload).
      * When skipAuth is true, ownership verification is skipped (used by finishDrop
      * which already verified ownership up front).
@@ -636,120 +910,159 @@ export class DropService {
         scope: OwnerScope | null,
         skipAuth = false
     ): Promise<void> {
-        const file = await prisma.dropFile.findUnique({
-            where: { id: fileId },
-            include: {
-                drop: { select: { userId: true, organizationId: true, id: true } },
-                chunks: { orderBy: { chunkIndex: "asc" } },
-            },
-        }) as DropFileWithDropAndChunks | null;
+        const result = await prisma.$transaction<FileFinalizationResult>(async (tx) => {
+            // This database lock is the finalization mutex across every process
+            // and instance. A retry waits here, then observes uploadComplete and
+            // returns without repeating R2 completion or quota mutation.
+            const rows = await tx.$queryRaw<LockedFinalizationFile[]>`
+                SELECT
+                    file."id",
+                    file."size" AS "declaredSize",
+                    file."storageKey",
+                    file."s3UploadId",
+                    file."uploadComplete",
+                    file."dropId",
+                    parent."userId" AS "ownerUserId",
+                    parent."organizationId",
+                    parent."deletedAt" AS "dropDeletedAt"
+                FROM "drop_files" AS file
+                INNER JOIN "drops" AS parent ON parent."id" = file."dropId"
+                WHERE file."id" = ${fileId}
+                FOR UPDATE OF file
+            `;
+            const file = rows[0];
 
-        if (!file) {
-            throw new NotFoundError("File not found");
-        }
+            if (!file) throw new NotFoundError("File not found");
+            if (file.dropDeletedAt) throw new NotFoundError("Drop has been deleted");
+            if (!skipAuth) {
+                DropService.verifyDropAccess({
+                    id: file.dropId,
+                    userId: file.ownerUserId,
+                    organizationId: file.organizationId,
+                }, scope);
+            }
+            if (file.uploadComplete) return { status: "already_complete" };
+            if (!file.s3UploadId) throw new ValidationError("Multipart upload is not initialized");
 
-        if (!skipAuth) {
-            DropService.verifyDropAccess(file.drop, scope);
-        }
+            const chunks = await tx.uploadChunk.findMany({
+                where: { fileId },
+                orderBy: { chunkIndex: "asc" },
+                select: { chunkIndex: true, etag: true, completed: true },
+            });
+            const incompleteChunks = chunks.filter((chunk) => !chunk.completed || !chunk.etag);
+            if (incompleteChunks.length > 0) {
+                throw new ValidationError(`${incompleteChunks.length} chunks not yet uploaded`);
+            }
 
-        // Verify all chunks uploaded
-        const incompleteChunks = file.chunks.filter((c: UploadChunk) => !c.completed);
-        if (incompleteChunks.length > 0) {
-            throw new ValidationError(`${incompleteChunks.length} chunks not yet uploaded`);
-        }
+            const parts = chunks.map((chunk) => ({
+                PartNumber: chunk.chunkIndex + 1,
+                ETag: chunk.etag!,
+            }));
 
-        // Complete multipart upload
-        const parts = file.chunks.map((chunk: UploadChunk) => ({
-            PartNumber: chunk.chunkIndex + 1,
-            ETag: chunk.etag!,
-        }));
+            // CompleteMultipartUpload can commit at R2 and still fail at the
+            // network boundary. Always reconcile with HEAD before deciding the
+            // outcome; a valid object turns that ambiguous error into success.
+            let completionError: unknown = null;
+            try {
+                await completeMultipartUpload(file.storageKey, file.s3UploadId, parts);
+            } catch (error) {
+                completionError = error;
+            }
 
+            let metadata: Awaited<ReturnType<typeof getObjectMetadata>>;
+            try {
+                metadata = await getObjectMetadata(file.storageKey);
+            } catch (headError) {
+                // The transaction rolls back, preserving the row and declared
+                // reservation. A later retry can reconcile the completed object.
+                throw completionError ?? headError;
+            }
+            if (!metadata) {
+                throw completionError ?? new ServiceUnavailableError("Unable to verify uploaded file size");
+            }
+            if (!Number.isSafeInteger(metadata.contentLength) || metadata.contentLength < 0) {
+                throw new ServiceUnavailableError("Storage returned invalid object metadata");
+            }
+
+            const actualSize = BigInt(metadata.contentLength);
+            const minExpectedSize = file.declaredSize * BigInt(9) / BigInt(10);
+            let invalidSizeMessage: string | null = null;
+            if (actualSize > file.declaredSize) {
+                invalidSizeMessage = "File size mismatch: uploaded more than declared";
+            } else if (
+                actualSize <= BigInt(0) ||
+                (actualSize < minExpectedSize && file.declaredSize > BigInt(1024))
+            ) {
+                invalidSizeMessage = "File size mismatch: uploaded significantly less than declared";
+            }
+
+            if (invalidSizeMessage) {
+                // Definite validation failures are claimed while holding the row
+                // lock. Row deletion and declared-byte quota release commit as
+                // one unit; storage cleanup happens only after that commit.
+                await tx.dropFile.delete({ where: { id: fileId } });
+                if (file.ownerUserId) {
+                    await tx.$executeRaw`
+                        UPDATE "users"
+                        SET "storageUsed" = GREATEST(0::bigint, "storageUsed" - ${file.declaredSize})
+                        WHERE "id" = ${file.ownerUserId}
+                    `;
+                }
+                return {
+                    status: "invalid_size",
+                    message: invalidSizeMessage,
+                    storageKey: file.storageKey,
+                    s3UploadId: file.s3UploadId,
+                };
+            }
+
+            await tx.dropFile.update({
+                where: { id: fileId },
+                data: { uploadComplete: true, size: actualSize },
+            });
+
+            // Correct the exact creator reservation in the same transaction as
+            // uploadComplete. This runs once because every retry is serialized
+            // by the DropFile lock and exits above once completion is visible.
+            if (file.ownerUserId && actualSize < file.declaredSize) {
+                const difference = file.declaredSize - actualSize;
+                await tx.$executeRaw`
+                    UPDATE "users"
+                    SET "storageUsed" = GREATEST(0::bigint, "storageUsed" - ${difference})
+                    WHERE "id" = ${file.ownerUserId}
+                `;
+            }
+
+            return { status: "completed" };
+        }, {
+            isolationLevel: "ReadCommitted",
+            maxWait: FILE_FINALIZATION_TRANSACTION_MAX_WAIT_MS,
+            timeout: FILE_FINALIZATION_TRANSACTION_TIMEOUT_MS,
+        });
+
+        if (result.status !== "invalid_size") return;
+
+        // The row/quota claim is committed. R2 cleanup is deliberately outside
+        // the transaction so storage latency cannot roll back that decision.
+        await abortMultipartUpload(result.storageKey, result.s3UploadId).catch(() => undefined);
         try {
-            await completeMultipartUpload(file.storageKey, file.s3UploadId!, parts);
-
-            // SECURITY: Verify actual file size to prevent quota bypass
-            const metadata = await getObjectMetadata(file.storageKey);
-            if (metadata) {
-                const actualSize = BigInt(metadata.contentLength);
-                if (actualSize > file.size) {
-                    // User uploaded more than declared - potential quota bypass
-                    if (scope) {
-                        // Release the reserved quota
-                        await decrementStorageUsed(scope.userId, file.size);
-                    }
-                    await deleteObject(file.storageKey);
-                    throw new ValidationError("File size mismatch: uploaded more than declared");
-                }
-                // Also reject if significantly undersize (< 90% of declared)
-                // This prevents reserving quota with a large declared size but uploading tiny files
-                const minExpectedSize = file.size * BigInt(9) / BigInt(10);
-                if (actualSize < minExpectedSize && file.size > BigInt(1024)) {
-                    if (scope) {
-                        await decrementStorageUsed(scope.userId, file.size);
-                    }
-                    await deleteObject(file.storageKey);
-                    throw new ValidationError("File size mismatch: uploaded significantly less than declared");
-                }
-
-                // Update file record with actual size
-                await prisma.dropFile.update({
-                    where: { id: fileId },
-                    data: { uploadComplete: true, size: actualSize },
-                });
-
-                // Adjust storage: quota was reserved at declared size in addFile(),
-                // correct for the difference between declared and actual
-                if (scope && actualSize < file.size) {
-                    const difference = file.size - actualSize;
-                    await decrementStorageUsed(scope.userId, difference);
-                }
-            } else {
-                // Metadata unavailable — declared size already reserved, just mark complete
-                await prisma.dropFile.update({
-                    where: { id: fileId },
-                    data: { uploadComplete: true },
+            await deleteObject(result.storageKey);
+        } catch (deleteError) {
+            logger.error("Failed to delete invalid upload, recording for cron retry", deleteError, {
+                fileId,
+                storageKey: result.storageKey,
+            });
+            try {
+                await prisma.orphanedFile.create({ data: { storageKey: result.storageKey } });
+            } catch (orphanError) {
+                logger.error("Failed to record invalid upload as orphaned", orphanError, {
+                    fileId,
+                    storageKey: result.storageKey,
                 });
             }
-        } catch (error) {
-            // If this is a ValidationError we threw above (size mismatch), quota was already
-            // handled inside the block — just re-throw.
-            if (error instanceof ValidationError) {
-                throw error;
-            }
-
-            // S3 completeMultipartUpload or metadata check failed — clean up to prevent quota leak
-            logger.error("completeFileUpload failed, cleaning up", error, { fileId, storageKey: file.storageKey });
-
-            // Best-effort: abort the multipart upload
-            try {
-                await abortMultipartUpload(file.storageKey, file.s3UploadId!);
-            } catch {
-                // Swallow — upload may already be completed or absent
-            }
-
-            // Best-effort: delete the object in case completion partially succeeded
-            try {
-                await deleteObject(file.storageKey);
-            } catch (deleteErr) {
-                logger.error("Failed to delete object, recording for cron retry", deleteErr, { fileId, storageKey: file.storageKey });
-                try {
-                    await prisma.orphanedFile.create({ data: { storageKey: file.storageKey } });
-                } catch (orphanErr) {
-                    logger.error("Failed to record orphaned file", orphanErr, { fileId, storageKey: file.storageKey });
-                }
-            }
-
-            // Reclaim the quota reserved in addFile()
-            if (scope) {
-                try {
-                    await decrementStorageUsed(scope.userId, file.size);
-                } catch (quotaErr) {
-                    logger.error("Failed to decrement storageUsed during cleanup", quotaErr, { fileId, userId: scope.userId });
-                }
-            }
-
-            throw error;
         }
+
+        throw new ValidationError(result.message);
     }
 
     /**
@@ -762,39 +1075,53 @@ export class DropService {
         scope: OwnerScope | null,
         skipAuth = false
     ): Promise<void> {
-        const drop = await prisma.drop.findUnique({
-            where: { id: dropId },
-            include: {
-                files: { select: { id: true, uploadComplete: true } },
-            },
-        });
+        // Serialize completion with addFile's reservation transaction on the
+        // parent row. Without this lock, completion could read an all-complete
+        // file list, a concurrent add could insert a pending file, and the drop
+        // could then be marked complete while still containing that file.
+        await prisma.$transaction(async (tx) => {
+            const rows = await tx.$queryRaw<LockedUploadDrop[]>`
+                SELECT
+                    "id",
+                    "maxFileCount",
+                    "uploadComplete",
+                    "deletedAt",
+                    "userId",
+                    "organizationId"
+                FROM "drops"
+                WHERE "id" = ${dropId}
+                FOR UPDATE
+            `;
+            const drop = rows[0];
 
-        if (!drop) {
-            throw new NotFoundError("Drop not found");
-        }
+            if (!drop) {
+                throw new NotFoundError("Drop not found");
+            }
+            if (drop.deletedAt) {
+                throw new NotFoundError("Drop has been deleted");
+            }
+            if (!skipAuth) {
+                DropService.verifyDropAccess(drop, scope);
+            }
+            if (drop.uploadComplete) return;
 
-        if (drop.deletedAt) {
-            throw new NotFoundError("Drop has been deleted");
-        }
+            const files = await tx.dropFile.findMany({
+                where: { dropId },
+                select: { id: true, uploadComplete: true },
+            });
+            const incompleteFiles = files.filter((file) => !file.uploadComplete);
+            if (incompleteFiles.length > 0) {
+                throw new ValidationError(`${incompleteFiles.length} files not yet uploaded`);
+            }
+            if (files.length === 0) {
+                throw new ValidationError("Drop has no files");
+            }
 
-        if (!skipAuth) {
-            DropService.verifyDropAccess(drop, scope);
-        }
-
-        // Check all files are uploaded
-        const incompleteFiles = drop.files.filter((f) => !f.uploadComplete);
-        if (incompleteFiles.length > 0) {
-            throw new ValidationError(`${incompleteFiles.length} files not yet uploaded`);
-        }
-
-        if (drop.files.length === 0) {
-            throw new ValidationError("Drop has no files");
-        }
-
-        await prisma.drop.update({
-            where: { id: dropId },
-            data: { uploadComplete: true },
-        });
+            await tx.drop.update({
+                where: { id: dropId },
+                data: { uploadComplete: true },
+            });
+        }, { isolationLevel: "ReadCommitted" });
     }
 
     /**
@@ -807,66 +1134,150 @@ export class DropService {
         files: { fileId: string; chunks: { chunkIndex: number; etag: string }[] }[],
         scope: OwnerScope | null
     ): Promise<void> {
-        // Verify ownership once for the whole operation and verify every file
-        // belongs to this drop before writing any chunk state.
-        const drop = await prisma.drop.findUnique({
-            where: { id: dropId },
-            include: { files: { select: { id: true } } },
-        });
-        if (!drop) throw new NotFoundError("Drop not found");
-        DropService.verifyDropAccess(drop, scope);
-
-        const dropFileIds = new Set(drop.files.map((file) => file.id));
-        const requestedFileIds = new Set<string>();
-        for (const file of files) {
-            if (requestedFileIds.has(file.fileId)) {
-                throw new ValidationError("Duplicate file in finish request");
+        const preparation = await prisma.$transaction<FinishDropPreparation>(async (tx) => {
+            // Share the parent lock with addFile/completeDrop so the exact file
+            // manifest is validated against a stable set before any ETag write.
+            const rows = await tx.$queryRaw<LockedUploadDrop[]>`
+                SELECT
+                    "id",
+                    "maxFileCount",
+                    "uploadComplete",
+                    "deletedAt",
+                    "userId",
+                    "organizationId"
+                FROM "drops"
+                WHERE "id" = ${dropId}
+                FOR UPDATE
+            `;
+            const drop = rows[0];
+            if (!drop) throw new NotFoundError("Drop not found");
+            if (drop.deletedAt) throw new NotFoundError("Drop has been deleted");
+            DropService.verifyDropAccess(drop, scope);
+            if (drop.uploadComplete) {
+                return { alreadyComplete: true, pendingFileIds: [] };
             }
-            requestedFileIds.add(file.fileId);
-            if (!dropFileIds.has(file.fileId)) {
-                throw new NotFoundError("File not found");
+
+            const storedFiles = await tx.dropFile.findMany({
+                where: { dropId },
+                select: { id: true, chunkCount: true, uploadComplete: true },
+            });
+            if (storedFiles.length === 0 || files.length !== storedFiles.length) {
+                throw new ValidationError("File manifest does not match drop");
             }
-        }
 
-        // Mark all chunks as completed with their etags in a single
-        // transaction. Previously this was a nested serial loop (one DB
-        // round-trip per chunk); batching cuts finalization latency from
-        // O(chunks) round-trips to a single transaction regardless of file
-        // count. We still need per-row updates because each chunk has a
-        // distinct etag — Prisma doesn't support SQL CASE/VALUES natively,
-        // so $transaction with an array of updates is the pragmatic form.
-        const chunkUpdates = files.flatMap((file) =>
-            file.chunks.map((chunk) =>
-                prisma.uploadChunk.update({
-                    where: {
-                        fileId_chunkIndex: {
-                            fileId: file.fileId,
-                            chunkIndex: chunk.chunkIndex,
-                        },
-                    },
-                    data: {
-                        completed: true,
-                        etag: chunk.etag,
-                    },
-                })
-            )
-        );
-        if (chunkUpdates.length > 0) {
-            await prisma.$transaction(chunkUpdates);
-        }
+            const requestedFiles = new Map<string, typeof files[number]>();
+            for (const file of files) {
+                if (requestedFiles.has(file.fileId)) {
+                    throw new ValidationError("Duplicate file in finish request");
+                }
+                requestedFiles.set(file.fileId, file);
+            }
+            if (storedFiles.some((file) => !requestedFiles.has(file.id))) {
+                throw new ValidationError("File manifest does not match drop");
+            }
 
-        await Promise.all(files.map(async (file) => {
-            await this.completeFileUpload(file.fileId, scope, true);
-        }));
-        await this.completeDrop(dropId, scope, true);
-
-        // Guest drops: once the drop is marked complete, retire any upload
-        // tokens so the raw token cannot be replayed to modify the drop.
-        if (scope === null) {
-            await revokeUploadTokens(dropId).catch((err) =>
-                logger.error("Failed to revoke guest upload tokens after finish", err, { dropId }),
+            const storedChunks = await tx.uploadChunk.findMany({
+                where: { fileId: { in: storedFiles.map((file) => file.id) } },
+                select: {
+                    fileId: true,
+                    chunkIndex: true,
+                    completed: true,
+                    etag: true,
+                },
+            });
+            const chunksByKey = new Map(
+                storedChunks.map((chunk) => [`${chunk.fileId}:${chunk.chunkIndex}`, chunk]),
             );
-        }
+            const expectedStoredChunks = storedFiles.reduce(
+                (total, file) => total + (file.chunkCount ?? 0),
+                0,
+            );
+            if (storedChunks.length !== expectedStoredChunks) {
+                throw new ValidationError("Chunk manifest does not match uploaded file");
+            }
+
+            const chunkCompletions: { fileId: string; chunkIndex: number; etag: string }[] = [];
+            for (const storedFile of storedFiles) {
+                const requestedFile = requestedFiles.get(storedFile.id)!;
+                const expectedChunkCount = storedFile.chunkCount;
+                if (!expectedChunkCount || requestedFile.chunks.length !== expectedChunkCount) {
+                    throw new ValidationError("Chunk manifest does not match uploaded file");
+                }
+
+                const seenChunkIndexes = new Set<number>();
+                for (const chunk of requestedFile.chunks) {
+                    if (
+                        chunk.chunkIndex < 0 ||
+                        chunk.chunkIndex >= expectedChunkCount ||
+                        seenChunkIndexes.has(chunk.chunkIndex) ||
+                        chunk.etag.length === 0 ||
+                        chunk.etag.length > 256
+                    ) {
+                        throw new ValidationError("Chunk manifest does not match uploaded file");
+                    }
+                    seenChunkIndexes.add(chunk.chunkIndex);
+
+                    const storedChunk = chunksByKey.get(`${storedFile.id}:${chunk.chunkIndex}`);
+                    if (!storedChunk) {
+                        throw new ValidationError("Chunk manifest does not match uploaded file");
+                    }
+                    if (storedChunk.completed) {
+                        if (storedChunk.etag !== chunk.etag) {
+                            throw new ValidationError("Completed chunk ETag cannot be changed");
+                        }
+                    } else {
+                        if (storedFile.uploadComplete) {
+                            throw new ValidationError("Completed file contains an incomplete chunk");
+                        }
+                        chunkCompletions.push({
+                            fileId: storedFile.id,
+                            chunkIndex: chunk.chunkIndex,
+                            etag: chunk.etag,
+                        });
+                    }
+                }
+            }
+
+            // Compare-and-set makes concurrent retries idempotent. If another
+            // transaction completed a chunk with the same ETag, the no-op update
+            // is accepted; a different ETag no longer matches and aborts all
+            // writes in this transaction.
+            for (let start = 0; start < chunkCompletions.length; start += CHUNK_FINALIZATION_BATCH_SIZE) {
+                const batch = chunkCompletions.slice(start, start + CHUNK_FINALIZATION_BATCH_SIZE);
+                const updated = await tx.$executeRaw`
+                    UPDATE "upload_chunks" AS chunk
+                    SET
+                        "completed" = TRUE,
+                        "etag" = incoming."etag",
+                        "updatedAt" = CURRENT_TIMESTAMP
+                    FROM jsonb_to_recordset(${JSON.stringify(batch)}::jsonb)
+                        AS incoming("fileId" text, "chunkIndex" integer, "etag" text)
+                    WHERE chunk."fileId" = incoming."fileId"
+                      AND chunk."chunkIndex" = incoming."chunkIndex"
+                      AND (
+                          chunk."completed" = FALSE
+                          OR chunk."etag" = incoming."etag"
+                      )
+                `;
+                if (updated !== batch.length) {
+                    throw new ValidationError("Completed chunk ETag cannot be changed");
+                }
+            }
+
+            return {
+                alreadyComplete: false,
+                pendingFileIds: storedFiles
+                    .filter((file) => !file.uploadComplete)
+                    .map((file) => file.id),
+            };
+        }, { isolationLevel: "ReadCommitted" });
+
+        if (preparation.alreadyComplete) return;
+
+        await pMapLimit(preparation.pendingFileIds, FILE_COMPLETION_CONCURRENCY, async (fileId) => {
+            await this.completeFileUpload(fileId, scope, true);
+        });
+        await this.completeDrop(dropId, scope, true);
     }
 
     /**
@@ -947,27 +1358,91 @@ export class DropService {
     }
 
     /**
-     * Increment download count and handle limits/notifications.
-     * Uses atomic raw SQL to prevent TOCTOU race conditions with maxDownloads:
-     * the WHERE clause ensures the increment only happens when under the limit.
-     * Returns false if the download limit was already reached.
+     * Atomically consume a download against the drop-wide limit and, when
+     * present, a named recipient's independent limit. Both guarded updates run
+     * in one database transaction so neither allowance can be spent alone.
+     *
+     * Availability is revalidated by the UPDATE itself. This closes the race
+     * between the public metadata lookup and URL issuance when a drop expires,
+     * is disabled/taken down, or reaches its global limit concurrently.
      */
-    static async incrementDownloadCount(dropId: string): Promise<boolean> {
-        // Atomic increment with guard: only increments when maxDownloads is not reached.
-        // Prisma updateMany cannot compare two columns in the same row, so raw SQL is required.
-        const rowsAffected = await prisma.$executeRaw`
-            UPDATE "drops"
-            SET "downloads" = "downloads" + 1, "viewedAt" = NOW()
-            WHERE "id" = ${dropId}
-              AND "deletedAt" IS NULL
-              AND ("maxDownloads" IS NULL OR "downloads" < "maxDownloads")
-        `;
+    static async consumeDownload(
+        dropId: string,
+        recipientId: string | null = null,
+    ): Promise<boolean> {
+        let consumed: boolean;
 
-        if (rowsAffected === 0) {
+        try {
+            consumed = await prisma.$transaction(async (tx) => {
+                // Lock/update the parent first. Keeping a stable parent-before-child
+                // order also reduces deadlock risk with drop deletion operations.
+                const dropRowsAffected = await tx.$executeRaw`
+                    UPDATE "drops"
+                    SET "downloads" = "downloads" + 1, "viewedAt" = NOW()
+                    WHERE "id" = ${dropId}
+                      AND "deletedAt" IS NULL
+                      AND "disabled" = FALSE
+                      AND "takenDown" = FALSE
+                      AND "uploadComplete" = TRUE
+                      AND ("restrictToRecipients" = FALSE OR ${recipientId !== null})
+                      AND ("expiresAt" IS NULL OR "expiresAt" > NOW())
+                      AND ("maxDownloads" IS NULL OR "downloads" < "maxDownloads")
+                `;
+
+                if (dropRowsAffected === 0) {
+                    return false;
+                }
+
+                if (recipientId) {
+                    const recipientRowsAffected = await tx.$executeRaw`
+                        UPDATE "drop_recipients"
+                        SET "downloads" = "downloads" + 1, "lastAccessAt" = NOW()
+                        WHERE "id" = ${recipientId}
+                          AND "dropId" = ${dropId}
+                          AND "revokedAt" IS NULL
+                          AND ("expiresAt" IS NULL OR "expiresAt" > NOW())
+                          AND ("maxDownloads" IS NULL OR "downloads" < "maxDownloads")
+                    `;
+
+                    if (recipientRowsAffected === 0) {
+                        // Throw rather than return false: the drop row was already
+                        // incremented and must be rolled back with this transaction.
+                        throw new DownloadAccessDeniedError();
+                    }
+                }
+
+                return true;
+            });
+        } catch (error) {
+            if (error instanceof DownloadAccessDeniedError) {
+                return false;
+            }
+            throw error;
+        }
+
+        if (!consumed) {
             return false;
         }
 
-        // Fetch fresh drop data for notifications and limit check
+        // The allowance is committed. Notification/soft-delete work must not
+        // turn a successfully authorized, already-counted download into an error.
+        try {
+            await this.handleCommittedDownload(dropId);
+        } catch (error) {
+            logger.error("Failed to process committed download side effects", error, { dropId });
+        }
+
+        return true;
+    }
+
+    /** Backward-compatible anonymous/global counter entry point. */
+    static async incrementDownloadCount(dropId: string): Promise<boolean> {
+        return this.consumeDownload(dropId);
+    }
+
+    /** Send owner notifications and schedule cleanup after a committed count. */
+    private static async handleCommittedDownload(dropId: string): Promise<void> {
+        // Fetch fresh drop data for notifications and limit check.
         const drop = await prisma.drop.findUnique({
             where: { id: dropId },
             include: {
@@ -976,7 +1451,7 @@ export class DropService {
             },
         });
 
-        if (!drop) return true;
+        if (!drop) return;
 
         // Send notification if enabled and not already sent for this download
         if (
@@ -1016,8 +1491,6 @@ export class DropService {
         if (drop.maxDownloads && drop.downloads >= drop.maxDownloads) {
             await this.markDropLimitReached(drop);
         }
-
-        return true;
     }
 
     /**
@@ -1097,9 +1570,7 @@ export class DropService {
     static async deleteDrop(dropId: string, scope: OwnerScope): Promise<void> {
         const drop = await prisma.drop.findUnique({
             where: { id: dropId },
-            include: {
-                files: { select: { id: true, storageKey: true, size: true } },
-            },
+            select: { id: true, userId: true, organizationId: true },
         });
 
         if (!drop) {
@@ -1113,9 +1584,9 @@ export class DropService {
         // pairs with the reservation in createDrop — see the track-c spec there:
         // when storage becomes org-pooled, this reclaim must target the org
         // counter for org-owned drops (drop.organizationId) instead of the user.
-        await DropService.deleteFilesAndReclaimQuota(drop.files, drop.userId ?? scope.userId);
+        await DropService.deleteFilesAndReclaimQuota(dropId);
 
-        await prisma.drop.delete({ where: { id: dropId } });
+        await prisma.drop.deleteMany({ where: { id: dropId } });
     }
 
     /**
@@ -1267,8 +1738,10 @@ export class DropService {
             token: prepared[i]!.raw,
         }));
 
-        // Optional keyless email notification. The link carries only the access
-        // token (`?r=`), never the decryption key — anon.li stays zero-knowledge.
+        // Optional keyless email notification. Keep the access token in `?r=`
+        // for compatibility with email-security link rewriters; the download
+        // page scrubs it from browser history immediately. The decryption key
+        // is never included, so anon.li stays zero-knowledge.
         if (options.notify) {
             try {
                 const [{ sendDropSharedEmail }, sender] = await Promise.all([

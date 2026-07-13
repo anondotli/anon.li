@@ -1,10 +1,17 @@
 import { z } from "zod";
-import { AUTH_TAG_SIZE } from "@/lib/constants";
+import {
+    AUTH_TAG_SIZE,
+    MAX_CHUNKS_PER_FILE,
+    MAX_DROP_ENCRYPTED_FILE_SIZE,
+    MAX_DROP_PLAINTEXT_FILE_SIZE,
+    MIN_MULTIPART_PART_SIZE,
+} from "@/lib/constants";
+import { plaintextSizeFromEncrypted } from "@/lib/drop-size";
 
 // Shared refinement validators
 function chunkSizeValid(data: { chunkCount: number; chunkSize: number }) {
     if (data.chunkCount === 1) return true;
-    return data.chunkSize >= 5 * 1024 * 1024; // 5MB S3 minimum for multipart
+    return data.chunkSize >= MIN_MULTIPART_PART_SIZE;
 }
 
 function chunkConsistencyValid(data: { chunkCount: number; chunkSize: number; size: number }) {
@@ -15,13 +22,20 @@ function chunkConsistencyValid(data: { chunkCount: number; chunkSize: number; si
     return data.size >= min && data.size <= max;
 }
 
+function plaintextSizeValid(data: { chunkCount: number; size: number }) {
+    const plaintextSize = plaintextSizeFromEncrypted(data.size, data.chunkCount);
+    return plaintextSize > 0 && plaintextSize <= MAX_DROP_PLAINTEXT_FILE_SIZE;
+}
+
 const fileFields = {
-    size: z.number().int().positive().max(250 * 1024 * 1024 * 1024),
+    // `size` is encrypted bytes. The bounded allowance covers at most one
+    // 16-byte AES-GCM tag for every protocol-valid part.
+    size: z.number().int().positive().max(MAX_DROP_ENCRYPTED_FILE_SIZE),
     encryptedName: z.string().min(1),
     iv: z.string().regex(/^[A-Za-z0-9_-]{16}$/, "IV must be 16 base64url characters"),
     mimeType: z.string().min(1).regex(/^[\w\-]+\/[\w\-+.]+$/, "Invalid MIME type format")
         .refine(v => !/^(text\/html|application\/javascript|application\/x-javascript|text\/javascript|application\/xhtml\+xml)$/i.test(v), "This MIME type is not allowed"),
-    chunkCount: z.number().int().positive().max(10000),
+    chunkCount: z.number().int().positive().max(MAX_CHUNKS_PER_FILE),
     chunkSize: z.number().int().positive(),
 };
 
@@ -40,6 +54,10 @@ export const addFileApiSchema = z.object(fileFields)
     .refine(chunkConsistencyValid, {
         message: "Declared size is inconsistent with chunkCount and chunkSize",
         path: ["size"],
+    })
+    .refine(plaintextSizeValid, {
+        message: "Plaintext file size exceeds the 250 GiB limit",
+        path: ["size"],
     });
 
 /**
@@ -56,6 +74,10 @@ export const addFileActionSchema = z.object({
     })
     .refine(chunkConsistencyValid, {
         message: "Declared size is inconsistent with chunkCount and chunkSize",
+        path: ["size"],
+    })
+    .refine(plaintextSizeValid, {
+        message: "Plaintext file size exceeds the 250 GiB limit",
         path: ["size"],
     });
 

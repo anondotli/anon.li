@@ -2,7 +2,7 @@ import { createHash } from "node:crypto"
 import { promises as fs } from "node:fs"
 import path from "node:path"
 
-import matter from "gray-matter"
+import { parseFrontmatter } from "@/lib/frontmatter"
 
 const AGENT_SKILLS_SCHEMA_URL = "https://schemas.agentskills.io/discovery/0.2.0/schema.json"
 export const AGENT_SKILLS_CACHE_CONTROL = "public, max-age=3600, s-maxage=3600, stale-while-revalidate=86400"
@@ -51,7 +51,7 @@ function getSkillDigest(content: Buffer) {
 
 async function readPublishedAgentSkill(name: PublishedAgentSkillName): Promise<PublishedAgentSkill> {
     const content = await fs.readFile(getSkillFilePath(name))
-    const { data } = matter(content.toString("utf8"))
+    const { data } = parseFrontmatter(content.toString("utf8"))
     const frontmatterName = typeof data.name === "string" ? data.name.trim() : ""
     const description = typeof data.description === "string" ? data.description.trim() : ""
 

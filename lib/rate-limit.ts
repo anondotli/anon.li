@@ -3,6 +3,7 @@ import { Redis } from "@upstash/redis";
 import { NextResponse } from "next/server";
 import { headers } from "next/headers";
 import { createLogger } from "@/lib/logger";
+import { isIP } from "node:net";
 
 const logger = createLogger("RateLimit");
 
@@ -133,30 +134,40 @@ const FAIL_CLOSED_LIMITERS: ReadonlySet<RateLimitKey> = new Set([
 
 /**
  * Get client IP address from request headers.
- * Trust chain: Cloudflare > Vercel > fallback to "unknown".
- * x-forwarded-for and x-real-ip are NOT trusted as they are client-controllable
- * when requests bypass Cloudflare/Vercel (direct-to-origin).
+ * Trust exactly one configured edge. Reading whichever forwarding header is
+ * present lets a caller spoof Cloudflare's header through a directly reachable
+ * Vercel/origin URL. Vercel is auto-detected; self-hosted Cloudflare origins
+ * must opt in after restricting origin traffic to Cloudflare.
  */
 export async function getClientIp(): Promise<string> {
   const headersList = await headers();
+  const provider = process.env.VERCEL === "1"
+    ? "vercel"
+    : (process.env.TRUSTED_PROXY_PROVIDER || undefined);
 
-  // 1. Cloudflare (highest priority, injected by edge)
-  const cfConnectingIp = headersList.get("cf-connecting-ip");
-  if (cfConnectingIp) {
-    return cfConnectingIp;
+  let candidate: string | null = null;
+
+  if (provider === "vercel") {
+    // Vercel documents this as its non-spoofable copy of x-forwarded-for,
+    // including when another proxy is placed in front of the deployment.
+    candidate = headersList.get("x-vercel-forwarded-for");
+  } else if (provider === "cloudflare") {
+    candidate = headersList.get("cf-connecting-ip");
   }
 
-  // 2. Vercel (trusted edge proxy)
-  const vercelForwardedFor = headersList.get("x-vercel-forwarded-for");
-  if (vercelForwardedFor) {
-    return vercelForwardedFor;
+  if (candidate) {
+    const firstAddress = candidate.split(",", 1)[0]?.trim();
+    if (firstAddress && isIP(firstAddress) !== 0) {
+      return firstAddress;
+    }
+    throw new Error(`Trusted ${provider} proxy supplied an invalid client IP address`);
   }
 
-  // 3. No trusted proxy header found — in production this indicates a bypass attempt.
-  // Fail closed: do not fall back to x-real-ip as it is client-controllable
-  // when requests bypass the CDN/reverse proxy.
+  // No trusted proxy/header found in production indicates a direct-origin
+  // request or deployment misconfiguration. Never fall back to caller-set
+  // x-forwarded-for/x-real-ip values.
   if (isProduction) {
-    throw new Error("Cannot determine client IP address");
+    throw new Error("Cannot determine client IP address from the trusted proxy");
   }
 
   // In development, fall back to localhost

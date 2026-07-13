@@ -1,17 +1,11 @@
 "use client"
 
-import dynamic from "next/dynamic"
-
-const FileDropListener = dynamic(
-    () => import("@/components/drop/file-drop-listener"),
-    { ssr: false }
-)
+import { FileDropProvider } from "@/components/drop/provider"
 
 export function LazyFileDropProvider({ children }: { children: React.ReactNode }) {
     return (
-        <>
+        <FileDropProvider>
             {children}
-            <FileDropListener />
-        </>
+        </FileDropProvider>
     )
 }

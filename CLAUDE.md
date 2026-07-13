@@ -28,7 +28,7 @@ Package manager is **Bun**. Always use `bun` / `bunx`, never npm/pnpm/yarn.
 
 > Tests are **Vitest** (jsdom env, `vitest.setup.ts`). Use `bun run test`, not bare `bun test` — the latter breaks JSDOM tests.
 
-Local dev needs PostgreSQL, Redis (Upstash), and Cloudflare R2 configured. Copy `.env.example` to `.env`. The app refuses to start without `R2_PUBLIC_ENDPOINT`.
+Local dev needs PostgreSQL, Redis (Upstash), and a private Cloudflare R2 bucket configured. Copy `.env.example` to `.env`. Drop presigned URLs use `R2_ENDPOINT`, the account S3 API endpoint; never enable public bucket access because it bypasses application download controls.
 
 ## Stack
 

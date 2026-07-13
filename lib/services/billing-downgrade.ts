@@ -18,14 +18,10 @@ import { createLogger } from "@/lib/logger";
 import { getPlanLimits, getDropLimits, getRecipientLimit } from "@/lib/limits";
 import { ALIAS_LIMITS } from "@/config/plans";
 import { DOWNGRADE_SCHEDULING_DELAY_DAYS, DOWNGRADE_DELETION_DELAY_DAYS } from "@/lib/constants";
-import { deleteObject } from "@/lib/storage";
-import type { Prisma } from "@prisma/client";
+import { abortMultipartUpload, deleteObject } from "@/lib/storage";
+import { deleteDropFilesAndReleaseQuota } from "@/lib/services/drop-storage";
 
 const logger = createLogger("BillingDowngrade");
-
-type DropWithStorageFiles = Prisma.DropGetPayload<{
-    include: { files: { select: { id: true; storageKey: true; size: true } } }
-}>
 
 /**
  * Fisher-Yates shuffle and return the first `count` items.
@@ -361,52 +357,54 @@ export class BillingDowngradeService {
 
         const maxStorage = BigInt(dropLimits.maxStorage);
         const storageUsed = userRecord?.storageUsed ?? BigInt(0);
-        let dropsDeleted = 0;
 
         if (storageUsed > maxStorage) {
             // Find drops ordered oldest first, delete until under quota
             const drops = await prisma.drop.findMany({
                 where: { userId, organizationId: null, deletedAt: null },
-                include: { files: { select: { id: true, storageKey: true, size: true } } },
+                select: { id: true },
                 orderBy: { createdAt: "asc" },
-            }) as DropWithStorageFiles[];
+            });
 
             let currentStorage = storageUsed;
             for (const drop of drops) {
                 if (currentStorage <= maxStorage) break;
 
-                const dropFiles = drop.files;
-                const dropSize = dropFiles.reduce((sum: bigint, f: { size: bigint }) => sum + f.size, BigInt(0));
+                // Mark and claim first. A concurrent loser receives no files and
+                // therefore cannot delete storage created by a pending completion.
+                const claim = await deleteDropFilesAndReleaseQuota(drop.id);
 
                 // Delete files from S3
-                for (const file of dropFiles) {
+                for (const file of claim.files) {
+                    if (file.s3UploadId) {
+                        await abortMultipartUpload(file.storageKey, file.s3UploadId).catch(() => undefined);
+                    }
                     try {
                         await deleteObject(file.storageKey);
                     } catch (e) {
-                        logger.error("Failed to delete drop file from storage during downgrade", e, { fileId: file.id });
+                        logger.error("Failed to delete drop file from storage during downgrade", e, { storageKey: file.storageKey });
+                        // The user should not remain charged for a logically
+                        // deleted drop because R2 cleanup was transiently
+                        // unavailable. Track the physical orphan for cron.
+                        try {
+                            await prisma.orphanedFile.create({ data: { storageKey: file.storageKey } });
+                        } catch (orphanError) {
+                            logger.error("Failed to record downgrade storage orphan", orphanError, { storageKey: file.storageKey });
+                        }
                     }
                 }
 
-                // Soft-delete the drop
-                await prisma.drop.update({
-                    where: { id: drop.id },
-                    data: { deletedAt: new Date() },
-                });
-
-                currentStorage -= dropSize;
-                dropsDeleted++;
-            }
-
-            // Update storageUsed to reflect actual remaining storage
-            if (dropsDeleted > 0) {
-                const remainingStorage = await prisma.dropFile.aggregate({
-                    where: { drop: { userId, organizationId: null, deletedAt: null } },
-                    _sum: { size: true },
-                });
-                await prisma.user.update({
+                // Atomically mark the drop deleted, claim its file rows, and
+                // release their quota. Later cleanup sees no file rows, so it
+                // cannot subtract these bytes a second time.
+                // Re-read the counter instead of subtracting the stale selected
+                // size: uploads and other cleanup jobs may be running at the
+                // same time, and the atomic claim above is the source of truth.
+                const refreshedUser = await prisma.user.findUnique({
                     where: { id: userId },
-                    data: { storageUsed: remainingStorage._sum.size ?? BigInt(0) },
+                    select: { storageUsed: true },
                 });
+                currentStorage = refreshedUser?.storageUsed ?? BigInt(0);
             }
         }
 

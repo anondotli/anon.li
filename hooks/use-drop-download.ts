@@ -1,29 +1,23 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { cryptoService } from "@/lib/crypto.client";
 import { getDrop, recordDownload, type DropMetadata } from "@/lib/drop.actions.client";
 import { zipSync } from "fflate";
 import { MAX_ZIP_SIZE, MIN_CHUNK_SIZE, AUTH_TAG_SIZE } from "@/lib/constants";
-import { normalizeDropKeyInput } from "@/lib/drop-link";
+import { normalizeDropKeyInput, parseDropShareFragment } from "@/lib/drop-link";
 import { formatBytes } from "@/lib/format";
+import {
+    sanitizeArchivePath,
+    sanitizeDownloadFilename,
+    uniqueArchivePath,
+} from "@/lib/download-filename";
+import { fetchAuthorizedDropFile } from "@/lib/drop-download.client";
+import {
+    MAX_IN_MEMORY_DOWNLOAD_SIZE,
+    prepareDownloadDestination,
+    type PreparedDownloadDestination,
+} from "@/lib/drop-download-destination.client";
 
-interface SaveFilePickerWindow extends Window {
-    showSaveFilePicker?: (options?: {
-        suggestedName?: string
-    }) => Promise<{
-        createWritable: () => Promise<WritableStream<Uint8Array>>
-    }>
-}
-
-/**
- * Sanitize filename to prevent path traversal and invalid characters
- */
-function sanitizeFilename(name: string): string {
-    return name
-        .replace(/\.\.[/\\]/g, '')           // Remove path traversal
-        .replace(/\0/g, '')                   // Remove null bytes
-        .replace(/[<>:"/\\|?*\x00-\x1f]/g, '_') // Invalid chars
-        .slice(0, 200) || 'unnamed_file';     // Length limit
-}
+const MAX_SAFE_ZIP_SIZE = Math.min(MAX_ZIP_SIZE, MAX_IN_MEMORY_DOWNLOAD_SIZE);
 
 interface DecryptedFile {
     id: string;
@@ -65,8 +59,8 @@ export function useDropDownload({
 
     const [keyString, setKeyString] = useState<string | null>(null);
     const [hasKeyFromUrl, setHasKeyFromUrl] = useState(false);
-    // Per-recipient access token from the share link (`?r=...`). Server-visible
-    // (unlike the decryption key in the fragment); gates restricted drops.
+    // Per-recipient bearer token from the URL fragment. Legacy `?r=` links are
+    // accepted and immediately scrubbed from the address bar after reading.
     const [recipientToken, setRecipientToken] = useState<string | null>(null);
     const [manualKeyInput, setManualKeyInput] = useState("");
     const [manualKeyError, setManualKeyError] = useState<string | null>(null);
@@ -79,17 +73,32 @@ export function useDropDownload({
     const [downloading, setDownloading] = useState(false);
     const [downloadProgress, setDownloadProgress] = useState(0);
     const [currentFile, setCurrentFile] = useState<string | null>(null);
+    const [downloadError, setDownloadError] = useState<string | null>(null);
+    const downloadInProgressRef = useRef(false);
 
     useEffect(() => {
         const timer = window.setTimeout(() => {
-            const hash = window.location.hash.slice(1);
-            if (hash) {
-                setKeyString(hash);
+            const parsedFragment = parseDropShareFragment(window.location.hash);
+            if (parsedFragment.key) {
+                setKeyString(parsedFragment.key);
                 setHasKeyFromUrl(true);
             }
-            const r = new URLSearchParams(window.location.search).get("r");
-            if (r) {
-                setRecipientToken(r);
+
+            if (parsedFragment.recipientToken) {
+                setRecipientToken(parsedFragment.recipientToken);
+                return;
+            }
+
+            const url = new URL(window.location.href);
+            const legacyRecipientToken = url.searchParams.get("r");
+            if (legacyRecipientToken) {
+                setRecipientToken(legacyRecipientToken);
+                url.searchParams.delete("r");
+                window.history.replaceState(
+                    window.history.state,
+                    "",
+                    `${url.pathname}${url.search}${url.hash}`,
+                );
             }
         }, 0);
 
@@ -179,7 +188,7 @@ export function useDropDownload({
 
                 if (rawDrop.encryptedMessage) {
                     try {
-                        message = await cryptoService.decryptFilename(rawDrop.encryptedMessage, key, dropIv);
+                        message = await cryptoService.decryptMessage(rawDrop.encryptedMessage, key, dropIv);
                     } catch {
                         // Ignore
                     }
@@ -251,29 +260,36 @@ export function useDropDownload({
     // Download a single file
     const downloadFile = useCallback(async (fileId: string) => {
         if (!drop || !keyString) return;
+        if (downloadInProgressRef.current) return;
 
         const file = drop.files.find(f => f.id === fileId);
         if (!file) return;
 
-        setDownloading(true);
-        setDownloadProgress(0);
-        setCurrentFile(file.decryptedName);
+        downloadInProgressRef.current = true;
+        setDownloadError(null);
+        let destination: PreparedDownloadDestination | null = null;
 
         try {
+            const safeFilename = sanitizeDownloadFilename(file.decryptedName);
+
+            // The save picker (or a safe local fallback) must be ready before
+            // authorization, because authorization may consume a limited
+            // download. Cancelling the picker therefore costs nothing.
+            destination = await prepareDownloadDestination(safeFilename, file.size);
+            if (!destination) return;
+
+            setDownloading(true);
+            setDownloadProgress(0);
+            setCurrentFile(file.decryptedName);
+
             const key = await cryptoService.importKey(keyString);
             const iv = new Uint8Array(cryptoService.base64UrlToArrayBuffer(file.iv));
 
-            const response = await fetch(`/api/v1/drop/${dropId}/file/${fileId}`, {
-                headers: recipientToken ? { "X-Drop-Recipient": recipientToken } : undefined,
+            const response = await fetchAuthorizedDropFile(dropId, fileId, {
+                recipientToken,
             });
             if (!response.ok) {
-                 const errorText = await response.text();
-                 try {
-                     const errorJson = JSON.parse(errorText);
-                     throw new Error(errorJson.error || "Failed to download file");
-                 } catch {
-                     throw new Error(errorText || "Failed to download file");
-                 }
+                throw new Error("Storage failed to serve this file");
             }
 
             if (!response.body) throw new Error("ReadableStream not supported in this browser");
@@ -282,45 +298,7 @@ export function useDropDownload({
             const decryptionStream = cryptoService.createDecryptionStream(key, iv, chunkSize);
             const decryptedStream = response.body.pipeThrough(decryptionStream);
 
-            const saveFilePicker = (window as SaveFilePickerWindow).showSaveFilePicker;
-            if (saveFilePicker) {
-                try {
-                    const handle = await saveFilePicker({
-                        suggestedName: file.decryptedName,
-                    });
-                    const writable = await handle.createWritable();
-
-                    // Pipe directly to disk
-                    // We need a custom writer to track progress since pipeTo doesn't provide it natively
-                    const reader = decryptedStream.getReader();
-                    const writer = writable.getWriter();
-
-                    const totalSize = file.size;
-                    let written = 0;
-
-                    while (true) {
-                        const { done, value } = await reader.read();
-                        if (done) break;
-
-                        await writer.write(value);
-                        written += value.length;
-                        setDownloadProgress(Math.round((written / totalSize) * 100));
-                    }
-
-                    await writer.close();
-                    return; // Success
-                } catch (err: unknown) {
-                    // User cancelled picker or API failed -> Fallback to Blob
-                    if (err instanceof Error && err.name === 'AbortError') {
-                        setDownloading(false);
-                        return;
-                    }
-                    // File System Access API failed — fall back to in-memory blob download
-                }
-            }
-
             const reader = decryptedStream.getReader();
-            const chunks: Uint8Array[] = [];
             let receivedLength = 0;
             const totalSize = file.size;
 
@@ -328,25 +306,20 @@ export function useDropDownload({
                 const { done, value } = await reader.read();
                 if (done) break;
 
-                chunks.push(value);
+                await destination.write(value);
                 receivedLength += value.length;
 
-                setDownloadProgress(Math.round((receivedLength / totalSize) * 100));
+                setDownloadProgress(Math.min(99, Math.round((receivedLength / totalSize) * 100)));
             }
 
-            const blob = new Blob(chunks as BlobPart[], { type: "application/octet-stream" });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = sanitizeFilename(file.decryptedName);
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            setTimeout(() => URL.revokeObjectURL(url), 1000);
-
+            await destination.complete();
+            destination = null;
+            setDownloadProgress(100);
         } catch (err) {
-            setError(err instanceof Error ? err.message : "Download failed");
+            await destination?.abort(err);
+            setDownloadError(err instanceof Error ? err.message : "Download failed");
         } finally {
+            downloadInProgressRef.current = false;
             setDownloading(false);
             setCurrentFile(null);
             setDownloadProgress(0);
@@ -362,27 +335,38 @@ export function useDropDownload({
             return downloadFile(drop.files[0].id);
         }
 
+        if (downloadInProgressRef.current) return;
+
         const totalSize = drop.files.reduce((sum, f) => sum + f.size, 0);
 
         // Check size limit
-        if (totalSize > MAX_ZIP_SIZE) {
-            setError(
-                `This drop is too large (${formatBytes(totalSize)}) to download as a ZIP. ` +
-                `Please download files individually.`
-            );
+        if (totalSize > MAX_SAFE_ZIP_SIZE) {
             return;
         }
 
-        setDownloading(true);
-        setDownloadProgress(0);
-        setCurrentFile("Preparing download...");
+        downloadInProgressRef.current = true;
+        setDownloadError(null);
+        let destination: PreparedDownloadDestination | null = null;
 
         try {
+            const safeTitle = drop.title
+                ? drop.title.replace(/[<>:"/\\|?*\x00-\x1f]/g, "_").slice(0, 200)
+                : null;
+            const downloadName = safeTitle ? `${safeTitle}.zip` : "anon-li-drop.zip";
+
+            destination = await prepareDownloadDestination(downloadName, totalSize);
+            if (!destination) return;
+
+            setDownloading(true);
+            setDownloadProgress(0);
+            setCurrentFile("Preparing download...");
+
             // Record download and get signed URLs
             const downloadUrls = await recordDownload(dropId, recipientToken ?? undefined);
 
             const key = await cryptoService.importKey(keyString);
             const zipFiles: { [key: string]: Uint8Array } = {};
+            const usedArchivePaths = new Set<string>();
 
             for (let i = 0; i < drop.files.length; i++) {
                 const file = drop.files[i];
@@ -400,7 +384,10 @@ export function useDropDownload({
                 const iv = new Uint8Array(cryptoService.base64UrlToArrayBuffer(file.iv));
 
                 // Fetch and decrypt
-                const response = await fetch(downloadUrl);
+                const response = await fetch(downloadUrl, {
+                    credentials: "omit",
+                    referrerPolicy: "no-referrer",
+                });
                 if (!response.ok) throw new Error(`Failed to download ${file.decryptedName}`);
 
                 const encryptedData = await response.arrayBuffer();
@@ -429,7 +416,11 @@ export function useDropDownload({
                     offset += chunk.byteLength;
                 }
 
-                zipFiles[sanitizeFilename(file.decryptedName)] = combined;
+                const archivePath = uniqueArchivePath(
+                    sanitizeArchivePath(file.decryptedName),
+                    usedArchivePaths,
+                );
+                zipFiles[archivePath] = combined;
             }
 
             setCurrentFile("Creating ZIP archive...");
@@ -440,26 +431,20 @@ export function useDropDownload({
             setCurrentFile("Downloading...");
             setDownloadProgress(95);
 
-            const blob = new Blob([zipped.buffer as ArrayBuffer], { type: "application/zip" });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            const safeTitle = drop.title
-                ? drop.title.replace(/[<>:"/\\|?*\x00-\x1f]/g, "_").slice(0, 200)
-                : null;
-            a.download = safeTitle ? `${safeTitle}.zip` : "anon-li-drop.zip";
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            setTimeout(() => URL.revokeObjectURL(url), 1000);
+            await destination.write(zipped);
+            await destination.complete();
+            destination = null;
 
             setDownloadProgress(100);
 
         } catch (err) {
-            setError(err instanceof Error ? err.message : "Failed to create ZIP");
+            await destination?.abort(err);
+            setDownloadError(err instanceof Error ? err.message : "Failed to create ZIP");
         } finally {
+            downloadInProgressRef.current = false;
             setDownloading(false);
             setCurrentFile(null);
+            setDownloadProgress(0);
         }
     }, [drop, keyString, downloadFile, dropId, recipientToken]);
 
@@ -470,7 +455,9 @@ export function useDropDownload({
     }, [drop]);
 
     const canDownloadAsZip = useCallback(() => {
-        return getTotalSize() <= MAX_ZIP_SIZE;
+        // fflate's synchronous ZIP builder retains plaintext and archive data
+        // in memory. Keep that path inside the same conservative memory bound.
+        return getTotalSize() <= MAX_SAFE_ZIP_SIZE;
     }, [getTotalSize]);
 
     return {
@@ -482,6 +469,7 @@ export function useDropDownload({
         // Key state
         keyString,
         hasKeyFromUrl,
+        recipientToken,
         needsKey: !keyString && !rawDrop?.customKey,
         needsPassword: !keyString && rawDrop?.customKey,
 
@@ -502,13 +490,15 @@ export function useDropDownload({
         downloading,
         downloadProgress,
         currentFile,
+        downloadError,
+        clearDownloadError: () => setDownloadError(null),
 
         downloadFile,
         downloadAll,
 
         // Utilities
         getTotalSize,
-        canDownloadAsZip,
+        canDownloadAsZip: canDownloadAsZip(),
         formatBytes,
     };
 }

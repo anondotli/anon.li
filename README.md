@@ -52,11 +52,11 @@ Share files securely. Everything is encrypted in your browser using AES-256-GCM.
 
 ## Quick Start
 
-Whether you prefer spinning up containers or running things natively, you can get anon.li running locally in a few minutes. 
+You can get anon.li running locally in a few minutes.
 
-*(Prerequisite for both: You will need a Cloudflare R2 bucket. See the [Cloudflare setup guide below](#one-time-cloudflare-r2-setup).)*
+*(Prerequisite: You will need a Cloudflare R2 bucket. See the [Cloudflare setup guide below](#one-time-cloudflare-r2-setup).)*
 
-Installation requires [Bun](https://bun.sh) \>= 1.0, PostgreSQL, and Redis.
+Installation requires [Bun](https://bun.sh) \>= 1.2, PostgreSQL, and Redis.
 
 ```bash
 git clone https://github.com/anondotli/anon.li.git
@@ -72,13 +72,40 @@ bunx prisma db push
 bun dev 
 ```
 
+Before opening a pull request, run the same checks enforced by CI:
+
+```bash
+bun run audit
+bun run lint
+bun run typecheck
+bun run test
+bun run build
+```
+
+### Production deployment
+
+Production databases must be updated with the committed Prisma migrations. Do not use `prisma db push` in production; it bypasses the reviewed migration history.
+
+```bash
+bun install --frozen-lockfile
+bun run build
+bun run db:migrate:deploy
+bun run start
+```
+
+Set every required variable documented in `.env.example` in the deployment platform, back up the database before applying migrations, and run `bun run db:migrate:deploy` once per release before starting the new application version. The build command regenerates the Prisma client automatically.
+
+Client-IP rate limits trust one edge only. Vercel is detected automatically. On a self-hosted origin behind Cloudflare, set `TRUSTED_PROXY_PROVIDER=cloudflare` and restrict direct origin traffic to Cloudflare's network; otherwise forwarding headers are spoofable.
+
 ### One-time Cloudflare R2 setup
 
-anon.li Drop uploads and downloads blob data directly between the browser and R2 to guarantee zero egress fees and avoid server-side relay bottlenecks.
+anon.li Drop uploads and downloads blob data directly between the browser and R2 via S3 presigned URLs, avoiding server-side relay bottlenecks. Download URLs are short-lived; multipart upload URLs are bound to an upload ID, part number, and exact encrypted byte length and last up to seven days so very large transfers can complete.
 
-1.  Create an R2 bucket and attach a custom domain (e.g., `r2.anon.li`) via the Cloudflare dashboard.
-2.  Set `R2_PUBLIC_ENDPOINT=https://r2.anon.li` in your `.env`. The app refuses to start without this.
-3.  Configure the bucket's CORS rules to allow direct browser interaction.
+1. Create an R2 bucket and keep it private. Disable its public `r2.dev` URL and do not attach a public custom domain. Public object access would bypass Drop expiry, revocation, recipient, and download-limit checks.
+2. Create R2 API credentials with object read/write access to that bucket, then set `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`, and the account S3 API endpoint (`R2_ENDPOINT=https://<account_id>.r2.cloudflarestorage.com`) in `.env`.
+3. Configure the bucket's CORS rules to allow `GET`, `HEAD`, and `PUT` from your application origin and expose the `ETag` response header. Browser transfers still go directly to R2; R2 does not charge internet egress fees.
+
+Cloudflare presigned URLs are supported on the S3 API domain, not on custom domains. Treat private-bucket access as a security requirement, not only a deployment preference.
 
 -----
 

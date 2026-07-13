@@ -21,6 +21,7 @@ interface RouteParams {
 export const GET = withPolicy<RouteParams>(
     {
         auth: "api_key_or_session",
+        organizationAccess: "subscribed",
         apiQuota: "drop",
         rateLimit: "dropOps",
     },
@@ -34,6 +35,7 @@ export const GET = withPolicy<RouteParams>(
 export const POST = withPolicy<RouteParams>(
     {
         auth: "api_key_or_session",
+        organizationAccess: "subscribed",
         apiQuota: "drop",
         requireCsrf: true,
         rateLimit: "dropOps",

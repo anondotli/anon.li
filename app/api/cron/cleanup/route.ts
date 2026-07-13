@@ -139,6 +139,7 @@ async function runCleanup(): Promise<NextResponse> {
         });
 
         let expiringNotificationsSent = 0;
+        const notificationErrors: string[] = [];
         for (const drop of expiringDrops) {
             if (drop.user?.email && drop.expiresAt) {
                 try {
@@ -152,6 +153,7 @@ async function runCleanup(): Promise<NextResponse> {
                     expiringNotificationsSent++;
                 } catch (e) {
                     logger.error("Failed to send expiry notification", e, { dropId: drop.id });
+                    notificationErrors.push(`expiryNotification:${drop.id}`);
                 }
             }
         }
@@ -167,10 +169,11 @@ async function runCleanup(): Promise<NextResponse> {
             ...incompleteFileErrors,
             ...expiredFormSubmissionErrors,
             ...deletedFormErrors,
+            ...notificationErrors,
         ];
 
         return NextResponse.json({
-            success: true,
+            success: allErrors.length === 0,
             expiredDropsDeleted: dropsDeleted,
             expiredDropsFound: expiredDropsFound,
             incompleteUploadsDeleted: incompleteUploadsDeleted,
@@ -185,7 +188,7 @@ async function runCleanup(): Promise<NextResponse> {
             expiredSessionsDeleted: expiredSessionsDeleted,
             expiringNotificationsSent: expiringNotificationsSent,
             errors: allErrors.length > 0 ? allErrors : undefined,
-        });
+        }, { status: allErrors.length > 0 ? 500 : 200 });
     } catch (error) {
         logger.error("Cleanup failed", error);
         return new NextResponse('Internal Server Error', { status: 500 });
