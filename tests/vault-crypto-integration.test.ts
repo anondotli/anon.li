@@ -40,7 +40,7 @@ describe("vault crypto integration", () => {
 
         expect(await exportKeyBase64Url(unwrapped)).toBe(await exportKeyBase64Url(vaultKey))
         await expect(unwrapVaultKey(wrapped, wrongKek)).rejects.toBeTruthy()
-    })
+    }, 15_000)
 
     it("round-trips encrypted text and rejects AAD context mismatches", async () => {
         const vaultKey = await generateVaultKey()

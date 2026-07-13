@@ -3,71 +3,17 @@
 import { useState, useRef, useEffect } from "react";
 import { Upload } from "lucide-react";
 import { formatBytes } from "@/lib/format";
+import { extractFilesFromDataTransfer, prepareSelectedFiles } from "@/lib/drop-file-selection";
 
 interface DropZoneProps {
   onFilesAdded: (files: File[]) => void;
   maxFileSize: number;
 }
 
-async function readDirectoryEntries(entry: FileSystemDirectoryEntry): Promise<File[]> {
-  const files: File[] = [];
-  const reader = entry.createReader();
-
-  const readBatch = (): Promise<FileSystemEntry[]> =>
-    new Promise((resolve) => reader.readEntries(resolve));
-
-  let entries = await readBatch();
-  while (entries.length > 0) {
-    for (const e of entries) {
-      if (e.isFile) {
-        const file = await new Promise<File>((resolve, reject) =>
-          (e as FileSystemFileEntry).file(resolve, reject));
-        files.push(file);
-      } else if (e.isDirectory) {
-        const subFiles = await readDirectoryEntries(e as FileSystemDirectoryEntry);
-        files.push(...subFiles);
-      }
-    }
-    entries = await readBatch();
-  }
-  return files;
-}
-
-// Extract files from drag event, handling both files and folders
-async function extractFilesFromDrop(e: React.DragEvent): Promise<File[]> {
-  const items = e.dataTransfer?.items;
-  if (!items) return Array.from(e.dataTransfer?.files || []);
-
-  const files: File[] = [];
-  const entries: FileSystemEntry[] = [];
-
-  // Collect all entries first
-  for (let i = 0; i < items.length; i++) {
-    const item = items[i];
-    if (item && item.webkitGetAsEntry) {
-      const entry = item.webkitGetAsEntry();
-      if (entry) entries.push(entry);
-    }
-  }
-
-  // Process entries
-  for (const entry of entries) {
-    if (entry.isDirectory) {
-      const dirFiles = await readDirectoryEntries(entry as FileSystemDirectoryEntry);
-      files.push(...dirFiles);
-    } else if (entry.isFile) {
-      const file = await new Promise<File>((resolve, reject) =>
-        (entry as FileSystemFileEntry).file(resolve, reject));
-      files.push(file);
-    }
-  }
-
-  return files.length > 0 ? files : Array.from(e.dataTransfer?.files || []);
-}
-
 export function DropZone({ onFilesAdded, maxFileSize }: DropZoneProps) {
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
 
   // Handle paste-to-upload for modern file sharing UX
   useEffect(() => {
@@ -79,7 +25,7 @@ export function DropZone({ onFilesAdded, maxFileSize }: DropZoneProps) {
         .map(item => item.getAsFile())
         .filter((file): file is File => file !== null);
       if (files.length > 0) {
-        onFilesAdded(files);
+        onFilesAdded(prepareSelectedFiles(files));
       }
     };
     document.addEventListener('paste', handlePaste);
@@ -90,26 +36,24 @@ export function DropZone({ onFilesAdded, maxFileSize }: DropZoneProps) {
     e.preventDefault();
     setIsDragging(false);
     try {
-      const extractedFiles = await extractFilesFromDrop(e);
+      const extractedFiles = await extractFilesFromDataTransfer(e.dataTransfer);
       if (extractedFiles.length > 0) {
         onFilesAdded(extractedFiles);
       }
     } catch {
       // Fallback to simple file list
       if (e.dataTransfer?.files) {
-        onFilesAdded(Array.from(e.dataTransfer.files));
+        onFilesAdded(prepareSelectedFiles(e.dataTransfer.files));
       }
     }
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
-        onFilesAdded(Array.from(e.target.files));
+      onFilesAdded(prepareSelectedFiles(e.target.files));
     }
-    // Reset input so same file can be selected again if needed
-    if (fileInputRef.current) {
-        fileInputRef.current.value = "";
-    }
+    // Reset either input so the same file/folder can be selected again.
+    e.currentTarget.value = "";
   };
 
   return (
@@ -141,6 +85,15 @@ export function DropZone({ onFilesAdded, maxFileSize }: DropZoneProps) {
     >
       <input
         ref={fileInputRef}
+        type="file"
+        multiple
+        className="hidden"
+        aria-hidden="true"
+        onChange={handleFileSelect}
+      />
+      <input
+        {...({ webkitdirectory: "", directory: "" } as React.InputHTMLAttributes<HTMLInputElement> & { webkitdirectory: string; directory: string })}
+        ref={folderInputRef}
         type="file"
         multiple
         className="hidden"

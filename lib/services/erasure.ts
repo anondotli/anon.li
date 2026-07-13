@@ -6,8 +6,9 @@
  */
 
 import { prisma } from "@/lib/prisma"
-import { deleteObject, deleteObjects } from "@/lib/storage"
+import { abortMultipartUpload, deleteObject, deleteObjects } from "@/lib/storage"
 import { createLogger } from "@/lib/logger"
+import { deleteDropFilesAndReleaseQuota } from "@/lib/services/drop-storage"
 
 const logger = createLogger("Erasure")
 
@@ -16,12 +17,16 @@ const logger = createLogger("Erasure")
  * Returns the list of storage keys that failed deletion.
  */
 async function eraseDropFiles(dropId: string): Promise<string[]> {
-    const files = await prisma.dropFile.findMany({
-        where: { dropId },
-        select: { storageKey: true, size: true },
-    })
+    const claim = await deleteDropFilesAndReleaseQuota(dropId)
+    const files = claim.files
 
     if (files.length === 0) return []
+
+    for (const file of files) {
+        if (file.s3UploadId) {
+            await abortMultipartUpload(file.storageKey, file.s3UploadId).catch(() => undefined)
+        }
+    }
 
     const keys = files.map((f) => f.storageKey)
     const failedKeys: string[] = []

@@ -23,7 +23,7 @@ export function UploadProgress({ progress, pct, onCancel, onRetry, onReset }: Up
 
     return (
       <div className="space-y-6 animate-in fade-in duration-300">
-        <div className="p-6 bg-destructive/5 border border-destructive/10 rounded-2xl">
+        <div role="alert" className="p-6 bg-destructive/5 border border-destructive/10 rounded-2xl">
           <div className="flex items-start gap-3">
             <AlertCircle className="w-5 h-5 text-destructive shrink-0 mt-0.5" />
             <div>
@@ -56,7 +56,7 @@ export function UploadProgress({ progress, pct, onCancel, onRetry, onReset }: Up
   // Active progress
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
-      <div className="text-center">
+      <div className="text-center" role="status" aria-live="polite">
         <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-primary/5 flex items-center justify-center">
           <Upload className="w-7 h-7 text-primary animate-pulse" />
         </div>
@@ -74,7 +74,7 @@ export function UploadProgress({ progress, pct, onCancel, onRetry, onReset }: Up
         <Progress value={pct} className="h-1.5" />
         <p className="text-xs text-center text-muted-foreground">{pct}%</p>
       </div>
-      <Button variant="ghost" size="sm" onClick={onCancel} className="w-full text-muted-foreground hover:text-foreground">
+      <Button variant="ghost" size="sm" onClick={onCancel} className="w-full text-muted-foreground hover:text-foreground" aria-label="Cancel upload">
         Cancel
       </Button>
     </div>

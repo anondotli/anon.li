@@ -6,6 +6,8 @@ const mocks = vi.hoisted(() => ({
     orphanedFileCreateMany: vi.fn(),
     deleteObjects: vi.fn(),
     deleteObject: vi.fn(),
+    abortMultipartUpload: vi.fn(),
+    deleteDropFilesAndReleaseQuota: vi.fn(),
 }))
 
 vi.mock("@/lib/prisma", () => ({
@@ -17,8 +19,13 @@ vi.mock("@/lib/prisma", () => ({
 }))
 
 vi.mock("@/lib/storage", () => ({
+    abortMultipartUpload: mocks.abortMultipartUpload,
     deleteObjects: mocks.deleteObjects,
     deleteObject: mocks.deleteObject,
+}))
+
+vi.mock("@/lib/services/drop-storage", () => ({
+    deleteDropFilesAndReleaseQuota: mocks.deleteDropFilesAndReleaseQuota,
 }))
 
 vi.mock("@/lib/logger", () => ({
@@ -38,6 +45,14 @@ describe("eraseUserDrops", () => {
             { storageKey: "key_1", size: BigInt(1) },
             { storageKey: "key_2", size: BigInt(2) },
         ])
+        mocks.deleteDropFilesAndReleaseQuota.mockResolvedValue({
+            files: [
+                { storageKey: "key_1", s3UploadId: null, size: BigInt(1) },
+                { storageKey: "key_2", s3UploadId: null, size: BigInt(2) },
+            ],
+            deletedFiles: 2,
+            releasedBytes: BigInt(3),
+        })
         mocks.deleteObjects.mockResolvedValue(["key_2"])
         mocks.orphanedFileCreateMany.mockResolvedValue({ count: 1 })
 
@@ -48,5 +63,6 @@ describe("eraseUserDrops", () => {
         expect(mocks.orphanedFileCreateMany).toHaveBeenCalledWith({
             data: [{ storageKey: "key_2" }],
         })
+        expect(mocks.deleteDropFilesAndReleaseQuota).toHaveBeenCalledWith("drop_1")
     })
 })

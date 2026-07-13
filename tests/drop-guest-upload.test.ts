@@ -66,6 +66,14 @@ vi.mock("@/lib/turnstile", () => ({
 }));
 vi.mock("@/lib/storage", () => ({
     abortMultipartUpload: vi.fn(),
+    buildMultipartUploadParts: vi.fn((encryptedSize: number, chunkSize: number, chunkCount: number) =>
+        Array.from({ length: chunkCount }, (_, index) => ({
+            partNumber: index + 1,
+            contentLength: index === chunkCount - 1
+                ? encryptedSize - (chunkCount - 1) * (chunkSize + 16)
+                : chunkSize + 16,
+        })),
+    ),
     getChunkPresignedUrls: vi.fn().mockResolvedValue({}),
     getPresignedDownloadUrl: vi.fn(),
 }));

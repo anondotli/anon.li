@@ -21,9 +21,9 @@ export function PageWrapper({ children, showBranding = true }: PageWrapperProps)
 
       {/* Logo */}
       {showBranding && (
-        <Link href="/" prefetch={false} className="absolute top-6 left-6 z-50 flex items-center gap-2 rounded-full border border-border/50 bg-background/80 backdrop-blur-sm px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground hover:border-border transition-colors">
+        <Link href="/drop" prefetch={false} className="absolute top-6 left-6 z-50 flex items-center gap-2 rounded-full border border-border/50 bg-background/80 backdrop-blur-sm px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground hover:border-border transition-colors">
           <Icons.logo className="h-4 w-4" />
-          <span className="font-serif text-lg">anon.li</span>
+          <span className="font-serif text-lg">anon.li Drop</span>
         </Link>
       )}
 

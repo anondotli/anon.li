@@ -324,7 +324,7 @@ export async function sendOrganizationInvitationEmail(
 /**
  * Notify a named drop recipient that files were shared with them. The `url` MUST
  * be keyless (`/d/{id}?r={token}`) — the decryption key never travels through
- * email, preserving zero-knowledge.
+ * email. The download page immediately scrubs the access token from history.
  */
 export async function sendDropSharedEmail(
     email: string,

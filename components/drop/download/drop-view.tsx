@@ -16,22 +16,30 @@ import { PageWrapper } from "./page-wrapper";
 interface DropDownloadViewProps {
   drop: DecryptedDrop;
   keyString: string;
+  recipientToken: string | null;
   downloading: boolean;
   downloadProgress: number;
   currentFile: string | null;
+  downloadError: string | null;
+  clearDownloadError: () => void;
   downloadFile: (fileId: string) => void;
   downloadAll: () => void;
+  canDownloadAsZip: boolean;
   formatBytes: (size: number) => string;
 }
 
 export function DropDownloadView({
   drop,
   keyString,
+  recipientToken,
   downloading,
   downloadProgress,
   currentFile,
+  downloadError,
+  clearDownloadError,
   downloadFile,
   downloadAll,
+  canDownloadAsZip,
   formatBytes,
 }: DropDownloadViewProps) {
   const [showAllFiles, setShowAllFiles] = useState(false);
@@ -78,6 +86,11 @@ export function DropDownloadView({
                 size={firstFile.size}
                 chunkSize={firstFile.chunkSize ?? 0}
                 chunkCount={firstFile.chunkCount ?? 1}
+                recipientToken={recipientToken}
+                // A preview fetch exposes the full plaintext and therefore must
+                // consume a download. Hide it on globally capped or recipient-
+                // token links so "preview" cannot unexpectedly spend an allowance.
+                disabled={drop.maxDownloads !== null || recipientToken !== null}
               >
                 <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center shadow-lg shadow-primary/5 transition-transform hover:scale-105 active:scale-95 cursor-pointer">
                   {(() => {
@@ -109,6 +122,32 @@ export function DropDownloadView({
 
         {/* Main card */}
         <div className="bg-card border rounded-2xl p-6 space-y-6 shadow-sm">
+          {downloadError && !downloading && (
+            <div
+              role="alert"
+              className="rounded-xl border border-destructive/30 bg-destructive/5 p-4"
+            >
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium">Download failed</p>
+                  <p className="mt-1 break-words text-xs text-muted-foreground">
+                    {downloadError} You can try the download again.
+                  </p>
+                </div>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="mt-3 w-full"
+                onClick={clearDownloadError}
+              >
+                Dismiss
+              </Button>
+            </div>
+          )}
+
           {/* Progress */}
           {downloading ? (
             <div className="space-y-3">
@@ -126,16 +165,25 @@ export function DropDownloadView({
           ) : (
             <>
               {/* Download All / Download button */}
-              <Button
-                className="w-full h-14 text-base rounded-full shadow-lg shadow-primary/10 hover:shadow-xl hover:shadow-primary/15 transition-all hover:scale-[1.02]"
-                size="lg"
-                onClick={downloadAll}
-              >
-                <Download className="w-5 h-5 mr-2" />
-                {isSingleFile
-                  ? <>Download <span className="truncate max-w-[180px]">{firstFile?.decryptedName}</span></>
-                  : "Download All as ZIP"}
-              </Button>
+              {(isSingleFile || canDownloadAsZip) ? (
+                <Button
+                  className="w-full h-14 text-base rounded-full shadow-lg shadow-primary/10 hover:shadow-xl hover:shadow-primary/15 transition-all hover:scale-[1.02]"
+                  size="lg"
+                  onClick={downloadAll}
+                >
+                  <Download className="w-5 h-5 mr-2" />
+                  {isSingleFile
+                    ? <>Download <span className="truncate max-w-[180px]">{firstFile?.decryptedName}</span></>
+                    : "Download All as ZIP"}
+                </Button>
+              ) : (
+                <div className="rounded-xl border border-border/60 bg-secondary/30 p-4 text-center">
+                  <p className="text-sm font-medium">Download files individually</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    This drop is too large to package as a ZIP safely in your browser.
+                  </p>
+                </div>
+              )}
 
 
               {/* File list for multi-file drops */}

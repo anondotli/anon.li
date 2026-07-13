@@ -8,6 +8,8 @@ import type { Prisma } from "@prisma/client"
 import { createLogger } from "@/lib/logger"
 import { NotFoundError, ValidationError } from "@/lib/api-error-utils"
 import { safeDecryptReportKey } from "@/lib/report-crypto"
+import { deleteDropFilesAndReleaseQuota, type ClaimedDropFile } from "@/lib/services/drop-storage"
+import { abortMultipartUpload } from "@/lib/storage"
 
 const SYSTEM_EMAIL_FROM = "anon.li <hi@anon.li>"
 
@@ -339,41 +341,31 @@ export class AdminService {
     static async hardDeleteDrop(dropId: string) {
         const drop = await prisma.drop.findUnique({
             where: { id: dropId },
-            include: { files: true, user: { select: { id: true, storageUsed: true } } }
+            select: { id: true }
         })
 
         if (!drop) {
             throw new NotFoundError("Drop not found")
         }
 
-        // Calculate total size for storage quota update
-        const totalSize = drop.files.reduce((sum, file) => sum + file.size, BigInt(0))
-
-        // Create orphaned file records for cleanup job
-        const storageKeys = drop.files.map((f) => f.storageKey)
+        // Claim first so a losing concurrent deletion neither releases quota nor
+        // enqueues/deletes storage that it does not own.
+        const claim = await deleteDropFilesAndReleaseQuota(dropId)
+        for (const file of claim.files) {
+            if (file.s3UploadId) {
+                await abortMultipartUpload(file.storageKey, file.s3UploadId).catch(() => undefined)
+            }
+        }
+        const storageKeys = claim.files.map((file) => file.storageKey)
         if (storageKeys.length > 0) {
             await prisma.orphanedFile.createMany({
                 data: storageKeys.map((key) => ({ storageKey: key }))
             })
         }
 
-        // Delete from database (files cascade)
-        await prisma.drop.delete({
-            where: { id: dropId }
-        })
+        await prisma.drop.deleteMany({ where: { id: dropId } })
 
-        // Update user's storage quota if applicable
-        if (drop.user) {
-            const newStorageUsed = drop.user.storageUsed - totalSize
-            await prisma.user.update({
-                where: { id: drop.user.id },
-                data: {
-                    storageUsed: newStorageUsed < 0 ? 0 : newStorageUsed
-                }
-            })
-        }
-
-        return { success: true, filesDeleted: drop.files.length }
+        return { success: true, filesDeleted: claim.deletedFiles }
     }
 
     static async resolveReport(
@@ -911,9 +903,19 @@ export class AdminService {
         // otherwise the blobs orphan with no OrphanedFile record to reap them.
         const orgDrops = await prisma.drop.findMany({
             where: { organizationId },
-            select: { files: { select: { storageKey: true } } },
+            select: { id: true },
         })
-        const storageKeys = orgDrops.flatMap((d) => d.files.map((f) => f.storageKey))
+        const claimedFiles: ClaimedDropFile[] = []
+        for (const drop of orgDrops) {
+            const claim = await deleteDropFilesAndReleaseQuota(drop.id)
+            claimedFiles.push(...claim.files)
+        }
+        for (const file of claimedFiles) {
+            if (file.s3UploadId) {
+                await abortMultipartUpload(file.storageKey, file.s3UploadId).catch(() => undefined)
+            }
+        }
+        const storageKeys = claimedFiles.map((file) => file.storageKey)
         if (storageKeys.length > 0) {
             await prisma.orphanedFile.createMany({ data: storageKeys.map((key) => ({ storageKey: key })) })
         }

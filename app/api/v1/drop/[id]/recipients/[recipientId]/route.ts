@@ -16,6 +16,7 @@ interface RouteParams {
 export const DELETE = withPolicy<RouteParams>(
     {
         auth: "api_key_or_session",
+        organizationAccess: "subscribed",
         apiQuota: "drop",
         requireCsrf: true,
         rateLimit: "dropOps",

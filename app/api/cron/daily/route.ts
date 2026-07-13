@@ -27,6 +27,7 @@ async function handleCron(req: NextRequest) {
 
 async function runDaily(): Promise<NextResponse> {
     const results: Record<string, unknown> = {};
+    const failedTasks: string[] = [];
 
     // --- Domains ---
     try {
@@ -35,6 +36,7 @@ async function runDaily(): Promise<NextResponse> {
     } catch (error) {
         logger.error("Daily cron: domains task failed", error);
         results.domains = { error: "failed" };
+        failedTasks.push("domains");
     }
 
     // --- Billing ---
@@ -44,6 +46,7 @@ async function runDaily(): Promise<NextResponse> {
     } catch (error) {
         logger.error("Daily cron: billing task failed", error);
         results.billing = { error: "failed" };
+        failedTasks.push("billing");
     }
 
     // --- Welcome drip ---
@@ -52,6 +55,7 @@ async function runDaily(): Promise<NextResponse> {
     } catch (error) {
         logger.error("Daily cron: drip task failed", error);
         results.drip = { error: "failed" };
+        failedTasks.push("drip");
     }
 
     // --- Crypto invoice recovery ---
@@ -60,9 +64,17 @@ async function runDaily(): Promise<NextResponse> {
     } catch (error) {
         logger.error("Daily cron: crypto recovery task failed", error);
         results.cryptoRecovery = { error: "failed" };
+        failedTasks.push("cryptoRecovery");
     }
 
-    return NextResponse.json({ success: true, results });
+    return NextResponse.json(
+        {
+            success: failedTasks.length === 0,
+            results,
+            errors: failedTasks.length > 0 ? failedTasks : undefined,
+        },
+        { status: failedTasks.length > 0 ? 500 : 200 },
+    );
 }
 
 export { handleCron as GET, handleCron as POST };

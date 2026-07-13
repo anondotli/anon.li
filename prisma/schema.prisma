@@ -509,8 +509,8 @@ model DropRecipient {
   email String
   label String?
 
-  // SHA-256 of the raw access token. The raw token only ever travels in the
-  // emailed share link (`/d/{id}?r=...`), so a DB leak does not expose live tokens.
+  // SHA-256 of the raw access token. The raw token is shown only in recipient
+  // share links, so a database leak does not expose live bearer credentials.
   tokenHash String @unique
 
   // Optional per-recipient download cap, independent of the drop-wide maxDownloads.

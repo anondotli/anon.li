@@ -2,11 +2,29 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { DropCleanupService } from '@/lib/services/drop-cleanup';
 import { prisma } from '@/lib/prisma';
 import * as storage from '@/lib/storage';
+import {
+  deleteDropFileAndReleaseQuota,
+  deleteDropFilesAndReleaseQuota,
+} from '@/lib/services/drop-storage';
 
 // Mock prisma
 vi.mock('@/lib/prisma', () => ({
   prisma: {
+    $queryRaw: vi.fn(),
     drop: {
+      count: vi.fn(),
+      findMany: vi.fn(),
+      delete: vi.fn(),
+      deleteMany: vi.fn(),
+      updateMany: vi.fn(),
+    },
+    dropFile: {
+      count: vi.fn(),
+      findMany: vi.fn(),
+    },
+    orphanedFile: {
+      count: vi.fn(),
+      create: vi.fn(),
       findMany: vi.fn(),
       delete: vi.fn(),
       deleteMany: vi.fn(),
@@ -24,13 +42,34 @@ vi.mock('@/lib/storage', () => ({
 
 // Mock drop-storage
 vi.mock('@/lib/services/drop-storage', () => ({
-    decrementStorageUsed: vi.fn(),
+    deleteDropFileAndReleaseQuota: vi.fn().mockResolvedValue({
+      storageKey: 'claimed-key',
+      s3UploadId: null,
+      size: BigInt(1),
+    }),
+    deleteDropFilesAndReleaseQuota: vi.fn().mockResolvedValue({
+      files: [],
+      deletedFiles: 0,
+      releasedBytes: BigInt(0),
+    }),
 }));
 
 // Mock logger to prevent real module loading
 vi.mock('@/lib/logger', () => ({
     createLogger: vi.fn(() => ({ info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() })),
 }));
+
+const claimDrop = deleteDropFilesAndReleaseQuota as ReturnType<typeof vi.fn>;
+const claimFile = deleteDropFileAndReleaseQuota as ReturnType<typeof vi.fn>;
+const claimed = (...files: Array<{ storageKey: string; s3UploadId?: string | null; size?: bigint }>) => ({
+  files: files.map((file) => ({
+    storageKey: file.storageKey,
+    s3UploadId: file.s3UploadId ?? null,
+    size: file.size ?? BigInt(1),
+  })),
+  deletedFiles: files.length,
+  releasedBytes: files.reduce((total, file) => total + (file.size ?? BigInt(1)), BigInt(0)),
+});
 
  
 describe('DropCleanupService.cleanupExpiredDrops', () => {
@@ -58,6 +97,9 @@ describe('DropCleanupService.cleanupExpiredDrops', () => {
     // Mock deletes to resolve successfully
     (storage.deleteObject as ReturnType<typeof vi.fn>).mockResolvedValue([]);
     (storage.deleteObjects as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    claimDrop
+      .mockResolvedValueOnce(claimed({ storageKey: 'key1' }, { storageKey: 'key2' }))
+      .mockResolvedValueOnce(claimed({ storageKey: 'key3' }));
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (prisma.drop.delete as ReturnType<typeof vi.fn>).mockResolvedValue({ id: 'deleted' } as any);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -99,6 +141,7 @@ describe('DropCleanupService.cleanupExpiredDrops', () => {
     (prisma.drop.findMany as ReturnType<typeof vi.fn>).mockResolvedValue(expiredDrops as any);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (prisma.drop.deleteMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 1 } as any);
+    claimDrop.mockResolvedValueOnce(claimed());
 
     const result = await DropCleanupService.cleanupExpiredDrops();
 
@@ -135,6 +178,10 @@ describe('DropCleanupService.cleanupExpiredDrops', () => {
 
     // Mock individual deleteObject to succeed
     (storage.deleteObject as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    (prisma.drop.deleteMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 2 });
+    claimDrop
+      .mockResolvedValueOnce(claimed({ storageKey: 'key1' }))
+      .mockResolvedValueOnce(claimed({ storageKey: 'key2' }));
 
     const result = await DropCleanupService.cleanupExpiredDrops();
 
@@ -145,15 +192,200 @@ describe('DropCleanupService.cleanupExpiredDrops', () => {
     // deleteObjects was called (and failed)
     expect(storage.deleteObjects).toHaveBeenCalledTimes(1);
 
-    // deleteMany should NOT be called
-    expect(prisma.drop.deleteMany).not.toHaveBeenCalled();
-
     // deleteObject should be called 2 times (iterative fallback)
     expect(storage.deleteObject).toHaveBeenCalledTimes(2);
     expect(storage.deleteObject).toHaveBeenCalledWith('key1');
     expect(storage.deleteObject).toHaveBeenCalledWith('key2');
 
-    // prisma.drop.delete should be called 2 times
-    expect(prisma.drop.delete).toHaveBeenCalledTimes(2);
+    // Storage fallback does not forfeit the batched, idempotent parent delete.
+    expect(prisma.drop.deleteMany).toHaveBeenCalledTimes(1);
+  });
+
+  it('counts only parent rows this cleanup won when another deletion races it', async () => {
+    const expiredDrops = [
+      { id: 'drop1', files: [{ id: 'file1', storageKey: 'key1', size: BigInt(10) }] },
+      { id: 'drop2', files: [{ id: 'file2', storageKey: 'key2', size: BigInt(20) }] },
+    ];
+
+    (prisma.drop.findMany as ReturnType<typeof vi.fn>).mockResolvedValue(expiredDrops);
+    (storage.deleteObjects as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    // One parent was concurrently removed after this worker selected it.
+    (prisma.drop.deleteMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 1 });
+    claimDrop
+      .mockResolvedValueOnce(claimed({ storageKey: 'key1' }))
+      .mockResolvedValueOnce(claimed({ storageKey: 'key2' }));
+
+    const result = await DropCleanupService.cleanupExpiredDrops();
+
+    expect(result).toEqual({ found: 2, deleted: 1, errors: [] });
+    expect(deleteDropFilesAndReleaseQuota).toHaveBeenCalledTimes(2);
+    expect(deleteDropFilesAndReleaseQuota).toHaveBeenNthCalledWith(1, 'drop1');
+    expect(deleteDropFilesAndReleaseQuota).toHaveBeenNthCalledWith(2, 'drop2');
+  });
+
+  it('releases logical quota and records an orphan when R2 returns a failed key', async () => {
+    const expiredDrops = [
+      { id: 'drop1', files: [{ id: 'file1', storageKey: 'key1', size: BigInt(10) }] },
+    ];
+
+    (prisma.drop.findMany as ReturnType<typeof vi.fn>).mockResolvedValue(expiredDrops);
+    (storage.deleteObjects as ReturnType<typeof vi.fn>).mockResolvedValue(['key1']);
+    (prisma.drop.deleteMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 1 });
+    claimDrop.mockResolvedValueOnce(claimed({ storageKey: 'key1' }));
+
+    await expect(DropCleanupService.cleanupExpiredDrops()).resolves.toEqual({
+      found: 1,
+      deleted: 1,
+      errors: [],
+    });
+
+    expect(prisma.orphanedFile.create).toHaveBeenCalledWith({ data: { storageKey: 'key1' } });
+    expect(deleteDropFilesAndReleaseQuota).toHaveBeenCalledWith('drop1');
+  });
+
+  it('counts dry-run candidates once instead of polling the same full batch forever', async () => {
+    (prisma.drop.count as ReturnType<typeof vi.fn>).mockResolvedValue(137);
+
+    await expect(DropCleanupService.cleanupExpiredDrops(true)).resolves.toEqual({
+      found: 137,
+      deleted: 0,
+      errors: [],
+    });
+    expect(prisma.drop.findMany).not.toHaveBeenCalled();
+  });
+
+  it('stops after a database claim error instead of retrying a full failing batch forever', async () => {
+    const expiredDrops = Array.from({ length: 100 }, (_, index) => ({ id: `drop${index}` }));
+    (prisma.drop.findMany as ReturnType<typeof vi.fn>).mockResolvedValue(expiredDrops);
+    claimDrop
+      .mockRejectedValueOnce(new Error('database unavailable'))
+      .mockResolvedValue(claimed());
+    (prisma.drop.deleteMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 99 });
+
+    await expect(DropCleanupService.cleanupExpiredDrops()).resolves.toMatchObject({
+      found: 100,
+      deleted: 99,
+      errors: ['drop0'],
+    });
+    expect(prisma.drop.findMany).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('DropCleanupService.cleanupSoftDeletedDrops', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('selects only truly eligible rows in SQL so broad first-page rows cannot starve cleanup', async () => {
+    (prisma.$queryRaw as ReturnType<typeof vi.fn>).mockResolvedValue([{ id: 'eligible-after-noise' }]);
+    (prisma.drop.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
+      {
+        id: 'eligible-after-noise',
+        userId: 'user1',
+        downloads: 2,
+        maxDownloads: 2,
+        deletedAt: new Date(Date.now() - 3 * 60 * 60 * 1000),
+        files: [{ id: 'file1', storageKey: 'key1', size: BigInt(10) }],
+      },
+    ]);
+    (storage.deleteObjects as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    (prisma.drop.deleteMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 1 });
+    claimDrop.mockResolvedValueOnce(claimed({ storageKey: 'key1', size: BigInt(10) }));
+
+    await expect(DropCleanupService.cleanupSoftDeletedDrops()).resolves.toEqual({
+      found: 1,
+      deleted: 1,
+      errors: [],
+    });
+
+    const sql = ((prisma.$queryRaw as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as TemplateStringsArray).join('?');
+    expect(sql).toContain('"downloads" >= "maxDownloads"');
+    expect(sql).toContain('ORDER BY "deletedAt" ASC');
+    expect(prisma.drop.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: { in: ['eligible-after-noise'] } },
+    }));
+  });
+
+  it('counts all eligible rows once in dry-run mode instead of looping on the first batch', async () => {
+    (prisma.$queryRaw as ReturnType<typeof vi.fn>).mockResolvedValue([{ count: BigInt(137) }]);
+
+    await expect(DropCleanupService.cleanupSoftDeletedDrops(true)).resolves.toEqual({
+      found: 137,
+      deleted: 0,
+      errors: [],
+    });
+    expect(prisma.drop.findMany).not.toHaveBeenCalled();
+  });
+});
+
+describe('DropCleanupService.cleanupIncompleteFiles', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('claims the database row before deleting its returned storage object', async () => {
+    (prisma.dropFile.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
+      {
+        id: 'file1',
+        storageKey: 'stale-selected-key',
+        s3UploadId: 'stale-selected-upload',
+        size: BigInt(10),
+        drop: { userId: 'user1' },
+      },
+    ]);
+    claimFile.mockResolvedValueOnce({
+      storageKey: 'claimed-key',
+      s3UploadId: 'claimed-upload',
+      size: BigInt(10),
+    });
+    (storage.abortMultipartUpload as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+    (storage.deleteObjects as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+
+    await expect(DropCleanupService.cleanupIncompleteFiles()).resolves.toEqual({
+      found: 1,
+      deleted: 1,
+      errors: [],
+    });
+
+    expect(deleteDropFileAndReleaseQuota).toHaveBeenCalledWith('file1');
+    expect(storage.abortMultipartUpload).toHaveBeenCalledWith('claimed-key', 'claimed-upload');
+    expect(storage.deleteObjects).toHaveBeenCalledWith(['claimed-key']);
+    expect(claimFile.mock.invocationCallOrder[0]).toBeLessThan(
+      (storage.deleteObjects as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0]!,
+    );
+  });
+
+  it('does not touch storage when another worker already claimed the row', async () => {
+    (prisma.dropFile.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
+      {
+        id: 'file1',
+        storageKey: 'stale-selected-key',
+        s3UploadId: 'stale-selected-upload',
+        size: BigInt(10),
+        drop: { userId: 'user1' },
+      },
+    ]);
+    claimFile.mockResolvedValueOnce(null);
+
+    await expect(DropCleanupService.cleanupIncompleteFiles()).resolves.toEqual({
+      found: 1,
+      deleted: 0,
+      errors: [],
+    });
+
+    expect(storage.abortMultipartUpload).not.toHaveBeenCalled();
+    expect(storage.deleteObjects).not.toHaveBeenCalled();
+    expect(storage.deleteObject).not.toHaveBeenCalled();
+  });
+
+  it('uses an aggregate count for dry runs', async () => {
+    (prisma.dropFile.count as ReturnType<typeof vi.fn>).mockResolvedValue(144);
+
+    await expect(DropCleanupService.cleanupIncompleteFiles(true)).resolves.toEqual({
+      found: 144,
+      deleted: 0,
+      errors: [],
+    });
+    expect(prisma.dropFile.findMany).not.toHaveBeenCalled();
   });
 });

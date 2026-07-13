@@ -4,6 +4,9 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+const mockDeleteObject = vi.hoisted(() => vi.fn());
+const mockDeleteDropFilesAndReleaseQuota = vi.hoisted(() => vi.fn());
+
 // Mock dependencies
 vi.mock("@/lib/prisma", () => {
     const mockPrisma = {
@@ -31,6 +34,13 @@ vi.mock("@/lib/prisma", () => {
             updateMany: vi.fn(),
             deleteMany: vi.fn(),
         },
+        drop: {
+            findMany: vi.fn(),
+            updateMany: vi.fn(),
+        },
+        orphanedFile: {
+            create: vi.fn(),
+        },
         // Batch transaction: execute all operations and return results
         $transaction: vi.fn(async (arg: unknown) => {
             if (Array.isArray(arg)) {
@@ -44,6 +54,15 @@ vi.mock("@/lib/prisma", () => {
     };
     return { prisma: mockPrisma };
 });
+
+vi.mock("@/lib/storage", () => ({
+    abortMultipartUpload: vi.fn(),
+    deleteObject: mockDeleteObject,
+}));
+
+vi.mock("@/lib/services/drop-storage", () => ({
+    deleteDropFilesAndReleaseQuota: mockDeleteDropFilesAndReleaseQuota,
+}));
 
 vi.mock("@/lib/resend", () => ({
     sendDowngradeWarningEmail: vi.fn().mockResolvedValue({ success: true }),
@@ -95,6 +114,8 @@ const mockRecipientCount = prisma.recipient.count as Mock;
 const mockRecipientFindMany = prisma.recipient.findMany as Mock;
 const mockRecipientUpdateMany = prisma.recipient.updateMany as Mock;
 const mockRecipientDeleteMany = prisma.recipient.deleteMany as Mock;
+const mockDropFindMany = prisma.drop.findMany as Mock;
+const mockOrphanedFileCreate = prisma.orphanedFile.create as Mock;
 const mockTransaction = (prisma as unknown as { $transaction: Mock }).$transaction;
 
 describe("BillingDowngradeService", () => {
@@ -356,6 +377,48 @@ describe("BillingDowngradeService", () => {
     });
 
     describe("deleteScheduledForUser", () => {
+        it("claims downgraded drop quota once and tracks failed R2 deletion as an orphan", async () => {
+            mockGetDropLimitsImpl.mockReturnValue({
+                maxStorage: 100,
+                maxExpiry: 7,
+                downloadLimits: false,
+                features: { downloadLimits: false },
+            });
+            mockUserFindUnique
+                .mockResolvedValueOnce({ id: "user_1", email: "test@example.com", subscriptions: [] })
+                .mockResolvedValueOnce({ storageUsed: BigInt(200) })
+                .mockResolvedValueOnce({ storageUsed: BigInt(80) });
+            mockDropFindMany.mockResolvedValue([
+                {
+                    id: "drop_1",
+                    files: [{ id: "file_1", storageKey: "key_1", size: BigInt(120) }],
+                },
+            ]);
+            mockDeleteObject.mockRejectedValueOnce(new Error("R2 unavailable"));
+            mockOrphanedFileCreate.mockResolvedValue({ id: "orphan_1" });
+            mockDeleteDropFilesAndReleaseQuota.mockResolvedValue({
+                files: [{ storageKey: "key_1", s3UploadId: null, size: BigInt(120) }],
+                deletedFiles: 1,
+                releasedBytes: BigInt(120),
+            });
+
+            mockAliasCount.mockResolvedValue(0);
+            mockAliasFindMany.mockResolvedValue([]);
+            mockDomainCount.mockResolvedValue(0);
+            mockDomainFindMany.mockResolvedValue([]);
+            mockRecipientFindMany.mockResolvedValue([]);
+            mockUserUpdate.mockResolvedValue({});
+
+            await BillingDowngradeService.deleteScheduledForUser("user_1");
+
+            expect(mockDeleteDropFilesAndReleaseQuota).toHaveBeenCalledWith("drop_1");
+            expect(mockOrphanedFileCreate).toHaveBeenCalledWith({ data: { storageKey: "key_1" } });
+            expect(mockUserUpdate).toHaveBeenCalledTimes(1);
+            expect(mockUserUpdate).not.toHaveBeenCalledWith(expect.objectContaining({
+                data: expect.objectContaining({ storageUsed: expect.anything() }),
+            }));
+        });
+
         it("should delete excess and spare remaining", async () => {
             mockUserFindUnique.mockResolvedValueOnce({
                 id: "user_1",

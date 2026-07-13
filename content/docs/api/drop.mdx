@@ -220,12 +220,12 @@ Add an encrypted file to an existing drop.
 
 | Field | Type | Required | Description |
 | :--- | :--- | :--- | :--- |
-| `size` | number | Yes | File size in bytes |
+| `size` | number | Yes | Encrypted file size in bytes, including one 16-byte AES-GCM tag per part |
 | `encryptedName` | string | Yes | Encrypted filename (base64) |
 | `iv` | string | Yes | File IV (base64, 12 bytes) |
 | `mimeType` | string | Yes | MIME type |
-| `chunkCount` | number | Yes | Number of chunks |
-| `chunkSize` | number | Yes | Size per chunk |
+| `chunkCount` | number | Yes | Number of encrypted parts (1–10,000) |
+| `chunkSize` | number | Yes | Plaintext bytes per full part; clients should target 50 MiB |
 
 **Response**
 
@@ -489,7 +489,9 @@ if (drop.encryptedTitle) {
 }
 
 if (drop.encryptedMessage) {
-  const msgIv = deriveChunkIv(dropIv, 0xFFFFFFFF);
+  // Messages use a separate reserved domain from titles. Reusing a GCM nonce
+  // with the same key would break confidentiality and authentication.
+  const msgIv = deriveChunkIv(dropIv, 0xFFFFFFFE);
   const encMsg = Buffer.from(drop.encryptedMessage, 'base64url');
   const msgDec = crypto.createDecipheriv('aes-256-gcm', keyBuffer, msgIv);
   msgDec.setAuthTag(encMsg.slice(-16));
@@ -586,9 +588,9 @@ const metadata = JSON.stringify({
   version: 2
 });
 
-// Encrypt the metadata using the same IV derivation as filenames
-// (reserved chunk index 0xFFFFFFFF)
-const metaIv = deriveChunkIv(iv, 0xFFFFFFFF);
+// Messages use their own reserved domain so a title and message never reuse
+// the same AES-GCM nonce under this key.
+const metaIv = deriveChunkIv(iv, 0xFFFFFFFE);
 const metaCipher = crypto.createCipheriv('aes-256-gcm', key, metaIv);
 const encryptedMessage = Buffer.concat([
   metaCipher.update(metadata, 'utf8'),
@@ -627,7 +629,7 @@ const drop = await fetch('https://anon.li/api/v1/drop', {
 ```javascript
 // After fetching the drop (see Download & Decrypt Workflow above)
 const baseIv = Buffer.from(drop.iv, 'base64url');
-const metaIv = deriveChunkIv(baseIv, 0xFFFFFFFF);
+const metaIv = deriveChunkIv(baseIv, 0xFFFFFFFE);
 const encMsg = Buffer.from(drop.encryptedMessage, 'base64url');
 
 const decipher = crypto.createDecipheriv('aes-256-gcm', keyBuffer, metaIv);

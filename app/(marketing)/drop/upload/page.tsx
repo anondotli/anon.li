@@ -114,17 +114,17 @@ const FEATURES = [
     {
         icon: <Shield className="h-6 w-6" />,
         title: "Open, auditable crypto",
-        description: "Built on the browser's WebCrypto API. The encryption protocol is documented and independently verifiable.",
+        description: "Built on the browser's WebCrypto API. The protocol and implementation are publicly documented and inspectable.",
     },
     {
         icon: <Zap className="h-6 w-6" />,
-        title: "Resumable uploads",
-        description: "Chunked, parallel multipart uploads via presigned URLs. Bytes stream straight to object storage - never through a backend.",
+        title: "Reliable multipart uploads",
+        description: "Bounded, parallel chunk uploads via short-lived URLs. Encrypted bytes go straight to private object storage - never through our app server.",
     },
     {
         icon: <Globe className="h-6 w-6" />,
-        title: "Works everywhere",
-        description: "Any modern browser on any OS. No native app, no extension, no plugin. Your recipient just clicks a link.",
+        title: "No app required",
+        description: "Send and receive in a modern browser on any major OS. No native app, extension, or plugin is required.",
     },
 ] as const
 

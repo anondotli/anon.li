@@ -13,10 +13,15 @@ import { z } from "zod"
 import { prisma } from "@/lib/prisma"
 import { withPolicy } from "@/lib/route-policy"
 import { DropService } from "@/lib/services/drop"
-import { decrementStorageUsed } from "@/lib/services/drop-storage"
-import { resolveDownloadAccess, consumeRecipientDownload, recordAccessEvent } from "@/lib/services/drop-recipient"
+import { deletePendingDropFileAndReleaseQuota } from "@/lib/services/drop-storage"
+import { resolveDownloadAccess, recordAccessEvent } from "@/lib/services/drop-recipient"
 import { resolveTokenUploadAccess } from "@/lib/services/form-upload"
-import { getPresignedDownloadUrl, abortMultipartUpload, LIMITED_DROP_PRESIGNED_URL_EXPIRES } from "@/lib/storage"
+import {
+    getPresignedDownloadUrl,
+    abortMultipartUpload,
+    deleteObject,
+    LIMITED_DROP_PRESIGNED_URL_EXPIRES,
+} from "@/lib/storage"
 import { getClientIp } from "@/lib/rate-limit"
 
 /** Per-recipient access token: header (set by the web client) or `?r=` fallback. */
@@ -108,18 +113,22 @@ export const GET = withPolicy<RouteParams>(
         // file without incrementing — defeating the limit. For unlimited drops the
         // count is only a stat, so we keep the resume-friendly behavior there and
         // avoid double-counting a resumed transfer.
-        const shouldCount = file.drop.maxDownloads ? true : !isResumeRange
+        // A Range request may skip an unlimited anonymous *statistics* count,
+        // but it must never bypass either a global or per-recipient allowance.
+        const shouldCount = file.drop.maxDownloads != null || access.recipientId != null || !isResumeRange
+
+        // Presign before spending any allowance. The URL stays server-side until
+        // the atomic counter transaction succeeds, so a signing failure burns
+        // neither the global nor recipient count.
+        const presignedUrl = await getPresignedDownloadUrl(
+            file.storageKey,
+            file.drop.maxDownloads != null || access.recipientId != null
+                ? LIMITED_DROP_PRESIGNED_URL_EXPIRES
+                : undefined,
+        )
 
         if (shouldCount) {
-            // Per-recipient cap (atomic) is consumed first as the cheaper guard;
-            // it also stamps the recipient's lastAccessAt.
-            if (access.recipientId) {
-                const ok = await consumeRecipientDownload(access.recipientId)
-                if (!ok) {
-                    return new NextResponse("Download limit reached.", { status: 404 })
-                }
-            }
-            const counted = await DropService.incrementDownloadCount(dropId)
+            const counted = await DropService.consumeDownload(dropId, access.recipientId)
             if (!counted) {
                 return new NextResponse("Download limit reached.", { status: 404 })
             }
@@ -137,12 +146,24 @@ export const GET = withPolicy<RouteParams>(
             })
         }
 
-        // Limited drops get a short-lived URL so an issued download can't be
-        // replayed long after the count was spent (see the constant's docs).
-        const presignedUrl = await getPresignedDownloadUrl(
-            file.storageKey,
-            file.drop.maxDownloads ? LIMITED_DROP_PRESIGNED_URL_EXPIRES : undefined,
-        )
+        // The browser client asks for JSON so it can make a fresh, credential-
+        // free request to R2. A cross-origin redirect could otherwise forward
+        // X-Drop-Recipient to the storage endpoint. Preserve redirect behavior
+        // for simple link/API clients that do not request JSON.
+        const wantsJson = request.headers.get("accept")?.includes("application/json")
+            || request.headers.has("x-drop-recipient")
+        if (wantsJson) {
+            return NextResponse.json(
+                { url: presignedUrl },
+                {
+                    headers: {
+                        "Cache-Control": "no-store, no-cache, must-revalidate",
+                        "Referrer-Policy": "no-referrer",
+                    },
+                },
+            )
+        }
+
         return NextResponse.redirect(presignedUrl, {
             status: 302,
             headers: {
@@ -157,6 +178,7 @@ export const GET = withPolicy<RouteParams>(
 export const DELETE = withPolicy<RouteParams>(
     {
         auth: "optional_api_key_or_session",
+        organizationAccess: "subscribed",
         apiQuota: "drop",
         requireCsrf: true,
         rateLimit: "dropAbortUpload",
@@ -216,27 +238,28 @@ export const DELETE = withPolicy<RouteParams>(
                 return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
             }
 
-            try {
-                await abortMultipartUpload(file.storageKey, s3UploadId)
-            } catch {
-                // Best effort cleanup only.
+            // Claim the still-pending row before touching storage. A finalizer
+            // that already committed uploadComplete wins atomically; returning
+            // null makes this abort a successful no-op with no stale-key delete.
+            const claimed = await deletePendingDropFileAndReleaseQuota(fileId)
+            if (!claimed) {
+                return NextResponse.json({ success: true })
             }
 
-            const fileSize = file.size
+            if (claimed.s3UploadId) {
+                await abortMultipartUpload(claimed.storageKey, claimed.s3UploadId).catch(() => {
+                    // It may already have completed; reconcile the object below.
+                })
+            }
 
-            await prisma.dropFile.delete({
-                where: { id: fileId },
-            }).catch(() => {
-                // Ignore if already deleted.
+            // A multipart completion can reach storage before its final DB
+            // update. Delete any such reconciled object and persist a retry if
+            // object storage is temporarily unavailable.
+            await deleteObject(claimed.storageKey).catch(async () => {
+                await prisma.orphanedFile.create({
+                    data: { storageKey: claimed.storageKey },
+                }).catch(() => undefined)
             })
-
-            if (effectiveUserId && fileSize > BigInt(0)) {
-                try {
-                    await decrementStorageUsed(effectiveUserId, fileSize)
-                } catch {
-                    // Best effort cleanup only.
-                }
-            }
 
             return NextResponse.json({ success: true })
         } catch {

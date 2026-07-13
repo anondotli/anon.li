@@ -85,7 +85,7 @@ export default function DropProductPage() {
                         <FeatureCard
                             icon={<Upload className="h-6 w-6" />}
                             title={`Up to ${DROP_PRO_LIMIT_LABELS.maxFileSizeValue} Per Transfer`}
-                            description="Send multiple files in a single drop with smart, resumable chunking - all encrypted in your browser before they upload."
+                            description="Send multiple files in one drop with bounded, parallel multipart uploads. Every chunk is encrypted in your browser first."
                         />
                         <FeatureCard
                             icon={<Download className="h-6 w-6" />}
@@ -133,7 +133,7 @@ export default function DropProductPage() {
                             number="1"
                             icon={<Upload className="h-6 w-6" />}
                             title="Select Files"
-                            description="Drop files into your browser. Encryption happens instantly on your device - no waiting for upload."
+                            description="Drop files into your browser. Each chunk is encrypted on your device immediately before it uploads."
                         />
                         <StepCard
                             number="2"

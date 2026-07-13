@@ -145,36 +145,37 @@ export async function getUserAndLimits(userId: string): Promise<UserLimits> {
  * Validate file size against user limits
  */
 export function validateFileSize(
-    size: number,
+    encryptedSize: number,
     storageUsed: bigint,
     storageLimit: bigint,
     maxFileSizeLimit?: number,
-    currentTier: DropTier = "free"
+    currentTier: DropTier = "free",
+    plaintextSize: number = encryptedSize,
 ): void {
     // Per-file size cap
     const perFileCap = maxFileSizeLimit ?? Math.max(0, Number(storageLimit - storageUsed));
 
-    if (size > perFileCap) {
+    if (plaintextSize > perFileCap) {
         throw new UpgradeRequiredError(
             `File size exceeds limit. Max: ${formatBytes(perFileCap)} on your plan.`,
             {
                 scope: "drop_file_size",
                 currentTier,
                 suggestedTier: nextDropTier(currentTier),
-                currentValue: size,
+                currentValue: plaintextSize,
                 limitValue: perFileCap,
             }
         );
     }
 
-    if (storageUsed + BigInt(size) > storageLimit) {
+    if (storageUsed + BigInt(encryptedSize) > storageLimit) {
         throw new UpgradeRequiredError(
             "Bandwidth limit reached. Upgrade for more headroom.",
             {
                 scope: "drop_bandwidth",
                 currentTier,
                 suggestedTier: nextDropTier(currentTier),
-                currentValue: Number(storageUsed + BigInt(size)),
+                currentValue: Number(storageUsed + BigInt(encryptedSize)),
                 limitValue: Number(storageLimit),
             }
         );

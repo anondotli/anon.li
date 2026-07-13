@@ -24,6 +24,7 @@ export function DropDownloadPage({
     error,
     loading,
     keyString,
+    recipientToken,
     needsKey,
     needsPassword,
     manualKeyInput,
@@ -38,8 +39,11 @@ export function DropDownloadPage({
     downloading,
     downloadProgress,
     currentFile,
+    downloadError,
+    clearDownloadError,
     downloadFile,
     downloadAll,
+    canDownloadAsZip,
     formatBytes,
   } = useDropDownload({ dropId: fileId, initialDrop, initialError });
 
@@ -76,11 +80,15 @@ export function DropDownloadPage({
     <DropDownloadView
       drop={drop}
       keyString={keyString!}
+      recipientToken={recipientToken}
       downloading={downloading}
       downloadProgress={downloadProgress}
       currentFile={currentFile}
+      downloadError={downloadError}
+      clearDownloadError={clearDownloadError}
       downloadFile={downloadFile}
       downloadAll={downloadAll}
+      canDownloadAsZip={canDownloadAsZip}
       formatBytes={formatBytes}
     />
   );

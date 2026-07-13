@@ -57,14 +57,15 @@ async function fetchWithRetry(
         try {
             const res = await fetch(url, options);
             
-            // Don't retry on client errors (4xx) - those are intentional
-            if (res.status >= 400 && res.status < 500) {
-                return res;
-            }
-            
-            // Retry on server errors (5xx)
-            if (res.status >= 500 && attempt < retries) {
-                await delay(RETRY_BASE_DELAY * Math.pow(2, attempt));
+            // R2 can transiently throttle multipart writes. Retry the standard
+            // timeout/throttling statuses as well as server failures; other 4xx
+            // responses indicate an invalid or expired presigned request.
+            const retryable = res.status === 408
+                || res.status === 425
+                || res.status === 429
+                || res.status >= 500;
+            if (retryable && attempt < retries) {
+                await delay(retryDelayMs(res, attempt), options.signal);
                 continue;
             }
             
@@ -79,7 +80,7 @@ async function fetchWithRetry(
             
             // Retry on network errors
             if (attempt < retries) {
-                await delay(RETRY_BASE_DELAY * Math.pow(2, attempt));
+                await delay(RETRY_BASE_DELAY * Math.pow(2, attempt), options.signal);
                 continue;
             }
         }
@@ -88,8 +89,40 @@ async function fetchWithRetry(
     throw lastError || new Error('Request failed after retries');
 }
 
-function delay(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
+function retryDelayMs(response: Response, attempt: number): number {
+    const retryAfter = response.headers.get("Retry-After");
+    if (retryAfter) {
+        const seconds = Number(retryAfter);
+        if (Number.isFinite(seconds) && seconds >= 0) {
+            return Math.min(seconds * 1000, 30_000);
+        }
+
+        const date = Date.parse(retryAfter);
+        if (Number.isFinite(date)) {
+            return Math.min(Math.max(0, date - Date.now()), 30_000);
+        }
+    }
+
+    return RETRY_BASE_DELAY * Math.pow(2, attempt);
+}
+
+function delay(ms: number, signal?: AbortSignal | null): Promise<void> {
+    if (signal?.aborted) {
+        return Promise.reject(signal.reason ?? new DOMException("Upload cancelled", "AbortError"));
+    }
+
+    return new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+            signal?.removeEventListener("abort", onAbort);
+            resolve();
+        }, ms);
+        const onAbort = () => {
+            clearTimeout(timeout);
+            signal?.removeEventListener("abort", onAbort);
+            reject(signal?.reason ?? new DOMException("Upload cancelled", "AbortError"));
+        };
+        signal?.addEventListener("abort", onAbort, { once: true });
+    });
 }
 
 /**
@@ -126,5 +159,12 @@ export async function uploadChunk(
         throw new Error("Failed to upload chunk");
     }
 
-    return res.headers.get("ETag") || "";
+    const etag = res.headers.get("ETag");
+    if (!etag) {
+        throw new Error(
+            "Upload succeeded, but storage did not expose its ETag. Check the R2 bucket CORS policy.",
+        );
+    }
+
+    return etag;
 }

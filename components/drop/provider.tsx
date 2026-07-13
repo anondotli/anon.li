@@ -4,6 +4,7 @@ import * as React from "react"
 import { useRouter, usePathname } from "next/navigation"
 import { Upload } from "lucide-react"
 import { FileDropContext } from "@/hooks/use-file-drop"
+import { extractFilesFromDataTransfer } from "@/lib/drop-file-selection"
 
 export function FileDropProvider({ children, isRefreshing }: { children: React.ReactNode, isRefreshing?: boolean }) {
     const [droppedFiles, setDroppedFiles] = React.useState<File[] | null>(null)
@@ -11,17 +12,20 @@ export function FileDropProvider({ children, isRefreshing }: { children: React.R
     const router = useRouter()
     const pathname = usePathname()
 
-    const isAllowedRoute = pathname === "/" || pathname?.startsWith("/file");
+    const isDashboardDrop = pathname === "/dashboard/drop"
+    const isMarketingDrop = pathname === "/" || pathname === "/drop" || pathname === "/drop/upload"
+    const isAllowedRoute = isDashboardDrop || isMarketingDrop
+    const uploadRoute = isDashboardDrop ? "/dashboard/drop" : "/drop/upload"
 
     const handleDragOver = React.useCallback((e: React.DragEvent | DragEvent) => {
-        if (!isAllowedRoute) return;
+        if (!isAllowedRoute || e.defaultPrevented) return
         e.preventDefault()
         e.stopPropagation()
         if (!isDragging) setIsDragging(true)
     }, [isDragging, isAllowedRoute])
 
     const handleDragLeave = React.useCallback((e: React.DragEvent | DragEvent) => {
-        if (!isAllowedRoute) return;
+        if (!isAllowedRoute || e.defaultPrevented) return
         e.preventDefault()
         e.stopPropagation()
         // Simple check: if relatedTarget is null, we left the window
@@ -30,26 +34,32 @@ export function FileDropProvider({ children, isRefreshing }: { children: React.R
         }
     }, [isAllowedRoute])
 
-    const handleDrop = React.useCallback((e: React.DragEvent | DragEvent) => {
-        if (!isAllowedRoute) return;
+    const handleDrop = React.useCallback(async (e: React.DragEvent | DragEvent) => {
+        // The upload drop zone handles its own event (including folders). Avoid
+        // adding the same files a second time when that event bubbles to window.
+        if (!isAllowedRoute || e.defaultPrevented) return
         e.preventDefault()
         e.stopPropagation()
         setIsDragging(false)
 
-        const files = (e as React.DragEvent).dataTransfer?.files || (e as DragEvent).dataTransfer?.files
+        const dataTransfer = (e as React.DragEvent).dataTransfer || (e as DragEvent).dataTransfer
 
-        if (files && files.length > 0) {
-            const filesArray = Array.from(files);
+        if (dataTransfer) {
+            const filesArray = await extractFilesFromDataTransfer(dataTransfer).catch(() =>
+                Array.from(dataTransfer.files || []),
+            )
             if (filesArray.length > 0) {
                 setDroppedFiles(filesArray)
 
-                // Redirect if not already on upload page
-                if (pathname !== "/file/upload") {
-                    router.push("/file/upload")
+                // File objects cannot be serialized into sessionStorage. Keeping
+                // them in this layout-level provider lets them survive the
+                // client-side navigation and be consumed by FileUploader.
+                if (pathname !== uploadRoute) {
+                    router.push(uploadRoute)
                 }
             }
         }
-    }, [router, pathname, isAllowedRoute])
+    }, [router, pathname, isAllowedRoute, uploadRoute])
 
     React.useEffect(() => {
         window.addEventListener("dragover", handleDragOver)

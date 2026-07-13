@@ -56,7 +56,6 @@ function buildCsp(
     strict: boolean,
 ) {
     const isDev = process.env.NODE_ENV === "development"
-    const r2PublicOrigin = extractOrigin(process.env.R2_PUBLIC_ENDPOINT)
     const r2DirectOrigin = extractOrigin(process.env.R2_ENDPOINT)
 
     // Strict mode: nonce + 'strict-dynamic' for dynamic auth/dashboard/admin
@@ -91,7 +90,6 @@ function buildCsp(
     const connectSrc = [
         "'self'",
         TURNSTILE_ORIGIN,
-        r2PublicOrigin,
         r2DirectOrigin,
     ].filter((value): value is string => Boolean(value)).join(" ")
 
