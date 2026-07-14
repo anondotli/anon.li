@@ -28,6 +28,8 @@ interface VaultAuthShellProps {
     below?: React.ReactNode
     /** Footer strip. Defaults to the zero-knowledge badge; pass `null` to hide. */
     footer?: React.ReactNode
+    /** Reduces the surrounding and card padding below the small breakpoint. */
+    compactOnMobile?: boolean
 }
 
 const DEFAULT_FOOTER = (
@@ -51,9 +53,15 @@ export function VaultAuthShell({
     children,
     below,
     footer = DEFAULT_FOOTER,
+    compactOnMobile = false,
 }: VaultAuthShellProps) {
     return (
-        <div className="relative flex min-h-[70vh] items-center justify-center overflow-hidden px-3 py-12 sm:px-4">
+        <div
+            className={cn(
+                "relative flex min-h-[70vh] items-center justify-center overflow-hidden px-3 sm:px-4 sm:py-12",
+                compactOnMobile ? "py-6" : "py-12",
+            )}
+        >
             {/* Ambient backdrop */}
             <div className="pointer-events-none absolute inset-0 -z-10" aria-hidden="true">
                 <div className="absolute left-1/2 top-1/2 h-[32rem] w-[32rem] -translate-x-1/2 -translate-y-1/2 rounded-full bg-foreground/[0.04] blur-3xl dark:bg-foreground/[0.06]" />
@@ -61,7 +69,12 @@ export function VaultAuthShell({
             </div>
 
             <Card className="w-full max-w-md overflow-hidden rounded-[1.75rem] border-border/60 bg-card/80 luxury-shadow-lg backdrop-blur-xl duration-500 animate-in fade-in zoom-in-95">
-                <CardContent className="flex flex-col items-center px-5 pb-8 pt-9 sm:px-9">
+                <CardContent
+                    className={cn(
+                        "flex flex-col items-center sm:px-9 sm:pb-8 sm:pt-9",
+                        compactOnMobile ? "px-4 pb-6 pt-6" : "px-5 pb-8 pt-9",
+                    )}
+                >
                     {/* Emblem */}
                     <div className="relative mb-7 flex items-center justify-center">
                         <div
@@ -89,7 +102,12 @@ export function VaultAuthShell({
                 </CardContent>
 
                 {footer !== null && (
-                    <div className="border-t border-border/50 bg-muted/20 px-5 py-3.5 sm:px-9">
+                    <div
+                        className={cn(
+                            "border-t border-border/50 bg-muted/20 sm:px-9 sm:py-3.5",
+                            compactOnMobile ? "px-4 py-3" : "px-5 py-3.5",
+                        )}
+                    >
                         {footer}
                     </div>
                 )}

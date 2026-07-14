@@ -54,6 +54,7 @@ export function UnlockPrompt() {
         <VaultAuthShell
             tone={tone}
             pulse={isUnlocking}
+            compactOnMobile
             icon={
                 isUnlocking ? (
                     <Icons.spinner className="h-6 w-6 animate-spin" />

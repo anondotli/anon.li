@@ -24,8 +24,8 @@
     "db:migrate:deploy": "bunx --no-install prisma migrate deploy"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.1086.0",
-    "@aws-sdk/s3-request-presigner": "^3.1086.0",
+    "@aws-sdk/client-s3": "^3.1087.0",
+    "@aws-sdk/s3-request-presigner": "^3.1087.0",
     "@better-auth/core": "^1.6.23",
     "@better-auth/utils": "0.4.2",
     "@modelcontextprotocol/sdk": "^1.29.0",
@@ -66,8 +66,8 @@
     "next-themes": "^0.4.6",
     "openpgp": "^6.3.1",
     "pg": "^8.22.0",
-    "posthog-js": "^1.399.5",
-    "posthog-node": "^5.41.0",
+    "posthog-js": "^1.400.1",
+    "posthog-node": "^5.42.0",
     "qrcode": "^1.5.4",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
