@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import crypto from 'crypto'
+import type { CryptoPayment } from '@prisma/client'
 
 vi.mock('server-only', () => ({}))
 
@@ -17,6 +18,7 @@ vi.mock('@/lib/prisma', () => {
         cryptoPayment: {
             findUnique: vi.fn(),
             update: vi.fn(),
+            updateMany: vi.fn().mockResolvedValue({ count: 1 }),
         },
         user: {
             findUnique: vi.fn(),
@@ -115,6 +117,8 @@ function sortObjectForMock(obj: Record<string, unknown>): Record<string, unknown
 // Must import after mocks
 import { POST } from './route'
 import { prisma } from '@/lib/prisma'
+import { createCryptoSubscription } from '@/lib/services/subscription-sync'
+import { getCryptoPrice } from '@/lib/crypto-prices'
 
 const IPN_SECRET = 'test-ipn-secret'
 const originalEnv = process.env
@@ -151,6 +155,30 @@ function makeRequest(body: Record<string, unknown>, signature?: string): Request
     })
 }
 
+function makeCryptoPayment(overrides: Partial<CryptoPayment> = {}): CryptoPayment {
+    return {
+        id: 'cp_test',
+        nowPaymentId: 'payment_test',
+        invoiceId: 'invoice_test',
+        orderId: 'crypto_test',
+        payAmount: 0.001,
+        payCurrency: 'btc',
+        priceAmount: 39.49,
+        priceCurrency: 'usd',
+        actuallyPaid: 0.001,
+        product: 'bundle',
+        tier: 'plus',
+        planPriceId: 'price_test_yearly',
+        status: 'waiting',
+        periodStart: null,
+        periodEnd: null,
+        userId: 'user_test',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        ...overrides,
+    }
+}
+
 describe('NOWPayments IPN Webhook', () => {
     beforeEach(() => {
         vi.clearAllMocks()
@@ -184,6 +212,43 @@ describe('NOWPayments IPN Webhook', () => {
 
         const res = await POST(req)
         expect(res.status).toBe(200)
+        expect(mockRedisSet).toHaveBeenNthCalledWith(
+            2,
+            'nowpay:ipn:123:waiting',
+            'done',
+            { ex: 86400 * 7 }
+        )
+    })
+
+    it('should release a missing-price claim so an immediate retry is reprocessed', async () => {
+        const orderId = 'crypto_retry_missing_price'
+        const payment = makeCryptoPayment({
+            id: 'cp_retry_missing_price',
+            nowPaymentId: 'payment_retry_missing_price',
+            orderId,
+            status: 'confirming',
+        })
+        ;(prisma.cryptoPayment.findUnique as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(payment)
+        vi.mocked(getCryptoPrice).mockReturnValueOnce(null)
+
+        const body = {
+            payment_id: payment.nowPaymentId,
+            payment_status: 'finished',
+            order_id: orderId,
+            pay_currency: 'btc',
+            pay_amount: 0.001,
+            actually_paid: 0.001,
+        }
+        const failedRes = await POST(makeRequest(body))
+        const retryRes = await POST(makeRequest(body))
+
+        expect(failedRes.status).toBe(500)
+        expect(retryRes.status).toBe(200)
+        expect(mockRedisDel).toHaveBeenCalledWith(
+            'nowpay:ipn:payment_retry_missing_price:finished'
+        )
+        expect(prisma.cryptoPayment.findUnique).toHaveBeenCalledTimes(2)
+        expect(createCryptoSubscription).toHaveBeenCalledTimes(1)
     })
 
     it('should update payment status on valid IPN', async () => {
@@ -220,9 +285,9 @@ describe('NOWPayments IPN Webhook', () => {
 
         const res = await POST(req)
         expect(res.status).toBe(200)
-        expect(prisma.cryptoPayment.update).toHaveBeenCalledWith(
+        expect(prisma.cryptoPayment.updateMany).toHaveBeenCalledWith(
             expect.objectContaining({
-                where: { id: 'cp_1' },
+                where: expect.objectContaining({ id: 'cp_1' }),
                 data: expect.objectContaining({
                     status: 'confirming',
                     payCurrency: 'btc',
@@ -274,10 +339,10 @@ describe('NOWPayments IPN Webhook', () => {
         // Should use atomic transaction for activation
         expect((prisma.$transaction as unknown as ReturnType<typeof vi.fn>)).toHaveBeenCalled()
 
-        // Should have called cryptoPayment.update and user.update (inside transaction)
-        expect(prisma.cryptoPayment.update).toHaveBeenCalledWith(
+        // Should have called cryptoPayment.updateMany and user.update (inside transaction)
+        expect(prisma.cryptoPayment.updateMany).toHaveBeenCalledWith(
             expect.objectContaining({
-                where: { id: 'cp_2' },
+                where: expect.objectContaining({ id: 'cp_2' }),
                 data: expect.objectContaining({
                     status: 'finished',
                 }),
@@ -294,6 +359,147 @@ describe('NOWPayments IPN Webhook', () => {
 
         // Should cancel any downgrade (side effect)
         expect(mockCancelDowngrade).toHaveBeenCalledWith('user_2')
+    })
+
+    it('should atomically revoke the canonical entitlement when a finished payment is refunded', async () => {
+        const orderId = 'crypto_refunded_order'
+        const body = {
+            payment_id: 'payment_refund',
+            payment_status: 'refunded',
+            order_id: orderId,
+            pay_currency: 'btc',
+            pay_amount: 0.001,
+            actually_paid: 0.001,
+        }
+
+        ;(prisma.cryptoPayment.findUnique as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
+            makeCryptoPayment({
+                id: 'cp_refund',
+                nowPaymentId: 'payment_refund',
+                orderId,
+                status: 'finished',
+                periodStart: new Date('2026-01-01T00:00:00.000Z'),
+                periodEnd: new Date('2027-01-01T00:00:00.000Z'),
+            })
+        )
+
+        const res = await POST(makeRequest(body))
+
+        expect(res.status).toBe(200)
+        expect(prisma.$transaction).toHaveBeenCalledWith(
+            expect.any(Function),
+            { isolationLevel: 'Serializable' }
+        )
+        expect(prisma.cryptoPayment.update).toHaveBeenCalledWith({
+            where: { id: 'cp_refund' },
+            data: expect.objectContaining({
+                nowPaymentId: 'payment_refund',
+                status: 'refunded',
+            }),
+        })
+        expect(prisma.subscription.updateMany).toHaveBeenCalledWith({
+            where: { providerSubscriptionId: `crypto_${orderId}` },
+            data: {
+                status: 'canceled',
+                currentPeriodEnd: expect.any(Date),
+                cancelAtPeriodEnd: false,
+            },
+        })
+        expect(createCryptoSubscription).not.toHaveBeenCalled()
+    })
+
+    it('should not let a stale success event restore a refunded entitlement', async () => {
+        const orderId = 'crypto_stale_after_refund'
+        const payment = makeCryptoPayment({
+            id: 'cp_stale_refund',
+            nowPaymentId: 'payment_stale_refund',
+            orderId,
+            status: 'finished',
+            periodStart: new Date('2026-01-01T00:00:00.000Z'),
+            periodEnd: new Date('2027-01-01T00:00:00.000Z'),
+        })
+        ;(prisma.cryptoPayment.findUnique as unknown as ReturnType<typeof vi.fn>)
+            .mockResolvedValueOnce(payment)
+            .mockResolvedValueOnce({ ...payment, status: 'refunded' })
+
+        const refundRes = await POST(makeRequest({
+            payment_id: payment.nowPaymentId,
+            payment_status: 'refunded',
+            order_id: orderId,
+        }))
+        const staleRes = await POST(makeRequest({
+            payment_id: payment.nowPaymentId,
+            payment_status: 'finished',
+            order_id: orderId,
+        }))
+
+        expect(refundRes.status).toBe(200)
+        expect(staleRes.status).toBe(200)
+        expect(prisma.cryptoPayment.update).toHaveBeenCalledTimes(1)
+        expect(prisma.cryptoPayment.updateMany).not.toHaveBeenCalled()
+        expect(prisma.subscription.updateMany).toHaveBeenCalledTimes(1)
+        expect(createCryptoSubscription).not.toHaveBeenCalled()
+    })
+
+    it('should not activate when a concurrent refund wins after the initial lookup', async () => {
+        const orderId = 'crypto_concurrent_refund'
+        ;(prisma.cryptoPayment.findUnique as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
+            makeCryptoPayment({
+                id: 'cp_concurrent_refund',
+                nowPaymentId: 'payment_concurrent_refund',
+                orderId,
+                status: 'confirming',
+            })
+        )
+        // The conditional write sees the status changed to `refunded` inside the
+        // activation transaction, even though the pre-transaction lookup did not.
+        ;(prisma.cryptoPayment.updateMany as unknown as ReturnType<typeof vi.fn>)
+            .mockResolvedValueOnce({ count: 0 })
+
+        const res = await POST(makeRequest({
+            payment_id: 'payment_concurrent_refund',
+            payment_status: 'finished',
+            order_id: orderId,
+            pay_currency: 'btc',
+            pay_amount: 0.001,
+            actually_paid: 0.001,
+        }))
+
+        expect(res.status).toBe(200)
+        expect(prisma.user.update).not.toHaveBeenCalled()
+        expect(createCryptoSubscription).not.toHaveBeenCalled()
+        expect(mockCancelDowngrade).not.toHaveBeenCalled()
+    })
+
+    it('should skip a duplicate refunded event that is already claimed', async () => {
+        const orderId = 'crypto_duplicate_refund'
+        const body = {
+            payment_id: 'payment_duplicate_refund',
+            payment_status: 'refunded',
+            order_id: orderId,
+        }
+        ;(prisma.cryptoPayment.findUnique as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
+            makeCryptoPayment({
+                id: 'cp_duplicate_refund',
+                nowPaymentId: 'payment_duplicate_refund',
+                orderId,
+                status: 'finished',
+            })
+        )
+        // First claim, first completion marker, duplicate claim.
+        mockRedisSet
+            .mockResolvedValueOnce('OK')
+            .mockResolvedValueOnce('OK')
+            .mockResolvedValueOnce(null)
+
+        const firstRes = await POST(makeRequest(body))
+        const duplicateRes = await POST(makeRequest(body))
+
+        expect(firstRes.status).toBe(200)
+        expect(duplicateRes.status).toBe(200)
+        expect(prisma.cryptoPayment.findUnique).toHaveBeenCalledTimes(1)
+        expect(prisma.$transaction).toHaveBeenCalledTimes(1)
+        expect(prisma.subscription.updateMany).toHaveBeenCalledTimes(1)
     })
 
     it('should skip IPN for terminal statuses', async () => {
@@ -331,6 +537,7 @@ describe('NOWPayments IPN Webhook', () => {
         expect(res.status).toBe(200)
         // Should NOT update the payment
         expect(prisma.cryptoPayment.update).not.toHaveBeenCalled()
+        expect(prisma.cryptoPayment.updateMany).not.toHaveBeenCalled()
     })
 
     it('should skip already-processed IPN events (idempotency)', async () => {

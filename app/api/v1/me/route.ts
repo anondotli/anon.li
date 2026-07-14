@@ -7,8 +7,9 @@ import { EXPIRY_LIMITS } from "@/config/plans"
 import { apiError, apiSuccess, ErrorCodes } from "@/lib/api-response"
 import { getDisplayPlanLimits, getDropLimits, getEffectiveTier, type SubscriptionLike } from "@/lib/limits"
 import { DAY_MS } from "@/lib/constants"
+import { isOrgScope } from "@/lib/ownership"
 import { prisma } from "@/lib/prisma"
-import { withPolicy } from "@/lib/route-policy"
+import { scopeFromContext, withPolicy } from "@/lib/route-policy"
 
 export const dynamic = "force-dynamic"
 
@@ -20,6 +21,9 @@ export const GET = withPolicy(
     async (ctx) => {
         if (!ctx.userId) {
             return apiError("Unauthorized - API key or session required", ErrorCodes.UNAUTHORIZED, ctx.requestId, 401)
+        }
+        if (ctx.apiKeyId && isOrgScope(scopeFromContext(ctx))) {
+            return apiError("A personal API key is required", ErrorCodes.FORBIDDEN, ctx.requestId, 403)
         }
 
         type UserResult = {

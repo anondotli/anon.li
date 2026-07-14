@@ -6,7 +6,6 @@ import { revalidatePath } from "next/cache"
 import { createLogger } from "@/lib/logger"
 import { cookies, headers } from "next/headers"
 import { auth } from "@/lib/auth"
-import { getClientIp, rateLimit } from "@/lib/rate-limit"
 import { getTurnstileError } from "@/lib/turnstile"
 import { normalizeEmail } from "@/lib/vault/server"
 
@@ -24,20 +23,6 @@ export async function requestPasswordResetAction(
     }
 
     try {
-        const clientIp = await getClientIp()
-        const [ipLimited, emailLimited] = await Promise.all([
-            rateLimit("passwordReset", clientIp),
-            rateLimit("passwordResetEmail", normalizedEmail),
-        ])
-
-        if (ipLimited || emailLimited) {
-            logger.warn("Password reset request rate limited", { email: normalizedEmail })
-            return {
-                success: true,
-                data: { message: PASSWORD_RESET_SUCCESS_MESSAGE },
-            }
-        }
-
         const turnstileError = await getTurnstileError(turnstileToken)
         if (turnstileError) {
             return { error: turnstileError }

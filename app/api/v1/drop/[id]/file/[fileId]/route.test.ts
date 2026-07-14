@@ -11,6 +11,7 @@ const validateApiKey = vi.fn()
 const hasExplicitApiKey = vi.fn()
 const validateCsrf = vi.fn()
 const getAuthUserState = vi.fn()
+const getOrganizationAccessState = vi.fn()
 const resolveDownloadAccess = vi.fn()
 const consumeDownload = vi.fn()
 const deletePendingDropFileAndReleaseQuota = vi.fn().mockResolvedValue(null)
@@ -86,6 +87,7 @@ vi.mock("@/lib/csrf", () => ({
 
 vi.mock("@/lib/data/auth", () => ({
     getAuthUserState,
+    getOrganizationAccessState,
     getAuthApiKeyRecord: vi.fn().mockResolvedValue(null),
     touchApiKeyLastUsed: vi.fn().mockResolvedValue(undefined),
 }))
@@ -327,6 +329,12 @@ describe("DELETE /api/v1/drop/[id]/file/[fileId]", () => {
         validateApiKey.mockResolvedValue(null)
         hasExplicitApiKey.mockReturnValue(false)
         getAuthUserState.mockResolvedValue({ id: "user-123", banned: false })
+        deletePendingDropFileAndReleaseQuota.mockReset().mockResolvedValue(null)
+        getOrganizationAccessState.mockResolvedValue({
+            exists: true,
+            suspended: false,
+            subscribed: true,
+        })
         checkDropApiRateLimit.mockResolvedValue({
             success: true,
             limit: 500,
@@ -344,7 +352,7 @@ describe("DELETE /api/v1/drop/[id]/file/[fileId]", () => {
             id: "file-123",
             storageKey: "selected-key",
             s3UploadId: "upload-123",
-            drop: { id: "drop-123", userId: "user-123" },
+            drop: { id: "drop-123", userId: "user-123", organizationId: null },
         })
         deletePendingDropFileAndReleaseQuota.mockResolvedValueOnce({
             storageKey: "claimed-key",
@@ -385,7 +393,7 @@ describe("DELETE /api/v1/drop/[id]/file/[fileId]", () => {
             id: "file-123",
             storageKey: "stale-key",
             s3UploadId: "upload-123",
-            drop: { id: "drop-123", userId: "user-123" },
+            drop: { id: "drop-123", userId: "user-123", organizationId: null },
         })
         deletePendingDropFileAndReleaseQuota.mockResolvedValueOnce(null)
 
@@ -415,7 +423,7 @@ describe("DELETE /api/v1/drop/[id]/file/[fileId]", () => {
             id: "file-123",
             storageKey: "selected-key",
             s3UploadId: "upload-123",
-            drop: { id: "drop-123", userId: "user-123" },
+            drop: { id: "drop-123", userId: "user-123", organizationId: null },
         })
         deletePendingDropFileAndReleaseQuota.mockResolvedValueOnce({
             storageKey: "claimed-key",
@@ -441,6 +449,99 @@ describe("DELETE /api/v1/drop/[id]/file/[fileId]", () => {
         expect(prisma.orphanedFile.create).toHaveBeenCalledWith({
             data: { storageKey: "claimed-key" },
         })
+    })
+
+    it("rejects an org API key aborting the same user's personal drop", async () => {
+        const { prisma } = await import("@/lib/prisma")
+        const { abortMultipartUpload, deleteObject } = await import("@/lib/storage")
+        const { DELETE } = await import("./route")
+
+        validateApiKey.mockResolvedValue({
+            user: { id: "user-123", subscriptions: [] },
+            apiKeyId: "key-123",
+            organizationId: "org-123",
+            rateLimit: {
+                success: true,
+                limit: 500,
+                remaining: 499,
+                reset: new Date(),
+            },
+        })
+        ;(prisma.dropFile.findUnique as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+            id: "file-123",
+            storageKey: "personal-key",
+            s3UploadId: "upload-123",
+            drop: {
+                id: "drop-123",
+                userId: "user-123",
+                organizationId: null,
+            },
+        })
+
+        const response = await DELETE(new Request(
+            "http://localhost/api/v1/drop/drop-123/file/file-123",
+            {
+                method: "DELETE",
+                body: JSON.stringify({ s3UploadId: "upload-123" }),
+                headers: {
+                    authorization: "Bearer ak_org-key",
+                    "content-type": "application/json",
+                },
+            },
+        ), { params: Promise.resolve({ id: "drop-123", fileId: "file-123" }) })
+
+        expect(response.status).toBe(401)
+        await expect(response.json()).resolves.toEqual({ error: "Unauthorized" })
+        expect(deletePendingDropFileAndReleaseQuota).not.toHaveBeenCalled()
+        expect(abortMultipartUpload).not.toHaveBeenCalled()
+        expect(deleteObject).not.toHaveBeenCalled()
+    })
+
+    it("allows an org session to abort a same-org drop created by another member", async () => {
+        const { prisma } = await import("@/lib/prisma")
+        const { abortMultipartUpload, deleteObject } = await import("@/lib/storage")
+        const { DELETE } = await import("./route")
+
+        auth.mockResolvedValue({
+            user: { id: "user-123" },
+            activeOrganizationId: "org-123",
+            activeOrgRole: "member",
+        })
+        ;(prisma.dropFile.findUnique as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+            id: "file-123",
+            storageKey: "selected-key",
+            s3UploadId: "upload-123",
+            drop: {
+                id: "drop-123",
+                userId: "other-member",
+                organizationId: "org-123",
+            },
+        })
+        deletePendingDropFileAndReleaseQuota.mockResolvedValueOnce({
+            storageKey: "claimed-org-key",
+            s3UploadId: "claimed-upload",
+            size: BigInt(20),
+        })
+        ;(abortMultipartUpload as ReturnType<typeof vi.fn>).mockResolvedValue(undefined)
+        ;(deleteObject as ReturnType<typeof vi.fn>).mockResolvedValue(undefined)
+
+        const response = await DELETE(new Request(
+            "http://localhost/api/v1/drop/drop-123/file/file-123",
+            {
+                method: "DELETE",
+                body: JSON.stringify({ s3UploadId: "upload-123" }),
+                headers: {
+                    origin: "http://localhost",
+                    "content-type": "application/json",
+                },
+            },
+        ), { params: Promise.resolve({ id: "drop-123", fileId: "file-123" }) })
+
+        expect(response.status).toBe(200)
+        await expect(response.json()).resolves.toEqual({ success: true })
+        expect(deletePendingDropFileAndReleaseQuota).toHaveBeenCalledWith("file-123")
+        expect(abortMultipartUpload).toHaveBeenCalledWith("claimed-org-key", "claimed-upload")
+        expect(deleteObject).toHaveBeenCalledWith("claimed-org-key")
     })
 
     it("uses the dedicated upload-abort limiter", async () => {

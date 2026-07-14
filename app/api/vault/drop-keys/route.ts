@@ -143,9 +143,13 @@ export async function POST(request: Request) {
                 where: { userId: session.user.id },
                 select: { id: true, vaultGeneration: true },
             }),
-            prisma.drop.findUnique({
-                where: { id: validation.data.dropId },
-                select: { userId: true },
+            prisma.drop.findFirst({
+                where: {
+                    id: validation.data.dropId,
+                    userId: session.user.id,
+                    organizationId: null,
+                },
+                select: { id: true },
             }),
         ])
 
@@ -157,7 +161,7 @@ export async function POST(request: Request) {
             return withNoStore(apiError("Vault security is not configured", ErrorCodes.NOT_FOUND, requestId, 404))
         }
 
-        if (!drop || drop.userId !== session.user.id) {
+        if (!drop) {
             if (allowMissingDrop) {
                 return withNoStore(apiSuccess({
                     dropId: validation.data.dropId,

@@ -34,6 +34,7 @@ const useFocusBridge = (ref: React.RefObject<{ focus: () => void } | null> | und
             const id = window.setTimeout(() => inputRef.current?.focus(), 60)
             return () => window.clearTimeout(id)
         }
+        return undefined
     }, [autoFocus])
     return inputRef
 }

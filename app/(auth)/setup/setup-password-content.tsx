@@ -26,6 +26,7 @@ import { getVaultStorageSupport, type VaultStorageSupport } from "@/lib/vault/st
 
 interface SetupPasswordPageContentProps {
     callbackUrl: string
+    hasCredentialPassword: boolean
 }
 
 // Storage support depends on browser-only APIs, so it must not be read during
@@ -40,7 +41,10 @@ const getClientStorageSupport = (): VaultStorageSupport => {
 }
 const getServerStorageSupport = (): VaultStorageSupport | null => null
 
-export function SetupPasswordPageContent({ callbackUrl }: SetupPasswordPageContentProps) {
+export function SetupPasswordPageContent({
+    callbackUrl,
+    hasCredentialPassword,
+}: SetupPasswordPageContentProps) {
     const router = useRouter()
     const support = React.useSyncExternalStore(
         subscribeStorageSupport,
@@ -48,6 +52,7 @@ export function SetupPasswordPageContent({ callbackUrl }: SetupPasswordPageConte
         getServerStorageSupport,
     )
     const [isSubmitting, setIsSubmitting] = React.useState(false)
+    const [currentPassword, setCurrentPassword] = React.useState("")
     const [password, setPassword] = React.useState("")
     const [confirmPassword, setConfirmPassword] = React.useState("")
     const [isPasswordFocused, setIsPasswordFocused] = React.useState(false)
@@ -63,6 +68,11 @@ export function SetupPasswordPageContent({ callbackUrl }: SetupPasswordPageConte
 
     const onSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
         event.preventDefault()
+
+        if (hasCredentialPassword && currentPassword.length === 0) {
+            setError("Current password is required")
+            return
+        }
 
         if (password.length < 12) {
             setError("Password must be at least 12 characters")
@@ -88,6 +98,7 @@ export function SetupPasswordPageContent({ callbackUrl }: SetupPasswordPageConte
             const result = await readVaultApiData<{ vaultGeneration: number; vaultId: string }>("/api/vault/setup", {
                 method: "POST",
                 body: JSON.stringify({
+                    ...(hasCredentialPassword && { currentPassword }),
                     authSecret,
                     authSalt,
                     vaultSalt,
@@ -138,6 +149,23 @@ export function SetupPasswordPageContent({ callbackUrl }: SetupPasswordPageConte
             }
         >
             <form onSubmit={onSubmit} className="mt-7 w-full space-y-4">
+                {hasCredentialPassword && (
+                    <div className="space-y-2">
+                        <Label htmlFor="currentPassword" className="text-xs font-medium text-muted-foreground">
+                            Current password
+                        </Label>
+                        <VaultPasswordInput
+                            id="currentPassword"
+                            value={currentPassword}
+                            placeholder="Enter your current password"
+                            onChange={(event) => setCurrentPassword(event.target.value)}
+                            autoComplete="current-password"
+                            disabled={isSubmitting}
+                            required
+                        />
+                    </div>
+                )}
+
                 <div className="space-y-2">
                     <Label htmlFor="password" className="text-xs font-medium text-muted-foreground">
                         Vault password

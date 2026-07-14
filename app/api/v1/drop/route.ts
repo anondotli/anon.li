@@ -10,6 +10,7 @@ import { z } from "zod"
 import { apiError, apiList, apiSuccess, ErrorCodes, zodErrorToDetails } from "@/lib/api-response"
 import { checkVaultIdentity, vaultIdentityErrorResponse } from "@/lib/vault/identity"
 import { getDropLimits } from "@/lib/limits"
+import { isOrgScope, ownerWhere, type OwnerScope } from "@/lib/ownership"
 import { prisma } from "@/lib/prisma"
 import { getClientIp, checkRateLimit, rateLimiters } from "@/lib/rate-limit"
 import { withPolicy, scopeFromContext } from "@/lib/route-policy"
@@ -137,6 +138,7 @@ export const POST = withPolicy(
         }
 
         const { ownerKey, turnstileToken, ...dropInput } = validation.data
+        const scope: OwnerScope | null = ctx.userId ? scopeFromContext(ctx) : null
 
         if (!ctx.userId) {
             const turnstileError = await getTurnstileError(turnstileToken)
@@ -166,22 +168,37 @@ export const POST = withPolicy(
             )
         }
 
-        if (ownerKey && ctx.userId) {
-            const security = await prisma.userSecurity.findUnique({
-                where: { userId: ctx.userId },
-                select: { id: true, vaultGeneration: true },
-            })
-            const identityError = vaultIdentityErrorResponse(
-                checkVaultIdentity(security, {
-                    vaultId: ownerKey.vaultId,
-                    vaultGeneration: ownerKey.vaultGeneration,
-                }),
-                ctx.requestId
-            )
-            if (identityError) return identityError
+        let orgBinding: { organizationId: string; orgKeyGeneration: number } | undefined
+        if (ownerKey && scope) {
+            if (isOrgScope(scope)) {
+                const organization = await prisma.organization.findUnique({
+                    where: { id: scope.organizationId },
+                    select: { orgKeyGeneration: true },
+                })
+                if (!organization || organization.orgKeyGeneration < 1) {
+                    return apiError("Team encryption key is not set up yet", ErrorCodes.CONFLICT, ctx.requestId, 409)
+                }
+                orgBinding = {
+                    organizationId: scope.organizationId,
+                    orgKeyGeneration: organization.orgKeyGeneration,
+                }
+            } else {
+                const security = await prisma.userSecurity.findUnique({
+                    where: { userId: scope.userId },
+                    select: { id: true, vaultGeneration: true },
+                })
+                const identityError = vaultIdentityErrorResponse(
+                    checkVaultIdentity(security, {
+                        vaultId: ownerKey.vaultId,
+                        vaultGeneration: ownerKey.vaultGeneration,
+                    }),
+                    ctx.requestId
+                )
+                if (identityError) return identityError
+            }
         }
 
-        const result = await DropService.createDrop(ctx.userId ? scopeFromContext(ctx) : null, dropInput)
+        const result = await DropService.createDrop(scope, dropInput)
 
         if (ownerKey && ctx.userId) {
             try {
@@ -191,12 +208,13 @@ export const POST = withPolicy(
                     result.dropId,
                     ownerKey.wrappedKey,
                     ownerKey.vaultGeneration,
+                    orgBinding,
                 )
             } catch (error) {
                 await prisma.drop.deleteMany({
                     where: {
                         id: result.dropId,
-                        userId: ctx.userId,
+                        ...(scope ? ownerWhere(scope) : { userId: ctx.userId }),
                         uploadComplete: false,
                     },
                 })

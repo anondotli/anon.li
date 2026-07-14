@@ -13,11 +13,14 @@ const prisma = {
     userSecurity: {
         findUnique: vi.fn(),
     },
-    drop: {
+    organization: {
         findUnique: vi.fn(),
     },
+    drop: {
+        findFirst: vi.fn(),
+    },
     dropOwnerKey: {
-        findUnique: vi.fn(),
+        findFirst: vi.fn(),
         findMany: vi.fn(),
     },
 }
@@ -43,6 +46,8 @@ const mockPolicyContext: {
         }>
     } | null
     apiKeyId?: string
+    organizationId: string | null
+    orgRole: "member" | "admin" | "owner" | null
     rateLimitHeaders: Headers | null
 } = {
     userId: "user-123",
@@ -52,6 +57,8 @@ const mockPolicyContext: {
         subscriptions: [],
     },
     apiKeyId: "api-key-123",
+    organizationId: null,
+    orgRole: null,
     rateLimitHeaders: null,
 }
 
@@ -61,6 +68,11 @@ vi.mock("@/lib/route-policy", () => ({
             ...mockPolicyContext,
             request,
         }, routeContext),
+    scopeFromContext: (ctx: typeof mockPolicyContext) => ({
+        userId: ctx.userId,
+        organizationId: ctx.organizationId,
+        role: ctx.orgRole,
+    }),
 }))
 
 vi.mock("@/lib/prisma", () => ({
@@ -103,6 +115,8 @@ describe("extension parity routes", () => {
             id: "user-123",
             subscriptions: [],
         }
+        mockPolicyContext.organizationId = null
+        mockPolicyContext.orgRole = null
 
         getEffectiveTier.mockReturnValue("plus")
         getDisplayPlanLimits.mockReturnValue({
@@ -155,20 +169,23 @@ describe("extension parity routes", () => {
             id: "cmau000000000000000000001",
             vaultGeneration: 4,
         })
-        prisma.drop.findUnique.mockResolvedValue({
-            userId: "user-123",
+        prisma.drop.findFirst.mockResolvedValue({
+            id: "drop-123",
         })
-        prisma.dropOwnerKey.findUnique.mockResolvedValue({
-            userId: "user-123",
+        prisma.dropOwnerKey.findFirst.mockResolvedValue({
             dropId: "drop-123",
             wrappedKey: "wrapped-key-123456789012345678901234",
             vaultGeneration: 4,
+            organizationId: null,
+            orgKeyGeneration: null,
         })
         prisma.dropOwnerKey.findMany.mockResolvedValue([
             {
                 dropId: "drop-123",
                 wrappedKey: "wrapped-key-123456789012345678901234",
                 vaultGeneration: 4,
+                organizationId: null,
+                orgKeyGeneration: null,
             },
         ])
     })
@@ -204,12 +221,7 @@ describe("extension parity routes", () => {
     })
 
     it("rejects access to another user's wrapped drop key", async () => {
-        prisma.dropOwnerKey.findUnique.mockResolvedValueOnce({
-            userId: "other-user",
-            dropId: "drop-123",
-            wrappedKey: "wrapped-key-123456789012345678901234",
-            vaultGeneration: 4,
-        })
+        prisma.dropOwnerKey.findFirst.mockResolvedValueOnce(null)
 
         const { GET } = await import("@/app/api/v1/vault/drop-keys/route")
         const response = await GET(new Request("http://localhost/api/v1/vault/drop-keys?drop_id=drop-123"))
@@ -239,6 +251,7 @@ describe("extension parity routes", () => {
             "drop-123",
             "wrapped-key-123456789012345678901234",
             4,
+            undefined,
         )
         expect(payload.data).toEqual({
             drop_id: "drop-123",

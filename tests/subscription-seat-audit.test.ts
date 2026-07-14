@@ -56,11 +56,36 @@ beforeEach(() => {
 
 describe("upsertStripeSubscription — seat-change audit", () => {
     it("audits when an org sub's seats change", async () => {
-        prisma.subscription.findUnique.mockResolvedValue({ seats: 3 })
+        prisma.subscription.findUnique.mockResolvedValue({ seats: 3, organizationId: "org-9" })
         await upsertStripeSubscription("owner-1", makeSub({ seats: 5 }))
         expect(audit).toHaveBeenCalledWith({
             action: "org.billing.seats_change",
             actorId: "owner-1",
+            targetId: "sub_123",
+            organizationId: "org-9",
+            metadata: { from: 3, to: 5 },
+        })
+    })
+
+    it("keeps canonical organization ownership when Stripe metadata conflicts", async () => {
+        prisma.subscription.findUnique.mockResolvedValue({ seats: 3, organizationId: "org-canonical" })
+
+        await upsertStripeSubscription("owner-1", makeSub({ seats: 5, organizationId: "org-metadata" }))
+
+        expect(prisma.subscription.upsert).toHaveBeenCalledWith(expect.objectContaining({
+            update: expect.objectContaining({ organizationId: "org-canonical" }),
+        }))
+        expect(audit).toHaveBeenCalledWith(expect.objectContaining({
+            organizationId: "org-canonical",
+        }))
+    })
+
+    it("uses the system actor when the org subscription buyer was deleted", async () => {
+        prisma.subscription.findUnique.mockResolvedValue({ seats: 3, organizationId: "org-9" })
+        await upsertStripeSubscription(null, makeSub({ seats: 5, organizationId: null }))
+        expect(audit).toHaveBeenCalledWith({
+            action: "org.billing.seats_change",
+            actorId: "system",
             targetId: "sub_123",
             organizationId: "org-9",
             metadata: { from: 3, to: 5 },

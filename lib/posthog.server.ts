@@ -1,6 +1,6 @@
 import "server-only"
 import { PostHog } from "posthog-node"
-import { sanitizeObject, sanitizeString, setErrorSink } from "@/lib/logger"
+import { sanitizeError, sanitizeObject, sanitizeString, setErrorSink } from "@/lib/logger"
 
 // Server-side PostHog: error tracking (via the logger sink) + authoritative,
 // ad-blocker-proof server events (e.g. subscription_activated). Singleton reused
@@ -63,9 +63,10 @@ export function initPostHogServer(): void {
 
     setErrorSink((context, message, error, data) => {
         const raw = error instanceof Error ? error : new Error(message)
-        const safe = new Error(sanitizeString(raw.message))
-        safe.name = raw.name
-        safe.stack = raw.stack
+        const sanitizedError = sanitizeError(raw, true)
+        const safe = new Error(sanitizedError.message)
+        safe.name = sanitizeString(raw.name)
+        if (sanitizedError.stack) safe.stack = sanitizedError.stack
         const props = sanitizeObject({ logger_context: context, message, data }) as Record<string, unknown>
         try {
             ph.captureException(safe, "server", props)

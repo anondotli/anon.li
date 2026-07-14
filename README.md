@@ -76,10 +76,7 @@ Before opening a pull request, run the same checks enforced by CI:
 
 ```bash
 bun run audit
-bun run lint
-bun run typecheck
-bun run test
-bun run build
+bun run check  # lint, type-check, test, and production build
 ```
 
 ### Production deployment

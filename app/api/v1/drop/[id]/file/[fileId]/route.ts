@@ -11,7 +11,8 @@ import { NextRequest, NextResponse } from "next/server"
 import { z } from "zod"
 
 import { prisma } from "@/lib/prisma"
-import { withPolicy } from "@/lib/route-policy"
+import { isWithinScope, type OwnerScope } from "@/lib/ownership"
+import { scopeFromContext, withPolicy } from "@/lib/route-policy"
 import { DropService } from "@/lib/services/drop"
 import { deletePendingDropFileAndReleaseQuota } from "@/lib/services/drop-storage"
 import { resolveDownloadAccess, recordAccessEvent } from "@/lib/services/drop-recipient"
@@ -188,6 +189,7 @@ export const DELETE = withPolicy<RouteParams>(
         try {
             const { id: dropId, fileId } = await routeContext.params
             let effectiveUserId = ctx.userId
+            let authenticatedScope: OwnerScope | null = null
             const hasUploadToken = Boolean(ctx.request.headers.get("x-upload-token"))
 
             // Token-bound aborts are bound to the upload token — without a valid
@@ -200,6 +202,8 @@ export const DELETE = withPolicy<RouteParams>(
                 effectiveUserId = access.effectiveUserId
             } else if (!ctx.userId) {
                 return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+            } else {
+                authenticatedScope = scopeFromContext(ctx)
             }
 
             const body = await ctx.request.json().catch(() => ({}))
@@ -228,13 +232,21 @@ export const DELETE = withPolicy<RouteParams>(
                 return NextResponse.json({ error: "Unauthorized upload ID" }, { status: 401 })
             }
 
-            // Ownership mode must match: authenticated caller must own the
-            // drop; guest caller must be acting on a guest drop (userId null).
-            if (effectiveUserId) {
-                if (file.drop.userId !== effectiveUserId) {
+            if (hasUploadToken) {
+                // Preserve token-bound ownership semantics for guest and form
+                // uploads: the token, rather than the caller's active scope,
+                // authorizes the abort.
+                if (effectiveUserId) {
+                    if (file.drop.userId !== effectiveUserId) {
+                        return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+                    }
+                } else if (file.drop.userId !== null) {
                     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
                 }
-            } else if (file.drop.userId !== null) {
+            } else if (!authenticatedScope || !isWithinScope(file.drop, authenticatedScope)) {
+                // Session/API-key calls are scoped to the resolved tenant. This
+                // prevents an active org context from reaching the actor's
+                // personal drops while allowing any member to act on org drops.
                 return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
             }
 

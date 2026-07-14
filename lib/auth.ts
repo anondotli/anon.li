@@ -1,8 +1,9 @@
 import { betterAuth } from "better-auth"
 import { prismaAdapter } from "better-auth/adapters/prisma"
 import { twoFactor, magicLink, mcp, captcha, organization } from "better-auth/plugins"
-import { createAuthMiddleware } from "better-auth/api"
+import { createAuthMiddleware, getSessionFromCtx } from "better-auth/api"
 import { APIError } from "@better-auth/core/error"
+import { createHmac } from "node:crypto"
 import { prisma } from "@/lib/prisma"
 import {
     sendAccountVerificationEmail,
@@ -25,6 +26,29 @@ import { MCP_DEFAULT_SCOPE, MCP_OAUTH_SCOPES } from "@/lib/mcp/oauth-metadata"
 import { purgePersonalVaultKeysOps } from "@/lib/vault/personal-purge"
 
 const ACCOUNT_DELETION_PENDING_MESSAGE = "Account deletion is already in progress for this user."
+
+function normalizeAuthEmail(value: unknown): string | null {
+    if (typeof value !== "string") return null
+    const normalized = value.trim().toLowerCase()
+    return normalized.length > 0 ? normalized : null
+}
+
+/**
+ * Build a stable, opaque limiter key from sensitive auth input. The normalized
+ * email or actor id must influence the bucket, but must never appear in Redis
+ * errors or logs (rate-limit.ts logs identifiers when Upstash is unavailable).
+ */
+function authRateLimitIdentifier(kind: "actor" | "target", value: string): string {
+    const secret = process.env.AUTH_SECRET
+    if (!secret) throw new Error("AUTH_SECRET is required for auth rate limiting")
+
+    const digest = createHmac("sha256", secret)
+        .update(`auth-rate-limit:${kind}:`)
+        .update(value)
+        .digest("hex")
+
+    return `${kind}:${digest}`
+}
 
 /**
  * The user who PERFORMED the current request, for org member-lifecycle audit
@@ -155,6 +179,7 @@ export const auth = betterAuth({
                         }
                         return { data: { ...organization, name: result.name } }
                     }
+                    return undefined
                 },
                 afterAddMember: async ({ member, organization }) => {
                     const actorId = (await resolveActorId()) ?? member.userId
@@ -259,8 +284,12 @@ export const auth = betterAuth({
                     if (ipLimit) {
                         return false
                     }
-                    if (user.email) {
-                        const emailLimit = await rateLimit("loginRegister", user.email)
+                    const email = normalizeAuthEmail(user.email)
+                    if (email) {
+                        const emailLimit = await rateLimit(
+                            "loginRegister",
+                            authRateLimitIdentifier("target", email),
+                        )
                         if (emailLimit) {
                             return false
                         }
@@ -288,18 +317,91 @@ export const auth = betterAuth({
                     code,
                 })
 
+            const targetEmail = () => {
+                const email = normalizeAuthEmail((ctx.body as { email?: unknown } | undefined)?.email)
+                return email ? authRateLimitIdentifier("target", email) : null
+            }
+
+            const enforce = async (
+                attempts: ReadonlyArray<readonly [type: Parameters<typeof rateLimit>[0], identifier?: string]>,
+                code: string,
+            ) => {
+                const results = await Promise.all(attempts.map(([type, identifier]) =>
+                    identifier === undefined ? rateLimit(type) : rateLimit(type, identifier),
+                ))
+                if (results.some(Boolean)) throw tooManyRequests(code)
+            }
+
             // Credential sign-in: throttle by client IP and by submitted email
             // (mirrors the sign-up guard in databaseHooks.user.create).
             if (ctx.path === "/sign-in/email") {
-                if (await rateLimit("signIn")) {
-                    throw tooManyRequests("SIGN_IN_RATE_LIMITED")
-                }
-                const rawEmail = (ctx.body as { email?: unknown } | undefined)?.email
-                if (typeof rawEmail === "string" && rawEmail.length > 0) {
-                    if (await rateLimit("signIn", `email:${rawEmail.toLowerCase()}`)) {
-                        throw tooManyRequests("SIGN_IN_RATE_LIMITED")
-                    }
-                }
+                const target = targetEmail()
+                await enforce(
+                    target ? [["signIn"], ["signIn", target]] : [["signIn"]],
+                    "SIGN_IN_RATE_LIMITED",
+                )
+                return
+            }
+
+            // Magic links are login credentials delivered over email. Turnstile
+            // remains required by the captcha plugin, and these Upstash buckets
+            // additionally bound valid CAPTCHA submissions and mailbox flooding.
+            if (ctx.path === "/sign-in/magic-link") {
+                const target = targetEmail()
+                await enforce(
+                    target ? [["signIn"], ["signIn", target]] : [["signIn"]],
+                    "MAGIC_LINK_RATE_LIMITED",
+                )
+                return
+            }
+
+            // The public reset-request endpoint must receive the same IP and
+            // per-mailbox protection as the server action that normally calls it.
+            if (ctx.path === "/request-password-reset") {
+                const target = targetEmail()
+                await enforce(
+                    target
+                        ? [["passwordReset"], ["passwordResetEmail", target]]
+                        : [["passwordReset"]],
+                    "PASSWORD_RESET_RATE_LIMITED",
+                )
+                return
+            }
+
+            // Bound repeated token guesses and expensive password hashing. Never
+            // key on (or log) the reset token itself.
+            if (ctx.path === "/reset-password") {
+                await enforce([["passwordReset"]], "PASSWORD_RESET_RATE_LIMITED")
+                return
+            }
+
+            // Verification-email resend is public when there is no session, so it
+            // needs both a network ceiling and a stable per-mailbox ceiling.
+            if (ctx.path === "/send-verification-email") {
+                const target = targetEmail()
+                await enforce(
+                    target ? [["emailResend"], ["emailResend", target]] : [["emailResend"]],
+                    "EMAIL_VERIFICATION_RATE_LIMITED",
+                )
+                return
+            }
+
+            // Better Auth handles new invitations and resends through the same
+            // endpoint (`resend: true`). Protect the source IP, authenticated
+            // inviter, and recipient mailbox so none can independently send an
+            // unbounded number of messages.
+            if (ctx.path === "/organization/invite-member") {
+                const session = ctx.context.session ?? await getSessionFromCtx(ctx)
+                const target = targetEmail()
+                const actor = session?.user.id
+                    ? authRateLimitIdentifier("actor", session.user.id)
+                    : null
+                const attempts: Array<readonly [type: Parameters<typeof rateLimit>[0], identifier?: string]> = [
+                    ["orgInvite"],
+                ]
+                if (actor) attempts.push(["orgInvite", actor])
+                if (target) attempts.push(["orgInvite", target])
+                await enforce(attempts, "ORG_INVITE_RATE_LIMITED")
                 return
             }
 

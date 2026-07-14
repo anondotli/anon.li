@@ -1,3 +1,5 @@
+import "server-only"
+
 import Stripe from "stripe"
 
 // Validate required Stripe environment variables at startup

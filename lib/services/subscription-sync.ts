@@ -38,7 +38,7 @@ export function mapStripeStatus(stripeStatus: Stripe.Subscription.Status): strin
  * Returns true if the upsert succeeded, false if skipped (unknown price).
  */
 export async function upsertStripeSubscription(
-    userId: string,
+    userId: string | null,
     subscription: Stripe.Subscription,
 ): Promise<boolean> {
     const priceId = subscription.items.data[0]?.price.id
@@ -73,7 +73,9 @@ export async function upsertStripeSubscription(
         where: { providerSubscriptionId: subscription.id },
         select: { seats: true, organizationId: true },
     })
-    const organizationId = subscription.metadata?.organizationId || existing?.organizationId || null
+    const organizationId = existing
+        ? existing.organizationId
+        : (subscription.metadata?.organizationId || null)
     // Default to the PRIOR seat count (never silently shrink to 1) when Stripe
     // omits the item quantity on a webhook payload.
     const seats = item?.quantity ?? existing?.seats ?? 1
@@ -116,7 +118,9 @@ export async function upsertStripeSubscription(
     if (organizationId && priorSeats !== null && priorSeats !== seats) {
         void audit({
             action: "org.billing.seats_change",
-            actorId: userId,
+            // The original buyer may have deleted their account while the
+            // subscription remains owned by the organization.
+            actorId: userId ?? "system",
             targetId: subscription.id,
             organizationId,
             metadata: { from: priorSeats, to: seats },
@@ -161,7 +165,11 @@ export async function syncSubscriptionFromStripe(userId: string): Promise<{
 
         try {
             const subscription = await stripe.subscriptions.retrieve(sub.providerSubscriptionId)
-            await upsertStripeSubscription(userId, subscription)
+            const upserted = await upsertStripeSubscription(userId, subscription)
+            if (!upserted) {
+                lastError = `Stripe subscription ${subscription.id} has an unconfigured price`
+                continue
+            }
             synced++
         } catch (error) {
             logger.error("Failed to sync subscription from Stripe", error, { subscriptionId: sub.providerSubscriptionId })

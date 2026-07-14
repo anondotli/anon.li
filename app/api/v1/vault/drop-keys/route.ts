@@ -1,8 +1,9 @@
 import { z } from "zod"
 
 import { apiError, apiSuccess, ErrorCodes, withNoStore } from "@/lib/api-response"
+import { isOrgScope, ownerWhere } from "@/lib/ownership"
 import { prisma } from "@/lib/prisma"
-import { withPolicy } from "@/lib/route-policy"
+import { scopeFromContext, withPolicy } from "@/lib/route-policy"
 import {
     DropOwnerKeyConflictError,
     persistOwnedDropKey,
@@ -32,21 +33,27 @@ export const GET = withPolicy(
             return withNoStore(apiError("Unauthorized", ErrorCodes.UNAUTHORIZED, ctx.requestId, 401))
         }
 
+        const scope = scopeFromContext(ctx)
         const url = new URL(ctx.request.url)
         const dropId = url.searchParams.get("drop_id") || url.searchParams.get("dropId")
 
         if (dropId) {
-            const dropKey = await prisma.dropOwnerKey.findUnique({
-                where: { dropId },
+            const dropKey = await prisma.dropOwnerKey.findFirst({
+                where: {
+                    dropId,
+                    ...ownerWhere(scope),
+                    drop: ownerWhere(scope),
+                },
                 select: {
-                    userId: true,
                     dropId: true,
                     wrappedKey: true,
                     vaultGeneration: true,
+                    organizationId: true,
+                    orgKeyGeneration: true,
                 },
             })
 
-            if (!dropKey || dropKey.userId !== ctx.userId) {
+            if (!dropKey) {
                 return withNoStore(apiError("Drop key not found", ErrorCodes.NOT_FOUND, ctx.requestId, 404))
             }
 
@@ -54,16 +61,27 @@ export const GET = withPolicy(
                 drop_id: dropKey.dropId,
                 wrapped_key: dropKey.wrappedKey,
                 vault_generation: dropKey.vaultGeneration,
+                ...(dropKey.organizationId
+                    ? {
+                        organization_id: dropKey.organizationId,
+                        org_key_generation: dropKey.orgKeyGeneration,
+                    }
+                    : {}),
             }, ctx.requestId))
         }
 
         const dropKeys = await prisma.dropOwnerKey.findMany({
-            where: { userId: ctx.userId },
+            where: {
+                ...ownerWhere(scope),
+                drop: ownerWhere(scope),
+            },
             orderBy: { updatedAt: "desc" },
             select: {
                 dropId: true,
                 wrappedKey: true,
                 vaultGeneration: true,
+                organizationId: true,
+                orgKeyGeneration: true,
             },
         })
 
@@ -71,6 +89,12 @@ export const GET = withPolicy(
             drop_id: dropKey.dropId,
             wrapped_key: dropKey.wrappedKey,
             vault_generation: dropKey.vaultGeneration,
+            ...(dropKey.organizationId
+                ? {
+                    organization_id: dropKey.organizationId,
+                    org_key_generation: dropKey.orgKeyGeneration,
+                }
+                : {}),
         })), ctx.requestId))
     },
 )
@@ -85,37 +109,52 @@ export const POST = withPolicy(
             return withNoStore(apiError("Unauthorized", ErrorCodes.UNAUTHORIZED, ctx.requestId, 401))
         }
 
+        const scope = scopeFromContext(ctx)
         const body = await ctx.request.json().catch(() => null)
         const validation = storeDropKeySchema.safeParse(body)
         if (!validation.success) {
             return withNoStore(apiError("Invalid request body", ErrorCodes.VALIDATION_ERROR, ctx.requestId, 400))
         }
 
-        const [security, drop] = await Promise.all([
-            prisma.userSecurity.findUnique({
-                where: { userId: ctx.userId },
-                select: { id: true, vaultGeneration: true },
-            }),
-            prisma.drop.findUnique({
-                where: { id: validation.data.drop_id },
-                select: { userId: true },
-            }),
-        ])
+        const drop = await prisma.drop.findFirst({
+            where: { id: validation.data.drop_id, ...ownerWhere(scope) },
+            select: { id: true },
+        })
 
-        if (!security) {
-            return withNoStore(apiError("Vault security is not configured", ErrorCodes.NOT_FOUND, ctx.requestId, 404))
-        }
-
-        if (!drop || drop.userId !== ctx.userId) {
+        if (!drop) {
             return withNoStore(apiError("Drop not found", ErrorCodes.NOT_FOUND, ctx.requestId, 404))
         }
 
-        if (validation.data.vault_id !== security.id) {
-            return withNoStore(apiError("Vault identity mismatch", ErrorCodes.CONFLICT, ctx.requestId, 409))
-        }
+        let orgBinding: { organizationId: string; orgKeyGeneration: number } | undefined
+        if (isOrgScope(scope)) {
+            const organization = await prisma.organization.findUnique({
+                where: { id: scope.organizationId },
+                select: { orgKeyGeneration: true },
+            })
+            if (!organization || organization.orgKeyGeneration < 1) {
+                return withNoStore(apiError("Team encryption key is not set up yet", ErrorCodes.CONFLICT, ctx.requestId, 409))
+            }
+            orgBinding = {
+                organizationId: scope.organizationId,
+                orgKeyGeneration: organization.orgKeyGeneration,
+            }
+        } else {
+            const security = await prisma.userSecurity.findUnique({
+                where: { userId: scope.userId },
+                select: { id: true, vaultGeneration: true },
+            })
 
-        if (validation.data.vault_generation !== security.vaultGeneration) {
-            return withNoStore(apiError("Vault generation mismatch", ErrorCodes.CONFLICT, ctx.requestId, 409))
+            if (!security) {
+                return withNoStore(apiError("Vault security is not configured", ErrorCodes.NOT_FOUND, ctx.requestId, 404))
+            }
+
+            if (validation.data.vault_id !== security.id) {
+                return withNoStore(apiError("Vault identity mismatch", ErrorCodes.CONFLICT, ctx.requestId, 409))
+            }
+
+            if (validation.data.vault_generation !== security.vaultGeneration) {
+                return withNoStore(apiError("Vault generation mismatch", ErrorCodes.CONFLICT, ctx.requestId, 409))
+            }
         }
 
         try {
@@ -125,6 +164,7 @@ export const POST = withPolicy(
                 validation.data.drop_id,
                 validation.data.wrapped_key,
                 validation.data.vault_generation,
+                orgBinding,
             )
         } catch (error) {
             if (error instanceof DropOwnerKeyConflictError) {
@@ -137,6 +177,12 @@ export const POST = withPolicy(
         return withNoStore(apiSuccess({
             drop_id: validation.data.drop_id,
             vault_generation: validation.data.vault_generation,
+            ...(orgBinding
+                ? {
+                    organization_id: orgBinding.organizationId,
+                    org_key_generation: orgBinding.orgKeyGeneration,
+                }
+                : {}),
         }, ctx.requestId))
     },
 )

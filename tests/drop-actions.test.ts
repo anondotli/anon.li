@@ -120,10 +120,13 @@ describe("createDropAction", () => {
             where: {
                 dropId: "drop-123",
                 userId: "user-123",
+                organizationId: null,
             },
             data: {
                 wrappedKey: "wrapped-key-material",
                 vaultGeneration: 3,
+                organizationId: null,
+                orgKeyGeneration: null,
             },
         })
         expect(prisma.dropOwnerKey.create).toHaveBeenCalledWith({
@@ -132,6 +135,8 @@ describe("createDropAction", () => {
                 userId: "user-123",
                 wrappedKey: "wrapped-key-material",
                 vaultGeneration: 3,
+                organizationId: null,
+                orgKeyGeneration: null,
             },
         })
         expect(result).toEqual({

@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-require-imports */
 import type { Config } from "tailwindcss";
 
 const config: Config = {
@@ -81,6 +80,5 @@ const config: Config = {
             }
         }
     },
-    plugins: [require("tailwindcss-animate")],
 };
 export default config;

@@ -1,3 +1,5 @@
+import "server-only";
+
 import { Ratelimit, type Duration } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis";
 import { NextResponse } from "next/server";
@@ -117,10 +119,10 @@ export type RateLimitKey = keyof typeof rateLimiters
 /**
  * Auth-critical limiters that must FAIL CLOSED when Redis is unreachable.
  * For general traffic, failing open on a Redis outage is the right call (don't
- * self-DoS). But for sign-in, 2FA, sign-up, and password reset, failing open
- * removes the ONLY brute-force protection (better-auth's built-in limiter is
- * disabled), so a Redis outage would expose every account to unlimited guessing.
- * For these, an outage should deny rather than wave attackers through.
+ * self-DoS). But for sign-in, 2FA, sign-up, password reset, and auth-triggered
+ * email delivery, failing open removes the only abuse protection (better-auth's
+ * built-in limiter is disabled), so an outage should deny rather than allow an
+ * unbounded number of attempts/messages.
  */
 const FAIL_CLOSED_LIMITERS: ReadonlySet<RateLimitKey> = new Set([
   "auth",
@@ -130,6 +132,8 @@ const FAIL_CLOSED_LIMITERS: ReadonlySet<RateLimitKey> = new Set([
   "twoFactorVerifyIp",
   "passwordReset",
   "passwordResetEmail",
+  "emailResend",
+  "orgInvite",
 ])
 
 /**

@@ -1,8 +1,9 @@
 import { z } from "zod"
 
 import { apiError, apiSuccess, ErrorCodes, withNoStore, zodErrorToDetails } from "@/lib/api-response"
+import { isOrgScope } from "@/lib/ownership"
 import { prisma } from "@/lib/prisma"
-import { withPolicy } from "@/lib/route-policy"
+import { scopeFromContext, withPolicy } from "@/lib/route-policy"
 import { verifyCredentialSecret } from "@/lib/vault/server"
 import { authSecretSchema } from "@/lib/vault/validation"
 
@@ -20,6 +21,9 @@ export const POST = withPolicy(
     async (ctx) => {
         if (!ctx.userId) {
             return withNoStore(apiError("Unauthorized", ErrorCodes.UNAUTHORIZED, ctx.requestId, 401))
+        }
+        if (isOrgScope(scopeFromContext(ctx))) {
+            return withNoStore(apiError("A personal API key is required", ErrorCodes.FORBIDDEN, ctx.requestId, 403))
         }
 
         const body = await ctx.request.json().catch(() => null)

@@ -1,3 +1,5 @@
+import "server-only";
+
 import { NodeHttpHandler } from "@smithy/node-http-handler";
 import {
   S3Client,

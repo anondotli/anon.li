@@ -88,6 +88,20 @@ vi.mock('@/lib/services/subscription-sync', () => ({
     upsertStripeSubscription: mockUpsertStripeSubscription,
 }))
 
+const { mockHandleOrgSubscriptionLoss } = vi.hoisted(() => ({
+    mockHandleOrgSubscriptionLoss: vi.fn().mockResolvedValue(undefined),
+}))
+vi.mock('@/lib/services/org-billing', () => ({
+    handleOrgSubscriptionLoss: mockHandleOrgSubscriptionLoss,
+}))
+
+const { mockGetOrgAdminEmails } = vi.hoisted(() => ({
+    mockGetOrgAdminEmails: vi.fn().mockResolvedValue(['owner@example.com', 'admin@example.com']),
+}))
+vi.mock('@/lib/data/organization', () => ({
+    getOrgAdminEmails: mockGetOrgAdminEmails,
+}))
+
 // Create mock functions for resend
 const mockSendSubscriptionCanceledEmail = vi.fn().mockResolvedValue({ success: true })
 const mockSendPaymentActionRequiredEmail = vi.fn().mockResolvedValue({ success: true })
@@ -143,6 +157,7 @@ const mockSubscriptionsRetrieve = stripe.subscriptions.retrieve as Mock
 const mockUserFindUnique = prisma.user.findUnique as Mock
 const mockUserUpdate = prisma.user.update as Mock
 const mockDropUpdateMany = prisma.drop.updateMany as Mock
+const mockSubscriptionFindUnique = prisma.subscription.findUnique as Mock
 
 describe('Stripe Webhook Handler', () => {
     beforeEach(() => {
@@ -152,6 +167,11 @@ describe('Stripe Webhook Handler', () => {
         mockRedisSet.mockResolvedValue('OK')
         mockRedisDel.mockReset()
         mockRedisDel.mockResolvedValue(1)
+        mockSubscriptionFindUnique.mockResolvedValue({
+            userId: 'user_123',
+            organizationId: null,
+            user: { id: 'user_123', email: 'test@example.com' },
+        })
         process.env = {
             ...originalEnv,
             STRIPE_SECRET_KEY: 'sk_test_123',
@@ -247,6 +267,67 @@ describe('Stripe Webhook Handler', () => {
 
             const response = await POST(request)
             expect(response.status).toBe(500)
+        })
+
+        it('releases an unknown-price event so it succeeds after configuration is restored', async () => {
+            mockConstructEvent.mockReturnValue({
+                id: 'evt_unknown_price',
+                type: 'checkout.session.completed',
+                data: {
+                    object: {
+                        id: 'cs_unknown_price',
+                        metadata: { userId: 'user_123' },
+                        customer: 'cus_123',
+                        subscription: 'sub_unknown_price',
+                    },
+                },
+            } as never)
+            mockSubscriptionsRetrieve.mockResolvedValue({
+                id: 'sub_unknown_price',
+                customer: 'cus_123',
+                items: { data: [{ price: { id: 'price_not_configured' } }] },
+            } as never)
+            mockUpsertStripeSubscription
+                .mockResolvedValueOnce(false)
+                .mockResolvedValueOnce(true)
+
+            const makeRequest = () => new Request('http://localhost/api/webhooks/stripe', {
+                method: 'POST',
+                body: JSON.stringify({}),
+            })
+
+            const firstResponse = await POST(makeRequest())
+            expect(firstResponse.status).toBe(500)
+            expect(mockRedisDel).toHaveBeenCalledWith('stripe:event:evt_unknown_price')
+            expect(mockCancelDowngrade).not.toHaveBeenCalled()
+
+            const retryResponse = await POST(makeRequest())
+            expect(retryResponse.status).toBe(200)
+            expect(mockUpsertStripeSubscription).toHaveBeenCalledTimes(2)
+            expect(mockCancelDowngrade).toHaveBeenCalledWith('user_123')
+        })
+
+        it('retries when a subscription event arrives before its canonical row exists', async () => {
+            const subscription = {
+                id: 'sub_not_linked_yet',
+                status: 'active',
+                items: { data: [{ price: { id: 'price_123' } }] },
+            }
+            mockConstructEvent.mockReturnValue({
+                id: 'evt_not_linked_yet',
+                type: 'customer.subscription.updated',
+                data: { object: subscription },
+            } as never)
+            mockSubscriptionFindUnique.mockResolvedValueOnce(null)
+
+            const response = await POST(new Request('http://localhost/api/webhooks/stripe', {
+                method: 'POST',
+                body: JSON.stringify({}),
+            }))
+
+            expect(response.status).toBe(500)
+            expect(mockRedisDel).toHaveBeenCalledWith('stripe:event:evt_not_linked_yet')
+            expect(mockUpsertStripeSubscription).not.toHaveBeenCalled()
         })
     })
 
@@ -360,6 +441,141 @@ describe('Stripe Webhook Handler', () => {
 
             const response = await POST(request)
             expect(response.status).toBe(200)
+        })
+
+        describe('organization subscription with a deleted buyer', () => {
+            const canonicalOrgOwner = {
+                userId: null,
+                organizationId: 'org_123',
+                user: null,
+            }
+
+            function makeOrgSubscription(status: string) {
+                return {
+                    id: 'sub_orphaned_org',
+                    status,
+                    customer: 'cus_org_123',
+                    metadata: {}, // canonical org link must survive missing Stripe metadata
+                    current_period_end: Math.floor(Date.now() / 1000) + 86400 * 30,
+                    cancel_at_period_end: false,
+                    items: {
+                        data: [{
+                            price: { id: 'price_123' },
+                            quantity: 7,
+                        }],
+                    },
+                }
+            }
+
+            async function postEvent(type: string, object: unknown, id: string) {
+                mockConstructEvent.mockReturnValue({
+                    id,
+                    type,
+                    data: { object },
+                } as never)
+
+                return POST(new Request('http://localhost/api/webhooks/stripe', {
+                    method: 'POST',
+                    body: JSON.stringify({}),
+                }))
+            }
+
+            it('syncs status and seats on customer.subscription.updated', async () => {
+                const subscription = makeOrgSubscription('active')
+                mockSubscriptionFindUnique.mockResolvedValue(canonicalOrgOwner)
+
+                const response = await postEvent(
+                    'customer.subscription.updated',
+                    subscription,
+                    'evt_orphaned_org_updated',
+                )
+
+                expect(response.status).toBe(200)
+                expect(mockUpsertStripeSubscription).toHaveBeenCalledWith(
+                    null,
+                    expect.objectContaining({
+                        id: 'sub_orphaned_org',
+                        status: 'active',
+                        items: { data: [expect.objectContaining({ quantity: 7 })] },
+                    }),
+                )
+                expect(mockHandleOrgSubscriptionLoss).not.toHaveBeenCalled()
+            })
+
+            it('syncs payment failure and applies the org downgrade flow', async () => {
+                const subscription = makeOrgSubscription('past_due')
+                mockSubscriptionFindUnique.mockResolvedValue(canonicalOrgOwner)
+                mockSubscriptionsRetrieve.mockResolvedValue(subscription as never)
+
+                const response = await postEvent(
+                    'invoice.payment_failed',
+                    { id: 'in_orphaned_org', subscription: subscription.id },
+                    'evt_orphaned_org_payment_failed',
+                )
+
+                expect(response.status).toBe(200)
+                expect(mockUpsertStripeSubscription).toHaveBeenCalledWith(null, subscription)
+                expect(mockHandleOrgSubscriptionLoss).toHaveBeenCalledWith('org_123', expect.any(Date))
+                expect(mockRecordDowngrade).not.toHaveBeenCalled()
+                expect(mockSendSubscriptionCanceledEmail).not.toHaveBeenCalled()
+            })
+
+            it('syncs deletion and applies the org downgrade flow', async () => {
+                const subscription = makeOrgSubscription('canceled')
+                mockSubscriptionFindUnique.mockResolvedValue(canonicalOrgOwner)
+
+                const response = await postEvent(
+                    'customer.subscription.deleted',
+                    subscription,
+                    'evt_orphaned_org_deleted',
+                )
+
+                expect(response.status).toBe(200)
+                expect(mockUpsertStripeSubscription).toHaveBeenCalledWith(null, subscription)
+                expect(mockHandleOrgSubscriptionLoss).toHaveBeenCalledWith('org_123', expect.any(Date))
+                expect(mockDropUpdateMany).not.toHaveBeenCalled()
+            })
+
+            it('syncs a resumed org subscription without requiring a personal actor', async () => {
+                const subscription = makeOrgSubscription('active')
+                mockSubscriptionFindUnique.mockResolvedValue(canonicalOrgOwner)
+
+                const response = await postEvent(
+                    'customer.subscription.resumed',
+                    subscription,
+                    'evt_orphaned_org_resumed',
+                )
+
+                expect(response.status).toBe(200)
+                expect(mockUpsertStripeSubscription).toHaveBeenCalledWith(null, subscription)
+                expect(mockCancelDowngrade).not.toHaveBeenCalled()
+            })
+
+            it('notifies current org admins when payment action is required', async () => {
+                mockSubscriptionFindUnique.mockResolvedValue(canonicalOrgOwner)
+
+                const response = await postEvent(
+                    'invoice.payment_action_required',
+                    {
+                        id: 'in_orphaned_org_action',
+                        subscription: 'sub_orphaned_org',
+                        hosted_invoice_url: 'https://stripe.example/invoice',
+                    },
+                    'evt_orphaned_org_action_required',
+                )
+
+                expect(response.status).toBe(200)
+                expect(mockGetOrgAdminEmails).toHaveBeenCalledWith('org_123')
+                expect(mockSendPaymentActionRequiredEmail).toHaveBeenCalledTimes(2)
+                expect(mockSendPaymentActionRequiredEmail).toHaveBeenCalledWith(
+                    'owner@example.com',
+                    'https://stripe.example/invoice',
+                )
+                expect(mockSendPaymentActionRequiredEmail).toHaveBeenCalledWith(
+                    'admin@example.com',
+                    'https://stripe.example/invoice',
+                )
+            })
         })
     })
 })

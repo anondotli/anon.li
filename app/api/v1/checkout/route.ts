@@ -8,7 +8,8 @@ import { z } from "zod"
 
 import { apiError, apiSuccess, ErrorCodes, zodErrorToDetails } from "@/lib/api-response"
 import { getUserBillingState } from "@/lib/data/user"
-import { withPolicy } from "@/lib/route-policy"
+import { isOrgScope } from "@/lib/ownership"
+import { scopeFromContext, withPolicy } from "@/lib/route-policy"
 import { stripe } from "@/lib/stripe"
 import { getStripePriceId } from "@/lib/stripe-prices"
 
@@ -30,6 +31,9 @@ export const POST = withPolicy(
     async (ctx) => {
         if (!ctx.userId) {
             return apiError("Unauthorized - API key required", ErrorCodes.UNAUTHORIZED, ctx.requestId, 401)
+        }
+        if (isOrgScope(scopeFromContext(ctx))) {
+            return apiError("A personal API key is required", ErrorCodes.FORBIDDEN, ctx.requestId, 403)
         }
 
         const body = await ctx.request.json().catch(() => null)
