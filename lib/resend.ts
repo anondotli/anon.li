@@ -1,3 +1,5 @@
+import "server-only"
+
 import React from "react"
 import { Resend } from "resend"
 import { sanitizeEmailSubject, sanitizeEmailUserContent, sanitizeDomain } from "@/lib/utils"

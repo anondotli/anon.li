@@ -1,6 +1,5 @@
 import type { NextConfig } from "next";
-import { HOMEPAGE_LINK_HEADER } from "./config/agent-discovery"
-
+import { HOMEPAGE_LINK_HEADER } from "./config/agent-discovery";
 
 const securityHeaders = [
   {
@@ -64,7 +63,6 @@ const nextConfig: NextConfig = {
   },
   experimental: {
     optimizePackageImports: [
-      'lucide-react',
       '@radix-ui/react-navigation-menu',
       '@radix-ui/react-dialog',
       '@radix-ui/react-dropdown-menu',

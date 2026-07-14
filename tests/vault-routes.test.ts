@@ -24,7 +24,7 @@ const prisma = {
         findUnique: vi.fn(),
     },
     drop: {
-        findUnique: vi.fn(),
+        findFirst: vi.fn(),
     },
     dropOwnerKey: {
         findUnique: vi.fn(),
@@ -119,7 +119,7 @@ describe("vault routes", () => {
             vaultGeneration: 1,
             kdfVersion: 1,
         })
-        prisma.drop.findUnique.mockResolvedValue({ userId: "user-123" })
+        prisma.drop.findFirst.mockResolvedValue({ id: "drop-123" })
         prisma.dropOwnerKey.findUnique.mockResolvedValue({
             userId: "user-123",
             dropId: "drop-123",
@@ -188,15 +188,27 @@ describe("vault routes", () => {
         expect(payload.error?.code).toBe(ErrorCodes.RATE_LIMITED)
     })
 
-    it("rejects vault setup without a session", async () => {
+    it("rejects vault setup from a stale session before mutating credentials", async () => {
+        // getVaultSession returns null when the route requests freshness for a stale session.
         getVaultSession.mockResolvedValueOnce(null)
         const { POST } = await import("@/app/api/vault/setup/route")
 
-        const response = await POST(new Request("http://localhost/api/vault/setup", { method: "POST" }))
+        const response = await POST(new Request("http://localhost/api/vault/setup", {
+            method: "POST",
+            body: JSON.stringify({
+                authSecret: "a".repeat(32),
+                authSalt: "b".repeat(43),
+                vaultSalt: "c".repeat(43),
+                passwordWrappedVaultKey: "d".repeat(64),
+            }),
+        }))
 
         const payload = await readJson(response)
         expect(response.status).toBe(401)
         expect(payload.error?.code).toBe(ErrorCodes.UNAUTHORIZED)
+        expect(getVaultSession).toHaveBeenCalledWith({ require2FA: false, fresh: true })
+        expect(hashCredentialSecret).not.toHaveBeenCalled()
+        expect(prisma.$transaction).not.toHaveBeenCalled()
     })
 
     it("rejects vault setup until 2FA is verified", async () => {
@@ -258,9 +270,11 @@ describe("vault routes", () => {
         expect(response.status).toBe(200)
         expect(payload.data?.vaultId).toBe("cmau000000000000000000001")
         expect(payload.data?.vaultGeneration).toBe(1)
+        expect(getVaultSession).toHaveBeenCalledWith({ require2FA: false, fresh: true })
     })
 
-    it("updates an existing credential account while creating initial vault security", async () => {
+    it("allows vault setup when a credential account has no existing password", async () => {
+        getCredentialAccount.mockResolvedValueOnce({ id: "account-123", password: null })
         prisma.userSecurity.findUnique.mockResolvedValueOnce(null)
         const tx = {
             account: {
@@ -290,9 +304,95 @@ describe("vault routes", () => {
             }),
         }))
 
+        expect(response.status).toBe(200)
+        expect(verifyCredentialSecret).not.toHaveBeenCalled()
+        expect(tx.account.update).toHaveBeenCalledWith({
+            where: { id: "account-123" },
+            data: { password: "hashed-secret" },
+        })
+    })
+
+    it("rejects vault setup when an existing password is omitted without replacing its hash", async () => {
+        prisma.userSecurity.findUnique.mockResolvedValueOnce(null)
+        const { POST } = await import("@/app/api/vault/setup/route")
+
+        const response = await POST(new Request("http://localhost/api/vault/setup", {
+            method: "POST",
+            body: JSON.stringify({
+                authSecret: "a".repeat(32),
+                authSalt: "b".repeat(43),
+                vaultSalt: "c".repeat(43),
+                passwordWrappedVaultKey: "d".repeat(64),
+            }),
+        }))
+
+        const payload = await readJson(response)
+        expect(response.status).toBe(401)
+        expect(payload.error?.message).toBe("Current password is required")
+        expect(verifyCredentialSecret).not.toHaveBeenCalled()
+        expect(hashCredentialSecret).not.toHaveBeenCalled()
+        expect(prisma.$transaction).not.toHaveBeenCalled()
+    })
+
+    it("rejects vault setup when the existing password is wrong without replacing its hash", async () => {
+        prisma.userSecurity.findUnique.mockResolvedValueOnce(null)
+        verifyCredentialSecret.mockResolvedValueOnce(false)
+        const { POST } = await import("@/app/api/vault/setup/route")
+
+        const response = await POST(new Request("http://localhost/api/vault/setup", {
+            method: "POST",
+            body: JSON.stringify({
+                currentPassword: "wrong-password-value",
+                authSecret: "a".repeat(32),
+                authSalt: "b".repeat(43),
+                vaultSalt: "c".repeat(43),
+                passwordWrappedVaultKey: "d".repeat(64),
+            }),
+        }))
+
+        const payload = await readJson(response)
+        expect(response.status).toBe(401)
+        expect(payload.error?.message).toBe("Incorrect password")
+        expect(verifyCredentialSecret).toHaveBeenCalledWith("user-123", "wrong-password-value")
+        expect(hashCredentialSecret).not.toHaveBeenCalled()
+        expect(prisma.$transaction).not.toHaveBeenCalled()
+    })
+
+    it("verifies and updates an existing credential account while creating initial vault security", async () => {
+        prisma.userSecurity.findUnique.mockResolvedValueOnce(null)
+        const tx = {
+            account: {
+                update: vi.fn().mockResolvedValue(undefined),
+                create: vi.fn().mockResolvedValue(undefined),
+            },
+            userSecurity: {
+                create: vi.fn().mockResolvedValue({
+                    id: "cmau000000000000000000001",
+                    vaultGeneration: 1,
+                }),
+            },
+        }
+        prisma.$transaction.mockImplementationOnce(async (callback: unknown) => {
+            if (typeof callback !== "function") return null
+            return callback(tx)
+        })
+        const { POST } = await import("@/app/api/vault/setup/route")
+
+        const response = await POST(new Request("http://localhost/api/vault/setup", {
+            method: "POST",
+            body: JSON.stringify({
+                currentPassword: "legacy-1",
+                authSecret: "a".repeat(32),
+                authSalt: "b".repeat(43),
+                vaultSalt: "c".repeat(43),
+                passwordWrappedVaultKey: "d".repeat(64),
+            }),
+        }))
+
         const payload = await readJson(response)
         expect(response.status).toBe(200)
         expect(payload.data?.vaultGeneration).toBe(1)
+        expect(verifyCredentialSecret).toHaveBeenCalledWith("user-123", "legacy-1")
         expect(tx.account.update).toHaveBeenCalledWith({
             where: { id: "account-123" },
             data: { password: "hashed-secret" },
@@ -404,7 +504,7 @@ describe("vault routes", () => {
             id: "cmau000000000000000000001",
             vaultGeneration: 1,
         })
-        prisma.drop.findUnique.mockResolvedValueOnce({ userId: "user-123" })
+        prisma.drop.findFirst.mockResolvedValueOnce({ id: "drop-123" })
         const { POST } = await import("@/app/api/vault/drop-keys/route")
 
         const response = await POST(new Request("http://localhost/api/vault/drop-keys", {
@@ -427,6 +527,40 @@ describe("vault routes", () => {
             "e".repeat(32),
             1,
         )
+        expect(prisma.drop.findFirst).toHaveBeenCalledWith({
+            where: {
+                id: "drop-123",
+                userId: "user-123",
+                organizationId: null,
+            },
+            select: { id: true },
+        })
+    })
+
+    it("rejects personal drop-key writes for organization-owned drops", async () => {
+        prisma.drop.findFirst.mockResolvedValueOnce(null)
+        const { POST } = await import("@/app/api/vault/drop-keys/route")
+
+        const response = await POST(new Request("http://localhost/api/vault/drop-keys", {
+            method: "POST",
+            body: JSON.stringify({
+                dropId: "org-drop",
+                wrappedKey: "e".repeat(32),
+                vaultId: "cmau000000000000000000001",
+                vaultGeneration: 1,
+            }),
+        }))
+
+        expect(response.status).toBe(404)
+        expect(prisma.drop.findFirst).toHaveBeenCalledWith({
+            where: {
+                id: "org-drop",
+                userId: "user-123",
+                organizationId: null,
+            },
+            select: { id: true },
+        })
+        expect(persistOwnedDropKey).not.toHaveBeenCalled()
     })
 
     it("rejects migration-status without a session", async () => {

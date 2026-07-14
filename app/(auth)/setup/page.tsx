@@ -26,14 +26,28 @@ export default async function SetupPasswordPage({ searchParams }: SetupPageProps
         redirect("/2fa")
     }
 
-    const security = await prisma.userSecurity.findUnique({
-        where: { userId: session.user.id },
-        select: { id: true },
-    })
+    const [security, credentialAccount] = await Promise.all([
+        prisma.userSecurity.findUnique({
+            where: { userId: session.user.id },
+            select: { id: true },
+        }),
+        prisma.account.findFirst({
+            where: {
+                userId: session.user.id,
+                providerId: "credential",
+            },
+            select: { password: true },
+        }),
+    ])
 
     if (security) {
         redirect(callbackUrl)
     }
 
-    return <SetupPasswordPageContent callbackUrl={callbackUrl} />
+    return (
+        <SetupPasswordPageContent
+            callbackUrl={callbackUrl}
+            hasCredentialPassword={Boolean(credentialAccount?.password)}
+        />
+    )
 }

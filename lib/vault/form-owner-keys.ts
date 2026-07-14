@@ -4,7 +4,9 @@ import type { OwnerKeyOrgBinding } from "@/lib/vault/drop-owner-keys"
 export type { OwnerKeyOrgBinding } from "@/lib/vault/drop-owner-keys"
 
 type FormOwnerKeyUpdateManyArgs = {
-    where: { formId: string; userId: string }
+    where:
+        | { formId: string; userId: string; organizationId: null }
+        | { formId: string; organizationId: string }
     data: { wrappedKey: string; vaultGeneration: number; organizationId?: string | null; orgKeyGeneration?: number | null }
 }
 
@@ -14,14 +16,17 @@ type FormOwnerKeyCreateArgs = {
 
 type FormOwnerKeyFindUniqueArgs = {
     where: { formId: string }
-    select: { userId: true }
+    select: { userId: true; organizationId: true }
 }
 
 type FormOwnerKeyWriteClient = {
     formOwnerKey: {
         updateMany(args: FormOwnerKeyUpdateManyArgs): PromiseLike<{ count: number }>
         create(args: FormOwnerKeyCreateArgs): PromiseLike<unknown>
-        findUnique(args: FormOwnerKeyFindUniqueArgs): PromiseLike<{ userId?: unknown } | null>
+        findUnique(args: FormOwnerKeyFindUniqueArgs): PromiseLike<{
+            userId?: unknown
+            organizationId?: unknown
+        } | null>
     }
 }
 
@@ -42,10 +47,13 @@ export async function persistOwnedFormKey(
 ): Promise<void> {
     const orgData = org
         ? { organizationId: org.organizationId, orgKeyGeneration: org.orgKeyGeneration }
-        : {}
+        : { organizationId: null, orgKeyGeneration: null }
+    const scopeWhere = org
+        ? { formId, organizationId: org.organizationId }
+        : { formId, userId, organizationId: null as null }
 
     const updated = await client.formOwnerKey.updateMany({
-        where: { formId, userId },
+        where: scopeWhere,
         data: { wrappedKey, vaultGeneration, ...orgData },
     })
 
@@ -72,15 +80,23 @@ export async function persistOwnedFormKey(
 
     const existing = await client.formOwnerKey.findUnique({
         where: { formId },
-        select: { userId: true },
+        select: { userId: true, organizationId: true },
     })
 
-    if (!existing || existing.userId !== userId) {
+    const existingIsInScope = org
+        ? existing?.organizationId === org.organizationId
+        : existing?.userId === userId && existing.organizationId === null
+
+    if (!existingIsInScope) {
         throw new FormOwnerKeyConflictError()
     }
 
-    await client.formOwnerKey.updateMany({
-        where: { formId, userId },
-        data: { wrappedKey, vaultGeneration },
+    const retried = await client.formOwnerKey.updateMany({
+        where: scopeWhere,
+        data: { wrappedKey, vaultGeneration, ...orgData },
     })
+
+    if (retried.count === 0) {
+        throw new FormOwnerKeyConflictError()
+    }
 }

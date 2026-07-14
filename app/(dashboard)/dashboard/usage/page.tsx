@@ -10,6 +10,8 @@ import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { ApiUsageCard } from "@/components/dashboard"
 import { FormService } from "@/lib/services/form"
+import { countAliasesByFormat } from "@/lib/data/alias"
+import { personalScope } from "@/lib/ownership"
 
 export default async function UsagePage() {
     const session = await auth()
@@ -32,11 +34,12 @@ export default async function UsagePage() {
 
     if (!user) redirect("/login")
 
-    const [aliases, domains, formCount, recentSubmissions, formLimits] = await Promise.all([
+    const scope = personalScope(user.id)
+    const [aliasCounts, domainCount, formCount, recentSubmissions, formLimits] = await Promise.all([
         // Personal usage view: personal resources vs personal plan limits.
         // (Org/team usage belongs in a dedicated team-billing view.)
-        prisma.alias.findMany({ where: { userId: user.id, organizationId: null }, select: { id: true, format: true } }),
-        prisma.domain.findMany({ where: { userId: user.id, organizationId: null, verified: true }, select: { id: true } }),
+        countAliasesByFormat(scope),
+        prisma.domain.count({ where: { userId: user.id, organizationId: null, verified: true } }),
         FormService.countActiveForms(user.id),
         FormService.countRecentSubmissionsForOwner(user.id),
         getFormLimitsAsync(user.id),
@@ -47,10 +50,8 @@ export default async function UsagePage() {
     const dropLimits = getDropLimits(user)
     const tier = getEffectiveTier(user)
 
-    // Calculate alias counts
-    const randomAliases = aliases.filter(a => a.format === "RANDOM").length
-    const customAliases = aliases.filter(a => a.format === "CUSTOM").length
-    const domainCount = domains.length
+    const randomAliases = aliasCounts.random
+    const customAliases = aliasCounts.custom
 
     // Storage usage
     const storageUsed = Number(user.storageUsed)

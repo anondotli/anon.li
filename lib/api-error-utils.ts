@@ -89,7 +89,7 @@ export class UpgradeRequiredError extends ApiError {
         this.details = details;
     }
 
-    toJSON() {
+    override toJSON() {
         return {
             error: this.message,
             code: this.code,

@@ -139,9 +139,13 @@ export async function POST(request: Request) {
                 where: { userId: session.user.id },
                 select: { id: true, vaultGeneration: true },
             }),
-            prisma.form.findUnique({
-                where: { id: validation.data.formId },
-                select: { userId: true },
+            prisma.form.findFirst({
+                where: {
+                    id: validation.data.formId,
+                    userId: session.user.id,
+                    organizationId: null,
+                },
+                select: { id: true },
             }),
         ])
 
@@ -153,7 +157,7 @@ export async function POST(request: Request) {
             return withNoStore(apiError("Vault security is not configured", ErrorCodes.NOT_FOUND, requestId, 404))
         }
 
-        if (!form || form.userId !== session.user.id) {
+        if (!form) {
             logVaultWarn(ROUTE_NAME, "Form key store attempted for missing or unauthorized form", {
                 requestId,
                 userId: session.user.id,

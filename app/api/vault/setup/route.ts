@@ -20,7 +20,9 @@ import { z } from "zod"
 const ROUTE_NAME = "setup"
 
 const setupSchema = z.object({
-    currentPassword: z.string().min(12).optional(),
+    // This verifies an existing credential and may predate the current 12-char
+    // policy. Enforce the stronger policy on the new vault password, not here.
+    currentPassword: z.string().min(1).optional(),
     authSecret: authSecretSchema,
     authSalt: authSaltSchema,
     vaultSalt: vaultSaltSchema,
@@ -30,12 +32,12 @@ const setupSchema = z.object({
 export async function POST(request: Request) {
     const requestId = generateRequestId()
     try {
-        // Get session without 2FA requirement first, then check conditionally
-        const session = await getVaultSession({ require2FA: false })
+        // Get a fresh session without 2FA requirement first, then check conditionally.
+        const session = await getVaultSession({ require2FA: false, fresh: true })
 
         if (!session) {
-            logVaultWarn(ROUTE_NAME, "Unauthorized vault setup attempt", { requestId })
-            return withNoStore(apiError("Unauthorized", ErrorCodes.UNAUTHORIZED, requestId, 401))
+            logVaultWarn(ROUTE_NAME, "Vault setup requires a fresh session", { requestId })
+            return withNoStore(apiError("A fresh authenticated session is required", ErrorCodes.UNAUTHORIZED, requestId, 401))
         }
 
         // If the user has 2FA enabled, they must have verified it before setting up the vault
@@ -82,21 +84,20 @@ export async function POST(request: Request) {
         }
 
         const credentialAccount = await getCredentialAccount(session.user.id)
-        const passwordHash = await hashCredentialSecret(validation.data.authSecret)
 
-        let createdSecurity: { id: string; vaultGeneration: number }
-
-        if (validation.data.currentPassword) {
-            // Legacy upgrade path for an existing credential account.
-            if (!credentialAccount?.password) {
-                logVaultWarn(ROUTE_NAME, "Vault setup upgrade attempted without credential account", {
+        if (credentialAccount?.password) {
+            if (!validation.data.currentPassword) {
+                logVaultWarn(ROUTE_NAME, "Vault setup rejected without current password", {
                     requestId,
                     userId: session.user.id,
                 })
-                return withNoStore(apiError("Password login is not configured for this account", ErrorCodes.CONFLICT, requestId, 409))
+                return withNoStore(apiError("Current password is required", ErrorCodes.UNAUTHORIZED, requestId, 401))
             }
 
-            const passwordValid = await verifyCredentialSecret(session.user.id, validation.data.currentPassword)
+            const passwordValid = await verifyCredentialSecret(
+                session.user.id,
+                validation.data.currentPassword,
+            )
             if (!passwordValid) {
                 logVaultWarn(ROUTE_NAME, "Vault setup rejected due to incorrect current password", {
                     requestId,
@@ -104,54 +105,43 @@ export async function POST(request: Request) {
                 })
                 return withNoStore(apiError("Incorrect password", ErrorCodes.UNAUTHORIZED, requestId, 401))
             }
+        } else if (validation.data.currentPassword) {
+            logVaultWarn(ROUTE_NAME, "Vault setup upgrade attempted without credential account", {
+                requestId,
+                userId: session.user.id,
+            })
+            return withNoStore(apiError("Password login is not configured for this account", ErrorCodes.CONFLICT, requestId, 409))
+        }
 
-            createdSecurity = await prisma.$transaction(async (tx) => {
+        const passwordHash = await hashCredentialSecret(validation.data.authSecret)
+        const createdSecurity = await prisma.$transaction(async (tx) => {
+            if (credentialAccount) {
                 await tx.account.update({
                     where: { id: credentialAccount.id },
                     data: { password: passwordHash },
                 })
-                return tx.userSecurity.create({
+            } else {
+                await tx.account.create({
                     data: {
                         userId: session.user.id,
-                        authSalt: validation.data.authSalt,
-                        vaultSalt: validation.data.vaultSalt,
-                        passwordWrappedVaultKey: validation.data.passwordWrappedVaultKey,
-                        kdfVersion: VAULT_KDF_VERSION,
+                        accountId: session.user.id,
+                        providerId: "credential",
+                        password: passwordHash,
                     },
-                    select: { id: true, vaultGeneration: true },
                 })
-            })
-        } else {
-            // Magic-link/social users set or replace the credential secret during vault setup.
-            createdSecurity = await prisma.$transaction(async (tx) => {
-                if (credentialAccount) {
-                    await tx.account.update({
-                        where: { id: credentialAccount.id },
-                        data: { password: passwordHash },
-                    })
-                } else {
-                    await tx.account.create({
-                        data: {
-                            userId: session.user.id,
-                            accountId: session.user.id,
-                            providerId: "credential",
-                            password: passwordHash,
-                        },
-                    })
-                }
+            }
 
-                return tx.userSecurity.create({
-                    data: {
-                        userId: session.user.id,
-                        authSalt: validation.data.authSalt,
-                        vaultSalt: validation.data.vaultSalt,
-                        passwordWrappedVaultKey: validation.data.passwordWrappedVaultKey,
-                        kdfVersion: VAULT_KDF_VERSION,
-                    },
-                    select: { id: true, vaultGeneration: true },
-                })
+            return tx.userSecurity.create({
+                data: {
+                    userId: session.user.id,
+                    authSalt: validation.data.authSalt,
+                    vaultSalt: validation.data.vaultSalt,
+                    passwordWrappedVaultKey: validation.data.passwordWrappedVaultKey,
+                    kdfVersion: VAULT_KDF_VERSION,
+                },
+                select: { id: true, vaultGeneration: true },
             })
-        }
+        })
 
         return withNoStore(apiSuccess({
             ok: true,

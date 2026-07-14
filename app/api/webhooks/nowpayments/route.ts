@@ -23,7 +23,8 @@ function getRedis(): Redis {
     return redis
 }
 
-// Statuses that are terminal and cannot be overwritten
+// Terminal statuses. A refund is the sole higher-precedence transition and may
+// supersede another terminal status (most importantly `finished`).
 const TERMINAL_STATUSES = new Set(["finished", "failed", "refunded", "expired"])
 
 // Statuses that indicate successful payment
@@ -161,16 +162,22 @@ export async function POST(req: Request) {
 
         if (!payment) {
             logger.error("CryptoPayment not found for orderId", undefined, { orderId })
+            await markIPNProcessed(paymentId, paymentStatus)
             return new NextResponse(null, { status: 200 })
         }
 
-        // Guard against overwriting terminal statuses
-        if (TERMINAL_STATUSES.has(payment.status)) {
+        // A refund is the highest-precedence terminal state: NOWPayments may send
+        // it after `finished`, and it must revoke an entitlement that was already
+        // granted. Every other event remains unable to overwrite a terminal state,
+        // so delayed success notifications cannot restore a refunded purchase.
+        const isRefund = paymentStatus === "refunded"
+        if (TERMINAL_STATUSES.has(payment.status) && !isRefund) {
             logger.info("Skipping IPN for terminal status", {
                 orderId,
                 currentStatus: payment.status,
                 newStatus: paymentStatus,
             })
+            await markIPNProcessed(paymentId, paymentStatus)
             return new NextResponse(null, { status: 200 })
         }
 
@@ -178,14 +185,43 @@ export async function POST(req: Request) {
         const shouldActivate = SUCCESS_STATUSES.has(paymentStatus) && !SUCCESS_STATUSES.has(previousStatus)
             && validateCryptoProductTier(payment.product, payment.tier, payment.id)
 
+        if (isRefund) {
+            const refundedAt = new Date()
+
+            // Keep the payment state and its canonical entitlement in the same
+            // transaction. updateMany makes this idempotent for legacy/refund
+            // replays where the subscription row may already be absent.
+            await prisma.$transaction(async (tx) => {
+                await tx.cryptoPayment.update({
+                    where: { id: payment.id },
+                    data: {
+                        nowPaymentId: paymentId,
+                        status: "refunded",
+                        payCurrency: String(body.pay_currency ?? payment.payCurrency),
+                        payAmount: Number(body.pay_amount ?? payment.payAmount),
+                        actuallyPaid: body.actually_paid != null ? Number(body.actually_paid) : payment.actuallyPaid,
+                    },
+                })
+                await tx.subscription.updateMany({
+                    where: { providerSubscriptionId: `crypto_${orderId}` },
+                    data: {
+                        status: "canceled",
+                        currentPeriodEnd: refundedAt,
+                        cancelAtPeriodEnd: false,
+                    },
+                })
+            }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+        }
+
         // Validate payment amount before activation
-        if (shouldActivate) {
+        if (!isRefund && shouldActivate) {
             const expectedPrice = getCryptoPrice(payment.product as CryptoProduct, payment.tier as CryptoTier)
             if (!expectedPrice) {
                 logger.error("Cannot resolve expected price for crypto payment — blocking activation", undefined, {
                     paymentId: payment.id, product: payment.product, tier: payment.tier,
                 })
                 // Return 500 so NOWPayments retries (price config may be a transient deploy issue)
+                await releaseIPNClaim(paymentId, paymentStatus)
                 return new NextResponse(null, { status: 500 })
             }
             if (Math.abs(payment.priceAmount - expectedPrice.usdAmount) > 0.50) {
@@ -193,13 +229,17 @@ export async function POST(req: Request) {
                     paymentId: payment.id, priceAmount: payment.priceAmount, expectedAmount: expectedPrice.usdAmount,
                 })
                 // Price mismatch is permanent — update status but don't activate
-                await prisma.cryptoPayment.update({
-                    where: { id: payment.id },
+                await prisma.cryptoPayment.updateMany({
+                    where: {
+                        id: payment.id,
+                        status: { notIn: [...TERMINAL_STATUSES] },
+                    },
                     data: {
                         nowPaymentId: paymentId,
                         status: "price_mismatch",
                     },
                 })
+                await markIPNProcessed(paymentId, paymentStatus)
                 return new NextResponse(null, { status: 200 })
             }
             const actuallyPaid = body.actually_paid != null ? Number(body.actually_paid) : 0
@@ -209,8 +249,11 @@ export async function POST(req: Request) {
                     paymentId: payment.id, actuallyPaid, payAmount,
                 })
                 // Underpayment is permanent — update status but don't activate
-                await prisma.cryptoPayment.update({
-                    where: { id: payment.id },
+                await prisma.cryptoPayment.updateMany({
+                    where: {
+                        id: payment.id,
+                        status: { notIn: [...TERMINAL_STATUSES] },
+                    },
                     data: {
                         nowPaymentId: paymentId,
                         status: "underpaid",
@@ -218,12 +261,13 @@ export async function POST(req: Request) {
                         payAmount: payAmount,
                     },
                 })
+                await markIPNProcessed(paymentId, paymentStatus)
                 return new NextResponse(null, { status: 200 })
             }
         }
 
         // Update payment record with IPN data + activate subscription atomically
-        if (shouldActivate) {
+        if (!isRefund && shouldActivate) {
             const now = new Date()
             const periodEnd = new Date(now)
             periodEnd.setFullYear(periodEnd.getFullYear() + 1)
@@ -235,9 +279,15 @@ export async function POST(req: Request) {
             // two simultaneously-active rows. Postgres aborts the loser; the
             // released claim lets NOWPayments retry and the synthetic-id upsert
             // is then a no-op idempotent update.
-            await prisma.$transaction(async (tx) => {
-                await tx.cryptoPayment.update({
-                    where: { id: payment.id },
+            const didActivate = await prisma.$transaction(async (tx) => {
+                // The initial lookup happens before the transaction. Make the
+                // transition conditional here as well, so a refund committed in
+                // the meantime wins and a stale success event cannot reactivate it.
+                const result = await tx.cryptoPayment.updateMany({
+                    where: {
+                        id: payment.id,
+                        status: { notIn: [...TERMINAL_STATUSES] },
+                    },
                     data: {
                         nowPaymentId: paymentId,
                         status: paymentStatus,
@@ -248,6 +298,8 @@ export async function POST(req: Request) {
                         periodEnd: periodEnd,
                     },
                 })
+                if (result.count === 0) return false
+
                 await tx.user.update({
                     where: { id: payment.userId },
                     data: {
@@ -255,14 +307,22 @@ export async function POST(req: Request) {
                     },
                 })
                 await createCryptoSubscription(tx, payment.userId, payment.product, payment.tier, now, periodEnd, orderId)
+                return true
             }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
 
             // Non-critical side effects outside transaction
-            await postActivationSideEffects(payment, periodEnd)
-        } else {
+            if (didActivate) {
+                await postActivationSideEffects(payment, periodEnd)
+            }
+        } else if (!isRefund) {
             // Non-activation status update
-            await prisma.cryptoPayment.update({
-                where: { id: payment.id },
+            // The terminal-state predicate makes this write safe against a refund
+            // that commits after the initial lookup but before this update.
+            await prisma.cryptoPayment.updateMany({
+                where: {
+                    id: payment.id,
+                    status: { notIn: [...TERMINAL_STATUSES] },
+                },
                 data: {
                     nowPaymentId: paymentId,
                     status: paymentStatus,

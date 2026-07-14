@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { apiError, apiSuccess, ErrorCodes, generateRequestId, withNoStore } from "@/lib/api-response"
 import { logVaultError, logVaultWarn } from "@/lib/vault/api"
@@ -19,18 +20,75 @@ import { audit } from "@/lib/services/audit"
 
 const ROUTE_NAME = "vault-org-keys-rekey"
 const idSchema = z.string().min(1).max(64)
+const MAX_REKEY_BODY_BYTES = 16 * 1024 * 1024
 
 const rekeyItem = z.object({ id: z.string().min(1).max(64), wrappedKey: z.string().min(1).max(4096) })
 const memberGrant = z.object({ userId: idSchema, wrappedOrgVaultKey: z.string().min(1).max(4096) })
 const rekeySchema = z.object({
     organizationId: idSchema,
     orgKeyGeneration: z.number().int().positive(),
-    memberGrants: z.array(memberGrant).max(10000),
-    dropKeys: z.array(rekeyItem).max(10000),
-    formKeys: z.array(rekeyItem).max(10000),
+    // Rotation is all-or-nothing, so an item-count cap can make a sufficiently
+    // large organization impossible to rotate. Bound total bytes while reading
+    // the body instead, alongside per-field limits, CSRF, and rate limiting.
+    memberGrants: z.array(memberGrant),
+    dropKeys: z.array(rekeyItem),
+    formKeys: z.array(rekeyItem),
 })
 
 class StaleGenerationError extends Error {}
+class RotationPayloadMismatchError extends Error {}
+class RotationBodyTooLargeError extends Error {}
+
+async function readRotationBody(request: Request): Promise<unknown> {
+    const contentLength = Number(request.headers.get("content-length"))
+    if (Number.isFinite(contentLength) && contentLength > MAX_REKEY_BODY_BYTES) {
+        throw new RotationBodyTooLargeError()
+    }
+
+    if (!request.body) return null
+
+    const reader = request.body.getReader()
+    const decoder = new TextDecoder()
+    let bytesRead = 0
+    let text = ""
+
+    while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        bytesRead += value.byteLength
+        if (bytesRead > MAX_REKEY_BODY_BYTES) {
+            await reader.cancel().catch(() => undefined)
+            throw new RotationBodyTooLargeError()
+        }
+        text += decoder.decode(value, { stream: true })
+    }
+    text += decoder.decode()
+
+    try {
+        return JSON.parse(text) as unknown
+    } catch {
+        return null
+    }
+}
+
+/**
+ * A rotation payload must contain each current server-side id exactly once.
+ * Building the expected set here also makes this defensive against unexpected
+ * duplicate rows returned by a future query/schema change.
+ */
+function assertExactIds(expectedIds: Iterable<string>, payloadIds: string[]): void {
+    const expected = new Set(expectedIds)
+    const supplied = new Set(payloadIds)
+
+    if (
+        supplied.size !== payloadIds.length
+        || supplied.size !== expected.size
+        || [...expected].some((id) => !supplied.has(id))
+    ) {
+        throw new RotationPayloadMismatchError()
+    }
+}
 
 export async function GET(request: Request) {
     const requestId = generateRequestId()
@@ -85,7 +143,20 @@ export async function POST(request: Request) {
         const blocked = await enforceVaultRequestGuards({ request, requestId, identifier: session.user.id, route: ROUTE_NAME, csrf: true })
         if (blocked) return blocked
 
-        const body = await request.json().catch(() => null)
+        let body: unknown
+        try {
+            body = await readRotationBody(request)
+        } catch (error) {
+            if (error instanceof RotationBodyTooLargeError) {
+                return withNoStore(apiError(
+                    "Rotation payload exceeds the 16 MiB atomic request limit",
+                    ErrorCodes.VALIDATION_ERROR,
+                    requestId,
+                    413,
+                ))
+            }
+            throw error
+        }
         const validation = rekeySchema.safeParse(body)
         if (!validation.success) {
             return withNoStore(apiError("Invalid request body", ErrorCodes.VALIDATION_ERROR, requestId, 400))
@@ -109,20 +180,43 @@ export async function POST(request: Request) {
                     where: { id: organizationId, orgKeyGeneration: orgKeyGeneration - 1 },
                     data: { orgKeyGeneration, keyRotationRecommendedAt: null },
                 })
-                if (bumped.count === 0) {
+                if (bumped.count !== 1) {
                     throw new StaleGenerationError()
                 }
 
-                // Only re-grant to actual current members (defense-in-depth against a
-                // forged userId in the payload). Removed members were already deleted
-                // from OrganizationMemberKey by the afterRemoveMember hook.
-                const members = await tx.member.findMany({
-                    where: { organizationId },
-                    select: { userId: true },
-                })
-                const memberIds = new Set(members.map((m) => m.userId))
+                // The client prepares these three lists from separate GETs. Re-read
+                // their authoritative sets inside the write transaction and require
+                // an exact, duplicate-free match. Any join/leave or resource change
+                // makes this transaction throw, rolling back both the generation bump
+                // and keyRotationRecommendedAt clear instead of committing a partial
+                // rotation that strands keys at the old generation.
+                const [members, currentDropKeys, currentFormKeys] = await Promise.all([
+                    tx.member.findMany({
+                        // Members without a published identity key cannot receive
+                        // an encrypted grant yet and are intentionally omitted by
+                        // the client-facing /members endpoint as well. They enter
+                        // the pending-grant flow after creating identity material.
+                        where: {
+                            organizationId,
+                            user: { security: { identityPublicKey: { not: null } } },
+                        },
+                        select: { userId: true },
+                    }),
+                    tx.dropOwnerKey.findMany({
+                        where: { organizationId },
+                        select: { dropId: true },
+                    }),
+                    tx.formOwnerKey.findMany({
+                        where: { organizationId },
+                        select: { formId: true },
+                    }),
+                ])
+
+                assertExactIds(members.map((m) => m.userId), memberGrants.map((g) => g.userId))
+                assertExactIds(currentDropKeys.map((k) => k.dropId), dropKeys.map((k) => k.id))
+                assertExactIds(currentFormKeys.map((k) => k.formId), formKeys.map((k) => k.id))
+
                 for (const g of memberGrants) {
-                    if (!memberIds.has(g.userId)) continue
                     await tx.organizationMemberKey.upsert({
                         where: { organizationId_userId: { organizationId, userId: g.userId } },
                         create: { organizationId, userId: g.userId, wrappedOrgVaultKey: g.wrappedOrgVaultKey, orgKeyGeneration },
@@ -131,21 +225,33 @@ export async function POST(request: Request) {
                 }
 
                 for (const k of dropKeys) {
-                    await tx.dropOwnerKey.updateMany({
+                    const updated = await tx.dropOwnerKey.updateMany({
                         where: { dropId: k.id, organizationId },
                         data: { wrappedKey: k.wrappedKey, orgKeyGeneration },
                     })
+                    if (updated.count !== 1) {
+                        throw new RotationPayloadMismatchError()
+                    }
                 }
                 for (const k of formKeys) {
-                    await tx.formOwnerKey.updateMany({
+                    const updated = await tx.formOwnerKey.updateMany({
                         where: { formId: k.id, organizationId },
                         data: { wrappedKey: k.wrappedKey, orgKeyGeneration },
                     })
+                    if (updated.count !== 1) {
+                        throw new RotationPayloadMismatchError()
+                    }
                 }
-            })
+            }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
         } catch (error) {
-            if (error instanceof StaleGenerationError) {
+            if (
+                error instanceof StaleGenerationError
+                || (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034")
+            ) {
                 return withNoStore(apiError("Concurrent rotation; refresh and retry", ErrorCodes.CONFLICT, requestId, 409))
+            }
+            if (error instanceof RotationPayloadMismatchError) {
+                return withNoStore(apiError("Rotation data changed; refresh and retry", ErrorCodes.CONFLICT, requestId, 409))
             }
             throw error
         }

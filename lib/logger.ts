@@ -58,25 +58,49 @@ function sanitizeUrl(str: string): string {
 }
 
 /**
+ * Redact credentials embedded in URI authority sections.
+ *
+ * Connection strings are commonly included in database/client error messages,
+ * and neither the username nor password should leave the process in telemetry.
+ */
+function sanitizeUriCredentials(str: string): string {
+    return str.replace(
+        /\b([a-z][a-z0-9+.-]*:\/\/)([^:\s/@]+):([^@\s/]+)@/gi,
+        "$1[REDACTED]:[REDACTED]@",
+    );
+}
+
+/**
  * Sanitize a string value by redacting tokens, email addresses, and URL params
  */
 export function sanitizeString(str: string): string {
+    let sanitized = str
+        // Authentication headers are often interpolated into exception messages.
+        .replace(/\b(bearer|basic)\s+\S+/gi, "$1 [REDACTED]");
+
+    sanitized = sanitizeUriCredentials(sanitized);
+
+    // Redact common secret assignments even when they are not URL parameters.
+    sanitized = sanitized.replace(
+        /\b(password|secret|token|api[_-]?key|authorization|credential|private[_-]?key|session(?:token)?|access[_-]?token|refresh[_-]?token)(\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,;&]+)/gi,
+        "$1$2[REDACTED]",
+    );
+
+    // Redact query parameters in URLs and URL-like strings.
+    sanitized = sanitizeUrl(sanitized);
+
+    // Redact email addresses wherever they appear in a larger message.
+    sanitized = sanitized.replace(
+        /\b([a-z0-9._%+-])[a-z0-9._%+-]*@([a-z0-9.-]+\.[a-z]{2,})\b/gi,
+        "$1***@$2",
+    );
+
     // Redact long base64/hex-like tokens
-    if (str.length > 20 && /^[A-Za-z0-9+/=_-]+$/.test(str)) {
+    if (sanitized.length > 20 && /^[A-Za-z0-9+/=_-]+$/.test(sanitized)) {
         return "[REDACTED]";
     }
-    // Redact email addresses in logs (privacy)
-    if (str.includes("@") && str.includes(".")) {
-        const [local, domain] = str.split("@");
-        if (local && domain) {
-            return `${local[0]}***@${domain}`;
-        }
-    }
-    // Redact query parameters in URLs
-    if (str.includes("?") && str.includes("=")) {
-        return sanitizeUrl(str);
-    }
-    return str;
+
+    return sanitized;
 }
 
 export function sanitizeObject(obj: unknown, depth = 0): unknown {
@@ -122,7 +146,7 @@ export function sanitizeObject(obj: unknown, depth = 0): unknown {
 function sanitizeStack(stack: string): string {
     return stack
         .split("\n")
-        .map((line) => sanitizeUrl(line))
+        .map((line) => sanitizeString(line))
         .join("\n");
 }
 
@@ -131,7 +155,10 @@ function sanitizeStack(stack: string): string {
  * Sanitizes error messages (which may contain Prisma/Stripe data)
  * and stack traces (which may contain URLs with tokens).
  */
-function sanitizeError(error: unknown): { message: string; stack?: string; code?: string } {
+export function sanitizeError(
+    error: unknown,
+    includeStack = process.env.NODE_ENV === "development",
+): { message: string; stack?: string; code?: string } {
     if (error instanceof Error) {
         // Sanitize the full message — external libs (Prisma, Stripe) may include
         // sensitive data like connection strings, query params, or partial tokens
@@ -143,10 +170,12 @@ function sanitizeError(error: unknown): { message: string; stack?: string; code?
 
         return {
             message,
-            stack: process.env.NODE_ENV === "development" && error.stack
+            stack: includeStack && error.stack
                 ? sanitizeStack(error.stack)
                 : undefined,
-            code: (error as Error & { code?: string }).code,
+            code: typeof (error as Error & { code?: unknown }).code === "string"
+                ? sanitizeString((error as Error & { code: string }).code)
+                : undefined,
         };
     }
 
@@ -181,8 +210,8 @@ function createLogEntry(
 ): LogEntry {
     const entry: LogEntry = {
         level,
-        context,
-        message,
+        context: sanitizeString(context),
+        message: sanitizeString(message),
         timestamp: new Date().toISOString(),
     };
 

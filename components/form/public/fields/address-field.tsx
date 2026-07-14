@@ -43,6 +43,7 @@ export const AddressField = forwardRef<AddressHandle, Props>(function AddressFie
             const id = window.setTimeout(() => firstRef.current?.focus(), 60)
             return () => window.clearTimeout(id)
         }
+        return undefined
     }, [autoFocus])
 
     const parts = getAddressParts(field)

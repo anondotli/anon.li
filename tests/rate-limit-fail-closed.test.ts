@@ -3,7 +3,7 @@
  */
 import { describe, it, expect, vi } from "vitest"
 import type { Ratelimit } from "@upstash/ratelimit"
-import { checkRateLimit } from "@/lib/rate-limit"
+import { checkRateLimit, rateLimit, rateLimiters } from "@/lib/rate-limit"
 
 // A limiter whose backing store (Upstash/Redis) is unreachable.
 function throwingLimiter(): Ratelimit {
@@ -28,4 +28,17 @@ describe("checkRateLimit behavior on Redis outage", () => {
         expect(result).not.toBeNull()
         expect(result!.status).toBe(503)
     })
+
+    it.each(["emailResend", "orgInvite"] as const)(
+        "fails CLOSED for the %s auth-email limiter",
+        async (type) => {
+            const limit = vi.spyOn(rateLimiters[type], "limit")
+                .mockRejectedValueOnce(new Error("Redis unreachable"))
+
+            const result = await rateLimit(type, "opaque-auth-identifier")
+
+            expect(result?.status).toBe(503)
+            limit.mockRestore()
+        },
+    )
 })

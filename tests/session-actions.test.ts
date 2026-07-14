@@ -4,8 +4,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const requestPasswordReset = vi.fn()
-const getClientIp = vi.fn()
-const rateLimit = vi.fn()
 const headers = vi.fn()
 const cookies = vi.fn()
 const getTurnstileError = vi.fn()
@@ -16,12 +14,6 @@ vi.mock("@/lib/auth", () => ({
             requestPasswordReset,
         },
     },
-}))
-
-vi.mock("@/lib/rate-limit", () => ({
-    getClientIp,
-    rateLimit,
-    rateLimiters: {},
 }))
 
 vi.mock("@/lib/turnstile", () => ({
@@ -36,8 +28,6 @@ vi.mock("next/headers", () => ({
 describe("requestPasswordResetAction", () => {
     beforeEach(() => {
         vi.clearAllMocks()
-        getClientIp.mockResolvedValue("203.0.113.5")
-        rateLimit.mockResolvedValue(null)
         headers.mockResolvedValue(new Headers({ origin: "http://localhost:3000" }))
         cookies.mockResolvedValue({ get: vi.fn(), toString: vi.fn(() => "") })
         getTurnstileError.mockResolvedValue(null)
@@ -48,8 +38,6 @@ describe("requestPasswordResetAction", () => {
 
         const result = await requestPasswordResetAction(" User@Example.com ")
 
-        expect(rateLimit).toHaveBeenCalledWith("passwordReset", "203.0.113.5")
-        expect(rateLimit).toHaveBeenCalledWith("passwordResetEmail", "user@example.com")
         expect(requestPasswordReset).toHaveBeenCalledWith({
             headers: expect.any(Headers),
             body: {
@@ -71,15 +59,13 @@ describe("requestPasswordResetAction", () => {
         expect(result).toEqual({ error: "Bot verification failed. Please try again." })
     })
 
-    it("returns the same success payload when rate limited", async () => {
-        rateLimit
-            .mockResolvedValueOnce(new Response(null, { status: 429 }))
-            .mockResolvedValueOnce(null)
+    it("returns the same success payload when centralized auth rejects the request", async () => {
+        requestPasswordReset.mockRejectedValueOnce(new Error("rate limited"))
 
         const { requestPasswordResetAction } = await import("@/actions/session")
         const result = await requestPasswordResetAction("user@example.com")
 
-        expect(requestPasswordReset).not.toHaveBeenCalled()
+        expect(requestPasswordReset).toHaveBeenCalledOnce()
         expect(result).toEqual({
             success: true,
             data: {

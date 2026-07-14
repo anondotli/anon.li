@@ -8,7 +8,9 @@ import { Prisma } from "@prisma/client"
 export type OwnerKeyOrgBinding = { organizationId: string; orgKeyGeneration: number }
 
 type DropOwnerKeyUpdateManyArgs = {
-    where: { dropId: string; userId: string }
+    where:
+        | { dropId: string; userId: string; organizationId: null }
+        | { dropId: string; organizationId: string }
     data: { wrappedKey: string; vaultGeneration: number; organizationId?: string | null; orgKeyGeneration?: number | null }
 }
 
@@ -18,14 +20,17 @@ type DropOwnerKeyCreateArgs = {
 
 type DropOwnerKeyFindUniqueArgs = {
     where: { dropId: string }
-    select: { userId: true }
+    select: { userId: true; organizationId: true }
 }
 
 type DropOwnerKeyWriteClient = {
     dropOwnerKey: {
         updateMany(args: DropOwnerKeyUpdateManyArgs): PromiseLike<{ count: number }>
         create(args: DropOwnerKeyCreateArgs): PromiseLike<unknown>
-        findUnique(args: DropOwnerKeyFindUniqueArgs): PromiseLike<{ userId?: unknown } | null>
+        findUnique(args: DropOwnerKeyFindUniqueArgs): PromiseLike<{
+            userId?: unknown
+            organizationId?: unknown
+        } | null>
     }
 }
 
@@ -46,10 +51,13 @@ export async function persistOwnedDropKey(
 ): Promise<void> {
     const orgData = org
         ? { organizationId: org.organizationId, orgKeyGeneration: org.orgKeyGeneration }
-        : {}
+        : { organizationId: null, orgKeyGeneration: null }
+    const scopeWhere = org
+        ? { dropId, organizationId: org.organizationId }
+        : { dropId, userId, organizationId: null as null }
 
     const updated = await client.dropOwnerKey.updateMany({
-        where: { dropId, userId },
+        where: scopeWhere,
         data: { wrappedKey, vaultGeneration, ...orgData },
     })
 
@@ -76,15 +84,23 @@ export async function persistOwnedDropKey(
 
     const existing = await client.dropOwnerKey.findUnique({
         where: { dropId },
-        select: { userId: true },
+        select: { userId: true, organizationId: true },
     })
 
-    if (!existing || existing.userId !== userId) {
+    const existingIsInScope = org
+        ? existing?.organizationId === org.organizationId
+        : existing?.userId === userId && existing.organizationId === null
+
+    if (!existingIsInScope) {
         throw new DropOwnerKeyConflictError()
     }
 
-    await client.dropOwnerKey.updateMany({
-        where: { dropId, userId },
-        data: { wrappedKey, vaultGeneration },
+    const retried = await client.dropOwnerKey.updateMany({
+        where: scopeWhere,
+        data: { wrappedKey, vaultGeneration, ...orgData },
     })
+
+    if (retried.count === 0) {
+        throw new DropOwnerKeyConflictError()
+    }
 }

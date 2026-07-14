@@ -1,7 +1,6 @@
 import { headers } from "next/headers"
 import Stripe from "stripe"
 import {
-    getUserByStripeSubscriptionId,
     getUserIdByEmail,
     getUserIdByStripeCustomerId,
 } from "@/lib/data/user"
@@ -65,7 +64,9 @@ async function releaseEventClaim(eventId: string): Promise<void> {
 /**
  * Classify whether an error is transient (worth retrying) or permanent.
  * Transient: database errors, network errors, Redis errors.
- * Permanent: user not found, missing metadata, unknown price ID.
+ * Permanent: user not found or irreparably missing metadata.
+ * Unknown price IDs remain retryable because deployment configuration can be
+ * corrected while Stripe is retrying the event.
  */
 class PermanentWebhookError extends Error {
     constructor(message: string) {
@@ -80,6 +81,48 @@ class PermanentWebhookError extends Error {
  */
 function getSubscriptionPriceId(subscription: Stripe.Subscription): string | null {
     return subscription.items?.data?.[0]?.price?.id ?? null
+}
+
+async function upsertConfiguredSubscription(userId: string | null, subscription: Stripe.Subscription): Promise<void> {
+    const upserted = await upsertStripeSubscription(userId, subscription)
+    if (!upserted) {
+        throw new Error(`Stripe subscription ${subscription.id} has an unconfigured price`)
+    }
+}
+
+type CanonicalSubscriptionContext = {
+    userId: string | null
+    organizationId: string | null
+    user: { id: string; email: string } | null
+}
+
+/**
+ * Sync an already-linked Stripe subscription and retain its canonical owner
+ * context. Organization subscriptions survive deletion of the original buyer,
+ * so their user relation can legitimately be null while the org link remains.
+ */
+async function syncCanonicalSubscription(
+    subscription: Stripe.Subscription,
+): Promise<CanonicalSubscriptionContext> {
+    const local = await prisma.subscription.findUnique({
+        where: { providerSubscriptionId: subscription.id },
+        select: {
+            userId: true,
+            organizationId: true,
+            user: { select: { id: true, email: true } },
+        },
+    })
+
+    if (!local) {
+        // Checkout and subscription webhooks can arrive out of order. Treat a
+        // missing canonical row as retryable instead of permanently acknowledging
+        // an event that may carry paid-access state.
+        throw new Error(`Stripe subscription ${subscription.id} is not linked locally`)
+    }
+
+    await upsertConfiguredSubscription(local.userId, subscription)
+
+    return local
 }
 
 /**
@@ -249,15 +292,19 @@ async function handleCheckoutSessionCompleted(event: Stripe.Event): Promise<void
     const priceId = getSubscriptionPriceId(subscription)
 
     if (!priceId) {
-        throw new PermanentWebhookError(`Subscription ${subscriptionId} has no price ID`)
+        throw new Error(`Stripe subscription ${subscriptionId} has no price ID`)
     }
 
     // Write to canonical Subscription table (required - transient failures will retry via Stripe)
-    await upsertStripeSubscription(userId, subscription)
+    await upsertConfiguredSubscription(userId, subscription)
 
-    // Cancel any active downgrade since user just subscribed
-    const { BillingDowngradeService } = await import("@/lib/services/billing-downgrade")
-    await BillingDowngradeService.cancelDowngrade(userId)
+    // An org checkout belongs to the organization, not to the purchaser's
+    // personal account. Do not clear an unrelated personal downgrade merely
+    // because that user paid on behalf of their team.
+    if (!subscription.metadata?.organizationId) {
+        const { BillingDowngradeService } = await import("@/lib/services/billing-downgrade")
+        await BillingDowngradeService.cancelDowngrade(userId)
+    }
 
     // Authoritative, ad-blocker-proof revenue event (server-side).
     const activatedPrice = subscription.items?.data?.[0]?.price
@@ -280,36 +327,16 @@ async function handleInvoicePaymentSucceeded(invoice: Stripe.Invoice) {
     const priceId = getSubscriptionPriceId(subscription)
 
     if (!priceId) {
-        logger.error("Subscription has no price ID on payment success", null, { subscriptionId })
-        return
+        throw new Error(`Stripe subscription ${subscriptionId} has no price ID`)
     }
 
-    // Cancel any active downgrade - payment succeeded (e.g. retry after failure)
-    const user = await getUserByStripeSubscriptionId(subscription.id)
-    if (user) {
-        // Write to canonical Subscription table (required - transient failures will retry via Stripe)
-        await upsertStripeSubscription(user.id, subscription)
-
+    // Write to the canonical row even if an org subscription's original buyer
+    // has since been deleted. Personal downgrade state still requires a user.
+    const context = await syncCanonicalSubscription(subscription)
+    if (!context.organizationId && context.user) {
         const { BillingDowngradeService } = await import("@/lib/services/billing-downgrade")
-        await BillingDowngradeService.cancelDowngrade(user.id)
+        await BillingDowngradeService.cancelDowngrade(context.user.id)
     }
-}
-
-/** Revoke access and begin downgrade flow if payment fails and subscription is no longer active. */
-/**
- * Resolve the org that owns a subscription, preferring our canonical column over
- * live Stripe metadata (metadata can be absent on renewals/out-of-band events;
- * upsertStripeSubscription runs before these branches and persists the org link).
- * Without this, a metadata-less org cancellation would be mis-handled as a
- * PERSONAL downgrade against the billing user.
- */
-async function resolveSubscriptionOrgId(subscription: Stripe.Subscription): Promise<string | null> {
-    if (subscription.metadata?.organizationId) return subscription.metadata.organizationId
-    const local = await prisma.subscription.findUnique({
-        where: { providerSubscriptionId: subscription.id },
-        select: { organizationId: true },
-    })
-    return local?.organizationId ?? null
 }
 
 async function handleInvoicePaymentFailed(invoice: Stripe.Invoice) {
@@ -321,38 +348,32 @@ async function handleInvoicePaymentFailed(invoice: Stripe.Invoice) {
 
     const isActive = subscription.status === 'active' || subscription.status === 'trialing'
 
-    // Find user first
-    const user = await getUserByStripeSubscriptionId(subscription.id)
+    const context = await syncCanonicalSubscription(subscription)
 
-    if (user) {
-        // Write to canonical Subscription table (required - transient failures will retry via Stripe)
-        await upsertStripeSubscription(user.id, subscription)
+    // If access is revoked, set drop expiry and send notification. The org path
+    // does not require the (possibly deleted) buyer; it notifies current admins.
+    if (context && !isActive) {
+        const expiryDate = new Date()
+        expiryDate.setDate(expiryDate.getDate() + SUBSCRIPTION_GRACE_PERIOD_DAYS)
 
-        // If access revoked, set drop expiry and send notification
-        if (!isActive) {
-            const expiryDate = new Date()
-            expiryDate.setDate(expiryDate.getDate() + SUBSCRIPTION_GRACE_PERIOD_DAYS)
+        if (context.organizationId) {
+            const { handleOrgSubscriptionLoss } = await import("@/lib/services/org-billing")
+            await handleOrgSubscriptionLoss(context.organizationId, expiryDate)
+        } else if (context.user) {
+            // Only update drops that don't already have an expiry (unlimited drops)
+            await prisma.drop.updateMany({
+                where: {
+                    userId: context.user.id,
+                    organizationId: null,
+                    expiresAt: null,
+                    deletedAt: null,
+                },
+                data: {
+                    expiresAt: expiryDate,
+                },
+            })
 
-            const organizationId = await resolveSubscriptionOrgId(subscription)
-            if (organizationId) {
-                const { handleOrgSubscriptionLoss } = await import("@/lib/services/org-billing")
-                await handleOrgSubscriptionLoss(organizationId, expiryDate)
-            } else {
-                // Only update drops that don't already have an expiry (unlimited drops)
-                await prisma.drop.updateMany({
-                    where: {
-                        userId: user.id,
-                        organizationId: null,
-                        expiresAt: null,
-                        deletedAt: null,
-                    },
-                    data: {
-                        expiresAt: expiryDate,
-                    },
-                })
-
-                await handleDowngradeNotification(user.id, user.email, expiryDate)
-            }
+            await handleDowngradeNotification(context.user.id, context.user.email, expiryDate)
         }
     }
 }
@@ -365,19 +386,35 @@ async function handleInvoicePaymentActionRequired(invoice: Stripe.Invoice) {
     const subscriptionId = typeof invoice.subscription === 'string' ? invoice.subscription : (invoice.subscription as Stripe.Subscription)?.id
     if (!subscriptionId) return
 
-    // Find user by subscription
-    const user = await getUserByStripeSubscriptionId(subscriptionId)
+    const context = await prisma.subscription.findUnique({
+        where: { providerSubscriptionId: subscriptionId },
+        select: {
+            organizationId: true,
+            user: { select: { id: true, email: true } },
+        },
+    })
+    if (!context) {
+        throw new Error(`Stripe subscription ${subscriptionId} is not linked locally`)
+    }
 
-    if (user && invoice.hosted_invoice_url) {
-        // Send email to user with link to complete payment authentication
+    if (invoice.hosted_invoice_url) {
         const { sendPaymentActionRequiredEmail } = await import("@/lib/resend")
-        await sendPaymentActionRequiredEmail(user.email, invoice.hosted_invoice_url)
+        if (context.organizationId) {
+            const { getOrgAdminEmails } = await import("@/lib/data/organization")
+            const emails = await getOrgAdminEmails(context.organizationId)
+            await Promise.all(emails.map((email) =>
+                sendPaymentActionRequiredEmail(email, invoice.hosted_invoice_url!),
+            ))
+        } else if (context.user) {
+            await sendPaymentActionRequiredEmail(context.user.email, invoice.hosted_invoice_url)
+        }
     }
 
     logger.info("Payment action required", {
         subscriptionId,
         invoiceId: invoice.id,
-        userId: user?.id,
+        userId: context.user?.id,
+        organizationId: context.organizationId,
     });
 }
 
@@ -386,30 +423,24 @@ async function handleCustomerSubscriptionUpdated(subscription: Stripe.Subscripti
     const priceId = getSubscriptionPriceId(subscription)
 
     if (!priceId) {
-        logger.error("Subscription has no price ID on update", null, { subscriptionId: subscription.id })
-        return
+        throw new Error(`Stripe subscription ${subscription.id} has no price ID`)
     }
 
     // Only sync price if subscription is active or trialing
     const isActive = subscription.status === 'active' || subscription.status === 'trialing'
 
-    // Write to canonical Subscription table (required - transient failures will retry via Stripe)
-    const userForUpsert = await getUserByStripeSubscriptionId(subscription.id)
-    if (userForUpsert) {
-        await upsertStripeSubscription(userForUpsert.id, subscription)
+    const context = await syncCanonicalSubscription(subscription)
 
-        // Record downgrade if subscription became inactive
-        if (!isActive) {
-            const organizationId = await resolveSubscriptionOrgId(subscription)
-            if (organizationId) {
-                const expiryDate = new Date()
-                expiryDate.setDate(expiryDate.getDate() + SUBSCRIPTION_GRACE_PERIOD_DAYS)
-                const { handleOrgSubscriptionLoss } = await import("@/lib/services/org-billing")
-                await handleOrgSubscriptionLoss(organizationId, expiryDate)
-            } else {
-                const { BillingDowngradeService } = await import("@/lib/services/billing-downgrade")
-                await BillingDowngradeService.recordDowngrade(userForUpsert.id)
-            }
+    // Record downgrade if subscription became inactive.
+    if (context && !isActive) {
+        if (context.organizationId) {
+            const expiryDate = new Date()
+            expiryDate.setDate(expiryDate.getDate() + SUBSCRIPTION_GRACE_PERIOD_DAYS)
+            const { handleOrgSubscriptionLoss } = await import("@/lib/services/org-billing")
+            await handleOrgSubscriptionLoss(context.organizationId, expiryDate)
+        } else if (context.user) {
+            const { BillingDowngradeService } = await import("@/lib/services/billing-downgrade")
+            await BillingDowngradeService.recordDowngrade(context.user.id)
         }
     }
 }
@@ -420,26 +451,22 @@ async function handleCustomerSubscriptionDeleted(subscription: Stripe.Subscripti
     const expiryDate = new Date()
     expiryDate.setDate(expiryDate.getDate() + SUBSCRIPTION_GRACE_PERIOD_DAYS)
 
-    // Find user and update subscription status
-    const user = await getUserByStripeSubscriptionId(subscription.id)
+    const context = await syncCanonicalSubscription(subscription)
+    if (!context) return
 
-    if (user) {
-        // Write to canonical Subscription table (required - transient failures will retry via Stripe)
-        await upsertStripeSubscription(user.id, subscription)
+    // Org subscription: downgrade the ORG (grace on org drops, notify all org
+    // admins), not the billing user's personal account.
+    if (context.organizationId) {
+        const { handleOrgSubscriptionLoss } = await import("@/lib/services/org-billing")
+        await handleOrgSubscriptionLoss(context.organizationId, expiryDate)
+        return
+    }
 
-        // Org subscription: downgrade the ORG (grace on org drops, notify all
-        // org admins), not the billing user's personal account.
-        const organizationId = await resolveSubscriptionOrgId(subscription)
-        if (organizationId) {
-            const { handleOrgSubscriptionLoss } = await import("@/lib/services/org-billing")
-            await handleOrgSubscriptionLoss(organizationId, expiryDate)
-            return
-        }
-
+    if (context.user) {
         // Set grace period expiry on all unlimited drops (Pro feature)
         await prisma.drop.updateMany({
             where: {
-                userId: user.id,
+                userId: context.user.id,
                 organizationId: null,
                 expiresAt: null, // Only drops with unlimited expiry
                 deletedAt: null,
@@ -449,7 +476,7 @@ async function handleCustomerSubscriptionDeleted(subscription: Stripe.Subscripti
             },
         })
 
-        await handleDowngradeNotification(user.id, user.email, expiryDate)
+        await handleDowngradeNotification(context.user.id, context.user.email, expiryDate)
     }
 }
 
@@ -458,17 +485,14 @@ async function handleCustomerSubscriptionResumed(subscription: Stripe.Subscripti
     const priceId = getSubscriptionPriceId(subscription)
 
     if (!priceId) {
-        logger.error("Subscription has no price ID on resume", null, { subscriptionId: subscription.id })
-        return
+        throw new Error(`Stripe subscription ${subscription.id} has no price ID`)
     }
 
-    // Cancel any active downgrade since subscription resumed
-    const user = await getUserByStripeSubscriptionId(subscription.id)
-    if (user) {
-        // Write to canonical Subscription table (required - transient failures will retry via Stripe)
-        await upsertStripeSubscription(user.id, subscription)
-
+    // Always restore canonical org status/seats, even if its buyer was deleted.
+    // Personal downgrade state still requires a live user.
+    const context = await syncCanonicalSubscription(subscription)
+    if (!context.organizationId && context.user) {
         const { BillingDowngradeService } = await import("@/lib/services/billing-downgrade")
-        await BillingDowngradeService.cancelDowngrade(user.id)
+        await BillingDowngradeService.cancelDowngrade(context.user.id)
     }
 }
