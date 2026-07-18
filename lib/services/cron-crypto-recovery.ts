@@ -1,5 +1,5 @@
 import { Redis } from "@upstash/redis";
-import { getWaitingCryptoInvoices, expireCryptoInvoice } from "@/lib/data/crypto-payment";
+import { getRecoverableCryptoInvoices, expireCryptoInvoice } from "@/lib/data/crypto-payment";
 import { createLogger } from "@/lib/logger";
 import {
     sendCryptoInvoiceExpiredEmail,
@@ -37,7 +37,7 @@ export async function handleCryptoRecoveryCron(): Promise<{
     const expiryCutoff = new Date(now - EXPIRY_THRESHOLD_DAYS * DAY_MS);
     const floorCutoff = new Date(now - 30 * DAY_MS);
 
-    const invoices = await getWaitingCryptoInvoices({
+    const invoices = await getRecoverableCryptoInvoices({
         createdBefore: reminderCutoff,
         createdAfter: floorCutoff,
         limit: MAX_PER_RUN,
@@ -54,7 +54,7 @@ export async function handleCryptoRecoveryCron(): Promise<{
 
         const ageMs = now - invoice.createdAt.getTime();
         const hoursPending = Math.floor(ageMs / HOUR_MS);
-        const isExpired = invoice.createdAt < expiryCutoff;
+        const isExpired = invoice.status === "expired" || invoice.createdAt < expiryCutoff;
 
         if (isExpired) {
             const dedupeKey = `crypto-recovery:expired:${invoice.id}`;
@@ -63,34 +63,38 @@ export async function handleCryptoRecoveryCron(): Promise<{
                 alreadySent = await redisClient.get(dedupeKey);
             } catch (error) {
                 logger.warn("Redis get failed - skipping invoice", { dedupeKey, error });
+                errors++;
                 continue;
             }
             if (alreadySent) continue;
 
             try {
-                const flip = await expireCryptoInvoice(invoice.id);
-                if (flip.count === 0) {
-                    continue;
+                if (invoice.status === "waiting") {
+                    const flip = await expireCryptoInvoice(invoice.id);
+                    if (flip.count === 0) {
+                        continue;
+                    }
+                    expired++;
                 }
-                expired++;
 
                 const result = await sendCryptoInvoiceExpiredEmail(email, {
                     product: invoice.product,
                     tier: invoice.tier,
                     priceUsd: invoice.priceAmount,
-                });
+                }, `crypto-invoice-expired/${invoice.id}`);
                 if (result.success) {
                     expiredEmailsSent++;
                     try {
                         await redisClient.set(dedupeKey, "1", { ex: 86400 * 90 });
                     } catch (error) {
                         logger.warn("Failed to persist expired dedupe key", { dedupeKey, error });
+                        errors++;
                     }
                 } else {
                     errors++;
                 }
             } catch (error) {
-                logger.error("Failed to expire crypto invoice", error, { invoiceId: invoice.id });
+                logger.error("Failed to recover crypto invoice", error, { invoiceId: invoice.id });
                 errors++;
             }
             continue;
@@ -102,6 +106,7 @@ export async function handleCryptoRecoveryCron(): Promise<{
             alreadySent = await redisClient.get(dedupeKey);
         } catch (error) {
             logger.warn("Redis get failed - skipping invoice", { dedupeKey, error });
+            errors++;
             continue;
         }
         if (alreadySent) continue;
@@ -113,7 +118,7 @@ export async function handleCryptoRecoveryCron(): Promise<{
                 priceUsd: invoice.priceAmount,
                 payCurrency: invoice.payCurrency,
                 hoursPending,
-            });
+            }, `crypto-invoice-reminder/${invoice.id}`);
             if (!result.success) {
                 errors++;
                 continue;
@@ -124,6 +129,7 @@ export async function handleCryptoRecoveryCron(): Promise<{
                 await redisClient.set(dedupeKey, "1", { ex: 86400 * 7 });
             } catch (error) {
                 logger.warn("Failed to persist reminder dedupe key", { dedupeKey, error });
+                errors++;
             }
         } catch (error) {
             logger.error("Failed to send crypto invoice reminder", error, { invoiceId: invoice.id });

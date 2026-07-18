@@ -70,7 +70,7 @@ Single `prisma/schema.prisma`, PostgreSQL. Models use camelCase in Prisma but ma
 
 ## Cron
 
-`vercel.json` registers cron paths hitting `/api/cron/*` (`daily`, `cleanup`, `heavy-user-upsell`, plus billing/domains/drip/crypto-recovery/ai-credits). Cron handlers are auth-gated via `lib/cron-auth.ts` and use `lib/cron-lock.ts` to avoid concurrent runs.
+`vercel.json` schedules the dedicated `/api/cron/*` routes for domains, billing, cleanup, drip email, crypto recovery, and the weekly heavy-user upsell. Every schedule is Hobby-compatible (at most daily), runs in UTC with hourly precision, is auth-gated via `lib/cron-auth.ts`, and has its own Redis lock via `lib/cron-lock.ts`. Keep jobs separate so one slow or failed workload cannot consume the others' function budget. The cleanup route already removes incomplete uploads; do not add a second staging-cleanup schedule.
 
 ## Conventions
 

@@ -568,6 +568,8 @@ export async function sendDripDay1Email(email: string, userId: string) {
             subject: "Create your first anon.li alias in 30 seconds",
             react: React.createElement(DripDay1Email, { unsubscribeUrl: unsub }),
             headers: unsubscribeHeaders(userId),
+        }, {
+            idempotencyKey: `drip-day-1/${userId}`,
         })
 
         if (error) {
@@ -594,6 +596,8 @@ export async function sendDripDay3Email(email: string, userId: string) {
             subject: "Send a file with end-to-end encryption",
             react: React.createElement(DripDay3Email, { unsubscribeUrl: unsub }),
             headers: unsubscribeHeaders(userId),
+        }, {
+            idempotencyKey: `drip-day-3/${userId}`,
         })
 
         if (error) {
@@ -620,6 +624,8 @@ export async function sendDripDay7Email(email: string, userId: string) {
             subject: "anon.li in your browser, terminal, and AI agent",
             react: React.createElement(DripDay7Email, { unsubscribeUrl: unsub }),
             headers: unsubscribeHeaders(userId),
+        }, {
+            idempotencyKey: `drip-day-7/${userId}`,
         })
 
         if (error) {
@@ -646,6 +652,8 @@ export async function sendDripDay14Email(email: string, userId: string) {
             subject: "Free is great. Here's when Plus earns its keep.",
             react: React.createElement(DripDay14Email, { unsubscribeUrl: unsub }),
             headers: unsubscribeHeaders(userId),
+        }, {
+            idempotencyKey: `drip-day-14/${userId}`,
         })
 
         if (error) {
@@ -662,7 +670,8 @@ export async function sendDripDay14Email(email: string, userId: string) {
 
 export async function sendCryptoInvoiceReminderEmail(
     email: string,
-    details: { product: string; tier: string; priceUsd: number; payCurrency: string; hoursPending: number }
+    details: { product: string; tier: string; priceUsd: number; payCurrency: string; hoursPending: number },
+    idempotencyKey?: string,
 ) {
     try {
         const resend = getResendClient()
@@ -673,6 +682,8 @@ export async function sendCryptoInvoiceReminderEmail(
             to: email,
             subject: "Your anon.li crypto payment is still pending",
             react: React.createElement(CryptoInvoiceReminderEmail, details),
+        }, {
+            idempotencyKey,
         })
 
         if (error) {
@@ -689,7 +700,8 @@ export async function sendCryptoInvoiceReminderEmail(
 
 export async function sendCryptoInvoiceExpiredEmail(
     email: string,
-    details: { product: string; tier: string; priceUsd: number }
+    details: { product: string; tier: string; priceUsd: number },
+    idempotencyKey?: string,
 ) {
     try {
         const resend = getResendClient()
@@ -700,6 +712,8 @@ export async function sendCryptoInvoiceExpiredEmail(
             to: email,
             subject: "Your crypto invoice expired — finish with a card in 30 seconds",
             react: React.createElement(CryptoInvoiceExpiredEmail, details),
+        }, {
+            idempotencyKey,
         })
 
         if (error) {
@@ -731,6 +745,8 @@ export async function sendPowerUserUpsellEmail(
             subject: `You've forwarded ${details.emailsForwarded.toLocaleString()} emails — ${planLabel} lifts your limits`,
             react: React.createElement(PowerUserUpsellEmail, { ...details, unsubscribeUrl: unsub }),
             headers: unsubscribeHeaders(userId),
+        }, {
+            idempotencyKey: `power-user-upsell/${userId}`,
         })
 
         if (error) {
@@ -747,7 +763,8 @@ export async function sendPowerUserUpsellEmail(
 
 export async function sendCryptoRenewalReminderEmail(
     email: string,
-    details: { daysRemaining: number; product: string; tier: string }
+    details: { daysRemaining: number; product: string; tier: string },
+    idempotencyKey?: string,
 ) {
     try {
         const resend = getResendClient()
@@ -762,6 +779,8 @@ export async function sendCryptoRenewalReminderEmail(
                 product: details.product,
                 tier: details.tier,
             }),
+        }, {
+            idempotencyKey,
         })
 
         if (error) {

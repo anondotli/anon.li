@@ -11,6 +11,7 @@ const { cleanupExpiredDropsMock } = vi.hoisted(() => ({
 vi.mock("@/lib/prisma", () => ({
     prisma: {
         domain: {
+            count: vi.fn().mockResolvedValue(0),
             findMany: vi.fn().mockResolvedValue([]),
             deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
         },
@@ -120,20 +121,6 @@ describe("Cron Route Auth", () => {
             expect(res.status).toBe(500);
             expect(body.success).toBe(false);
             expect(body.errors).toContain("drop-1: storage deletion failed");
-        });
-    });
-
-    describe("form staging", () => {
-        it("runs the upload cleanup job with valid cron auth", async () => {
-            const { GET } = await import("@/app/api/cron/form-staging/route");
-            const req = new Request("http://localhost/api/cron/form-staging", {
-                method: "GET",
-                headers: { Authorization: "Bearer test-cron-secret" },
-            });
-
-            const res = await GET(req as never);
-            expect(res.status).toBe(200);
-            await expect(res.json()).resolves.toMatchObject({ success: true });
         });
     });
 

@@ -6,19 +6,23 @@ import { handleCryptoRecoveryCron } from "@/lib/services/cron-crypto-recovery";
 
 const logger = createLogger("CronCryptoRecovery");
 
+export const dynamic = "force-dynamic";
+export const maxDuration = 300;
+
 async function handleCron(req: NextRequest) {
     if (!validateCronAuth(req, "crypto-recovery")) {
         return new NextResponse("Unauthorized", { status: 401 });
     }
 
     try {
-        // Share the "daily" lock so a manual trigger can't race the scheduled
-        // daily run, which executes this same handler under that lock.
-        const result = await withCronLock("daily", 15 * 60, () => handleCryptoRecoveryCron());
+        const result = await withCronLock("crypto-recovery", 15 * 60, () => handleCryptoRecoveryCron());
         if (result === null) {
             return NextResponse.json({ success: true, skipped: "lock-held" });
         }
-        return NextResponse.json({ success: true, ...result });
+        return NextResponse.json(
+            { success: result.errors === 0, ...result },
+            { status: result.errors === 0 ? 200 : 500 },
+        );
     } catch (error) {
         logger.error("Crypto recovery cron failed", error);
         return new NextResponse("Internal Server Error", { status: 500 });

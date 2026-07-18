@@ -6,9 +6,8 @@ import crypto from "crypto";
  * Each cron endpoint has its own derived secret:
  *   derivedSecret = HMAC-SHA256(CRON_SECRET, "cron:<scope>")
  *
- * The caller must send either:
- *   - The scope-specific derived secret (preferred), or
- *   - The base CRON_SECRET (accepted for backward compatibility)
+ * Vercel sends the base CRON_SECRET automatically. Operators may also use a
+ * scope-specific derived token for manual runs without exposing the base secret.
  *
  * Scope examples: "cleanup", "domains", "billing"
  */
@@ -17,8 +16,14 @@ export function validateCronAuth(req: Request, scope: string): boolean {
     const secret = process.env.CRON_SECRET;
     if (!secret) return false;
 
-    const providedToken = authHeader?.startsWith("Bearer ") ? authHeader.split(" ")[1] : "";
+    const providedToken = authHeader?.startsWith("Bearer ")
+        ? authHeader.slice("Bearer ".length)
+        : "";
     if (!providedToken) return false;
+
+    // Reject whitespace and extra authentication parameters instead of silently
+    // accepting the first token from a malformed header.
+    if (/\s/.test(providedToken)) return false;
 
     const providedHash = crypto.createHash("sha256").update(providedToken).digest();
 
@@ -33,7 +38,7 @@ export function validateCronAuth(req: Request, scope: string): boolean {
         return true;
     }
 
-    // Fall back to base CRON_SECRET for backward compatibility
+    // Vercel-managed cron invocations use the base CRON_SECRET.
     const baseHash = crypto.createHash("sha256").update(secret).digest();
     return crypto.timingSafeEqual(providedHash, baseHash);
 }

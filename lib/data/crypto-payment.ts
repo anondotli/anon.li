@@ -19,7 +19,7 @@ export async function createCryptoPayment(data: {
     })
 }
 
-type WaitingCryptoInvoice = {
+type RecoverableCryptoInvoice = {
     id: string
     userId: string
     product: string
@@ -27,21 +27,23 @@ type WaitingCryptoInvoice = {
     priceAmount: number
     payCurrency: string
     createdAt: Date
+    status: "waiting" | "expired"
     user: { email: string } | null
 }
 
 /**
- * Returns `waiting` crypto invoices whose creation time is within the given window.
- * Joins the user's email so the cron can fire a reminder without a second query.
+ * Returns recoverable `waiting` and `expired` crypto invoices in the given
+ * window. Expired rows stay eligible until their notification is durably
+ * deduplicated, so a transient email failure can be retried on the next run.
  */
-export async function getWaitingCryptoInvoices(opts: {
+export async function getRecoverableCryptoInvoices(opts: {
     createdBefore: Date;
     createdAfter: Date;
     limit: number;
-}): Promise<WaitingCryptoInvoice[]> {
+}): Promise<RecoverableCryptoInvoice[]> {
     const rows = await prisma.cryptoPayment.findMany({
         where: {
-            status: "waiting",
+            status: { in: ["waiting", "expired"] },
             createdAt: { gte: opts.createdAfter, lt: opts.createdBefore },
         },
         include: {
@@ -50,7 +52,7 @@ export async function getWaitingCryptoInvoices(opts: {
         orderBy: { createdAt: "asc" },
         take: opts.limit,
     })
-    return rows
+    return rows as RecoverableCryptoInvoice[]
 }
 
 /**
