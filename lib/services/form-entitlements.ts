@@ -4,6 +4,7 @@ import { getOrgLimitContext } from "@/lib/data/auth"
 import { getEffectiveTier } from "@/lib/limits"
 import { getEffectiveTiers } from "@/lib/entitlements"
 import { PLAN_ENTITLEMENTS, type FormEntitlements } from "@/config/plans"
+import { DAY_MS } from "@/lib/constants"
 
 /**
  * Resolve a form's entitlements (tier + limits) from the RIGHT owner scope.
@@ -40,12 +41,22 @@ export async function getFormOwnerEntitlements(
 ): Promise<{ limits: FormEntitlements; tiers: { form: FormTier; drop: DropTier }; subscribed: boolean }> {
     if (owner.organizationId) {
         const orgCtx = await getOrgLimitContext(owner.organizationId)
+        const formSubscriptions = orgCtx.subscriptions.filter((subscription) => (
+            subscription.product === "form"
+            || subscription.product === "bundle"
+            || subscription.product === "business"
+        ))
         // Org plans (Business) grant a single tier across all products.
-        const tier = getEffectiveTier(orgCtx) as FormTier
+        const tier = getEffectiveTier({ ...orgCtx, subscriptions: formSubscriptions }) as FormTier
+        const now = Date.now()
+        const subscribed = formSubscriptions.some((subscription) => (
+            !subscription.currentPeriodEnd
+            || subscription.currentPeriodEnd.getTime() + DAY_MS > now
+        ))
         return {
             limits: PLAN_ENTITLEMENTS.form[tier],
             tiers: { form: tier, drop: tier },
-            subscribed: orgCtx.subscriptions.length > 0,
+            subscribed,
         }
     }
     const tiers = await getEffectiveTiers(owner.userId)

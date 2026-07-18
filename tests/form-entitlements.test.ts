@@ -49,6 +49,24 @@ describe("getFormOwnerEntitlements", () => {
         expect(result.subscribed).toBe(false)
     })
 
+    it("does not treat a stale active-status row past its billing grace as subscribed", async () => {
+        getOrgLimitContext.mockResolvedValue({
+            subscriptions: [{
+                product: "business",
+                tier: "pro",
+                status: "active",
+                currentPeriodEnd: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
+            }],
+            referralPlusUntil: null,
+        })
+        getEffectiveTier.mockReturnValue("free")
+
+        const result = await getFormOwnerEntitlements({ userId: null, organizationId: "org-1" })
+
+        expect(result.subscribed).toBe(false)
+        expect(result.tiers.form).toBe("free")
+    })
+
     it("resolves a personal form from the user's per-product tiers", async () => {
         getEffectiveTiers.mockResolvedValue({ alias: "free", drop: "free", form: "plus" })
 

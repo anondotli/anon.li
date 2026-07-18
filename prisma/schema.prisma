@@ -433,6 +433,11 @@ model Drop {
   uploadComplete Boolean   @default(false)
   viewedAt       DateTime?
 
+  // Durable privacy marker for a Form attachment that has not yet been bound
+  // to an accepted submission. Deliberately not a foreign key: deleting the
+  // Form must not turn abandoned staging ciphertext into a public Drop.
+  formStagingId String? @map("form_staging_id")
+
   // Lifecycle
   deletedAt DateTime? // Soft delete
 
@@ -467,6 +472,7 @@ model Drop {
   @@index([uploadComplete])
   @@index([maxDownloads])
   @@index([organizationId])
+  @@index([formStagingId])
   @@map("drops")
 }
 
@@ -490,6 +496,7 @@ model UploadToken {
   @@unique([tokenHash])
   @@index([dropId])
   @@index([formId])
+  @@index([formId, expiresAt])
   @@index([expiresAt])
   @@map("upload_tokens")
 }
@@ -588,7 +595,7 @@ model UploadChunk {
 }
 
 // ─── Forms ──────────────────────────────────────────────────────────────────
-// Form submissions are end-to-end encrypted using a per-form X25519 keypair.
+// Form submissions are end-to-end encrypted using a per-form P-256 ECDH keypair.
 // The public key is served with the form so each submitter encrypts with
 // ECDH+AES-GCM; only the creator can decrypt. Title/description/schemaJson are
 // intentionally plaintext — they are the questions the public needs to see.
@@ -608,7 +615,7 @@ model Form {
   description String? @db.Text
   schemaJson  String  @db.Text
 
-  // Per-form X25519 public key (base64url). Private key is vault-wrapped in FormOwnerKey.
+  // Per-form P-256 public key (base64url). Private key is vault-wrapped in FormOwnerKey.
   publicKey String
 
   // Behavior
@@ -656,7 +663,7 @@ model Form {
   @@map("forms")
 }
 
-// Mirror of DropOwnerKey: vault-wrapped X25519 private key.
+// Mirror of DropOwnerKey: vault-wrapped P-256 private key.
 model FormOwnerKey {
   id               String   @id @default(cuid())
   // Nullable + SetNull: an org-owned owner key (organizationId set) is the only
@@ -691,9 +698,9 @@ model FormSubmission {
   iv               String
   encryptedPayload String @db.Text
 
-  // Optional attached drop (files). The drop is owned by the form creator and
-  // the E2EE symmetric key is carried inside encryptedPayload so only the
-  // creator can open it.
+  // Optional attached drop (files). The drop inherits the Form tenant (personal
+  // or organization); its E2EE symmetric key is carried inside encryptedPayload
+  // so only a holder of the Form's vault-wrapped private key can open it.
   attachedDropId String? @unique
   attachedDrop   Drop?   @relation("FormSubmissionDrop", fields: [attachedDropId], references: [id], onDelete: SetNull)
 
@@ -707,6 +714,20 @@ model FormSubmission {
   @@index([formId, createdAt])
   @@index([submitterUserId])
   @@map("form_submissions")
+}
+
+// Minimal, content-free quota ledger. It deliberately has no foreign keys so
+// deleting a response/form cannot refund a calendar-month submission quota.
+// Rows contain no submitter identity, IP address, or encrypted response data.
+model FormUsageEvent {
+  id             String   @id // FormSubmission id at acceptance time
+  userId         String?
+  organizationId String?
+  createdAt      DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([organizationId, createdAt])
+  @@map("form_usage_events")
 }
 
 model TwoFactor {
@@ -920,6 +941,7 @@ model Organization {
   // revocation) and cleared on rotation, so the team-page banner survives refresh.
   orgKeyGeneration         Int       @default(0) @map("org_key_generation")
   keyRotationRecommendedAt DateTime? @map("key_rotation_recommended_at")
+  formRetentionGraceUntil  DateTime? @map("form_retention_grace_until")
 
   // Plugin relations
   members     Member[]

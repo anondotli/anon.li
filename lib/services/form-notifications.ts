@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma"
 import { createLogger } from "@/lib/logger"
 import { sendEmail } from "@/lib/resend"
+import { getOrgAdminEmails } from "@/lib/data/organization"
 
 const logger = createLogger("FormNotifications")
 
@@ -16,20 +17,24 @@ export async function notifyFormSubmission(formId: string, submissionId: string)
                 title: true,
                 notifyAliasId: true,
                 notifyEmailFallback: true,
+                organizationId: true,
                 user: { select: { email: true } },
             },
         })
         if (!form) return
 
         const notifyOnSubmission = form.notifyEmailFallback || form.notifyAliasId !== null
-        // form.user is null for an org form whose creator was deleted (userId
-        // SetNull); there's no personal fallback inbox in that case.
-        const recipient = notifyOnSubmission ? (form.user?.email ?? null) : null
-        if (!recipient) return
+        if (!notifyOnSubmission) return
+        const recipients = form.organizationId
+            ? await getOrgAdminEmails(form.organizationId)
+            : form.user?.email
+              ? [form.user.email]
+              : []
+        if (recipients.length === 0) return
 
         const { FormSubmissionNotificationEmail } = await import("@/components/email/form-submission")
         const dashboardUrl = `${process.env.NEXT_PUBLIC_APP_URL}/dashboard/form/${form.id}`
-        const result = await sendEmail({
+        const results = await Promise.all(recipients.map((recipient) => sendEmail({
             to: recipient,
             subject: `New response to "${form.title}"`,
             react: FormSubmissionNotificationEmail({
@@ -38,8 +43,8 @@ export async function notifyFormSubmission(formId: string, submissionId: string)
                 dashboardUrl,
                 receivedAt: new Date(),
             }),
-        })
-        if (!result.success) {
+        })))
+        if (results.some((result) => !result.success)) {
             logger.warn("Form notification email failed", { formId, submissionId })
         }
     } catch (err) {

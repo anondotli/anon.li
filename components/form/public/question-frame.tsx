@@ -75,7 +75,8 @@ export const QuestionFrame = forwardRef<QuestionFrameHandle, Props>(function Que
     )
 
     const behavior = getFieldBehavior(field)
-    const showOk = !behavior.autoAdvances
+    // Optional auto-advance questions still need an explicit way to skip them.
+    const showOk = !behavior.autoAdvances || !field.required
     const padded = String(index).padStart(String(total).length, "0")
     const spotlight = presentation === "spotlight"
 

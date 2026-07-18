@@ -7,11 +7,12 @@ import { NextResponse } from "next/server"
 
 import { getClientIp, rateLimit } from "@/lib/rate-limit"
 import { withPolicy, scopeFromContext } from "@/lib/route-policy"
-import { personalScope, type OwnerScope } from "@/lib/ownership"
+import { type OwnerScope } from "@/lib/ownership"
 import { DropService } from "@/lib/services/drop"
 import {
     getFormUploadQuotaOverride,
     resolveTokenUploadAccess,
+    scopeForTokenUploadAccess,
     validateFormDropFile,
 } from "@/lib/services/form-upload"
 import { buildMultipartUploadParts, getChunkPresignedUrls } from "@/lib/storage"
@@ -51,7 +52,7 @@ export const POST = withPolicy<RouteParams>(
             if (!access) {
                 return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
             }
-            uploadScope = access.effectiveUserId ? personalScope(access.effectiveUserId) : null
+            uploadScope = scopeForTokenUploadAccess(access)
             formId = access.formId
         } else if (!ctx.userId) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 })

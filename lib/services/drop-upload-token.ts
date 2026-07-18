@@ -9,15 +9,16 @@ import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
 
 const TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
+export const FORM_UPLOAD_TOKEN_TTL_MS = 6 * 60 * 60 * 1000;
 
 export function hashUploadToken(raw: string): string {
     return crypto.createHash("sha256").update(raw).digest("hex");
 }
 
-export async function issueUploadToken(dropId: string): Promise<string> {
+export async function issueUploadToken(dropId: string, ttlMs = TOKEN_TTL_MS): Promise<string> {
     const raw = crypto.randomBytes(32).toString("base64url");
     const tokenHash = hashUploadToken(raw);
-    const expiresAt = new Date(Date.now() + TOKEN_TTL_MS);
+    const expiresAt = new Date(Date.now() + ttlMs);
     await prisma.uploadToken.create({
         data: { dropId, tokenHash, expiresAt },
     });

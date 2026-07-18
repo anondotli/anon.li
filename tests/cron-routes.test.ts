@@ -48,6 +48,7 @@ vi.mock("@/lib/services/form-cleanup", () => ({
     FormCleanupService: {
         cleanupExpiredSubmissions: vi.fn().mockResolvedValue({ found: 0, deleted: 0, errors: [] }),
         cleanupDeletedForms: vi.fn().mockResolvedValue({ found: 0, deleted: 0, errors: [] }),
+        cleanupOldUsageEvents: vi.fn().mockResolvedValue({ found: 0, deleted: 0, errors: [] }),
     },
 }));
 
@@ -119,6 +120,20 @@ describe("Cron Route Auth", () => {
             expect(res.status).toBe(500);
             expect(body.success).toBe(false);
             expect(body.errors).toContain("drop-1: storage deletion failed");
+        });
+    });
+
+    describe("form staging", () => {
+        it("runs the upload cleanup job with valid cron auth", async () => {
+            const { GET } = await import("@/app/api/cron/form-staging/route");
+            const req = new Request("http://localhost/api/cron/form-staging", {
+                method: "GET",
+                headers: { Authorization: "Bearer test-cron-secret" },
+            });
+
+            const res = await GET(req as never);
+            expect(res.status).toBe(200);
+            await expect(res.json()).resolves.toMatchObject({ success: true });
         });
     });
 

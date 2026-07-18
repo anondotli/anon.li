@@ -60,6 +60,7 @@ describe("FormSubmissionPage Turnstile", () => {
                 ],
                 submitButtonText: "Send",
             },
+            fieldCount: 1,
             publicKey: "public-key",
             active: true,
             hideBranding: true,
@@ -73,6 +74,7 @@ describe("FormSubmissionPage Turnstile", () => {
 
         render(<FormSubmissionPage form={form} />)
 
+        expect(screen.queryByRole("link", { name: "anon.li Form" })).toBeNull()
         expect(screen.queryByRole("button", { name: "Complete captcha" })).toBeNull()
 
         fireEvent.click(screen.getByRole("button", { name: "Send" }))
@@ -88,6 +90,7 @@ describe("FormSubmissionPage Turnstile", () => {
             expect(fetchMock).toHaveBeenCalledWith(
                 "/api/v1/form/form_1/submit",
                 expect.objectContaining({
+                    credentials: "omit",
                     body: expect.stringContaining('"turnstileToken":"captcha-token"'),
                 }),
             )

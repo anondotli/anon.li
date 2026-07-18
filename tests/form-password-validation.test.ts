@@ -2,7 +2,12 @@
  * @vitest-environment jsdom
  */
 import { describe, expect, it } from "vitest"
-import { createFormSchema, updateFormSchema } from "@/lib/validations/form"
+import {
+    createFormSchema,
+    updateFormSchema,
+    listFormsQuerySchema,
+    listSubmissionsQuerySchema,
+} from "@/lib/validations/form"
 import { cryptoService } from "@/lib/crypto.client"
 
 const baseInput = {
@@ -94,5 +99,21 @@ describe("form password validation", () => {
             customKeyIv: "I".repeat(16),
         })
         expect(result.success).toBe(false)
+    })
+})
+
+describe("form list query validation", () => {
+    it("applies defaults when URLSearchParams supplies null values", () => {
+        expect(listFormsQuerySchema.parse({ limit: null, offset: null, includeDeleted: null }))
+            .toEqual({ limit: 25, offset: 0, includeDeleted: undefined })
+    })
+
+    it("parses explicit false rather than treating every non-empty string as true", () => {
+        expect(listSubmissionsQuerySchema.parse({ unreadOnly: "false", includePayload: "true" }))
+            .toMatchObject({ unreadOnly: false, includePayload: true })
+    })
+
+    it("rejects ambiguous boolean query values", () => {
+        expect(listFormsQuerySchema.safeParse({ includeDeleted: "1" }).success).toBe(false)
     })
 })

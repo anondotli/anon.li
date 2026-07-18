@@ -9,7 +9,7 @@ import { z } from "zod"
 import { withPolicy, scopeFromContext } from "@/lib/route-policy"
 import { FormService } from "@/lib/services/form"
 import { createFormSchema, listFormsQuerySchema } from "@/lib/validations/form"
-import { getFormLimitsAsync } from "@/lib/limits"
+import { getFormOwnerEntitlements } from "@/lib/services/form-entitlements"
 import { prisma } from "@/lib/prisma"
 import { UpgradeRequiredError } from "@/lib/api-error-utils"
 import {
@@ -21,12 +21,16 @@ import {
 const createBodySchema = createFormSchema.and(z.object({
     wrappedPrivateKey: wrappedFormKeySchema,
     vaultGeneration: vaultGenerationSchema,
-    vaultId: vaultIdSchema,
+    vaultId: vaultIdSchema.optional(),
+    // Organization forms are wrapped to this exact shared-vault generation.
+    // FormService verifies it again while holding the organization row lock.
+    orgKeyGeneration: z.number().int().positive().optional(),
 }))
 
 export const GET = withPolicy(
     {
         auth: "api_key_or_session",
+        organizationAccess: "subscribed",
         apiQuota: "form",
         rateLimit: "formList",
     },
@@ -44,10 +48,13 @@ export const GET = withPolicy(
             return apiError("Invalid query", ErrorCodes.VALIDATION_ERROR, ctx.requestId, 400, zodErrorToDetails(parsed.error))
         }
 
-        const [result, limits] = await Promise.all([
-            FormService.listForms(scopeFromContext(ctx), parsed.data),
-            getFormLimitsAsync(ctx.userId),
+        const scope = scopeFromContext(ctx)
+        const [result, entitlements, submissionsUsedCurrentMonth] = await Promise.all([
+            FormService.listForms(scope, parsed.data),
+            getFormOwnerEntitlements(scope),
+            FormService.countCurrentMonthSubmissions(scope),
         ])
+        const { limits } = entitlements
 
         const data = result.forms.map((f) => ({
             id: f.id,
@@ -70,6 +77,7 @@ export const GET = withPolicy(
             plan: {
                 forms_limit: limits.forms,
                 submissions_per_month: limits.submissionsPerMonth,
+                submissions_used_current_month: submissionsUsedCurrentMonth,
                 retention_days: limits.retentionDays,
             },
         })
@@ -79,6 +87,7 @@ export const GET = withPolicy(
 export const POST = withPolicy(
     {
         auth: "api_key_or_session",
+        organizationAccess: "subscribed",
         apiQuota: "form",
         requireCsrf: true,
         checkBan: "upload",
@@ -95,23 +104,38 @@ export const POST = withPolicy(
             return apiError("Validation failed", ErrorCodes.VALIDATION_ERROR, ctx.requestId, 400, zodErrorToDetails(validation.error))
         }
 
-        const security = await prisma.userSecurity.findUnique({
-            where: { userId: ctx.userId },
-            select: { id: true, vaultGeneration: true },
-        })
-        const identityError = vaultIdentityErrorResponse(
-            checkVaultIdentity(security, {
-                vaultId: validation.data.vaultId,
-                vaultGeneration: validation.data.vaultGeneration,
-            }),
-            ctx.requestId
-        )
-        if (identityError) return identityError
+        const scope = scopeFromContext(ctx)
+        if (scope.organizationId) {
+            if (!validation.data.orgKeyGeneration) {
+                return apiError(
+                    "Missing team key generation for an organization form",
+                    ErrorCodes.VALIDATION_ERROR,
+                    ctx.requestId,
+                    400,
+                )
+            }
+        } else {
+            if (!validation.data.vaultId) {
+                return apiError("Missing vault identity", ErrorCodes.VALIDATION_ERROR, ctx.requestId, 400)
+            }
+            const security = await prisma.userSecurity.findUnique({
+                where: { userId: ctx.userId },
+                select: { id: true, vaultGeneration: true },
+            })
+            const identityError = vaultIdentityErrorResponse(
+                checkVaultIdentity(security, {
+                    vaultId: validation.data.vaultId,
+                    vaultGeneration: validation.data.vaultGeneration,
+                }),
+                ctx.requestId
+            )
+            if (identityError) return identityError
+        }
 
         try {
             const { vaultId: _vaultId, ...input } = validation.data
             void _vaultId
-            const form = await FormService.createForm(scopeFromContext(ctx), input)
+            const form = await FormService.createForm(scope, input)
             return apiSuccess({
                 id: form.id,
                 title: form.title,

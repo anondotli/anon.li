@@ -7,15 +7,15 @@ author: "The anon.li Team"
 
 Forms are how the internet asks you for things - for tips, applications, signatures, complaints, contact details. The default tools (Google Forms, Typeform, the rest) all share the same posture toward your data: the server reads every response in plaintext, stores it indefinitely, and sells you analytics on top of it. That is fine for booking a haircut. It is not fine for whistleblowing, legal intake, HR cases, security disclosures, or anything you'd rather your form provider never saw.
 
-Today we're launching **anon.li Form** — the third pillar alongside Alias and Drop. Build a form, share the link, and read submissions that only you can decrypt. Our server stores ciphertext and nothing else.
+Today we're launching **anon.li Form** — the third pillar alongside Alias and Drop. Build a form, share the link, and read submissions that only you can decrypt. Our server stores response content as ciphertext; only operational metadata remains readable.
 
 ## How it works
 
-When you create a form, your browser generates a fresh X25519 keypair. The public key ships with the form so any visitor can encrypt to it. The private key is wrapped under your account vault key — the same vault that protects your Drop owner keys — and stored server-side in that wrapped form. We never see it in the clear.
+When you create a form, your browser generates a fresh P-256 keypair. The public key ships with the form so any visitor can encrypt to it. The private key is wrapped under your account vault key — the same vault that protects your Drop owner keys — and stored server-side in that wrapped form. We never see it in the clear.
 
 When someone submits, their browser:
 
-1. Generates an ephemeral X25519 keypair for that submission.
+1. Generates an ephemeral P-256 keypair for that submission.
 2. Performs ECDH against your form's public key to derive a shared secret.
 3. Encrypts the answers with AES-256-GCM and a fresh 12-byte IV.
 4. Sends us the ciphertext, the ephemeral public key, and the IV. Nothing else.
@@ -30,11 +30,11 @@ The visual builder gives you the field types you'd expect — short text, paragr
 
 A few things we cared about getting right:
 
-- **Password protection.** Add a passphrase and the form refuses to render to anyone who can't supply it. The verifier is computed client-side with Argon2id, so we never see the password and we can't decrypt without it either.
+- **Password protection.** Add a passphrase and the form withholds its questions from anyone who can't supply it. Argon2id runs in the browser and only a password-derived witness is sent for verification, so the password never reaches our server.
 - **Submission caps & close dates.** Cap a form at N submissions, schedule a hard close time, or both. Both checks are enforced atomically server-side, so a burst of last-second submissions can't sneak past the cap.
 - **Encrypted attachments.** A respondent can attach files — résumés, screenshots, evidence — and they ride the same Drop encryption pipeline: AES-256-GCM, in-browser, with the symmetric key sealed inside the submission ciphertext so only you can open it.
 - **Iframe embed.** Drop the form onto your own site without giving up the encryption guarantees. The public form path is the only path on anon.li that's intentionally embeddable cross-origin; everything else stays clickjacking-locked.
-- **Turnstile.** Anonymous submissions are gated by Cloudflare Turnstile. Authenticated API submissions skip it. You don't pay the abuse tax in your CLI.
+- **Turnstile.** Public submissions are gated by Cloudflare Turnstile, even when the respondent happens to have an anon.li session. A respondent's login never becomes an abuse bypass against somebody else's form.
 - **API & MCP.** Every form operation — list, create, toggle, delete, read submissions — is available through the REST API and exposed as MCP tools, so AI agents and your own scripts can drive forms without special-casing.
 
 ## Plans
@@ -42,8 +42,8 @@ A few things we cared about getting right:
 Form has its own free tier and its own paid tiers, or you can include it in the Bundle.
 
 - **Free** — 3 forms, 50 submissions/month, 30-day retention, 100 MB attachments.
-- **Plus ($3.99/mo)** — 10 forms, 1,000 submissions/month, 90-day retention, branding removal.
-- **Pro ($5.99/mo)** — 30 forms, 10,000 submissions/month, 365-day retention, password protection, larger attachments.
+- **Plus ($3.99/mo)** — 10 forms, 1,000 submissions/month, 90-day retention, password protection, 5 GB attachments.
+- **Pro ($5.99/mo)** — 30 forms, 10,000 submissions/month, 365-day retention, branding removal, 50 GB attachments.
 
 Submissions older than your retention window are purged automatically. We don't keep ciphertext we no longer need to.
 
@@ -52,7 +52,7 @@ Submissions older than your retention window are purged automatically. We don't 
 To save you the careful read of our [security architecture post](/blog/security-architecture):
 
 - **Cannot see:** any answer to any field, attachments, the submitter's identity (unless they're signed in), the form password.
-- **Can see:** the form's title, description, and field schema (these are public — submitters need to read them), submission timestamps, submission counts, the IP hash of the submitter (peppered, for abuse-rate-limiting), and the form owner's account.
+- **Can see:** the form's title, description, and field schema at rest, submission timestamps, submission counts, the IP hash of the submitter (peppered, for abuse-rate-limiting), and the form owner's account. A password-protected form's schema is not served until the visitor proves knowledge of its password.
 
 That's the trade. Question text is plaintext because the public sees it; answers are ciphertext because only you should.
 

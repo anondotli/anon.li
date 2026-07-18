@@ -7,6 +7,19 @@ const PublicKey = z.string().regex(/^[A-Za-z0-9_-]{87}$/, "invalid public key")
 const Base64Url = z.string().regex(/^[A-Za-z0-9_-]+$/, "invalid base64url")
 const Base64UrlSha256 = z.string().regex(/^[A-Za-z0-9_-]{43}$/, "invalid verifier")
 
+const queryNumber = (schema: z.ZodNumber, fallback: number) =>
+    z.preprocess(
+        (value) => value === null || value === undefined || value === "" ? undefined : value,
+        z.coerce.number().pipe(schema).default(fallback),
+    )
+
+const queryBoolean = z.preprocess((value) => {
+    if (value === null || value === undefined || value === "") return undefined
+    if (value === "true" || value === true) return true
+    if (value === "false" || value === false) return false
+    return value
+}, z.boolean().optional())
+
 // Salt is 32 random bytes → 43 base64url chars, IV is 12 bytes → 16 base64url chars
 // (matches cryptoService.generateSalt() / generateBaseIv()).
 const customKeyFields = {
@@ -94,19 +107,20 @@ export const submitFormSchema = z.object({
     customKeyProof: Base64Url.min(1).max(512).optional(),
 })
 
+export const customKeyProofSchema = Base64Url.min(1).max(512)
+
 export const listFormsQuerySchema = z.object({
-    limit: z.coerce.number().int().min(1).max(100).default(25),
-    offset: z.coerce.number().int().min(0).default(0),
-    includeDeleted: z.coerce.boolean().optional(),
+    limit: queryNumber(z.number().int().min(1).max(100), 25),
+    offset: queryNumber(z.number().int().min(0), 0),
+    includeDeleted: queryBoolean,
 })
 
 export const listSubmissionsQuerySchema = z.object({
-    limit: z.coerce.number().int().min(1).max(100).default(25),
-    offset: z.coerce.number().int().min(0).default(0),
-    unreadOnly: z.coerce.boolean().optional(),
+    limit: queryNumber(z.number().int().min(1).max(100), 25),
+    offset: queryNumber(z.number().int().min(0), 0),
+    unreadOnly: queryBoolean,
     // Owner-only: include the encrypted ciphertext per row so the dashboard can
     // decrypt a whole page in a single request (instead of one read per row).
     // Listing never marks rows read.
-    includePayload: z.coerce.boolean().optional(),
+    includePayload: queryBoolean,
 })
-

@@ -59,6 +59,7 @@ vi.mock("@/lib/services/drop-upload-token", () => ({
 }));
 vi.mock("@/lib/services/form-upload", () => ({
     resolveTokenUploadAccess: resolveTokenUploadAccessMock,
+    scopeForTokenUploadAccess: vi.fn(() => null),
     validateFormDropFile: validateFormDropFileMock,
 }));
 vi.mock("@/lib/turnstile", () => ({

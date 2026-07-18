@@ -8,13 +8,15 @@ import { Progress } from "@/components/ui/progress"
 import { Turnstile } from "@/components/ui/turnstile"
 import { cryptoService } from "@/lib/crypto.client"
 import { encryptForForm } from "@/lib/crypto/asymmetric"
-import type { FormField, FormSchemaDoc } from "@/lib/form-schema"
+import type { FormField, FormSchemaDoc as FormSchemaDocument } from "@/lib/form-schema"
 import {
+    FormSchemaDoc as FormSchemaValidator,
     isFieldVisible,
     isBlankObject,
     validateAnswersAgainstSchema,
     missingRequiredAddressParts,
     describeAddressParts,
+    isIsoDateValue,
 } from "@/lib/form-schema"
 import {
     uploadFormAttachments,
@@ -37,7 +39,8 @@ interface PublicFormData {
     id: string
     title: string
     description: string | null
-    schema: FormSchemaDoc
+    schema: FormSchemaDocument | null
+    fieldCount: number
     publicKey: string
     active: boolean
     hideBranding: boolean
@@ -65,11 +68,12 @@ interface Props {
 }
 
 export function FormSubmissionPage({ form }: Props) {
-    const focusedMode = (form.schema.displayMode ?? "classic") === "one_question"
+    const [schema, setSchema] = useState<FormSchemaDocument | null>(form.schema)
+    const focusedMode = (schema?.displayMode ?? "classic") === "one_question"
     const [answers, setAnswers] = useState<Record<string, unknown>>({})
     const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
     const [phase, setPhase] = useState<Phase>(() =>
-        focusedMode ? { kind: "welcome" } : { kind: "questions" },
+        form.customKey || focusedMode ? { kind: "welcome" } : { kind: "questions" },
     )
     const [view, setView] = useState<View>({ state: "idle" })
     const [initialNow] = useState(() => Date.now())
@@ -77,10 +81,9 @@ export function FormSubmissionPage({ form }: Props) {
     const [turnstileRequested, setTurnstileRequested] = useState(false)
     const [turnstileRenderKey, setTurnstileRenderKey] = useState(0)
 
-    const [unlocked, setUnlocked] = useState(false)
     const [customKeyProof, setCustomKeyProof] = useState<string | null>(null)
     const isClosed = !form.active || (form.closesAt && form.closesAt.getTime() < initialNow)
-    const isPasswordProtected = form.customKey && !unlocked
+    const isPasswordProtected = form.customKey && !schema
     const submitting = view.state === "submitting" || view.state === "uploading"
     const onActiveQuestions = phase.kind === "questions" && !isClosed && !isPasswordProtected
 
@@ -95,13 +98,17 @@ export function FormSubmissionPage({ form }: Props) {
     }, [])
 
     const onSubmit = useCallback(async (verifiedTurnstileToken?: string) => {
-        const errors = collectFieldErrors(form.schema, answers)
+        if (!schema) {
+            setView({ state: "error", message: "Unlock the form before submitting." })
+            return
+        }
+        const errors = collectFieldErrors(schema, answers)
         if (Object.keys(errors).length > 0) {
             setFieldErrors(errors)
             setTurnstileRequested(false)
             setView((current) => (current.state === "error" ? { state: "idle" } : current))
             if (typeof document !== "undefined") {
-                const firstId = form.schema.fields.find((f) => errors[f.id])?.id
+                const firstId = schema.fields.find((f) => errors[f.id])?.id
                 if (firstId) {
                     const node = document.querySelector(`[data-field-id="${firstId}"]`)
                     node?.scrollIntoView({ behavior: "smooth", block: "center" })
@@ -123,7 +130,7 @@ export function FormSubmissionPage({ form }: Props) {
         }
         setView({ state: "submitting" })
         try {
-            const selectedFiles = collectSelectedFiles(form.schema, answers)
+            const selectedFiles = collectSelectedFiles(schema, answers)
             const answerDraft = { ...answers }
             let attachedDropId: string | null = null
             let attachmentUploadToken: string | null = null
@@ -152,7 +159,7 @@ export function FormSubmissionPage({ form }: Props) {
                     size: f.encryptedSize,
                     mimeType: f.mimeType,
                 }))
-                for (const field of form.schema.fields) {
+                for (const field of schema.fields) {
                     if (field.type !== "file") continue
                     const ids = upload.files.filter((f) => f.fieldId === field.id).map((f) => f.fileId)
                     if (ids.length > 0) answerDraft[field.id] = ids
@@ -160,7 +167,7 @@ export function FormSubmissionPage({ form }: Props) {
             }
 
             setView({ state: "submitting" })
-            const cleaned = validateAnswersAgainstSchema(form.schema, answerDraft)
+            const cleaned = validateAnswersAgainstSchema(schema, answerDraft)
             const plaintext = JSON.stringify({
                 version: 1,
                 answers: cleaned,
@@ -184,6 +191,7 @@ export function FormSubmissionPage({ form }: Props) {
 
             const res = await fetch(`/api/v1/form/${form.id}/submit`, {
                 method: "POST",
+                credentials: "omit",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     ...encrypted,
@@ -196,12 +204,12 @@ export function FormSubmissionPage({ form }: Props) {
             })
             if (!res.ok) {
                 const body = await res.json().catch(() => ({}))
-                resetTurnstile()
                 throw new Error(body.error?.message ?? body.error ?? `Submission failed (${res.status})`)
             }
             setView({ state: "idle" })
             setPhase({ kind: "thanks" })
         } catch (err) {
+            resetTurnstile()
             setView({ state: "error", message: err instanceof Error ? err.message : "Submission failed" })
         }
     }, [
@@ -210,7 +218,7 @@ export function FormSubmissionPage({ form }: Props) {
         form.customKey,
         form.id,
         form.publicKey,
-        form.schema,
+        schema,
         customKeyProof,
         turnstileToken,
         resetTurnstile,
@@ -234,14 +242,14 @@ export function FormSubmissionPage({ form }: Props) {
         <FormShell showBranding={!form.hideBranding} showFooter={!onActiveQuestions}>
             {phase.kind === "thanks" ? (
                 <ThankYouScreen
-                    message={form.schema.thankYouMessage}
+                    message={schema?.thankYouMessage}
                     onSubmitAnother={!isClosed ? submitAnother : undefined}
                 />
             ) : isClosed ? (
                 <WelcomeScreen
                     title={form.title}
                     description={form.description}
-                    questionCount={form.schema.fields.length}
+                    questionCount={form.fieldCount}
                     onStart={() => undefined}
                     showStart={false}
                 >
@@ -253,7 +261,7 @@ export function FormSubmissionPage({ form }: Props) {
                 <WelcomeScreen
                     title={form.title}
                     description={form.description}
-                    questionCount={form.schema.fields.length}
+                    questionCount={form.fieldCount}
                     onStart={() => undefined}
                     showStart={false}
                 >
@@ -261,27 +269,56 @@ export function FormSubmissionPage({ form }: Props) {
                         salt={form.salt}
                         customKeyData={form.customKeyData}
                         customKeyIv={form.customKeyIv}
-                        onUnlock={(proof) => {
+                        onUnlock={async (proof) => {
+                            const response = await fetch(`/api/v1/form/${form.id}/unlock`, {
+                                method: "POST",
+                                credentials: "omit",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ customKeyProof: proof }),
+                            })
+                            const body = await response.json().catch(() => null) as {
+                                data?: { schema?: unknown }
+                                error?: { message?: string }
+                            } | null
+                            if (!response.ok) {
+                                throw new Error(body?.error?.message ?? "That password didn't unlock the form.")
+                            }
+                            const unlockedSchema = FormSchemaValidator.parse(body?.data?.schema)
                             setCustomKeyProof(proof)
-                            setUnlocked(true)
+                            setSchema(unlockedSchema)
+                            setPhase(unlockedSchema.displayMode === "one_question"
+                                ? { kind: "welcome" }
+                                : { kind: "questions" })
                         }}
                     />
+                </WelcomeScreen>
+            ) : !schema ? (
+                <WelcomeScreen
+                    title={form.title}
+                    description={form.description}
+                    questionCount={form.fieldCount}
+                    onStart={() => undefined}
+                    showStart={false}
+                >
+                    <Notice tone="closed" title="This form could not be loaded" className="mt-8">
+                        Refresh the page or ask the form owner for a new link.
+                    </Notice>
                 </WelcomeScreen>
             ) : phase.kind === "welcome" ? (
                 <WelcomeScreen
                     title={form.title}
                     description={form.description}
-                    questionCount={form.schema.fields.length}
+                    questionCount={schema.fields.length}
                     onStart={() => setPhase({ kind: "questions" })}
-                    disabled={form.schema.fields.length === 0}
+                    disabled={schema.fields.length === 0}
                 />
             ) : focusedMode ? (
                 <OneQuestionFlow
-                    schema={form.schema}
+                    schema={schema}
                     answers={answers}
                     onChange={handleAnswersChange}
                     onSubmit={onSubmit}
-                    submitButtonText={form.schema.submitButtonText}
+                    submitButtonText={schema.submitButtonText}
                     disabled={submitting}
                     bottomSlot={({ isLast }) => (
                         <FocusedFooter
@@ -292,12 +329,13 @@ export function FormSubmissionPage({ form }: Props) {
                             onVerify={handleTurnstileVerify}
                             onTurnstileError={resetTurnstile}
                             onTurnstileExpire={() => setTurnstileToken(null)}
+                            showBranding={!form.hideBranding}
                         />
                     )}
                 />
             ) : (
                 <ClassicFlow
-                    schema={form.schema}
+                    schema={schema}
                     answers={answers}
                     onChange={handleAnswersChange}
                     fieldErrors={fieldErrors}
@@ -306,7 +344,7 @@ export function FormSubmissionPage({ form }: Props) {
                     disabled={submitting}
                     footer={
                         <ClassicFooter
-                            schema={form.schema}
+                            schema={schema}
                             view={view}
                             disabled={submitting}
                             turnstileRequested={turnstileRequested}
@@ -316,6 +354,7 @@ export function FormSubmissionPage({ form }: Props) {
                             onTurnstileError={resetTurnstile}
                             onTurnstileExpire={() => setTurnstileToken(null)}
                             onSubmit={onSubmit}
+                            showBranding={!form.hideBranding}
                         />
                     }
                 />
@@ -324,7 +363,7 @@ export function FormSubmissionPage({ form }: Props) {
     )
 }
 
-function collectSelectedFiles(schema: FormSchemaDoc, answers: Record<string, unknown>): SelectedFormFile[] {
+function collectSelectedFiles(schema: FormSchemaDocument, answers: Record<string, unknown>): SelectedFormFile[] {
     const out: SelectedFormFile[] = []
     for (const field of schema.fields) {
         if (field.type !== "file") continue
@@ -351,7 +390,8 @@ function isFile(v: unknown): v is File {
 }
 
 function isAnswerEmpty(value: unknown): boolean {
-    if (value === undefined || value === null || value === "") return true
+    if (value === undefined || value === null) return true
+    if (typeof value === "string") return value.trim() === ""
     if (Array.isArray(value)) return value.length === 0
     if (typeof value === "object") return isBlankObject(value as Record<string, unknown>)
     return false
@@ -370,11 +410,15 @@ function validateFieldAnswer(field: FormField, value: unknown): string | null {
         case "short_text":
         case "long_text":
         case "phone":
-        case "date":
             if (typeof value !== "string") return "Must be text"
             if ("maxLength" in field && field.maxLength && value.length > field.maxLength) {
                 return `Keep this under ${field.maxLength} characters`
             }
+            return null
+        case "date":
+            if (typeof value !== "string" || !isIsoDateValue(value)) return "Enter a valid date"
+            if (field.min && value < field.min) return `Choose ${field.min} or later`
+            if (field.max && value > field.max) return `Choose ${field.max} or earlier`
             return null
         case "number": {
             const num = typeof value === "number" ? value : Number(value)
@@ -421,7 +465,7 @@ function validateFieldAnswer(field: FormField, value: unknown): string | null {
 }
 
 function collectFieldErrors(
-    schema: FormSchemaDoc,
+    schema: FormSchemaDocument,
     answers: Record<string, unknown>,
 ): Record<string, string> {
     const errors: Record<string, string> = {}
@@ -452,6 +496,7 @@ interface FocusedFooterProps {
     onVerify: (token: string) => void
     onTurnstileError: () => void
     onTurnstileExpire: () => void
+    showBranding: boolean
 }
 
 function FocusedFooter({
@@ -462,6 +507,7 @@ function FocusedFooter({
     onVerify,
     onTurnstileError,
     onTurnstileExpire,
+    showBranding,
 }: FocusedFooterProps) {
     return (
         <div className="space-y-4">
@@ -489,14 +535,15 @@ function FocusedFooter({
             ) : null}
             <p className={cn("inline-flex items-center gap-1.5 text-xs text-muted-foreground")}>
                 <Shield className="h-3 w-3" />
-                Encrypted in your browser before it leaves your device. Powered by <Link href="/form" target="_blank" rel="noopener noreferrer">anon.li Form</Link>.
+                Encrypted in your browser before it leaves your device.
+                {showBranding ? <> Powered by <Link href="/form" target="_blank" rel="noopener noreferrer">anon.li Form</Link>.</> : null}
             </p>
         </div>
     )
 }
 
 interface ClassicFooterProps {
-    schema: FormSchemaDoc
+    schema: FormSchemaDocument
     view: View
     disabled: boolean
     turnstileRequested: boolean
@@ -506,6 +553,7 @@ interface ClassicFooterProps {
     onTurnstileError: () => void
     onTurnstileExpire: () => void
     onSubmit: () => void | Promise<void>
+    showBranding: boolean
 }
 
 function ClassicFooter({
@@ -519,6 +567,7 @@ function ClassicFooter({
     onTurnstileError,
     onTurnstileExpire,
     onSubmit,
+    showBranding,
 }: ClassicFooterProps) {
     const submitDisabled = disabled || (turnstileRequested && !turnstileToken)
     return (
@@ -564,7 +613,8 @@ function ClassicFooter({
             </Button>
             <p className="inline-flex w-full items-center justify-center gap-1.5 text-center text-xs text-muted-foreground">
                 <Shield className="h-3 w-3" />
-                Encrypted in your browser before it leaves your device. Powered by <Link href="/form" target="_blank" rel="noopener noreferrer">anon.li Form</Link>.
+                Encrypted in your browser before it leaves your device.
+                {showBranding ? <> Powered by <Link href="/form" target="_blank" rel="noopener noreferrer">anon.li Form</Link>.</> : null}
             </p>
         </div>
     )
@@ -602,7 +652,7 @@ function PasswordGate({
     salt: string | null
     customKeyData: string | null
     customKeyIv: string | null
-    onUnlock: (proof: string) => void
+    onUnlock: (proof: string) => Promise<void>
 }) {
     const [password, setPassword] = useState("")
     const [reveal, setReveal] = useState(false)
@@ -619,9 +669,9 @@ function PasswordGate({
         setError(null)
         try {
             const witness = await cryptoService.decryptKeyWithPassword(customKeyData, password, salt, customKeyIv)
-            onUnlock(witness)
-        } catch {
-            setError("That password didn't unlock the form.")
+            await onUnlock(witness)
+        } catch (unlockError) {
+            setError(unlockError instanceof Error ? unlockError.message : "That password didn't unlock the form.")
             setPassword("")
             requestAnimationFrame(() => inputRef.current?.focus())
         } finally {

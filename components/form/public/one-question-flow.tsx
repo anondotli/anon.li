@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import type { FormField, FormSchemaDoc } from "@/lib/form-schema"
-import { isBlankObject, missingRequiredAddressParts, describeAddressParts } from "@/lib/form-schema"
+import { isBlankObject, missingRequiredAddressParts, describeAddressParts, isIsoDateValue } from "@/lib/form-schema"
 import { useVisibleFormFields } from "@/components/form/use-visible-form-fields"
 import { QuestionFrame, type QuestionFrameHandle } from "./question-frame"
 import { ProgressRail } from "./progress-rail"
@@ -20,7 +20,8 @@ interface Props {
 }
 
 function isAnswerEmpty(value: unknown): boolean {
-    if (value === undefined || value === null || value === "") return true
+    if (value === undefined || value === null) return true
+    if (typeof value === "string") return value.trim() === ""
     if (Array.isArray(value)) return value.length === 0
     if (typeof value === "object") return isBlankObject(value as Record<string, unknown>)
     return false
@@ -47,6 +48,11 @@ function validateAnswer(field: FormField, value: unknown): string | null {
             if ("maxLength" in field && field.maxLength && typeof value === "string" && value.length > field.maxLength) {
                 return `Keep this under ${field.maxLength} characters`
             }
+            return null
+        case "date":
+            if (typeof value !== "string" || !isIsoDateValue(value)) return "Enter a valid date"
+            if (field.min && value < field.min) return `Choose ${field.min} or later`
+            if (field.max && value > field.max) return `Choose ${field.max} or earlier`
             return null
         case "ranking":
             if (!Array.isArray(value) || value.length !== field.options.length) return "Rank every option"
@@ -254,7 +260,7 @@ export function OneQuestionFlow({
                 index={clampedStep + 1}
                 total={visibleFields.length}
                 canBack={clampedStep > 0}
-                canForward={!isAnswerEmpty(answers[current.id])}
+                canForward={!current.required || !isAnswerEmpty(answers[current.id])}
                 onBack={goBack}
                 onForward={() => void goForward()}
                 disabled={disabled || submitting}

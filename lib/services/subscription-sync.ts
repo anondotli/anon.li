@@ -5,9 +5,14 @@ import { createLogger } from "@/lib/logger"
 import { getPlanFromPriceId } from "@/config/plans"
 import type { Prisma } from "@prisma/client"
 import { audit } from "@/lib/services/audit"
-import { DAY_MS } from "@/lib/constants"
+import { DAY_MS, SUBSCRIPTION_GRACE_PERIOD_DAYS } from "@/lib/constants"
 
 const logger = createLogger("SubscriptionSync")
+const FORM_ENTITLING_PRODUCTS = ["form", "bundle", "business"] as const
+
+function grantsForm(product: string): boolean {
+    return (FORM_ENTITLING_PRODUCTS as readonly string[]).includes(product)
+}
 
 /**
  * Map Stripe subscription status to our Subscription table status.
@@ -30,6 +35,78 @@ export function mapStripeStatus(stripeStatus: Stripe.Subscription.Status): strin
         default:
             return "canceled"
     }
+}
+
+function isEntitlingStatus(status: string): boolean {
+    return status === "active" || status === "trialing"
+}
+
+/**
+ * Keep destructive Form retention state aligned with every canonical Stripe
+ * synchronization path, including missed-webhook reconciliation. Loss only
+ * establishes a deadline when the organization has no other active plan.
+ */
+async function syncOrganizationFormRetentionGrace(
+    organizationId: string,
+    status: string,
+    product: string,
+): Promise<void> {
+    if (!grantsForm(product)) return
+    if (isEntitlingStatus(status)) {
+        await prisma.organization.updateMany({
+            where: { id: organizationId },
+            data: { formRetentionGraceUntil: null },
+        })
+        return
+    }
+
+    await prisma.organization.updateMany({
+        where: {
+            id: organizationId,
+            formRetentionGraceUntil: null,
+            subscriptions: {
+                none: {
+                    product: { in: [...FORM_ENTITLING_PRODUCTS] },
+                    status: { in: ["active", "trialing"] },
+                },
+            },
+        },
+        data: {
+            formRetentionGraceUntil: new Date(
+                Date.now() + SUBSCRIPTION_GRACE_PERIOD_DAYS * DAY_MS,
+            ),
+        },
+    })
+}
+
+async function syncPersonalFormRetentionGrace(
+    userId: string,
+    status: string,
+    product: string,
+): Promise<void> {
+    if (!grantsForm(product)) return
+    if (isEntitlingStatus(status)) {
+        await prisma.user.updateMany({
+            where: { id: userId },
+            data: { downgradedAt: null },
+        })
+        return
+    }
+
+    await prisma.user.updateMany({
+        where: {
+            id: userId,
+            downgradedAt: null,
+            subscriptions: {
+                none: {
+                    organizationId: null,
+                    product: { in: [...FORM_ENTITLING_PRODUCTS] },
+                    status: { in: ["active", "trialing"] },
+                },
+            },
+        },
+        data: { downgradedAt: new Date() },
+    })
 }
 
 /**
@@ -82,6 +159,7 @@ export async function upsertStripeSubscription(
     // For org subs, the prior seat count lets us audit real seat changes.
     const priorSeats = organizationId ? existing?.seats ?? null : null
 
+    const status = mapStripeStatus(subscription.status)
     await prisma.subscription.upsert({
         where: { providerSubscriptionId: subscription.id },
         create: {
@@ -94,7 +172,7 @@ export async function upsertStripeSubscription(
             product: plan.product,
             tier: plan.tier,
             seats,
-            status: mapStripeStatus(subscription.status),
+            status,
             currentPeriodStart: periodStart,
             currentPeriodEnd: periodEnd,
             cancelAtPeriodEnd: subscription.cancel_at_period_end,
@@ -107,12 +185,18 @@ export async function upsertStripeSubscription(
             product: plan.product,
             tier: plan.tier,
             seats,
-            status: mapStripeStatus(subscription.status),
+            status,
             currentPeriodStart: periodStart,
             currentPeriodEnd: periodEnd,
             cancelAtPeriodEnd: subscription.cancel_at_period_end,
         },
     })
+
+    if (organizationId) {
+        await syncOrganizationFormRetentionGrace(organizationId, status, plan.product)
+    } else if (userId) {
+        await syncPersonalFormRetentionGrace(userId, status, plan.product)
+    }
 
     // Audit real seat changes on an org subscription (fire-and-forget).
     if (organizationId && priorSeats !== null && priorSeats !== seats) {
@@ -141,7 +225,7 @@ export async function syncSubscriptionFromStripe(userId: string): Promise<{
     const SYNC_LIMIT = 50
     const subscriptions = await prisma.subscription.findMany({
         where: { userId, provider: "stripe", providerSubscriptionId: { not: null } },
-        select: { providerSubscriptionId: true },
+        select: { providerSubscriptionId: true, organizationId: true, product: true },
         orderBy: { createdAt: "desc" },
         take: SYNC_LIMIT,
     })
@@ -180,6 +264,11 @@ export async function syncSubscriptionFromStripe(userId: string): Promise<{
                     where: { providerSubscriptionId: sub.providerSubscriptionId },
                     data: { status: "canceled", cancelAtPeriodEnd: false },
                 })
+                if (sub.organizationId) {
+                    await syncOrganizationFormRetentionGrace(sub.organizationId, "canceled", sub.product)
+                } else {
+                    await syncPersonalFormRetentionGrace(userId, "canceled", sub.product)
+                }
                 synced++
                 continue
             }
@@ -226,7 +315,7 @@ export async function reconcileStaleStripeSubscriptions(limit = 100): Promise<{
             status: { in: ["active", "trialing"] },
             currentPeriodEnd: { lt: cutoff },
         },
-        select: { providerSubscriptionId: true },
+        select: { providerSubscriptionId: true, organizationId: true, userId: true, product: true },
         orderBy: { currentPeriodEnd: "asc" },
         take: limit,
     })
@@ -258,6 +347,12 @@ export async function reconcileStaleStripeSubscriptions(limit = 100): Promise<{
                 },
             })
 
+            if (row.organizationId) {
+                await syncOrganizationFormRetentionGrace(row.organizationId, status, row.product)
+            } else if (row.userId) {
+                await syncPersonalFormRetentionGrace(row.userId, status, row.product)
+            }
+
             if (status === "active" || status === "trialing") {
                 refreshed++
             } else {
@@ -270,6 +365,11 @@ export async function reconcileStaleStripeSubscriptions(limit = 100): Promise<{
                     where: { providerSubscriptionId: subId },
                     data: { status: "canceled", cancelAtPeriodEnd: false },
                 })
+                if (row.organizationId) {
+                    await syncOrganizationFormRetentionGrace(row.organizationId, "canceled", row.product)
+                } else if (row.userId) {
+                    await syncPersonalFormRetentionGrace(row.userId, "canceled", row.product)
+                }
                 revoked++
                 continue
             }

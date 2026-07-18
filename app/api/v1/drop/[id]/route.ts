@@ -14,9 +14,9 @@ import { z } from "zod"
 
 import { getClientIp, rateLimit } from "@/lib/rate-limit"
 import { withPolicy, scopeFromContext } from "@/lib/route-policy"
-import { personalScope, type OwnerScope } from "@/lib/ownership"
+import { type OwnerScope } from "@/lib/ownership"
 import { DropService } from "@/lib/services/drop"
-import { resolveTokenUploadAccess } from "@/lib/services/form-upload"
+import { resolveTokenUploadAccess, scopeForTokenUploadAccess } from "@/lib/services/form-upload"
 import { getPublicDropMetadata } from "@/lib/drop-metadata"
 import { MAX_CHUNKS_PER_FILE } from "@/lib/constants"
 
@@ -123,7 +123,7 @@ const finishHandler = withPolicy<RouteParams>(
             if (!access) {
                 return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
             }
-            finishScope = access.effectiveUserId ? personalScope(access.effectiveUserId) : null
+            finishScope = scopeForTokenUploadAccess(access)
         } else if (!ctx.userId) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
         }

@@ -5,7 +5,13 @@ import { useVault } from "@/components/vault/vault-provider"
 import { fetchWrappedFormKey } from "@/lib/vault/form-keys-client"
 import { unwrapVaultPayload, arrayBufferToBase64Url } from "@/lib/vault/crypto"
 import { decryptFromSubmission } from "@/lib/crypto/asymmetric"
-import type { DecryptedAttachments, DecryptedSubmission, ResponseStats, SubmissionMeta } from "./shared"
+import {
+    parseDecryptedSubmissionPayload,
+    type DecryptedAttachments,
+    type DecryptedSubmission,
+    type ResponseStats,
+    type SubmissionMeta,
+} from "./shared"
 
 const PAGE_SIZE = 100
 const DECRYPT_CONCURRENCY = 8
@@ -69,11 +75,8 @@ async function decryptRow(privateKey: string, row: PayloadRow): Promise<DecodedS
             iv: row.iv,
             encryptedPayload: row.encrypted_payload,
         })
-        const parsed = JSON.parse(plaintext) as {
-            answers?: Record<string, unknown>
-            attachments?: DecryptedAttachments | null
-        }
-        return { status: "ready", answers: parsed.answers ?? {}, attachments: parsed.attachments ?? null }
+        const parsed = parseDecryptedSubmissionPayload(plaintext)
+        return { status: "ready", answers: parsed.answers, attachments: parsed.attachments }
     } catch (err) {
         return { status: "error", error: toMessage(err) }
     }

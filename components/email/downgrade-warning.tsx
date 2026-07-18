@@ -59,6 +59,7 @@ export function DowngradeWarningEmail({
                     On <strong style={{ color: emailColors.text }}>{schedulingDate}</strong>, excess resources
                     will be selected for removal. They will be permanently deleted on{" "}
                     <strong style={{ color: emailColors.text }}>{deletionDate}</strong> unless you renew your subscription.
+                    {" "}Form responses older than the free-plan retention window may also be removed after that date.
                 </p>
             </ContentRow>
             <EmailCTA href={emailUrl("/dashboard/billing")} text="Renew Subscription" />

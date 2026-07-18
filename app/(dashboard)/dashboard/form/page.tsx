@@ -2,12 +2,10 @@ import { redirect } from "next/navigation"
 import Link from "next/link"
 import { auth } from "@/auth"
 import { scopeFromSession } from "@/lib/auth-session"
-import { isOrgSubscribed } from "@/lib/data/auth"
 import { Button } from "@/components/ui/button"
 import { TeamWorkspaceLocked } from "@/components/dashboard/team/team-workspace-locked"
 import { FormService } from "@/lib/services/form"
-import { getEffectiveTiers } from "@/lib/entitlements"
-import { getFormLimitsAsync } from "@/lib/limits"
+import { getFormOwnerEntitlements } from "@/lib/services/form-entitlements"
 import { FormListClient } from "@/components/form/dashboard/list-client"
 import { UsageMeter } from "@/components/ui/usage-meter"
 import { Plus } from "lucide-react"
@@ -23,7 +21,8 @@ export default async function FormDashboardPage() {
 
     // Purchase-first Teams: an unsubscribed team is a zero-capacity workspace.
     const scope = scopeFromSession(session)
-    if (scope.organizationId && !(await isOrgSubscribed(scope.organizationId))) {
+    const entitlements = await getFormOwnerEntitlements(scope)
+    if (scope.organizationId && !entitlements.subscribed) {
         return (
             <div className="flex flex-col gap-8">
                 <div className="flex flex-col gap-4 border-b border-border/40 pb-6 sm:flex-row sm:items-center sm:justify-between">
@@ -39,13 +38,12 @@ export default async function FormDashboardPage() {
         )
     }
 
-    const [list, tiers, limits, recentSubmissions] = await Promise.all([
+    const [list, currentMonthSubmissions] = await Promise.all([
         FormService.listForms(scope, { limit: 100 }),
-        getEffectiveTiers(session.user.id),
-        getFormLimitsAsync(session.user.id),
-        FormService.countRecentSubmissionsForOwner(session.user.id),
+        FormService.countCurrentMonthSubmissions(scope),
     ])
 
+    const { limits, tiers } = entitlements
     const submissionsLimit = limits.submissionsPerMonth
     const upgradeHref = tiers.form === "free" ? "/pricing?form" : undefined
 
@@ -70,9 +68,9 @@ export default async function FormDashboardPage() {
                 <UsageMeter label="Forms" used={list.total} limit={limits.forms} upgradeHref={upgradeHref} />
                 <UsageMeter
                     label="Submissions"
-                    used={recentSubmissions}
+                    used={currentMonthSubmissions}
                     limit={submissionsLimit}
-                    caption="Rolling 30-day window"
+                    caption="Current calendar month"
                     upgradeHref={upgradeHref}
                 />
             </div>

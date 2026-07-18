@@ -5,8 +5,9 @@
  *
  * Guarantees:
  *  - Events from secret-bearing / internal routes are dropped entirely: Drop
- *    download `/d/*` (the decryption key is in the URL fragment), auth/verify
- *    token routes (`/reset`, `/verify-recipient`, `/2fa`), and `/admin`.
+ *    download `/d/*` (the decryption key is in the URL fragment), public Form
+ *    routes (`/f/*` and `/embed/f/*`), auth/verify token routes (`/reset`,
+ *    `/verify-recipient`, `/2fa`), and `/admin`.
  *  - URL properties never retain a `#fragment`; query strings are filtered to an
  *    attribution allowlist; resource IDs in paths are masked to `[id]`.
  *  - Autocaptured element hrefs are scrubbed the same way (a displayed Drop
@@ -33,7 +34,15 @@ const NOISE_EXCEPTION_PATTERNS = [
 
 // Pages whose URL can carry a secret (Drop key fragment, auth/verify token) or
 // are internal-only — never emit ANY event from these.
-const DROP_PATH_PREFIXES = ["/d", "/verify-recipient", "/reset", "/2fa", "/admin"]
+const PRIVATE_PATH_PREFIXES = [
+    "/d",
+    "/f",
+    "/embed/f",
+    "/verify-recipient",
+    "/reset",
+    "/2fa",
+    "/admin",
+]
 
 // Query params worth keeping for attribution; everything else is stripped so a
 // stray token/secret in the query string never reaches PostHog.
@@ -49,8 +58,8 @@ function beforeChar(s: string, ch: string): string {
     return i === -1 ? s : s.slice(0, i)
 }
 
-function matchesDropPrefix(pathname: string): boolean {
-    return DROP_PATH_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`))
+function matchesPrivatePrefix(pathname: string): boolean {
+    return PRIVATE_PATH_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`))
 }
 
 // Heuristic: random-looking IDs (uuid, or >=12-char base62-ish with a digit) are
@@ -73,6 +82,11 @@ function sanitizeUrl(raw: string): string {
     try {
         const u = new URL(raw)
         u.hash = ""
+        if (matchesPrivatePrefix(u.pathname)) {
+            u.pathname = "/[private]"
+            u.search = ""
+            return u.toString()
+        }
         const kept = new URLSearchParams()
         u.searchParams.forEach((v, k) => {
             if (QUERY_ALLOWLIST.has(k.toLowerCase())) kept.set(k, v)
@@ -82,7 +96,8 @@ function sanitizeUrl(raw: string): string {
         return u.toString()
     } catch {
         // Not a full URL (bare path / referrer) — strip fragment + query manually.
-        return maskIds(beforeChar(beforeChar(raw, "#"), "?"))
+        const pathname = beforeChar(beforeChar(raw, "#"), "?")
+        return matchesPrivatePrefix(pathname) ? "/[private]" : maskIds(pathname)
     }
 }
 
@@ -133,7 +148,7 @@ export function scrubPostHogEvent(event: PostHogEventLike | null): PostHogEventL
     if (event.event === "$exception" && isNoiseException(props)) return null
 
     const pathname = pathFromProps(props)
-    if (pathname && matchesDropPrefix(pathname)) return null
+    if (pathname && matchesPrivatePrefix(pathname)) return null
 
     if (typeof props.$pathname === "string") {
         props.$pathname = maskIds(beforeChar(beforeChar(props.$pathname, "#"), "?"))
@@ -154,7 +169,10 @@ export function scrubPostHogEvent(event: PostHogEventLike | null): PostHogEventL
         }
     }
     if (typeof props.$elements_chain === "string") {
-        props.$elements_chain = props.$elements_chain.replace(/#[^"'\s)]+/g, "#[redacted]")
+        props.$elements_chain = props.$elements_chain
+            .replace(/\/(?:embed\/)?f\/[A-Za-z0-9_-]+/g, "/[private]")
+            .replace(/\/d\/[A-Za-z0-9_-]+/g, "/[private]")
+            .replace(/#[^"'\s)]+/g, "#[redacted]")
     }
 
     return event

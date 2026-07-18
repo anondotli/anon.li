@@ -361,6 +361,75 @@ describe("DropService.addFile authenticated quota owner", () => {
             data: expect.objectContaining({ dropId: "org-drop", size: BigInt(128) }),
         }));
     });
+
+    it("rechecks the whole Form attachment cap while holding the parent lock", async () => {
+        const drop = {
+            id: "form-drop",
+            userId: "owner-1",
+            organizationId: null,
+            deletedAt: null,
+            uploadComplete: false,
+            maxFileCount: 10,
+            _count: { files: 1 },
+        };
+        (prisma.drop.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(drop);
+        (prisma.dropFile.count as ReturnType<typeof vi.fn>).mockResolvedValue(1);
+        (prisma.drop.count as ReturnType<typeof vi.fn>).mockResolvedValue(0);
+        (dropUtils.getUserAndLimits as ReturnType<typeof vi.fn>).mockResolvedValue({
+            storageUsed: BigInt(0),
+            limits: { maxStorage: 10_000, maxFileSize: 10_000 },
+            tier: "pro",
+        });
+        (storage.generateStorageKey as ReturnType<typeof vi.fn>).mockReturnValue("drop/file-2");
+        (storage.initiateMultipartUpload as ReturnType<typeof vi.fn>).mockResolvedValue("upload-2");
+        (storage.abortMultipartUpload as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+
+        const txExecuteRaw = vi.fn().mockResolvedValue(1);
+        const txDropFileCreate = vi.fn();
+        const txDropFileFindMany = vi.fn().mockResolvedValue([
+            { size: BigInt(70), chunkCount: 1 }, // 54 plaintext bytes
+        ]);
+        (prisma.$transaction as ReturnType<typeof vi.fn>).mockImplementation(
+            async (callback: (tx: unknown) => Promise<unknown>) => callback({
+                $queryRaw: vi.fn().mockResolvedValue([drop]),
+                $executeRaw: txExecuteRaw,
+                dropFile: {
+                    count: vi.fn().mockResolvedValue(1),
+                    findMany: txDropFileFindMany,
+                    create: txDropFileCreate,
+                },
+                uploadChunk: { createMany: vi.fn() },
+            }),
+        );
+
+        await expect(DropService.addFile(
+            personalScope("owner-1"),
+            {
+                dropId: "form-drop",
+                encryptedName: "encrypted",
+                iv: "1234567890123456",
+                size: 80, // 64 plaintext bytes; aggregate would be 118 > 100
+                mimeType: "application/octet-stream",
+                chunkCount: 1,
+                chunkSize: 80,
+            },
+            {
+                quotaOverride: {
+                    maxFileSize: 100,
+                    storageLimit: BigInt(10_000),
+                    currentTier: "pro",
+                },
+            },
+        )).rejects.toMatchObject({
+            name: "UpgradeRequiredError",
+            message: "Attachment size exceeds this form's file upload limit.",
+        });
+
+        expect(txDropFileFindMany).toHaveBeenCalled();
+        expect(txExecuteRaw).not.toHaveBeenCalled();
+        expect(txDropFileCreate).not.toHaveBeenCalled();
+        expect(storage.abortMultipartUpload).toHaveBeenCalledWith("drop/file-2", "upload-2");
+    });
 });
 
 describe("DropService.finishDrop", () => {
@@ -850,6 +919,9 @@ describe("DropService.consumeDownload", () => {
         expect(dropSql).toContain('"disabled" = FALSE');
         expect(dropSql).toContain('"takenDown" = FALSE');
         expect(dropSql).toContain('"uploadComplete" = TRUE');
+        expect(dropSql).toContain('"form_staging_id" IS NULL');
+        expect(dropSql).toContain('FROM "upload_tokens"');
+        expect(dropSql).toContain('token."formId" IS NOT NULL');
         expect(dropSql).toContain('"restrictToRecipients" = FALSE');
         expect(dropSql).toContain('"expiresAt" > NOW()');
 

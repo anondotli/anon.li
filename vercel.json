@@ -9,6 +9,10 @@
       "schedule": "0 3 * * *"
     },
     {
+      "path": "/api/cron/form-staging",
+      "schedule": "15 * * * *"
+    },
+    {
       "path": "/api/cron/heavy-user-upsell",
       "schedule": "0 15 * * 2"
     }
