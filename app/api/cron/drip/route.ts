@@ -6,19 +6,24 @@ import { handleDripCron } from "@/lib/services/cron-drip";
 
 const logger = createLogger("CronDrip");
 
+export const dynamic = "force-dynamic";
+export const maxDuration = 300;
+
 async function handleCron(req: NextRequest) {
     if (!validateCronAuth(req, "drip")) {
         return new NextResponse("Unauthorized", { status: 401 });
     }
 
     try {
-        // Share the "daily" lock so a manual trigger can't race the scheduled
-        // daily run, which executes this same handler under that lock.
-        const results = await withCronLock("daily", 15 * 60, () => handleDripCron());
+        const results = await withCronLock("drip", 15 * 60, () => handleDripCron());
         if (results === null) {
             return NextResponse.json({ success: true, skipped: "lock-held" });
         }
-        return NextResponse.json({ success: true, results });
+        const errorCount = Object.values(results).reduce((sum, stage) => sum + stage.errors, 0);
+        return NextResponse.json(
+            { success: errorCount === 0, results },
+            { status: errorCount === 0 ? 200 : 500 },
+        );
     } catch (error) {
         logger.error("Drip cron failed", error);
         return new NextResponse("Internal Server Error", { status: 500 });

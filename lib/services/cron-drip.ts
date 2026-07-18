@@ -65,6 +65,7 @@ export async function handleDripCron(): Promise<Record<string, { sent: number; s
                 alreadySent = await redisClient.get(dedupeKey);
             } catch (error) {
                 logger.warn("Redis get failed - aborting stage to avoid duplicates", { dedupeKey, error });
+                result.errors++;
                 break;
             }
             if (alreadySent) {
@@ -82,6 +83,7 @@ export async function handleDripCron(): Promise<Record<string, { sent: number; s
                     await redisClient.set(dedupeKey, "1", { ex: 86400 * 90 });
                 } catch (error) {
                     logger.warn("Failed to persist drip dedupe key", { dedupeKey, error });
+                    result.errors++;
                 }
                 result.sent++;
             } catch (error) {

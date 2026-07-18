@@ -7,6 +7,9 @@ import { withCronLock } from "@/lib/cron-lock";
 
 const logger = createLogger("CronCleanup");
 
+export const dynamic = "force-dynamic";
+export const maxDuration = 300;
+
 async function cleanupExpiredSessions(): Promise<number> {
     const result = await prisma.session.deleteMany({
         where: { expiresAt: { lt: new Date() } },

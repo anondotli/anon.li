@@ -92,6 +92,8 @@ bun run start
 
 Set every required variable documented in `.env.example` in the deployment platform, back up the database before applying migrations, and run `bun run db:migrate:deploy` once per release before starting the new application version. The build command regenerates the Prisma client automatically.
 
+Vercel deployments also require `CRON_SECRET` and Upstash Redis. The production schedules are intentionally limited to Hobby-compatible daily/weekly expressions; see the [cron operations runbook](docs/cron-operations.md) for the schedule, rollout checks, and failure handling.
+
 Client-IP rate limits trust one edge only. Vercel is detected automatically. On a self-hosted origin behind Cloudflare, set `TRUSTED_PROXY_PROVIDER=cloudflare` and restrict direct origin traffic to Cloudflare's network; otherwise forwarding headers are spoofable.
 
 ### One-time Cloudflare R2 setup

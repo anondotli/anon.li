@@ -7,6 +7,26 @@ import { getOrgAdminEmails } from "@/lib/data/organization";
 
 const logger = createLogger("CronDomains");
 const resolveTxt = util.promisify(dns.resolveTxt);
+const DNS_TIMEOUT_MS = 10_000;
+const STALE_CLEANUP_BATCH_SIZE = 100;
+const REVERIFICATION_BATCH_SIZE = 50;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error("DNS lookup timed out")), timeoutMs);
+        promise.then(
+            (value) => {
+                clearTimeout(timer);
+                resolve(value);
+            },
+            (error: unknown) => {
+                clearTimeout(timer);
+                reject(error);
+            },
+        );
+    });
+}
 
 /**
  * Resolve who to notify about a domain event and send to each.
@@ -55,6 +75,8 @@ export async function cleanupStaleDomains() {
             createdAt: { lt: threshold },
         },
         include: { user: true },
+        orderBy: { createdAt: "asc" },
+        take: STALE_CLEANUP_BATCH_SIZE,
     }) as unknown as Array<{ id: string; domain: string; organizationId: string | null; user: { id: string; email: string | null } | null }>;
 
     if (staleDomains.length === 0) return results;
@@ -72,21 +94,34 @@ export async function cleanupStaleDomains() {
         return results;
     }
 
-    const failureCounts = await Promise.all(
-        staleDomains.map((domain) => notifyDomainOwners(domain, sendDomainDeletedEmail)),
-    );
-    results.errors += failureCounts.reduce((sum, count) => sum + count, 0);
+    // Keep outbound email concurrency bounded. Bursting a large stale-domain
+    // batch at Resend can trip provider rate limits and turn a successful DB
+    // cleanup into a wall of failed notifications.
+    for (const domain of staleDomains) {
+        results.errors += await notifyDomainOwners(domain, sendDomainDeletedEmail);
+    }
 
     return results;
 }
 
-async function reverifyActiveDomains() {
+export async function reverifyActiveDomains() {
     const results = { checked: 0, revoked: 0, errors: 0 };
+
+    const activeDomainCount = await prisma.domain.count({ where: { verified: true } });
+    if (activeDomainCount === 0) return results;
+
+    // Rotate through deterministic pages so `take: 50` does not re-check the
+    // same first 50 rows forever once the project grows beyond one batch.
+    const pageCount = Math.ceil(activeDomainCount / REVERIFICATION_BATCH_SIZE);
+    const epochDay = Math.floor(Date.now() / DAY_MS);
+    const page = epochDay % pageCount;
 
     const activeDomains = await prisma.domain.findMany({
         where: { verified: true },
         include: { user: true },
-        take: 50,
+        orderBy: { id: "asc" },
+        skip: page * REVERIFICATION_BATCH_SIZE,
+        take: REVERIFICATION_BATCH_SIZE,
     });
 
     for (const domain of activeDomains) {
@@ -116,7 +151,18 @@ async function reverifyActiveDomains() {
 }
 
 async function verifyDomainOwnership(domain: string, token: string): Promise<boolean> {
-    const txtRecords = await resolveTxt(domain).catch(() => []);
+    let txtRecords: string[][];
+    try {
+        txtRecords = await withTimeout(resolveTxt(domain), DNS_TIMEOUT_MS);
+    } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code === "ENODATA" || code === "ENOTFOUND" || code === "ENODOMAIN") {
+            return false;
+        }
+        // Timeouts and resolver/server failures are inconclusive. Surface them
+        // to the per-domain error tally instead of revoking a valid domain.
+        throw error;
+    }
     const expectedOwnershipTxt = `anon.li=${token}`;
 
     return txtRecords.some((record) => {

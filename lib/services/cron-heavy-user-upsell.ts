@@ -62,6 +62,7 @@ export async function handleHeavyUserUpsellCron(): Promise<{ sent: number; skipp
             alreadySent = await redisClient.get(dedupeKey);
         } catch (error) {
             logger.warn("Redis get failed - aborting to avoid duplicate sends", { dedupeKey, error });
+            errors++;
             break;
         }
         if (alreadySent) {
@@ -88,6 +89,7 @@ export async function handleHeavyUserUpsellCron(): Promise<{ sent: number; skipp
                 await redisClient.set(dedupeKey, "1", { ex: 86400 * COOLDOWN_DAYS });
             } catch (error) {
                 logger.warn("Failed to persist dedupe key after send", { dedupeKey, error });
+                errors++;
             }
 
             sent++;

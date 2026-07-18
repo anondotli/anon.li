@@ -6,19 +6,24 @@ import { handleDomainsCron } from "@/lib/services/cron-domains"
 
 const logger = createLogger("CronDomains")
 
+export const dynamic = "force-dynamic"
+export const maxDuration = 300
+
 async function handleCron(req: Request) {
     if (!validateCronAuth(req, "domains")) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     try {
-        // Share the "daily" lock so a manual trigger can't race the scheduled
-        // daily run, which executes this same handler under that lock.
-        const results = await withCronLock("daily", 15 * 60, () => handleDomainsCron());
+        const results = await withCronLock("domains", 15 * 60, () => handleDomainsCron());
         if (results === null) {
             return NextResponse.json({ success: true, skipped: "lock-held" })
         }
-        return NextResponse.json({ success: true, results })
+        const errorCount = results.cleanup.errors + results.reverify.errors
+        return NextResponse.json(
+            { success: errorCount === 0, results },
+            { status: errorCount === 0 ? 200 : 500 },
+        )
     } catch (error) {
         logger.error("Cron domain job error", error)
         return NextResponse.json({ error: "Internal Server Error" }, { status: 500 })

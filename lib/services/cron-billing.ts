@@ -84,16 +84,21 @@ async function processCryptoRenewalReminders(): Promise<{ sent: number; errors: 
                 reminderKey,
                 error,
             });
+            errors++;
             break;
         }
         if (alreadySent) continue;
 
         try {
-            await sendCryptoRenewalReminderEmail(user.email, {
+            const result = await sendCryptoRenewalReminderEmail(user.email, {
                 daysRemaining,
                 product: user.product,
                 tier: user.tier,
-            });
+            }, `crypto-renewal-${daysRemaining <= 3 ? "3d" : "14d"}/${user.id}`);
+            if (!result.success) {
+                errors++;
+                continue;
+            }
 
             try {
                 await redisClient.set(reminderKey, "1", { ex: 86400 * 30 });
@@ -103,6 +108,7 @@ async function processCryptoRenewalReminders(): Promise<{ sent: number; errors: 
                     userId: user.id,
                     error,
                 });
+                errors++;
             }
 
             sent++;
