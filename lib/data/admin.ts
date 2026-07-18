@@ -1488,8 +1488,14 @@ export async function getAdminDashboardStats() {
         prisma.alias.count({ where: { scheduledForRemovalAt: { not: null }, ...notAdminOwned } }),
         prisma.recipient.count({ where: { scheduledForRemovalAt: { not: null } } }),
         prisma.domain.count({ where: { scheduledForRemovalAt: { not: null } } }),
-        prisma.user.aggregate({
-            _sum: { storageUsed: true },
+        prisma.dropFile.aggregate({
+            where: {
+                drop: {
+                    deletedAt: null,
+                    userId: { not: null },
+                },
+            },
+            _sum: { size: true },
         }),
         prisma.organization.count(),
         prisma.member.count(),
@@ -1527,7 +1533,7 @@ export async function getAdminDashboardStats() {
         activeSubscriptions,
         waitingCryptoPayments,
         scheduledRemovals: scheduledAliases + scheduledRecipients + scheduledDomains,
-        totalStorage: storageStats._sum.storageUsed || BigInt(0),
+        totalStorage: storageStats._sum.size ?? BigInt(0),
         totalOrganizations,
         totalMembers,
         activeBusinessSubs,
@@ -2171,7 +2177,7 @@ export async function getAdminRevenueSeries(days: number) {
         prisma.$queryRaw<DailyCountRow[]>`SELECT date_trunc('day', "createdAt") AS bucket, count(*) AS count FROM "subscriptions" WHERE "createdAt" >= ${since} AND "provider" = 'crypto' AND NOT EXISTS (SELECT 1 FROM users u WHERE u.id = "subscriptions"."userId" AND u."isAdmin" = true) GROUP BY bucket`,
         prisma.subscription.findMany({
             where: { status: { in: ["active", "trialing"] }, NOT: { user: { isAdmin: true } } },
-            select: { product: true, tier: true, seats: true },
+            select: { provider: true, product: true, tier: true, seats: true },
         }),
     ])
 
@@ -2186,6 +2192,10 @@ export async function getAdminRevenueSeries(days: number) {
     const mrrByProduct: Record<string, number> = {}
     let currentMrr = 0
     for (const sub of active) {
+        // Manual grants provide entitlements but do not represent recurring
+        // revenue. Keep them in the active-subscription count, but not MRR.
+        if (sub.provider === "manual") continue
+
         const price = monthlyPriceFor(sub.product, sub.tier, sub.seats)
         currentMrr += price
         mrrByProduct[sub.product] = (mrrByProduct[sub.product] ?? 0) + price
