@@ -27,14 +27,27 @@ export const POST = withPolicy<RouteParams>(
 
         const drop = await prisma.drop.findUnique({
             where: { id: dropId },
-            include: { files: { select: { id: true, storageKey: true } } },
+            include: {
+                files: { select: { id: true, storageKey: true } },
+                uploadTokens: {
+                    where: { formId: { not: null } },
+                    select: { id: true },
+                },
+            },
         })
 
         if (!drop) {
             return NextResponse.json({ error: "Drop not found" }, { status: 404 })
         }
 
-        if (drop.disabled || drop.takenDown || drop.deletedAt || !drop.uploadComplete) {
+        if (
+            drop.disabled
+            || drop.takenDown
+            || drop.deletedAt
+            || !drop.uploadComplete
+            || drop.formStagingId
+            || drop.uploadTokens.length > 0
+        ) {
             return NextResponse.json({ error: "This drop is not available." }, { status: 404 })
         }
 

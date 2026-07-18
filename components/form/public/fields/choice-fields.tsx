@@ -47,6 +47,7 @@ export const SingleSelectField = forwardRef<ChoiceHandle, SingleSelectProps>(fun
             ref={containerRef}
             tabIndex={-1}
             role="radiogroup"
+            aria-label={field.label}
             aria-disabled={disabled}
             className={cn("space-y-2 outline-none", spotlight && "space-y-2.5")}
         >
@@ -126,6 +127,7 @@ export const MultiSelectField = forwardRef<ChoiceHandle, MultiSelectProps>(funct
             ref={containerRef}
             tabIndex={-1}
             role="group"
+            aria-label={field.label}
             aria-disabled={disabled}
             className={cn("space-y-2 outline-none", spotlight && "space-y-2.5")}
         >

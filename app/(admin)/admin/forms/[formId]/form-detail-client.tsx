@@ -281,7 +281,7 @@ export function FormDetailClient({ form }: FormDetailClientProps) {
                 <CardHeader>
                     <CardTitle>Form Content</CardTitle>
                     <CardDescription>
-                        Title and schema are plaintext (public to anyone with the link). Submissions are E2E encrypted.
+                        Title and schema are plaintext at rest. Password-protected forms withhold the schema until unlock. Submissions are E2E encrypted.
                     </CardDescription>
                 </CardHeader>
                 <CardContent className="grid gap-4">

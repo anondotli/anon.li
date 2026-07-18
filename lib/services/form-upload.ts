@@ -5,6 +5,7 @@ import { UpgradeRequiredError, ValidationError } from "@/lib/api-error-utils";
 import { FormSchemaDoc, type FormField } from "@/lib/form-schema";
 import { getValidUploadTokenForRequest } from "@/lib/services/drop-upload-token";
 import { PLAN_ENTITLEMENTS } from "@/config/plans";
+import { orgScope, personalScope, type OwnerScope } from "@/lib/ownership";
 
 type FileUploadInput = {
     dropId: string;
@@ -15,11 +16,15 @@ type FileUploadInput = {
 };
 
 export type TokenUploadAccess =
-    | { mode: "guest"; effectiveUserId: null; formId: null }
-    // effectiveUserId is the form owner for storage attribution; it is null when
-    // the form is org-owned and its creating user was deleted (userId SetNull) —
-    // consumers already skip per-user storage attribution when it's null.
-    | { mode: "form"; effectiveUserId: string | null; formId: string };
+    | { mode: "guest"; effectiveUserId: null; organizationId: null; formId: null }
+    | { mode: "form"; effectiveUserId: string; organizationId: string | null; formId: string };
+
+export function scopeForTokenUploadAccess(access: TokenUploadAccess): OwnerScope | null {
+    if (access.mode === "guest") return null;
+    return access.organizationId
+        ? orgScope(access.effectiveUserId, access.organizationId, "member")
+        : personalScope(access.effectiveUserId);
+}
 
 export interface FormUploadQuotaOverride {
     maxFileSize: number;
@@ -29,6 +34,17 @@ export interface FormUploadQuotaOverride {
 
 function nextFormTier(tier: "free" | "plus" | "pro"): "plus" | "pro" {
     return tier === "pro" ? "pro" : tier === "plus" ? "pro" : "plus";
+}
+
+function assertSubscribedFormOwner(
+    organizationId: string | null,
+    subscribed: boolean,
+): void {
+    if (!organizationId || subscribed) return;
+    throw new UpgradeRequiredError(
+        "This team form is paused until its Business subscription is active.",
+        { scope: "form_file_uploads", currentTier: "free", suggestedTier: "pro" },
+    );
 }
 
 function plaintextSizeFromEncrypted(size: number, chunkCount: number): number {
@@ -62,8 +78,14 @@ function fieldFileCap(field: Extract<FormField, { type: "file" }>, planCap: numb
     return Math.min(field.maxFileSize, planCap);
 }
 
-function formFileCap(form: { maxFileSizeOverride: bigint | null }, planCap: number): number {
-    return form.maxFileSizeOverride != null ? Number(form.maxFileSizeOverride) : planCap;
+export function effectiveFormFileCap(
+    form: { maxFileSizeOverride: bigint | null },
+    planCap: number,
+): number {
+    if (form.maxFileSizeOverride == null) return planCap;
+    // An override is a form-specific LOWER ceiling. It must never raise the
+    // entitlement ceiling, including after a plan downgrade.
+    return Math.min(Number(form.maxFileSizeOverride), planCap);
 }
 
 function validateFileAgainstField(
@@ -85,7 +107,7 @@ export async function resolveTokenUploadAccess(request: Request, dropId: string)
     if (!token) return null;
 
     if (!token.formId) {
-        return { mode: "guest", effectiveUserId: null, formId: null };
+        return { mode: "guest", effectiveUserId: null, organizationId: null, formId: null };
     }
 
     const [form, drop] = await Promise.all([
@@ -94,17 +116,27 @@ export async function resolveTokenUploadAccess(request: Request, dropId: string)
             select: {
                 id: true,
                 userId: true,
+                organizationId: true,
                 allowFileUploads: true,
                 active: true,
                 disabledByUser: true,
                 deletedAt: true,
                 takenDown: true,
                 closesAt: true,
+                user: { select: { banned: true, banFileUpload: true } },
+                organization: { select: { suspendedAt: true } },
             },
         }),
         prisma.drop.findUnique({
             where: { id: dropId },
-            select: { id: true, userId: true, deletedAt: true, takenDown: true },
+            select: {
+                id: true,
+                userId: true,
+                organizationId: true,
+                formStagingId: true,
+                deletedAt: true,
+                takenDown: true,
+            },
         }),
     ]);
 
@@ -112,9 +144,28 @@ export async function resolveTokenUploadAccess(request: Request, dropId: string)
     if (!form.allowFileUploads || !form.active || form.disabledByUser || form.deletedAt || form.takenDown) return null;
     if (form.closesAt && form.closesAt.getTime() < Date.now()) return null;
     if (drop.deletedAt || drop.takenDown) return null;
-    if (drop.userId !== form.userId) return null;
+    if (drop.formStagingId !== form.id) return null;
+    if (!drop.userId) return null;
+    if (form.organizationId) {
+        if (!form.organization || form.organization.suspendedAt) return null;
+        if (drop.organizationId !== form.organizationId) return null;
+    } else {
+        if (!form.user || form.user.banned || form.user.banFileUpload) return null;
+        if (drop.organizationId !== null || drop.userId !== form.userId) return null;
+    }
 
-    return { mode: "form", effectiveUserId: form.userId, formId: form.id };
+    const { limits, subscribed } = await getFormOwnerEntitlements({
+        userId: form.userId,
+        organizationId: form.organizationId,
+    });
+    if ((form.organizationId && !subscribed) || limits.maxSubmissionFileSize <= 0) return null;
+
+    return {
+        mode: "form",
+        effectiveUserId: drop.userId,
+        organizationId: form.organizationId,
+        formId: form.id,
+    };
 }
 
 export async function validateFormUploadManifest(
@@ -130,8 +181,9 @@ export async function validateFormUploadManifest(
     const fields = fileFieldsFromSchema(form.schemaJson);
     if (files.length === 0) throw new ValidationError("At least one file is required");
 
-    const { limits, tiers } = await getFormOwnerEntitlements({ userId: form.userId, organizationId: form.organizationId });
-    const cap = formFileCap(form, limits.maxSubmissionFileSize);
+    const { limits, tiers, subscribed } = await getFormOwnerEntitlements({ userId: form.userId, organizationId: form.organizationId });
+    assertSubscribedFormOwner(form.organizationId, subscribed);
+    const cap = effectiveFormFileCap(form, limits.maxSubmissionFileSize);
     if (cap <= 0) {
         throw new UpgradeRequiredError("File uploads require an upgrade.", {
             scope: "form_file_uploads",
@@ -173,15 +225,16 @@ export async function validateFormDropFile(formId: string, input: FileUploadInpu
     });
     if (!form) throw new ValidationError("Form not found");
 
-    const [{ limits, tiers }, existing] = await Promise.all([
+    const [{ limits, tiers, subscribed }, existing] = await Promise.all([
         getFormOwnerEntitlements({ userId: form.userId, organizationId: form.organizationId }),
         prisma.dropFile.findMany({
             where: { dropId: input.dropId },
             select: { size: true, chunkCount: true },
         }),
     ]);
+    assertSubscribedFormOwner(form.organizationId, subscribed);
 
-    const cap = formFileCap(form, limits.maxSubmissionFileSize);
+    const cap = effectiveFormFileCap(form, limits.maxSubmissionFileSize);
     if (cap <= 0) {
         throw new UpgradeRequiredError("File uploads require an upgrade.", {
             scope: "form_file_uploads",
@@ -223,8 +276,9 @@ export async function getFormUploadQuotaOverride(formId: string): Promise<FormUp
     });
     if (!form) throw new ValidationError("Form not found");
 
-    const { limits, tiers } = await getFormOwnerEntitlements({ userId: form.userId, organizationId: form.organizationId });
-    const cap = formFileCap(form, limits.maxSubmissionFileSize);
+    const { limits, tiers, subscribed } = await getFormOwnerEntitlements({ userId: form.userId, organizationId: form.organizationId });
+    assertSubscribedFormOwner(form.organizationId, subscribed);
+    const cap = effectiveFormFileCap(form, limits.maxSubmissionFileSize);
     if (cap <= 0) {
         throw new UpgradeRequiredError("File uploads require an upgrade.", {
             scope: "form_file_uploads",

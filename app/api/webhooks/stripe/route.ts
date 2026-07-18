@@ -122,6 +122,16 @@ async function syncCanonicalSubscription(
 
     await upsertConfiguredSubscription(local.userId, subscription)
 
+    if (
+        local.organizationId
+        && (subscription.status === "active" || subscription.status === "trialing")
+    ) {
+        await prisma.organization.update({
+            where: { id: local.organizationId },
+            data: { formRetentionGraceUntil: null },
+        })
+    }
+
     return local
 }
 

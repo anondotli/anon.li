@@ -454,7 +454,8 @@ export function FormResponsesClient({
 function ShareCard({ formId }: { formId: string }) {
     const [origin] = useState(() => (typeof window === "undefined" ? DEFAULT_APP_ORIGIN : window.location.origin))
     const shareUrl = `${origin}/f/${formId}`
-    const embedSnippet = `<iframe src="${shareUrl}" width="100%" height="720" style="border:0"></iframe>`
+    const embedUrl = `${origin}/embed/f/${formId}`
+    const embedSnippet = `<iframe src="${embedUrl}" title="Encrypted form" width="100%" height="720" style="border:0"></iframe>`
 
     return (
         <section className="space-y-3 rounded-xl border border-border/60 bg-card p-5 luxury-shadow-sm">

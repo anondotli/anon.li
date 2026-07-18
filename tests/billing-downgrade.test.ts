@@ -311,7 +311,7 @@ describe("BillingDowngradeService", () => {
                 id: "user_1",
                 email: "test@example.com",
                 subscriptions: [],
-                downgradedAt: new Date(),
+                downgradedAt: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000),
             });
 
             // No resources already scheduled
@@ -337,6 +337,29 @@ describe("BillingDowngradeService", () => {
                 where: { id: "user_1" },
                 data: { downgradedAt: null },
             });
+        });
+
+        it("keeps downgradedAt through the Form retention grace when no other resources are excessive", async () => {
+            mockUserFindUnique.mockResolvedValue({
+                id: "user_1",
+                email: "test@example.com",
+                subscriptions: [],
+                downgradedAt: new Date(),
+            });
+            mockAliasCount.mockResolvedValueOnce(0);
+            mockDomainCount.mockResolvedValueOnce(0);
+            mockRecipientCount.mockResolvedValueOnce(0);
+            mockAliasFindMany
+                .mockResolvedValueOnce(Array.from({ length: 5 }, (_, i) => ({ id: `r_${i}` })))
+                .mockResolvedValueOnce([{ id: "c_0" }]);
+            mockDomainFindMany.mockResolvedValue([]);
+            mockRecipientFindMany.mockResolvedValue([
+                { id: "recip_1", email: "r@test.com", isDefault: true, createdAt: new Date() },
+            ]);
+
+            await BillingDowngradeService.scheduleExcessForUser("user_1");
+
+            expect(mockUserUpdate).not.toHaveBeenCalled();
         });
     });
 

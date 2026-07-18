@@ -8,14 +8,24 @@
  */
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-const { prisma, audit, getPlanFromPriceId } = vi.hoisted(() => ({
-    prisma: { subscription: { findUnique: vi.fn(), upsert: vi.fn() } },
+const { prisma, audit, getPlanFromPriceId, retrieveSubscription } = vi.hoisted(() => ({
+    prisma: {
+        subscription: {
+            findUnique: vi.fn(),
+            findMany: vi.fn(),
+            upsert: vi.fn(),
+            updateMany: vi.fn(),
+        },
+        organization: { updateMany: vi.fn() },
+        user: { updateMany: vi.fn() },
+    },
     audit: vi.fn(),
     getPlanFromPriceId: vi.fn(),
+    retrieveSubscription: vi.fn(),
 }))
 
 vi.mock("stripe", () => ({ default: class Stripe {} }))
-vi.mock("@/lib/stripe", () => ({ stripe: {} }))
+vi.mock("@/lib/stripe", () => ({ stripe: { subscriptions: { retrieve: retrieveSubscription } } }))
 vi.mock("@/lib/prisma", () => ({ prisma }))
 vi.mock("@/lib/services/audit", () => ({ audit }))
 vi.mock("@/config/plans", () => ({ getPlanFromPriceId }))
@@ -23,15 +33,22 @@ vi.mock("@/lib/logger", () => ({
     createLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn() }),
 }))
 
-import { upsertStripeSubscription } from "@/lib/services/subscription-sync"
+import {
+    reconcileStaleStripeSubscriptions,
+    upsertStripeSubscription,
+} from "@/lib/services/subscription-sync"
 
 type SubArg = Parameters<typeof upsertStripeSubscription>[1]
 
-function makeSub({ seats = 5, organizationId = "org-9" as string | null } = {}): SubArg {
+function makeSub({
+    seats = 5,
+    organizationId = "org-9" as string | null,
+    status = "active" as SubArg["status"],
+} = {}): SubArg {
     return {
         id: "sub_123",
         customer: "cus_123",
-        status: "active",
+        status,
         cancel_at_period_end: false,
         current_period_end: 1800000000,
         metadata: organizationId ? { organizationId } : {},
@@ -52,6 +69,8 @@ beforeEach(() => {
     vi.clearAllMocks()
     getPlanFromPriceId.mockReturnValue({ product: "business", tier: "pro" })
     prisma.subscription.upsert.mockResolvedValue({})
+    prisma.organization.updateMany.mockResolvedValue({ count: 1 })
+    prisma.user.updateMany.mockResolvedValue({ count: 1 })
 })
 
 describe("upsertStripeSubscription — seat-change audit", () => {
@@ -108,5 +127,70 @@ describe("upsertStripeSubscription — seat-change audit", () => {
         prisma.subscription.findUnique.mockResolvedValue(null)
         await upsertStripeSubscription("user-1", makeSub({ seats: 1, organizationId: null }))
         expect(audit).not.toHaveBeenCalled()
+    })
+
+    it("records personal Form retention grace on an inactive sync", async () => {
+        prisma.subscription.findUnique.mockResolvedValue(null)
+
+        await upsertStripeSubscription(
+            "user-1",
+            makeSub({ seats: 1, organizationId: null, status: "past_due" }),
+        )
+
+        expect(prisma.user.updateMany).toHaveBeenCalledWith({
+            where: {
+                id: "user-1",
+                downgradedAt: null,
+                subscriptions: {
+                    none: {
+                        organizationId: null,
+                        product: { in: ["form", "bundle", "business"] },
+                        status: { in: ["active", "trialing"] },
+                    },
+                },
+            },
+            data: { downgradedAt: expect.any(Date) },
+        })
+    })
+
+    it("establishes Form retention grace when an org subscription becomes inactive", async () => {
+        prisma.subscription.findUnique.mockResolvedValue({ seats: 5, organizationId: "org-9" })
+
+        await upsertStripeSubscription("owner-1", makeSub({ status: "past_due" }))
+
+        expect(prisma.organization.updateMany).toHaveBeenCalledWith({
+            where: {
+                id: "org-9",
+                formRetentionGraceUntil: null,
+                subscriptions: {
+                    none: {
+                        product: { in: ["form", "bundle", "business"] },
+                        status: { in: ["active", "trialing"] },
+                    },
+                },
+            },
+            data: { formRetentionGraceUntil: expect.any(Date) },
+        })
+    })
+
+    it("establishes grace during missed-webhook reconciliation", async () => {
+        prisma.subscription.findMany.mockResolvedValue([{
+            providerSubscriptionId: "sub_123",
+            organizationId: "org-9",
+            userId: null,
+            product: "business",
+        }])
+        prisma.subscription.updateMany.mockResolvedValue({ count: 1 })
+        retrieveSubscription.mockResolvedValue(makeSub({ status: "past_due" }))
+
+        await expect(reconcileStaleStripeSubscriptions()).resolves.toEqual({
+            checked: 1,
+            revoked: 1,
+            refreshed: 0,
+            errors: 0,
+        })
+        expect(prisma.organization.updateMany).toHaveBeenCalledWith(
+            expect.objectContaining({ data: { formRetentionGraceUntil: expect.any(Date) } }),
+        )
     })
 })

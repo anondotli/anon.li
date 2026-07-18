@@ -59,6 +59,9 @@ vi.mock('@/lib/prisma', () => ({
             findMany: vi.fn().mockResolvedValue([]),
             updateMany: vi.fn().mockResolvedValue({ count: 0 }),
         },
+        organization: {
+            update: vi.fn().mockResolvedValue({}),
+        },
     },
 }))
 

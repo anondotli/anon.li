@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
 
 /**
  * Decrement a user's storageUsed with a GREATEST(0, ...) floor to prevent negative values.
@@ -115,9 +116,10 @@ export interface DropFilesQuotaRelease {
  * from being inserted in the gap before the parent row is hard-deleted. The
  * owner is read inside the transaction; guest drops naturally match no user.
  */
-export async function deleteDropFilesAndReleaseQuota(
+async function claimDropFilesAndReleaseQuota(
     dropId: string,
-): Promise<DropFilesQuotaRelease> {
+    guard: Prisma.Sql = Prisma.empty,
+): Promise<DropFilesQuotaRelease | null> {
     return prisma.$transaction(async (tx) => {
         // This must be a separate statement from the child DELETE. At READ
         // COMMITTED, a reservation transaction that already holds the parent
@@ -126,18 +128,15 @@ export async function deleteDropFilesAndReleaseQuota(
         // A single data-modifying CTE would retain its statement-start snapshot
         // and could miss the newly committed child before the parent cascade.
         const targets = await tx.$queryRaw<Array<{ id: string; userId: string | null }>>`
-            UPDATE "drops"
+            UPDATE "drops" AS target
             SET "deletedAt" = COALESCE("deletedAt", NOW())
-            WHERE "id" = ${dropId}
-            RETURNING "id", "userId"
+            WHERE target."id" = ${dropId}
+            ${guard}
+            RETURNING target."id", target."userId"
         `;
         const target = targets[0];
         if (!target) {
-            return {
-                files: [],
-                deletedFiles: 0,
-                releasedBytes: BigInt(0),
-            };
+            return null;
         }
 
         const files = await tx.$queryRaw<ClaimedDropFile[]>`
@@ -167,4 +166,53 @@ export async function deleteDropFilesAndReleaseQuota(
             releasedBytes,
         };
     }, { isolationLevel: "ReadCommitted" });
+}
+
+export async function deleteDropFilesAndReleaseQuota(
+    dropId: string,
+): Promise<DropFilesQuotaRelease> {
+    return (await claimDropFilesAndReleaseQuota(dropId)) ?? {
+        files: [],
+        deletedFiles: 0,
+        releasedBytes: BigInt(0),
+    };
+}
+
+/**
+ * Claim an abandoned upload only if it is still stale at the instant the Drop
+ * row is locked. A Form submission clears form_staging_id in its transaction,
+ * so cleanup can never delete an attachment that just became accepted.
+ */
+export async function deleteStaleUploadFilesAndReleaseQuota(
+    dropId: string,
+    incompleteBefore: Date,
+    now: Date,
+): Promise<DropFilesQuotaRelease | null> {
+    return claimDropFilesAndReleaseQuota(dropId, Prisma.sql`
+        AND target."deletedAt" IS NULL
+        AND (
+            (
+                target."uploadComplete" = FALSE
+                AND target."createdAt" < ${incompleteBefore}
+            )
+            OR (
+                target."form_staging_id" IS NOT NULL
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM "form_submissions" AS submission
+                    WHERE submission."attachedDropId" = target."id"
+                )
+                AND (
+                    target."createdAt" < ${incompleteBefore}
+                    OR NOT EXISTS (
+                        SELECT 1
+                        FROM "upload_tokens" AS token
+                        WHERE token."dropId" = target."id"
+                          AND token."formId" IS NOT NULL
+                          AND token."expiresAt" > ${now}
+                    )
+                )
+            )
+        )
+    `);
 }

@@ -59,6 +59,45 @@ describe("linear_scale field", () => {
     })
 })
 
+describe("schema and text/date validation", () => {
+    it("rejects whitespace-only required text", () => {
+        const doc = docWith({ id: "name", label: "Name", type: "short_text", required: true })
+        expect(() => validateAnswersAgainstSchema(doc, { name: "   " })).toThrow("required")
+    })
+
+    it("enforces valid calendar dates and configured date bounds", () => {
+        const doc = docWith({
+            id: "when",
+            label: "When",
+            type: "date",
+            min: "2026-01-10",
+            max: "2026-01-20",
+        })
+        expect(validateAnswersAgainstSchema(doc, { when: "2026-01-15" })).toEqual({ when: "2026-01-15" })
+        expect(() => validateAnswersAgainstSchema(doc, { when: "2026-01-09" })).toThrow("on or after")
+        expect(() => validateAnswersAgainstSchema(doc, { when: "2026-02-30" })).toThrow("valid date")
+    })
+
+    it("rejects duplicate choices and forward visibility references", () => {
+        expect(() => docWith({ id: "pick", label: "Pick", type: "single_select", options: ["A", "A"] }))
+            .toThrow()
+        expect(() => FormSchemaDoc.parse({
+            version: 1,
+            displayMode: "classic",
+            submitButtonText: "Submit",
+            fields: [
+                {
+                    id: "first",
+                    label: "First",
+                    type: "short_text",
+                    visibleWhen: { fieldId: "later", op: "equals", value: "yes" },
+                },
+                { id: "later", label: "Later", type: "short_text" },
+            ],
+        })).toThrow()
+    })
+})
+
 describe("ranking field", () => {
     const base = {
         id: "rank",

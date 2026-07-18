@@ -4,9 +4,8 @@ import { scopeFromSession } from "@/lib/auth-session"
 import { FormBuilderPage } from "@/components/form/dashboard/builder-page"
 import { NotFoundError, ForbiddenError } from "@/lib/api-error-utils"
 import { FormSchemaDoc } from "@/lib/form-schema"
-import { getFormLimitsAsync } from "@/lib/limits"
-import { getEffectiveTiers } from "@/lib/entitlements"
 import { FormService } from "@/lib/services/form"
+import { getFormOwnerEntitlements } from "@/lib/services/form-entitlements"
 
 interface PageProps {
     params: Promise<{ id: string }>
@@ -21,10 +20,14 @@ export default async function EditFormPage({ params }: PageProps) {
     if (!session?.user?.id) redirect("/login")
 
     const { id } = await params
+    const scope = scopeFromSession(session)
+    const { limits, tiers, subscribed } = await getFormOwnerEntitlements(scope)
+    if (scope.organizationId && !subscribed) redirect("/dashboard/team")
+
     let form: Awaited<ReturnType<typeof FormService.getFormForOwner>>
 
     try {
-        form = await FormService.getFormForOwner(id, scopeFromSession(session))
+        form = await FormService.getFormForOwner(id, scope)
     } catch (error) {
         if (error instanceof NotFoundError) notFound()
         if (error instanceof ForbiddenError) notFound()
@@ -32,10 +35,6 @@ export default async function EditFormPage({ params }: PageProps) {
     }
 
     const schema = FormSchemaDoc.parse(JSON.parse(form.schemaJson))
-    const [limits, tiers] = await Promise.all([
-        getFormLimitsAsync(session.user.id),
-        getEffectiveTiers(session.user.id),
-    ])
 
     return (
         <FormBuilderPage

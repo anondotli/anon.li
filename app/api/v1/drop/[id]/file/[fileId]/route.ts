@@ -16,7 +16,7 @@ import { scopeFromContext, withPolicy } from "@/lib/route-policy"
 import { DropService } from "@/lib/services/drop"
 import { deletePendingDropFileAndReleaseQuota } from "@/lib/services/drop-storage"
 import { resolveDownloadAccess, recordAccessEvent } from "@/lib/services/drop-recipient"
-import { resolveTokenUploadAccess } from "@/lib/services/form-upload"
+import { resolveTokenUploadAccess, scopeForTokenUploadAccess } from "@/lib/services/form-upload"
 import {
     getPresignedDownloadUrl,
     abortMultipartUpload,
@@ -68,12 +68,25 @@ export const GET = withPolicy<RouteParams>(
                         takenDown: true,
                         customKey: true,
                         restrictToRecipients: true,
+                        formStagingId: true,
+                        uploadTokens: {
+                            where: { formId: { not: null } },
+                            select: { id: true },
+                        },
                     },
                 },
             },
         })
 
-        if (!file || file.drop.id !== dropId || file.drop.deletedAt || file.drop.disabled || !file.drop.uploadComplete) {
+        if (
+            !file
+            || file.drop.id !== dropId
+            || file.drop.deletedAt
+            || file.drop.disabled
+            || !file.drop.uploadComplete
+            || file.drop.formStagingId
+            || (file.drop.uploadTokens?.length ?? 0) > 0
+        ) {
             return new NextResponse("This file is not available.", { status: 404 })
         }
 
@@ -188,8 +201,8 @@ export const DELETE = withPolicy<RouteParams>(
     async (ctx, routeContext) => {
         try {
             const { id: dropId, fileId } = await routeContext.params
-            let effectiveUserId = ctx.userId
             let authenticatedScope: OwnerScope | null = null
+            let tokenScope: OwnerScope | null = null
             const hasUploadToken = Boolean(ctx.request.headers.get("x-upload-token"))
 
             // Token-bound aborts are bound to the upload token — without a valid
@@ -199,7 +212,7 @@ export const DELETE = withPolicy<RouteParams>(
                 if (!access) {
                     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
                 }
-                effectiveUserId = access.effectiveUserId
+                tokenScope = scopeForTokenUploadAccess(access)
             } else if (!ctx.userId) {
                 return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
             } else {
@@ -236,11 +249,10 @@ export const DELETE = withPolicy<RouteParams>(
                 // Preserve token-bound ownership semantics for guest and form
                 // uploads: the token, rather than the caller's active scope,
                 // authorizes the abort.
-                if (effectiveUserId) {
-                    if (file.drop.userId !== effectiveUserId) {
-                        return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-                    }
-                } else if (file.drop.userId !== null) {
+                if (tokenScope
+                    ? !isWithinScope(file.drop, tokenScope)
+                    : file.drop.userId !== null || file.drop.organizationId !== null
+                ) {
                     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
                 }
             } else if (!authenticatedScope || !isWithinScope(file.drop, authenticatedScope)) {

@@ -21,7 +21,8 @@ export function SubscriptionCanceledEmail({ expiryDate }: SubscriptionCanceledEm
             </ContentRow>
             <InfoBox variant="warning" withBorder>
                 <p style={{ margin: 0, fontSize: "15px", lineHeight: 1.6, color: emailColors.warning, textAlign: "center" }}>
-                    <strong>Your files will be permanently deleted on {expiryDate}</strong> unless you renew your subscription.
+                    <strong>Your files may be permanently deleted on {expiryDate}</strong> unless you renew your subscription.
+                    {" "}Form responses older than the free-plan retention window may also be automatically deleted after the downgrade grace period.
                 </p>
             </InfoBox>
             <ContentRow padding="0 48px 32px">

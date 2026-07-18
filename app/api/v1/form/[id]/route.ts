@@ -6,12 +6,12 @@
 
 import { NextResponse } from "next/server"
 
-import { apiError, apiSuccess, ErrorCodes, generateRequestId, zodErrorToDetails } from "@/lib/api-response"
+import { apiError, apiSuccess, ErrorCodes, generateRequestId, withNoStore, zodErrorToDetails } from "@/lib/api-response"
 import { withPolicy, scopeFromContext } from "@/lib/route-policy"
 import { FormService } from "@/lib/services/form"
 import { updateFormSchema } from "@/lib/validations/form"
 import { getClientIp, rateLimit } from "@/lib/rate-limit"
-import { UpgradeRequiredError } from "@/lib/api-error-utils"
+import { NotFoundError, UpgradeRequiredError } from "@/lib/api-error-utils"
 
 interface RouteParams {
     params: Promise<{ id: string }>
@@ -30,11 +30,12 @@ const getHandler = withPolicy<RouteParams>(
 
         try {
             const form = await FormService.getPublicForm(id)
-            return NextResponse.json({
+            return withNoStore(NextResponse.json({
                 id: form.id,
                 title: form.title,
                 description: form.description,
                 schema: form.schema,
+                field_count: form.fieldCount,
                 public_key: form.publicKey,
                 custom_key: form.customKey,
                 salt: form.salt,
@@ -45,11 +46,14 @@ const getHandler = withPolicy<RouteParams>(
                 closes_at: form.closesAt?.toISOString() ?? null,
                 allow_file_uploads: form.allowFileUploads,
                 max_file_size_override: form.maxFileSizeOverride,
-            })
+            }))
         } catch (error) {
             const status = (error as { status?: number }).status
             if (status === 410) return NextResponse.json({ error: "Form has been taken down" }, { status: 410 })
-            return NextResponse.json({ error: "Form not found" }, { status: 404 })
+            if (error instanceof NotFoundError) {
+                return NextResponse.json({ error: "Form not found" }, { status: 404 })
+            }
+            throw error
         }
     },
 )

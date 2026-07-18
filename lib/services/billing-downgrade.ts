@@ -17,7 +17,7 @@ import { prisma } from "@/lib/prisma";
 import { createLogger } from "@/lib/logger";
 import { getPlanLimits, getDropLimits, getRecipientLimit } from "@/lib/limits";
 import { ALIAS_LIMITS } from "@/config/plans";
-import { DOWNGRADE_SCHEDULING_DELAY_DAYS, DOWNGRADE_DELETION_DELAY_DAYS } from "@/lib/constants";
+import { DAY_MS, DOWNGRADE_SCHEDULING_DELAY_DAYS, DOWNGRADE_DELETION_DELAY_DAYS } from "@/lib/constants";
 import { abortMultipartUpload, deleteObject } from "@/lib/storage";
 import { deleteDropFilesAndReleaseQuota } from "@/lib/services/drop-storage";
 
@@ -205,11 +205,22 @@ export class BillingDowngradeService {
             recipientIdsToSchedule = toSchedule.map((r) => r.id);
         }
 
-        // If no excess across all resource types: clear downgradedAt
+        // If no Alias/Domain/Recipient resources are excessive, keep the
+        // downgrade marker through the full Form response-retention grace.
+        // Clearing it at the scheduling boundary would shorten Form's grace
+        // from 14 days to 7 for Form-only customers.
         const totalScheduled =
             aliasIdsToSchedule.length + domainsToSchedule.length + recipientIdsToSchedule.length;
 
         if (totalScheduled === 0) {
+            const formGraceMs = (DOWNGRADE_SCHEDULING_DELAY_DAYS + DOWNGRADE_DELETION_DELAY_DAYS) * DAY_MS;
+            if (
+                user.downgradedAt
+                && user.downgradedAt.getTime() + formGraceMs > now.getTime()
+            ) {
+                logger.info("User within free resource limits — retaining Form downgrade grace", { userId });
+                return;
+            }
             await prisma.user.update({
                 where: { id: userId },
                 data: { downgradedAt: null },

@@ -40,7 +40,7 @@ https://anon.li/api/v1
 3. **Submit** — Submitters derive a shared secret with the form's public key and encrypt their answers client-side.
 4. **Decrypt** — Unlock your vault, unwrap the private key, and decrypt submissions in your dashboard or CLI.
 
-Form metadata (title, description, field schema) is stored in plaintext so submitters can render the form without a decryption key. Only submission payloads are encrypted.
+Form metadata (title, description, field schema) is stored in plaintext. An unprotected form serves that schema to anyone with its link; a password-protected form withholds the schema until the visitor supplies a valid password-derived witness. Only submission payloads are end-to-end encrypted.
 
 ## Form Schema
 
@@ -155,7 +155,7 @@ Returns `402 PAYMENT_REQUIRED` if the caller is over their active-form cap for t
     <code className="text-sm bg-secondary px-2 py-1 rounded">https://anon.li/api/v1/form/:id</code>
 </div>
 
-Returns public metadata needed to render the form and encrypt a submission. No authentication required. Returns `410 Gone` if the form has been taken down, disabled, or closed.
+Returns public metadata needed to render the form and encrypt a submission. No authentication required. A disabled or closed form is returned with `active: false`; a taken-down form returns `410 Gone`.
 
 **Response**
 
@@ -166,6 +166,7 @@ Returns public metadata needed to render the form and encrypt a submission. No a
     "title": "Whistleblower intake",
     "description": null,
     "schema": { "version": 1, "fields": [ /* ... */ ] },
+    "field_count": 4,
     "public_key": "<base64url>",
     "allowFileUploads": false,
     "hideBranding": false,
@@ -174,6 +175,8 @@ Returns public metadata needed to render the form and encrypt a submission. No a
   "meta": { "request_id": "req_..." }
 }
 ```
+
+For a password-protected form, `schema` is `null`. Decrypt the password witness in the browser, then call `POST /form/:id/unlock` with `{ "customKeyProof": "..." }`. A successful response returns the schema; an invalid witness returns `403`. Never send the raw password.
 
 ---
 
@@ -218,10 +221,10 @@ Posts an encrypted submission. No authentication is required by default. Attachm
 | `attachedDropId` | string | No | Paired Drop when the form has file fields |
 | `attachmentUploadToken` | string | No | Required with `attachedDropId`; consumed when the submission is recorded |
 | `attachmentManifest` | array | No | Required with `attachedDropId`; binds uploaded files to file fields |
-| `turnstileToken` | string | No | Required for anonymous submissions when Turnstile is enabled and no attachment upload token was already verified |
+| `turnstileToken` | string | No | Required for public submissions when Turnstile is enabled and no attachment upload token was already verified; respondent authentication does not bypass this check |
 | `customKeyProof` | string | No | Required when the form is password-protected; this is the decrypted witness, not the password |
 
-Returns `403` if the form is disabled, `410 Gone` if it has been closed or taken down, and `429` when the form is past its per-month submission cap.
+Returns `403` if the form is disabled, closed, or taken down, and `402` when the owner is past the calendar-month submission allowance.
 
 ---
 
@@ -241,7 +244,7 @@ Submission payloads are returned as ciphertext. Decryption requires ECDH between
     <code className="text-sm bg-secondary px-2 py-1 rounded">https://anon.li/api/v1/form/:id/upload-token</code>
 </div>
 
-When a form allows file uploads, this endpoint validates the planned files and mints a form-scoped Drop upload token. Anonymous callers must pass a valid Turnstile token when Turnstile is enabled. Storage is metered against the form owner using the owner's Form attachment limit.
+When a form allows file uploads, this endpoint validates the planned files and mints a form-scoped Drop upload token. Every caller must pass a valid Turnstile token when Turnstile is enabled. Storage is metered against the form owner using the owner's Form attachment limit, and concurrent staging is capped per form.
 
 ## Decrypting Submissions
 
@@ -271,7 +274,9 @@ const plaintext = await crypto.subtle.decrypt(
 | Form creation | 30 requests/hour |
 | Form list | 60 requests/minute |
 | Form operations | 100 requests/hour |
-| Public submission | 20 requests/hour/IP (strict) |
+| Public submission or attachment preparation | 20 requests/hour/IP (strict, including authenticated respondents) |
+| Authenticated public route ceiling | 200 requests/hour/account, in addition to the IP limit |
+| Attachment staging for one Form | 60 preparations/hour/Form and at most 10 live staging Drops |
 
 Monthly Form API quotas for API-key requests are 500 on Free, 25,000 on Plus, and 100,000 on Pro.
 
@@ -295,12 +300,12 @@ Monthly Form API quotas for API-key requests are 500 on Free, 25,000 on Plus, an
 | `402` | Upgrade required — caller is over their plan cap |
 | `403` | Form is disabled or submitter is not permitted |
 | `404` | Form not found |
-| `410` | Form closed, deleted, or taken down |
-| `429` | Rate-limited or per-month submission cap reached |
+| `410` | Public form metadata was taken down |
+| `429` | Hourly abuse rate limit reached |
 
 ## Security Notes
 
 - **Per-form P-256 keypair** — rotating a key rotates the form and invalidates cached ciphertext.
 - **Zero server plaintext** — submission payloads are never available to the server in readable form.
 - **Vault-wrapped private keys** — the form's decryption material is stored AES-GCM-encrypted against your vault.
-- **Metadata is public** — titles, descriptions, and the field schema are served as plaintext so submitters can render the form. Don't include secrets in those fields.
+- **Metadata is plaintext at rest** — titles and descriptions are public to link holders. Field schemas are public for ordinary forms and access-gated for password-protected forms. Don't put server-side secrets in form metadata.

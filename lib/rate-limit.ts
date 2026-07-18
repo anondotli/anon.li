@@ -96,11 +96,14 @@ export const rateLimiters = {
   formCreate: createLimiter("ratelimit:form:create", 30, "1 h"),
   formOps: createLimiter("ratelimit:form:ops", 100, "1 h"),
   formList: createLimiter("ratelimit:form:list", 60, "1 m"),
-  // Public form submission endpoint is strict per-IP; separate limiter for
-  // authenticated submitters avoids punishing users with shared IPs (offices,
-  // mobile carriers) when they submit forms.
+  // Public form submission endpoint is strict per-IP even when the browser has
+  // an anon.li session; authentication must not become an abuse bypass against
+  // somebody else's Form.
   formSubmit: createLimiter("ratelimit:form:submit", 20, "1 h"),
   formSubmitAuth: createLimiter("ratelimit:form:submit:auth", 200, "1 h"),
+  // Cross-attacker ceiling for provisioning storage against one public Form.
+  formUploadTarget: createLimiter("ratelimit:form:upload:target", 60, "1 h"),
+  formUnlock: createLimiter("ratelimit:form:unlock", 60, "1 h"),
   formSubmissionRead: createLimiter("ratelimit:form:submission:read", 300, "1 h"),
   stripeOps: createLimiter("ratelimit:stripe:ops", 10, "1 h"),
   profileUpdate: createLimiter("ratelimit:profile:update", 30, "1 h"),

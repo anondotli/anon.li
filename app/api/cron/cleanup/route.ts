@@ -48,8 +48,9 @@ async function runCleanup(): Promise<NextResponse> {
         //   5. cleanupSoftDeletedDrops      - single hard-delete+quota-reclaim pipeline
         //   6. cleanupExpiredFormSubmissions - form retention, deleting attached drops
         //   7. cleanupDeletedForms          - hard-delete soft-deleted forms after grace
-        //   8. cleanupOrphanedFiles         - storage-only GC of previously failed deletes
-        //   9. cleanupExpiredSessions       - unrelated
+        //   8. cleanupOldFormUsageEvents    - prune content-free quota IDs after 90d
+        //   9. cleanupOrphanedFiles         - storage-only GC of previously failed deletes
+        //  10. cleanupExpiredSessions       - unrelated
         type DropResult = { found: number; deleted: number; errors: string[] };
         async function runTask<T>(name: string, fallback: T, fn: () => Promise<T>): Promise<T> {
             try {
@@ -103,6 +104,14 @@ async function runCleanup(): Promise<NextResponse> {
             "deletedForms",
             emptyResult,
             () => FormCleanupService.cleanupDeletedForms()
+        );
+        const {
+            deleted: oldFormUsageEventsDeleted,
+            errors: oldFormUsageEventErrors,
+        } = await runTask<DropResult>(
+            "oldFormUsageEvents",
+            emptyResult,
+            () => FormCleanupService.cleanupOldUsageEvents()
         );
         const { deleted: orphanedFilesDeleted, errors: orphanedErrors } = await runTask<DropResult>(
             "orphanedFiles",
@@ -169,6 +178,7 @@ async function runCleanup(): Promise<NextResponse> {
             ...incompleteFileErrors,
             ...expiredFormSubmissionErrors,
             ...deletedFormErrors,
+            ...oldFormUsageEventErrors,
             ...notificationErrors,
         ];
 
@@ -183,6 +193,7 @@ async function runCleanup(): Promise<NextResponse> {
             expiredFormSubmissionsFound: expiredFormSubmissionsFound,
             deletedFormsCleaned: deletedFormsCleaned,
             deletedFormsFound: deletedFormsFound,
+            oldFormUsageEventsDeleted: oldFormUsageEventsDeleted,
             orphanedFilesDeleted: orphanedFilesDeleted,
             incompleteFilesDeleted: incompleteFilesDeleted,
             expiredSessionsDeleted: expiredSessionsDeleted,

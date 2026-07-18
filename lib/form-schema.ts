@@ -4,6 +4,14 @@ const VisibleWhen = z.object({
     fieldId: z.string().min(1).max(64).regex(/^[a-zA-Z0-9_-]+$/),
     op: z.enum(["equals", "notEquals", "contains", "gt", "lt", "isEmpty", "isNotEmpty"]),
     value: z.union([z.string().max(500), z.number(), z.null()]).optional(),
+}).superRefine((rule, ctx) => {
+    if (!["isEmpty", "isNotEmpty"].includes(rule.op) && rule.value === undefined) {
+        ctx.addIssue({
+            code: "custom",
+            path: ["value"],
+            message: "visibility rule requires a comparison value",
+        })
+    }
 })
 
 // Shared fields for every block type.
@@ -15,7 +23,27 @@ const BaseField = z.object({
     visibleWhen: VisibleWhen.optional(),
 })
 
-const OptionList = z.array(z.string().min(1).max(200))
+const OptionList = z
+    .array(z.string().min(1).max(200))
+    .refine((options) => new Set(options).size === options.length, {
+        message: "options must be unique",
+    })
+
+export function isIsoDateValue(value: string): boolean {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
+    if (!match) return false
+    const year = Number(match[1])
+    const month = Number(match[2])
+    const day = Number(match[3])
+    const date = new Date(Date.UTC(year, month - 1, day))
+    return date.getUTCFullYear() === year
+        && date.getUTCMonth() === month - 1
+        && date.getUTCDate() === day
+}
+
+const IsoDate = z.string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "must be an ISO date")
+    .refine(isIsoDateValue, "must be a valid calendar date")
 
 // ---- Address composite config ---------------------------------------------
 // The address question is built from a fixed set of parts; the form builder
@@ -116,8 +144,8 @@ const FormFieldSchema = z.discriminatedUnion("type", [
     }),
     BaseField.extend({
         type: z.literal("date"),
-        min: z.string().optional(),
-        max: z.string().optional(),
+        min: IsoDate.optional(),
+        max: IsoDate.optional(),
     }),
     BaseField.extend({
         type: z.literal("file"),
@@ -167,7 +195,38 @@ export const FormSchemaDoc = z.object({
             (f) => f.type !== "address" || enabledAddressParts(getAddressParts(f)).length > 0,
         ),
     { message: "address questions must collect at least one field", path: ["fields"] },
-)
+).superRefine((doc, ctx) => {
+    const indexById = new Map(doc.fields.map((field, index) => [field.id, index]))
+
+    doc.fields.forEach((field, index) => {
+        if (field.visibleWhen) {
+            const targetIndex = indexById.get(field.visibleWhen.fieldId)
+            if (targetIndex === undefined || targetIndex >= index) {
+                ctx.addIssue({
+                    code: "custom",
+                    path: ["fields", index, "visibleWhen", "fieldId"],
+                    message: "visibility rules must reference an earlier question",
+                })
+            }
+        }
+
+        if (field.type === "number" && field.min !== undefined && field.max !== undefined && field.min > field.max) {
+            ctx.addIssue({
+                code: "custom",
+                path: ["fields", index, "min"],
+                message: "minimum cannot exceed maximum",
+            })
+        }
+
+        if (field.type === "date" && field.min && field.max && field.min > field.max) {
+            ctx.addIssue({
+                code: "custom",
+                path: ["fields", index, "min"],
+                message: "minimum date cannot be after maximum date",
+            })
+        }
+    })
+})
 
 export type FormSchemaDoc = z.infer<typeof FormSchemaDoc>
 
@@ -179,7 +238,8 @@ export const EMPTY_FORM_SCHEMA: FormSchemaDoc = {
 }
 
 function isEmptyAnswer(value: unknown): boolean {
-    if (value === undefined || value === null || value === "") return true
+    if (value === undefined || value === null) return true
+    if (typeof value === "string") return value.trim() === ""
     if (Array.isArray(value)) return value.length === 0
     // Composite answers (e.g. address) are empty when every part is blank.
     if (typeof value === "object") return isBlankObject(value as Record<string, unknown>)
@@ -354,14 +414,26 @@ export function validateAnswersAgainstSchema(
             case "short_text":
             case "long_text":
             case "phone":
-            case "email":
-            case "date": {
+            case "email": {
                 if (typeof value !== "string") throw new Error(`Field "${field.label}" must be text`)
                 if (field.type === "email" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
                     throw new Error(`Field "${field.label}" must be a valid email`)
                 }
                 if ("maxLength" in field && field.maxLength && value.length > field.maxLength) {
                     throw new Error(`Field "${field.label}" exceeds ${field.maxLength} characters`)
+                }
+                out[field.id] = value.trim()
+                break
+            }
+            case "date": {
+                if (typeof value !== "string" || !isIsoDateValue(value)) {
+                    throw new Error(`Field "${field.label}" must be a valid date`)
+                }
+                if (field.min && value < field.min) {
+                    throw new Error(`Field "${field.label}" must be on or after ${field.min}`)
+                }
+                if (field.max && value > field.max) {
+                    throw new Error(`Field "${field.label}" must be on or before ${field.max}`)
                 }
                 out[field.id] = value
                 break

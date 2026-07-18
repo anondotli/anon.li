@@ -63,6 +63,7 @@ const availableDrop = {
     maxDownloads: 3,
     downloads: 0,
     restrictToRecipients: true,
+    uploadTokens: [],
     files: [
         { id: "file-1", storageKey: "d/fi/file-1" },
         { id: "file-2", storageKey: "d/fi/file-2" },
@@ -147,5 +148,36 @@ describe("POST /api/v1/drop/[id]/download", () => {
         expect(response.status).toBe(200)
         expect(consumeDownload).toHaveBeenCalledWith("drop-123", null)
         expect(getPresignedDownloadUrl).toHaveBeenCalledWith("d/fi/file-1", undefined)
+    })
+
+    it("does not expose presigned URLs for a staged form attachment", async () => {
+        const { POST } = await import("./route")
+        findDrop.mockResolvedValue({ ...availableDrop, formStagingId: "form-1" })
+
+        const response = await POST(
+            new Request("http://localhost/api/v1/drop/drop-123/download", { method: "POST" }),
+            { params: Promise.resolve({ id: "drop-123" }) },
+        )
+
+        expect(response.status).toBe(404)
+        expect(getPresignedDownloadUrl).not.toHaveBeenCalled()
+        expect(consumeDownload).not.toHaveBeenCalled()
+    })
+
+    it("keeps token-only staging private during a rolling deployment", async () => {
+        const { POST } = await import("./route")
+        findDrop.mockResolvedValue({
+            ...availableDrop,
+            formStagingId: null,
+            uploadTokens: [{ id: "legacy-form-token" }],
+        })
+
+        const response = await POST(
+            new Request("http://localhost/api/v1/drop/drop-123/download", { method: "POST" }),
+            { params: Promise.resolve({ id: "drop-123" }) },
+        )
+
+        expect(response.status).toBe(404)
+        expect(getPresignedDownloadUrl).not.toHaveBeenCalled()
     })
 })

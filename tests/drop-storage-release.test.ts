@@ -16,6 +16,7 @@ import {
     deleteDropFileAndReleaseQuota,
     deleteDropFilesAndReleaseQuota,
     deletePendingDropFileAndReleaseQuota,
+    deleteStaleUploadFilesAndReleaseQuota,
 } from "@/lib/services/drop-storage"
 
 beforeEach(() => {
@@ -125,5 +126,25 @@ describe("deleteDropFilesAndReleaseQuota", () => {
         })
         expect(prisma.$queryRaw).toHaveBeenCalledTimes(1)
         expect(prisma.$executeRaw).not.toHaveBeenCalled()
+    })
+})
+
+describe("deleteStaleUploadFilesAndReleaseQuota", () => {
+    it("rechecks the staging marker, live token, and accepted-submission guard under the Drop lock", async () => {
+        (prisma.$queryRaw as ReturnType<typeof vi.fn>).mockResolvedValue([])
+
+        await expect(deleteStaleUploadFilesAndReleaseQuota(
+            "staging-drop",
+            new Date("2026-07-15T00:00:00.000Z"),
+            new Date("2026-07-15T06:00:00.000Z"),
+        )).resolves.toBeNull()
+
+        const call = (prisma.$queryRaw as ReturnType<typeof vi.fn>).mock.calls[0]
+        const guard = call?.[2] as { strings: string[] }
+        const guardSql = guard.strings.join("?")
+        expect(guardSql).toContain('target."form_staging_id" IS NOT NULL')
+        expect(guardSql).toContain('FROM "form_submissions" AS submission')
+        expect(guardSql).toContain('submission."attachedDropId" = target."id"')
+        expect(guardSql).toContain('token."expiresAt" >')
     })
 })

@@ -6,6 +6,7 @@
  */
 
 import { prisma } from "@/lib/prisma";
+import type { Prisma } from "@prisma/client";
 import { createLogger } from "@/lib/logger";
 import {
     deleteObject,
@@ -15,6 +16,7 @@ import {
 import {
     deleteDropFileAndReleaseQuota,
     deleteDropFilesAndReleaseQuota,
+    deleteStaleUploadFilesAndReleaseQuota,
     type ClaimedDropFile,
 } from "@/lib/services/drop-storage";
 
@@ -147,27 +149,47 @@ export class DropCleanupService {
         errors: string[];
     }> {
         const BATCH_SIZE = 100;
-        const sixHoursAgo = new Date(Date.now() - 6 * 60 * 60 * 1000);
+        const now = new Date();
+        const sixHoursAgo = new Date(now.getTime() - 6 * 60 * 60 * 1000);
+        const staleWhere = {
+            deletedAt: null,
+            OR: [
+                { uploadComplete: false, createdAt: { lt: sixHoursAgo } },
+                {
+                    // Completed Form uploads remain private staging until their
+                    // token is consumed by a submission. Reap abandoned staging
+                    // as soon as its shorter Form token expires; formStagingId
+                    // remains even if Form deletion cascades the token.
+                    formStagingId: { not: null },
+                    formSubmission: null,
+                    OR: [
+                        { createdAt: { lt: sixHoursAgo } },
+                        {
+                            uploadTokens: {
+                                none: {
+                                    formId: { not: null },
+                                    expiresAt: { gt: now },
+                                },
+                            },
+                        },
+                    ],
+                },
+            ],
+        } satisfies Prisma.DropWhereInput;
         let totalFound = 0;
         let totalDeleted = 0;
         const allErrors: string[] = [];
 
         if (dryRun) {
             const found = await prisma.drop.count({
-                where: {
-                    uploadComplete: false,
-                    createdAt: { lt: sixHoursAgo },
-                },
+                where: staleWhere,
             });
             return { found, deleted: 0, errors: [] };
         }
 
         while (true) {
             const incompleteDrops = await prisma.drop.findMany({
-                where: {
-                    uploadComplete: false,
-                    createdAt: { lt: sixHoursAgo },
-                },
+                where: staleWhere,
                 select: { id: true },
                 take: BATCH_SIZE,
             });
@@ -180,7 +202,12 @@ export class DropCleanupService {
             let batchHadDatabaseError = false;
             for (const drop of incompleteDrops) {
                 try {
-                    const claim = await deleteDropFilesAndReleaseQuota(drop.id);
+                    const claim = await deleteStaleUploadFilesAndReleaseQuota(
+                        drop.id,
+                        sixHoursAgo,
+                        now,
+                    );
+                    if (!claim) continue;
                     deletableDropIds.push(drop.id);
                     claimedFiles.push(...claim.files);
                 } catch (e) {

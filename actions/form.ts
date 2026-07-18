@@ -15,6 +15,7 @@ import {
 import {
     vaultGenerationSchema,
     vaultIdSchema,
+    wrappedFormKeySchema,
 } from "@/lib/vault/validation"
 import type { UpgradeRequiredDetails } from "@/lib/api-error-utils"
 
@@ -27,6 +28,7 @@ const logger = createLogger("FormActions")
 const createFormActionSchema = createFormSchema.and(z.object({
     vaultId: vaultIdSchema,
     vaultGeneration: vaultGenerationSchema,
+    wrappedPrivateKey: wrappedFormKeySchema,
     // Org-context forms: the wrappedPrivateKey is wrapped to the org vault key at
     // this generation. The trusted scope (not this field) decides org-ownership.
     orgKeyGeneration: z.number().int().positive().optional(),

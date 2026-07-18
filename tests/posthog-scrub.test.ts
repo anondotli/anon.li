@@ -10,6 +10,42 @@ describe("scrubPostHogEvent", () => {
         expect(scrubPostHogEvent(event)).toBeNull()
     })
 
+    it("drops every event from public and embedded Form pages", () => {
+        for (const path of [
+            "/f",
+            "/f/abcdefghijkl",
+            "/embed/f",
+            "/embed/f/abcdefghijkl",
+        ]) {
+            expect(
+                scrubPostHogEvent({
+                    event: "$autocapture",
+                    properties: { $pathname: path },
+                }),
+            ).toBeNull()
+        }
+    })
+
+    it("drops Form events when only the current URL identifies the page", () => {
+        for (const url of [
+            "https://anon.li/f/abcdefghijkl?source=customer",
+            "https://anon.li/embed/f/abcdefghijkl?source=customer",
+        ]) {
+            expect(
+                scrubPostHogEvent({
+                    event: "$pageview",
+                    properties: { $current_url: url },
+                }),
+            ).toBeNull()
+        }
+    })
+
+    it("does not treat the Form marketing page as a private Form route", () => {
+        expect(
+            scrubPostHogEvent({ event: "$pageview", properties: { $pathname: "/form" } }),
+        ).not.toBeNull()
+    })
+
     it("drops events from token-bearing / internal routes", () => {
         for (const path of ["/reset", "/verify-recipient", "/2fa", "/admin/users"]) {
             const out = scrubPostHogEvent({ event: "$pageview", properties: { $pathname: path } })
@@ -100,5 +136,24 @@ describe("scrubPostHogEvent", () => {
         const els = out!.properties!.$elements as Array<{ href: string }>
         expect(els[0]!.href).not.toContain("KEYMATERIAL")
         expect(els[0]!.href).not.toContain("#")
+    })
+
+    it("redacts private Form links in referrers and element hrefs even for all-letter IDs", () => {
+        const out = scrubPostHogEvent({
+            event: "$autocapture",
+            properties: {
+                $pathname: "/pricing",
+                $referrer: "https://anon.li/f/abcdefghijkl",
+                $initial_referrer: "/embed/f/abcdefghijkl?source=customer",
+                $elements: [{ href: "https://anon.li/f/abcdefghijkl", tag_name: "a" }],
+                $elements_chain: "a[href='https://anon.li/f/abcdefghijkl']",
+            },
+        })
+
+        expect(out!.properties!.$referrer).toBe("https://anon.li/[private]")
+        expect(out!.properties!.$initial_referrer).toBe("/[private]")
+        const elements = out!.properties!.$elements as Array<{ href: string }>
+        expect(elements[0]!.href).toBe("https://anon.li/[private]")
+        expect(out!.properties!.$elements_chain).not.toContain("abcdefghijkl")
     })
 })

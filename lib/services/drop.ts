@@ -131,6 +131,8 @@ interface AuthenticatedFileReservationInput extends FileReservationInput {
     organizationId: string | null;
     storageLimit: bigint;
     quotaExceededError: UpgradeRequiredError;
+    dropPlaintextLimit?: number;
+    dropSizeExceededError?: UpgradeRequiredError;
 }
 
 interface LockedUploadDrop {
@@ -222,15 +224,32 @@ async function createAuthenticatedFileReservation(
             throw new ForbiddenError("Access denied");
         }
 
-        const [fileCount, pendingFiles] = await Promise.all([
+        const [fileCount, pendingFiles, existingFiles] = await Promise.all([
             tx.dropFile.count({ where: { dropId: input.dropId } }),
             tx.dropFile.count({ where: { dropId: input.dropId, uploadComplete: false } }),
+            input.dropPlaintextLimit === undefined
+                ? Promise.resolve([])
+                : tx.dropFile.findMany({
+                    where: { dropId: input.dropId },
+                    select: { size: true, chunkCount: true },
+                }),
         ]);
         if (drop.maxFileCount !== null && fileCount >= drop.maxFileCount) {
             throw new ValidationError(`Drop already has maximum number of files (${drop.maxFileCount})`);
         }
         if (pendingFiles >= MAX_PENDING_FILES_PER_DROP) {
             throw new RateLimitError("Too many pending uploads for this drop");
+        }
+        if (input.dropPlaintextLimit !== undefined) {
+            const existingPlaintextBytes = existingFiles.reduce(
+                (sum, file) => sum + plaintextSizeFromEncrypted(Number(file.size), file.chunkCount ?? 1),
+                0,
+            );
+            const nextPlaintextBytes = plaintextSizeFromEncrypted(input.size, input.chunkCount);
+            if (existingPlaintextBytes + nextPlaintextBytes > input.dropPlaintextLimit) {
+                throw input.dropSizeExceededError
+                    ?? new ValidationError("Drop size limit exceeded");
+            }
         }
 
         const reserved = await tx.$executeRaw`
@@ -681,7 +700,7 @@ export class DropService {
         }
         let authenticatedQuota: Pick<
             AuthenticatedFileReservationInput,
-            "storageLimit" | "quotaExceededError"
+            "storageLimit" | "quotaExceededError" | "dropPlaintextLimit" | "dropSizeExceededError"
         > | null = null;
 
         if (scope) {
@@ -766,6 +785,25 @@ export class DropService {
 
             authenticatedQuota = {
                 storageLimit,
+                ...(options.quotaOverride
+                    ? {
+                        dropPlaintextLimit: options.quotaOverride.maxFileSize,
+                        dropSizeExceededError: new UpgradeRequiredError(
+                            "Attachment size exceeds this form's file upload limit.",
+                            {
+                                scope: "form_file_uploads",
+                                currentTier: options.quotaOverride.currentTier,
+                                suggestedTier: options.quotaOverride.currentTier === "pro"
+                                    ? "pro"
+                                    : options.quotaOverride.currentTier === "plus"
+                                      ? "pro"
+                                      : "plus",
+                                currentValue: plaintextSize,
+                                limitValue: options.quotaOverride.maxFileSize,
+                            },
+                        ),
+                    }
+                    : {}),
                 quotaExceededError: options.quotaOverride
                     ? new UpgradeRequiredError(
                         "Attachment storage limit reached for this form plan.",
@@ -1300,6 +1338,10 @@ export class DropService {
                         chunkCount: true,
                     },
                 },
+                uploadTokens: {
+                    where: { formId: { not: null } },
+                    select: { id: true },
+                },
             },
         });
 
@@ -1316,6 +1358,12 @@ export class DropService {
         }
 
         if (!drop.uploadComplete) {
+            throw new ForbiddenError("This drop is not yet available.");
+        }
+
+        // A completed upload is still private staging until recordSubmission
+        // atomically consumes its form-bound token and creates the submission.
+        if (drop.formStagingId || drop.uploadTokens.length > 0) {
             throw new ForbiddenError("This drop is not yet available.");
         }
 
@@ -1384,6 +1432,13 @@ export class DropService {
                       AND "disabled" = FALSE
                       AND "takenDown" = FALSE
                       AND "uploadComplete" = TRUE
+                      AND "form_staging_id" IS NULL
+                      AND NOT EXISTS (
+                          SELECT 1
+                          FROM "upload_tokens" AS token
+                          WHERE token."dropId" = "drops"."id"
+                            AND token."formId" IS NOT NULL
+                      )
                       AND ("restrictToRecipients" = FALSE OR ${recipientId !== null})
                       AND ("expiresAt" IS NULL OR "expiresAt" > NOW())
                       AND ("maxDownloads" IS NULL OR "downloads" < "maxDownloads")
@@ -1602,6 +1657,11 @@ export class DropService {
             where: {
                 ...ownerWhere(scope),
                 deletedAt: null,
+                // Form attachments are managed from their response, not as
+                // standalone shares. Hide both staging and submitted drops.
+                formSubmission: null,
+                formStagingId: null,
+                uploadTokens: { none: { formId: { not: null } } },
             },
             include: {
                 files: {
@@ -1620,7 +1680,13 @@ export class DropService {
         });
 
         const total = await prisma.drop.count({
-            where: { ...ownerWhere(scope), deletedAt: null },
+            where: {
+                ...ownerWhere(scope),
+                deletedAt: null,
+                formSubmission: null,
+                formStagingId: null,
+                uploadTokens: { none: { formId: { not: null } } },
+            },
         });
 
         return {

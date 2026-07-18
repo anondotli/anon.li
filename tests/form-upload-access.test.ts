@@ -4,6 +4,7 @@ const {
     getValidUploadTokenForRequest,
     getFormLimitsAsync,
     getEffectiveTiers,
+    getOrgLimitContext,
     formFindUnique,
     dropFindUnique,
     dropFileFindMany,
@@ -11,6 +12,7 @@ const {
     getValidUploadTokenForRequest: vi.fn(),
     getFormLimitsAsync: vi.fn(),
     getEffectiveTiers: vi.fn(),
+    getOrgLimitContext: vi.fn(),
     formFindUnique: vi.fn(),
     dropFindUnique: vi.fn(),
     dropFileFindMany: vi.fn(),
@@ -30,10 +32,15 @@ vi.mock("@/lib/prisma", () => ({
 
 vi.mock("@/lib/limits", () => ({
     getFormLimitsAsync,
+    getEffectiveTier: vi.fn(() => "pro"),
 }))
 
 vi.mock("@/lib/entitlements", () => ({
     getEffectiveTiers,
+}))
+
+vi.mock("@/lib/data/auth", () => ({
+    getOrgLimitContext,
 }))
 
 describe("form upload token access", () => {
@@ -49,6 +56,15 @@ describe("form upload token access", () => {
             apiRequests: 500,
         })
         getEffectiveTiers.mockResolvedValue({ form: "plus" })
+        getOrgLimitContext.mockResolvedValue({
+            subscriptions: [{
+                status: "active",
+                product: "business",
+                tier: "pro",
+                currentPeriodEnd: new Date(Date.now() + 60_000),
+            }],
+            referralPlusUntil: null,
+        })
     })
 
     it("resolves a form-bound upload token to the form owner", async () => {
@@ -61,16 +77,21 @@ describe("form upload token access", () => {
         formFindUnique.mockResolvedValue({
             id: "form-1",
             userId: "owner-1",
+            organizationId: null,
             allowFileUploads: true,
             active: true,
             disabledByUser: false,
             deletedAt: null,
             takenDown: false,
             closesAt: null,
+            user: { banned: false, banFileUpload: false },
+            organization: null,
         })
         dropFindUnique.mockResolvedValue({
             id: "drop-1",
             userId: "owner-1",
+            organizationId: null,
+            formStagingId: "form-1",
             deletedAt: null,
             takenDown: false,
         })
@@ -79,6 +100,7 @@ describe("form upload token access", () => {
         await expect(resolveTokenUploadAccess(new Request("http://localhost"), "drop-1")).resolves.toEqual({
             mode: "form",
             effectiveUserId: "owner-1",
+            organizationId: null,
             formId: "form-1",
         })
     })
@@ -93,22 +115,71 @@ describe("form upload token access", () => {
         formFindUnique.mockResolvedValue({
             id: "form-1",
             userId: "owner-1",
+            organizationId: null,
             allowFileUploads: true,
             active: true,
             disabledByUser: false,
             deletedAt: null,
             takenDown: false,
             closesAt: null,
+            user: { banned: false, banFileUpload: false },
+            organization: null,
         })
         dropFindUnique.mockResolvedValue({
             id: "drop-1",
             userId: "owner-2",
+            organizationId: null,
+            formStagingId: "form-1",
             deletedAt: null,
             takenDown: false,
         })
 
         const { resolveTokenUploadAccess } = await import("@/lib/services/form-upload")
         await expect(resolveTokenUploadAccess(new Request("http://localhost"), "drop-1")).resolves.toBeNull()
+    })
+
+    it("accepts a team-owned staging drop even when a different member is billed", async () => {
+        getValidUploadTokenForRequest.mockResolvedValue({
+            id: "token-1",
+            dropId: "drop-1",
+            formId: "form-1",
+            expiresAt: new Date(Date.now() + 60_000),
+        })
+        formFindUnique.mockResolvedValue({
+            id: "form-1",
+            userId: "former-creator",
+            organizationId: "org-1",
+            allowFileUploads: true,
+            active: true,
+            disabledByUser: false,
+            deletedAt: null,
+            takenDown: false,
+            closesAt: null,
+            user: null,
+            organization: { suspendedAt: null },
+        })
+        dropFindUnique.mockResolvedValue({
+            id: "drop-1",
+            userId: "active-member",
+            organizationId: "org-1",
+            formStagingId: "form-1",
+            deletedAt: null,
+            takenDown: false,
+        })
+
+        const { resolveTokenUploadAccess } = await import("@/lib/services/form-upload")
+        await expect(resolveTokenUploadAccess(new Request("http://localhost"), "drop-1")).resolves.toEqual({
+            mode: "form",
+            effectiveUserId: "active-member",
+            organizationId: "org-1",
+            formId: "form-1",
+        })
+    })
+
+    it("never lets a form override raise the current plan file cap", async () => {
+        const { effectiveFormFileCap } = await import("@/lib/services/form-upload")
+        expect(effectiveFormFileCap({ maxFileSizeOverride: BigInt(5_000) }, 1_000)).toBe(1_000)
+        expect(effectiveFormFileCap({ maxFileSizeOverride: BigInt(500) }, 1_000)).toBe(500)
     })
 
     it("rejects upload-token manifests above a file question max size", async () => {

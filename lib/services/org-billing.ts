@@ -26,6 +26,10 @@ export async function handleOrgSubscriptionLoss(organizationId: string, dropGrac
         where: { organizationId, expiresAt: null, deletedAt: null },
         data: { expiresAt: dropGraceExpiry },
     })
+    await prisma.organization.updateMany({
+        where: { id: organizationId, formRetentionGraceUntil: null },
+        data: { formRetentionGraceUntil: dropGraceExpiry },
+    })
 
     const emails = await getOrgAdminEmails(organizationId)
     if (emails.length > 0) {

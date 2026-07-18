@@ -26,7 +26,7 @@ import { deleteSubmissionAction } from "@/actions/form"
 import { AnswerBlock } from "./answer-display"
 import type { DecodedState } from "./use-responses"
 import type { FormFieldMeta, SubmissionMeta } from "./shared"
-import { formatBytes } from "./shared"
+import { formatBytes, historicalAnswerEntries } from "./shared"
 
 export function SubmissionDetail({
     fields,
@@ -53,6 +53,8 @@ export function SubmissionDetail({
 }) {
     const [showDeleteDialog, setShowDeleteDialog] = useState(false)
     const [isDeleting, setIsDeleting] = useState(false)
+    const historicalAnswers =
+        decoded?.status === "ready" ? historicalAnswerEntries(fields, decoded.answers) : []
 
     // Arrow keys move between responses while the panel is open.
     useEffect(() => {
@@ -159,6 +161,19 @@ export function SubmissionDetail({
                                             ) : (
                                                 <AnswerBlock field={field} value={decoded.answers[field.id]} />
                                             )}
+                                        </dd>
+                                    </div>
+                                ))}
+                                {historicalAnswers.map(([id, value]) => (
+                                    <div key={id} className="space-y-1.5">
+                                        <dt className="text-[11px] uppercase tracking-wider text-muted-foreground">
+                                            Removed question · {id}
+                                        </dt>
+                                        <dd>
+                                            <AnswerBlock
+                                                field={{ id, label: id, type: "long_text" }}
+                                                value={value}
+                                            />
                                         </dd>
                                     </div>
                                 ))}

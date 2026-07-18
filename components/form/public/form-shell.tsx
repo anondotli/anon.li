@@ -29,7 +29,7 @@ export function FormShell({ children, showBranding, showFooter = true, className
                 </Link>
             ) : null}
 
-            <main className="flex flex-1 flex-col px-4 sm:px-6">{children}</main>
+            <main id="main-content" className="flex flex-1 flex-col px-4 sm:px-6">{children}</main>
 
             {showBranding && showFooter ? (
                 <footer className="space-y-1.5 px-6 pb-6 pt-3 text-center">

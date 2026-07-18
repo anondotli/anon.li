@@ -11,6 +11,8 @@ import { getClientIp } from "@/lib/rate-limit"
 import { validateTurnstileToken } from "@/lib/turnstile"
 import { notifyFormSubmission } from "@/lib/services/form-notifications"
 import { ForbiddenError, NotFoundError, ValidationError, UpgradeRequiredError } from "@/lib/api-error-utils"
+import { after } from "next/server"
+import { rateLimit } from "@/lib/rate-limit"
 
 interface RouteParams {
     params: Promise<{ id: string }>
@@ -19,20 +21,23 @@ interface RouteParams {
 export const POST = withPolicy<RouteParams>(
     {
         auth: "optional_api_key_or_session",
-        rateLimit: "formSubmit",
+        rateLimit: "formSubmitAuth",
         rateLimitIdentifier: async (ctx) => ctx.userId ?? await getClientIp(),
     },
     async (ctx, routeContext) => {
         const { id } = await routeContext.params
+        const limited = await rateLimit("formSubmit", await getClientIp())
+        if (limited) return limited
         const body = await ctx.request.json().catch(() => null)
         const parsed = submitFormSchema.safeParse(body)
         if (!parsed.success) {
             return apiError("Validation failed", ErrorCodes.VALIDATION_ERROR, ctx.requestId, 400, zodErrorToDetails(parsed.error))
         }
 
-        // Turnstile only applies to anonymous submissions from the web form.
-        // Authenticated API callers are exempt so CLI/extension flows keep working.
-        if (!ctx.userId && !parsed.data.attachedDropId) {
+        // A login belongs to the respondent, not the Form owner, so it must not
+        // bypass bot protection on a public target. Attachment submissions reuse
+        // the one-time upload token issued after an earlier Turnstile check.
+        if (!parsed.data.attachedDropId) {
             if (!parsed.data.turnstileToken) {
                 return apiError("Verification required", ErrorCodes.VALIDATION_ERROR, ctx.requestId, 400)
             }
@@ -48,8 +53,9 @@ export const POST = withPolicy<RouteParams>(
                 submitterUserId: ctx.userId ?? null,
                 submitterIp: ip,
             })
-            // Fire-and-forget — failure to notify must not fail the submission.
-            notifyFormSubmission(id, submission.id).catch(() => {})
+            // Keep the serverless invocation alive for delivery while preserving
+            // the successful submission response if email itself fails.
+            after(() => notifyFormSubmission(id, submission.id))
             return apiSuccess({
                 id: submission.id,
                 created_at: submission.createdAt.toISOString(),

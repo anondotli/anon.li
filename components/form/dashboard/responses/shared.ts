@@ -1,5 +1,6 @@
 import type { FormFieldType, AddressValue } from "@/lib/form-schema"
 import { formatAddress, isBlankObject } from "@/lib/form-schema"
+import { z } from "zod"
 
 // Canonical byte formatter — single source of truth in lib/format.
 export { formatBytes } from "@/lib/format"
@@ -71,8 +72,102 @@ export interface DecryptedSubmission {
     attachments: DecryptedAttachments | null
 }
 
+const AnswerValueSchema = z.union([
+    z.string().max(50_000),
+    z.number().finite(),
+    z.boolean(),
+    z.null(),
+    z.array(z.string().max(50_000)).max(100),
+    z
+        .object({
+            line1: z.string().max(200).optional(),
+            line2: z.string().max(200).optional(),
+            city: z.string().max(120).optional(),
+            state: z.string().max(120).optional(),
+            postalCode: z.string().max(40).optional(),
+            country: z.string().max(120).optional(),
+        })
+        .strict(),
+])
+
+const AnswersSchema = z
+    .record(z.string().min(1).max(64).regex(/^[a-zA-Z0-9_-]+$/), AnswerValueSchema)
+    .refine((answers) => Object.keys(answers).length <= 50, "Too many answers")
+
+const AttachmentsSchema = z
+    .object({
+        dropId: z.string().min(1).max(128),
+        key: z.string().min(1).max(1_024),
+        files: z
+            .array(
+                z
+                    .object({
+                        fieldId: z.string().min(1).max(64),
+                        fieldLabel: z.string().max(300).optional(),
+                        fileId: z.string().min(1).max(64),
+                        name: z.string().min(1).max(1_024),
+                        size: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+                        mimeType: z.string().min(1).max(200),
+                    })
+                    .strict(),
+            )
+            .max(100),
+    })
+    .strict()
+
+const DecryptedPayloadSchema = z.object({
+    // Keep unversioned payloads readable for backwards compatibility while
+    // rejecting explicit versions this client does not understand.
+    version: z.literal(1).optional(),
+    answers: AnswersSchema.optional().default({}),
+    attachments: AttachmentsSchema.nullable().optional().default(null),
+})
+
+/**
+ * Parse untrusted respondent-controlled plaintext after cryptographic
+ * decryption. Encryption proves the payload was addressed to this form, not
+ * that its shape is safe for dashboard components to consume.
+ */
+export function parseDecryptedSubmissionPayload(plaintext: string): {
+    answers: Record<string, unknown>
+    attachments: DecryptedAttachments | null
+} {
+    let value: unknown
+    try {
+        value = JSON.parse(plaintext)
+    } catch {
+        throw new Error("Invalid submission payload")
+    }
+
+    const result = DecryptedPayloadSchema.safeParse(value)
+    if (!result.success) throw new Error("Invalid submission payload")
+    return { answers: result.data.answers, attachments: result.data.attachments }
+}
+
 export function fieldLabelMap(fields: FormFieldMeta[]): Record<string, string> {
     return Object.fromEntries(fields.map((f) => [f.id, f.label]))
+}
+
+/** Current field ids first, followed by removed/historical ids in encounter order. */
+export function orderedAnswerIds(fields: FormFieldMeta[], answerSets: Record<string, unknown>[]): string[] {
+    const ids = fields.map((field) => field.id)
+    const seen = new Set(ids)
+    for (const answers of answerSets) {
+        for (const id of Object.keys(answers)) {
+            if (seen.has(id)) continue
+            seen.add(id)
+            ids.push(id)
+        }
+    }
+    return ids
+}
+
+export function historicalAnswerEntries(
+    fields: FormFieldMeta[],
+    answers: Record<string, unknown>,
+): Array<[id: string, value: unknown]> {
+    const currentIds = new Set(fields.map((field) => field.id))
+    return Object.entries(answers).filter(([id]) => !currentIds.has(id))
 }
 
 export function isChoiceField(type: FormFieldType): boolean {
@@ -112,10 +207,7 @@ export function buildSearchHaystack(answers: Record<string, unknown>): string {
 
 export function buildCsv(fields: FormFieldMeta[], rows: DecryptedSubmission[]): string {
     const labels = fieldLabelMap(fields)
-    const orderedIds =
-        fields.length > 0
-            ? fields.map((f) => f.id)
-            : Array.from(new Set(rows.flatMap((r) => Object.keys(r.answers))))
+    const orderedIds = orderedAnswerIds(fields, rows.map((row) => row.answers))
     const header = ["submission_id", "created_at", ...orderedIds.map((id) => labels[id] ?? id), "attachments"]
     const lines = [header.map(csvEscape).join(",")]
     for (const row of rows) {
@@ -137,8 +229,13 @@ function serializeAnswerForCsv(value: unknown): string {
 }
 
 function csvEscape(cell: string): string {
-    if (/[",\r\n]/.test(cell)) return `"${cell.replace(/"/g, '""')}"`
-    return cell
+    // Spreadsheet applications can execute cells beginning with these
+    // characters as formulas. Prefixing an apostrophe forces text semantics;
+    // also catch formulas hidden behind leading whitespace/control characters.
+    const formulaLike = /^[\u0000-\u0020\uFEFF]*[=+\-@]/u.test(cell) || /^[\t\r\n]/.test(cell)
+    const safeCell = formulaLike ? `'${cell}` : cell
+    if (/[",\r\n]/.test(safeCell)) return `"${safeCell.replace(/"/g, '""')}"`
+    return safeCell
 }
 
 export function triggerDownload(content: string, filename: string, mimeType: string) {

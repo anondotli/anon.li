@@ -109,7 +109,9 @@ export function FormBuilderPage({
     const [rawJson, setRawJson] = useState(() => serializeSchema(initialSchema))
     const [jsonError, setJsonError] = useState<string | null>(null)
     const [editorMode, setEditorMode] = useState<EditorMode>("build")
-    const [hideBranding, setHideBranding] = useState(initialForm?.hideBranding ?? false)
+    const [hideBranding, setHideBranding] = useState(
+        Boolean(initialForm?.hideBranding && limits.removeBranding),
+    )
     const [maxSubmissions, setMaxSubmissions] = useState(
         initialForm?.maxSubmissions != null ? String(initialForm.maxSubmissions) : "",
     )
