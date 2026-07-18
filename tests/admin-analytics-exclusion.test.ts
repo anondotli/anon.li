@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi, type Mock } from "vitest"
+import { BUNDLE_PLANS } from "@/config/plans"
 import { prisma } from "@/lib/prisma"
 
 // getAdminDashboardStats fans out into ~29 count calls. Mock the full prisma
@@ -8,11 +9,13 @@ vi.mock("@/lib/prisma", () => {
     const count = () => vi.fn().mockResolvedValue(0)
     return {
         prisma: {
-            user: { count: count(), aggregate: vi.fn().mockResolvedValue({ _sum: { storageUsed: BigInt(0) } }) },
+            $queryRaw: vi.fn().mockResolvedValue([]),
+            user: { count: count() },
             drop: { count: count() },
+            dropFile: { aggregate: vi.fn().mockResolvedValue({ _sum: { size: BigInt(4096) } }) },
             alias: { count: count() },
             form: { count: count() },
-            subscription: { count: count() },
+            subscription: { count: count(), findMany: vi.fn().mockResolvedValue([]) },
             abuseReport: { count: count() },
             deletionRequest: { count: count() },
             orphanedFile: { count: count() },
@@ -69,5 +72,44 @@ describe("getAdminDashboardStats admin exclusion", () => {
                 expect(where.isAdmin).toBe(false)
             }
         }
+    })
+
+    it("derives storage from files on live user-owned drops", async () => {
+        const { getAdminDashboardStats } = await import("@/lib/data/admin")
+        const result = await getAdminDashboardStats()
+
+        const dropFile = (prisma as unknown as {
+            dropFile: { aggregate: Mock }
+        }).dropFile
+
+        expect(dropFile.aggregate).toHaveBeenCalledWith({
+            where: {
+                drop: {
+                    deletedAt: null,
+                    userId: { not: null },
+                },
+            },
+            _sum: { size: true },
+        })
+        expect(result.totalStorage).toBe(BigInt(4096))
+    })
+
+    it("excludes manual grants from MRR without hiding active entitlements", async () => {
+        const subscription = (prisma as unknown as {
+            subscription: { findMany: Mock }
+        }).subscription
+        subscription.findMany.mockResolvedValue([
+            { provider: "manual", product: "bundle", tier: "plus", seats: 1 },
+            { provider: "stripe", product: "bundle", tier: "plus", seats: 1 },
+        ])
+
+        const { getAdminRevenueSeries } = await import("@/lib/data/admin")
+        const result = await getAdminRevenueSeries(30)
+
+        expect(result.currentMrr).toBe(BUNDLE_PLANS.plus.price.monthly)
+        expect(result.mrrByProduct).toEqual([
+            { product: "bundle", mrr: BUNDLE_PLANS.plus.price.monthly },
+        ])
+        expect(result.activeSubscriptions).toBe(2)
     })
 })
