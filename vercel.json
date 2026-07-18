@@ -10,7 +10,7 @@
     },
     {
       "path": "/api/cron/form-staging",
-      "schedule": "15 * * * *"
+      "schedule": "15 15 * * *"
     },
     {
       "path": "/api/cron/heavy-user-upsell",
