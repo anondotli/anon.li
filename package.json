@@ -17,7 +17,7 @@
     "check": "bun run lint && bun run typecheck && bun run test && bun run build",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "typecheck": "next typegen && tsc --project tsconfig.typecheck.json --noEmit",
+    "typecheck": "bunx --no-install prisma generate && next typegen && tsc --project tsconfig.typecheck.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
     "prisma:generate": "bunx --no-install prisma generate",
