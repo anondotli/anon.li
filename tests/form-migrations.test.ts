@@ -23,8 +23,11 @@ describe("Form production migrations", () => {
         const sql = await migration("20260715000100_form_retention_downgrade_grace")
 
         expect(sql).toContain('UPDATE "organizations" AS organization')
+        expect(sql).toContain('ADD COLUMN IF NOT EXISTS "form_retention_grace_until"')
         expect(sql).toContain("INTERVAL '3 days'")
         expect(sql).toContain("subscription.\"status\" IN ('active', 'trialing')")
+        expect(sql).toContain('subscription."current_period_end"')
+        expect(sql).not.toContain('subscription."currentPeriodEnd"')
         expect(sql).toContain('UPDATE "users" AS owner')
         expect(sql).toContain('SET "downgraded_at" = CURRENT_TIMESTAMP')
     })

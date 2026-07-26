@@ -1,7 +1,7 @@
 -- Prevent a plan lapse from immediately purging Form responses under the
 -- shorter fallback retention window before administrators can react.
 ALTER TABLE "organizations"
-    ADD COLUMN "form_retention_grace_until" TIMESTAMP(3);
+    ADD COLUMN IF NOT EXISTS "form_retention_grace_until" TIMESTAMP(3);
 
 -- Existing lapsed workspaces may still contain responses created under paid
 -- retention. Give administrators the same warning window as a newly observed
@@ -15,8 +15,8 @@ WHERE NOT EXISTS (
       AND subscription."product" IN ('form', 'bundle', 'business')
       AND subscription."status" IN ('active', 'trialing')
       AND (
-          subscription."currentPeriodEnd" IS NULL
-          OR subscription."currentPeriodEnd" + INTERVAL '1 day' > CURRENT_TIMESTAMP
+          subscription."current_period_end" IS NULL
+          OR subscription."current_period_end" + INTERVAL '1 day' > CURRENT_TIMESTAMP
       )
 );
 
@@ -48,7 +48,7 @@ WHERE owner."downgraded_at" IS NULL
         AND current_subscription."product" IN ('form', 'bundle', 'business')
         AND current_subscription."status" IN ('active', 'trialing')
         AND (
-            current_subscription."currentPeriodEnd" IS NULL
-            OR current_subscription."currentPeriodEnd" + INTERVAL '1 day' > CURRENT_TIMESTAMP
+            current_subscription."current_period_end" IS NULL
+            OR current_subscription."current_period_end" + INTERVAL '1 day' > CURRENT_TIMESTAMP
         )
   );
