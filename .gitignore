@@ -59,3 +59,17 @@ pnpm-lock.yaml
 
 # stray AI assistant scratch/system-prompt files
 CLAUDE-FABLE*.md
+
+# internal / competitive research (never publish)
+competitor-profiles/
+docs/competitive/
+
+# test coverage
+coverage/
+*.lcov
+
+# AI tooling & editor state
+.agents/
+.claude/
+.idea/
+.vscode/

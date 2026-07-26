@@ -1,0 +1,39 @@
+name: Feature request
+description: Suggest an idea for anon.li.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Describe the need or pain point behind the idea, not just the idea itself.
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: How you'd expect it to work. Sketches or examples welcome.
+    validations:
+      required: false
+  - type: dropdown
+    id: product
+    attributes:
+      label: Product area
+      options:
+        - Alias (email forwarding)
+        - Drop (E2EE file sharing)
+        - Form (encrypted forms)
+        - Auth / billing / account
+        - API (REST / MCP)
+        - Website / docs
+        - Other
+    validations:
+      required: true
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy considerations
+      options:
+        - label: This proposal preserves anon.li's zero-knowledge guarantees (the server never learns keys or plaintext).
+          required: false

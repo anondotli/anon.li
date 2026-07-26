@@ -1,0 +1,52 @@
+name: Bug report
+description: Report something that isn't working as expected.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug.
+
+        **⚠️ Found a security vulnerability? Do not open a public issue.**
+        Please report it privately to security@anon.li per our [security policy](https://github.com/anondotli/anon.li/blob/main/SECURITY.md).
+  - type: dropdown
+    id: product
+    attributes:
+      label: Product area
+      options:
+        - Alias (email forwarding)
+        - Drop (E2EE file sharing)
+        - Form (encrypted forms)
+        - Auth / billing / account
+        - API (REST / MCP)
+        - Website / docs
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe the bug, the expected behavior, and exact steps to reproduce it.
+      placeholder: |
+        1. Go to …
+        2. Click …
+        3. See error …
+
+        Expected: …
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Browser/OS if relevant, or details of your self-hosted setup (Node/Bun version, database, hosting).
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs or screenshots
+      description: Paste logs or drag images here. Redact any personal data or secrets first.
+    validations:
+      required: false

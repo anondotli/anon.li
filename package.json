@@ -1,9 +1,18 @@
 {
   "name": "anon.li",
   "version": "0.1.0",
+  "description": "Privacy toolkit: anonymous email forwarding, zero-knowledge E2EE file sharing, and encrypted forms.",
   "private": true,
   "license": "AGPL-3.0-only",
   "type": "module",
+  "homepage": "https://anon.li",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/anondotli/anon.li.git"
+  },
+  "bugs": {
+    "url": "https://github.com/anondotli/anon.li/issues"
+  },
   "packageManager": "bun@1.3.5",
   "engines": {
     "node": "^24.0.0",
