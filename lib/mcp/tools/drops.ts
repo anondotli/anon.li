@@ -77,7 +77,7 @@ export function registerDropTools(server: McpServer, session: McpSession) {
         "delete_drop",
         {
             title: "Delete drop",
-            description: "Permanently delete a drop and all its files. Reclaims the storage quota. This cannot be undone.",
+            description: "Permanently delete a drop and all its files. Reclaims the storage quota. This cannot be undone. This tool is flagged destructive (annotations.destructiveHint): MCP clients request user approval before executing it, and fail the call with 'No approval received' — without contacting this server — if approval is denied or unavailable (e.g. headless sessions). Nothing is deleted in that case; approve the client's permission prompt, or allowlist this tool in the client's permissions for unattended use.",
             annotations: { destructiveHint: true, openWorldHint: false },
             inputSchema: {
                 id: z.string().min(1),

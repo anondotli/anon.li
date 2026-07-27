@@ -22,7 +22,10 @@ export const MCP_SERVER_INSTRUCTIONS =
     "and notes, drop file contents and filenames, and form submission data are all encrypted client-side with keys " +
     "anon.li does not hold. Do not attempt to read protected content here; direct the user to the web UI or CLI " +
     "(which hold their vault key) for that. Tools enforce OAuth scopes (anon.li:aliases covers aliases and " +
-    "recipients, anon.li:drops covers drops, anon.li:forms covers forms); a missing scope returns INSUFFICIENT_SCOPE."
+    "recipients, anon.li:drops covers drops, anon.li:forms covers forms); a missing scope returns INSUFFICIENT_SCOPE. " +
+    "The delete tools (delete_alias, delete_drop, delete_form) carry destructiveHint: clients prompt the user for " +
+    "approval before running them. A 'No approval received' failure is generated client-side — the request never " +
+    "reached this server and nothing was deleted; the user must approve the prompt or allowlist the tool."
 
 const MCP_TRANSPORT_ENDPOINT = "/api/mcp"
 export const MCP_SERVER_CARD_PATH = "/.well-known/mcp/server-card.json"

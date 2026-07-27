@@ -1,6 +1,15 @@
 import { z } from "zod"
 import { BASE64URL_REGEX } from "@/lib/vault/validation"
 
+/**
+ * Canonical local-part rule for custom aliases: lowercase letters and digits,
+ * with single dots allowed only as separators between segments (no leading,
+ * trailing, or consecutive dots). Source of truth shared by the server action
+ * schema below, AliasService (lib/services/alias.ts), and the create_alias
+ * MCP tool schema (lib/mcp/tools/aliases.ts).
+ */
+export const LOCAL_PART_PATTERN = /^[a-z0-9]+(\.[a-z0-9]+)*$/
+
 export const encryptedAliasMetadataSchema = z.string()
   .max(2048)
   .refine((value) => {
@@ -38,7 +47,7 @@ export const updateAliasEncryptedMetadataSchema = z.object({
 })
 
 export const createAliasSchema = z.object({
-  localPart: z.string().max(64).regex(/^[a-z0-9]+(\.[a-z0-9]+)*$/, "Invalid local part format").optional().nullable(),
+  localPart: z.string().max(64).regex(LOCAL_PART_PATTERN, "Invalid local part format").optional().nullable(),
   domain: z.string().min(1, "Domain is required").max(253),
   format: z.enum(["RANDOM", "CUSTOM"]).default("RANDOM"),
   recipientId: z.string().optional(),

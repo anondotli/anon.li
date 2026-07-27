@@ -17,6 +17,7 @@ import { getRecipientById, getDefaultRecipient, getRecipientByScopeAndEmail } fr
 import { prisma } from "@/lib/prisma"
 import type { Alias, Recipient } from "@prisma/client"
 import { ValidationError, NotFoundError, ForbiddenError, ConflictError, UpgradeRequiredError } from "@/lib/api-error-utils"
+import { LOCAL_PART_PATTERN } from "@/lib/validations/alias"
 
 const logger = createLogger("AliasService");
 
@@ -273,7 +274,7 @@ export class AliasService {
             // Validate Local Part Format
             // Must be lowercase alphanumeric with optional dots (not consecutive, not at start/end)
             // RFC 5321 compliant: no consecutive dots, no leading/trailing dots
-            if (!localPart || !/^[a-z0-9]+(\.[a-z0-9]+)*$/.test(localPart)) {
+            if (!localPart || !LOCAL_PART_PATTERN.test(localPart)) {
                 throw new ValidationError("Username can only contain lowercase letters, numbers, and single dots (not at start/end)")
             }
 

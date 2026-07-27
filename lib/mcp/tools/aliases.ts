@@ -4,6 +4,7 @@ import { AliasService } from "@/lib/services/alias"
 import { resolveAlias, toAddyFormat } from "@/app/api/v1/alias/_utils"
 import { invokeTool, toolResult } from "@/lib/mcp/invoke"
 import { personalScope } from "@/lib/ownership"
+import { LOCAL_PART_PATTERN } from "@/lib/validations/alias"
 import type { McpSession } from "@/lib/mcp/types"
 
 const aliasShape = {
@@ -65,7 +66,10 @@ export function registerAliasTools(server: McpServer, session: McpSession) {
             inputSchema: {
                 domain: z.string().max(253).default("anon.li").describe("Domain to use (default: anon.li)"),
                 format: z.enum(["random", "custom"]).default("random"),
-                local_part: z.string().max(64).optional().describe("Required when format is 'custom'"),
+                local_part: z.string().max(64)
+                    .regex(LOCAL_PART_PATTERN, "lowercase letters, numbers, and single dots only (not at start/end)")
+                    .optional()
+                    .describe("Required when format is 'custom'. Lowercase letters and numbers, with single dots as separators (e.g. 'jane.doe'); no leading, trailing, or consecutive dots."),
                 recipient_ids: z.array(z.string().max(50)).max(10).optional()
                     .describe("Recipient IDs to forward to. If omitted, uses the default recipient."),
                 recipient_email: z.string().email().max(254).optional()
@@ -129,7 +133,7 @@ export function registerAliasTools(server: McpServer, session: McpSession) {
         "delete_alias",
         {
             title: "Delete alias",
-            description: "Permanently delete an alias. This cannot be undone — future mail to the address is rejected. Accepts either the alias ID or the full email address.",
+            description: "Permanently delete an alias. This cannot be undone — future mail to the address is rejected. Accepts either the alias ID or the full email address. This tool is flagged destructive (annotations.destructiveHint): MCP clients request user approval before executing it, and fail the call with 'No approval received' — without contacting this server — if approval is denied or unavailable (e.g. headless sessions). Nothing is deleted in that case; approve the client's permission prompt, or allowlist this tool in the client's permissions for unattended use.",
             annotations: { destructiveHint: true, openWorldHint: false },
             inputSchema: {
                 id: z.string().min(1).describe("Alias ID or full email address"),
