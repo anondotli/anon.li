@@ -290,7 +290,10 @@ function aliasFeatureStrings(tier: "free" | PaidTier): { features: string[]; mis
         ...(e.domains > 0 ? [`${e.domains} custom domain${(e.domains as number) !== 1 ? "s" : ""}`] : []),
         "PGP encryption",
         "Reply to emails",
-        `${e.apiRequests.toLocaleString()} API requests/month`,
+        // "en-US" is pinned: these strings are SSR'd, so locale-dependent
+        // separators ("1.000" in de-DE) would mismatch the client render and
+        // break React hydration for non-English visitors.
+        `${e.apiRequests.toLocaleString("en-US")} API requests/month`,
     ];
     const missingFeatures: string[] = [];
     if (tier === "free") {
@@ -323,7 +326,8 @@ function dropFeatureStrings(tier: "free" | PaidTier): { features: string[]; miss
 }
 
 function formatCount(n: number, noun: string): string {
-    return n === -1 ? `Unlimited ${noun}` : `${n.toLocaleString()} ${noun}`;
+    // Locale pinned — see the SSR/hydration note in aliasFeatureStrings.
+    return n === -1 ? `Unlimited ${noun}` : `${n.toLocaleString("en-US")} ${noun}`;
 }
 
 function formFeatureStrings(tier: "free" | PaidTier): { features: string[]; missingFeatures: string[] } {
@@ -339,9 +343,9 @@ function formFeatureStrings(tier: "free" | PaidTier): { features: string[]; miss
     ];
     const missingFeatures: string[] = [];
     if (tier === "free") {
-        missingFeatures.push("Password-protected forms", "Remove branding", `${PLAN_ENTITLEMENTS.form.plus.submissionsPerMonth.toLocaleString()} submissions/month`);
+        missingFeatures.push("Password-protected forms", "Remove branding", `${PLAN_ENTITLEMENTS.form.plus.submissionsPerMonth.toLocaleString("en-US")} submissions/month`);
     } else if (tier === "plus") {
-        missingFeatures.push("Remove branding", `${PLAN_ENTITLEMENTS.form.pro.submissionsPerMonth.toLocaleString()} submissions/month`);
+        missingFeatures.push("Remove branding", `${PLAN_ENTITLEMENTS.form.pro.submissionsPerMonth.toLocaleString("en-US")} submissions/month`);
     }
     return { features, missingFeatures };
 }

@@ -32,10 +32,12 @@ export function BlogHeader({
                     <div className="flex items-center gap-2">
                         <Calendar className="h-4 w-4" />
                         <time dateTime={publishedAt}>
+                            {/* timeZone pinned to UTC — publishedAt is date-only; see blog-card. */}
                             {new Date(publishedAt).toLocaleDateString("en-US", {
                                 month: "long",
                                 day: "numeric",
                                 year: "numeric",
+                                timeZone: "UTC",
                             })}
                         </time>
                     </div>

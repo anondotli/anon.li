@@ -24,7 +24,9 @@ export function Stat({ label, value, accent, size = "lg", boxed, className }: St
         accent && "text-emerald-600 dark:text-emerald-400",
     )
     const labelClass = "text-[11px] uppercase tracking-wider text-muted-foreground"
-    const display = typeof value === "number" ? value.toLocaleString() : value
+    // "en-US" pinned: values are SSR'd, so a locale-dependent separator
+    // ("1.000" in de-DE) would break React hydration for non-English visitors.
+    const display = typeof value === "number" ? value.toLocaleString("en-US") : value
 
     if (boxed) {
         return (

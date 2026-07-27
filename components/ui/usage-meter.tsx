@@ -35,7 +35,9 @@ export function UsageMeter({ label, used, limit, caption, upgradeHref, className
             <div className="flex items-center justify-between gap-3">
                 <span className="text-sm font-medium">{label}</span>
                 <span className="font-mono text-sm tabular-nums text-muted-foreground">
-                    {used.toLocaleString()} / {unlimited ? "∞" : limit.toLocaleString()}
+                    {/* "en-US" pinned — SSR'd numbers must not use locale-dependent
+                        separators or React hydration mismatches for non-English visitors. */}
+                    {used.toLocaleString("en-US")} / {unlimited ? "∞" : limit.toLocaleString("en-US")}
                 </span>
             </div>
             <Progress value={percent} indicatorClassName={indicatorClassName} />

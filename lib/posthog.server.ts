@@ -21,6 +21,16 @@ function getClient(): PostHog | null {
 }
 
 /**
+ * The shared PostHog client instance (null when NEXT_PUBLIC_POSTHOG_KEY is
+ * unset). Exposed for integrations that need the client directly, e.g.
+ * @posthog/mcp's instrument(server, posthog). Same lifecycle rules apply:
+ * never shutdown() it — flush via after() instead.
+ */
+export function getPostHogClient(): PostHog | null {
+    return getClient()
+}
+
+/**
  * Capture a server-side event. Best-effort; never throws into callers.
  * Properties are sanitized with the logger's redaction before sending.
  */

@@ -63,10 +63,15 @@ export function BlogCard({
                         <div className="flex items-center gap-1.5">
                             <Calendar className="h-3.5 w-3.5" />
                             <time dateTime={publishedAt}>
+                                {/* publishedAt is a date-only string parsed as UTC midnight;
+                                    pin timeZone so the calendar date renders identically on
+                                    the server and in every visitor timezone (otherwise SSR
+                                    hydration mismatches for visitors behind UTC). */}
                                 {new Date(publishedAt).toLocaleDateString("en-US", {
                                     month: "short",
                                     day: "numeric",
                                     year: "numeric",
+                                    timeZone: "UTC",
                                 })}
                             </time>
                         </div>

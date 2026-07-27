@@ -224,7 +224,9 @@ export function FormResponsesClient({
                                 <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                                     <StatusDot status={status} />
                                     <span aria-hidden>·</span>
-                                    <span>Created {new Date(form.createdAt).toLocaleDateString()}</span>
+                                    {/* Locale + timezone pinned: SSR'd text must render
+                                        identically on the client (hydration). */}
+                                    <span>Created {new Date(form.createdAt).toLocaleDateString("en-US", { timeZone: "UTC", month: "short", day: "numeric", year: "numeric" })}</span>
                                 </div>
                                 {form.description ? (
                                     <p className="max-w-2xl pt-1 text-sm font-light text-muted-foreground">
