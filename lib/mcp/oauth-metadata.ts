@@ -9,14 +9,26 @@ export const MCP_DEFAULT_SCOPE = MCP_OAUTH_SCOPES.join(" ")
 
 const MCP_OIDC_COMPATIBILITY_SCOPES = new Set(["openid", "profile", "email"])
 
+/** Functional tool-gating scopes (`offline_access` is a refresh-token hint, not a tool gate). */
+const MCP_FUNCTIONAL_SCOPES: readonly string[] = MCP_OAUTH_SCOPES.filter((scope) => scope !== "offline_access")
+
 type OAuthMetadata = object
 type OAuthMetadataRecord = Record<string, unknown>
 
 export function normalizeMcpRequestedScope(scope: string | null | undefined): string {
     const requestedScopes = (scope?.trim() ? scope : MCP_DEFAULT_SCOPE).split(/\s+/).filter(Boolean)
-    const oauthScopes = requestedScopes.filter((requestedScope) => !MCP_OIDC_COMPATIBILITY_SCOPES.has(requestedScope))
+    const usableScopes = requestedScopes.filter((requestedScope) => !MCP_OIDC_COMPATIBILITY_SCOPES.has(requestedScope))
 
-    return Array.from(new Set(oauthScopes)).join(" ")
+    // A client that requests only OIDC-compatibility scopes (openid/profile/email)
+    // leaves zero usable scopes after filtering. better-auth treats an empty scope
+    // as "no scopes requested" (not "use the default"), so the token would be
+    // issued with an empty scope string and every MCP tool would then fail with
+    // INSUFFICIENT_SCOPE. Fall back to the default set when no functional anon.li
+    // scope survives; deliberate narrowing (e.g. only anon.li:drops) is preserved.
+    const hasFunctionalScope = usableScopes.some((requestedScope) => MCP_FUNCTIONAL_SCOPES.includes(requestedScope))
+    const scopes = hasFunctionalScope ? usableScopes : [...MCP_OAUTH_SCOPES]
+
+    return Array.from(new Set(scopes)).join(" ")
 }
 
 export function normalizeMcpAuthorizationMetadata(metadata: OAuthMetadata | null): OAuthMetadataRecord | null {

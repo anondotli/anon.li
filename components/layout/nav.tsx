@@ -16,7 +16,6 @@ import {
 import { BookOpen, Code2, FileText, Shield, HelpCircle, Users, Check, Mail, FileUp, ClipboardList, ChevronDown, Terminal, Puzzle } from "lucide-react";
 import { siteConfig, getProductContext } from "@/config/site";
 import { productOptions, landingPages } from "@/config/navigation";
-import { cn } from "@/lib/utils";
 import { NavDropdown } from "@/components/ui/nav-dropdown";
 import dynamic from "next/dynamic";
 
@@ -83,39 +82,31 @@ export function SiteNav({ isLoggedIn }: { isLoggedIn?: boolean }) {
                             </NavigationMenuTrigger>
                             <NavigationMenuContent>
                                 <ul className="w-[280px] p-2">
-                                    {productOptions.map((option) => {
-                                        const Icon = option.icon;
-                                        const isActive = product === option.id;
-                                        return (
-                                            <li key={option.id}>
-                                                <NavigationMenuLink asChild>
-                                                    <Link
-                                                        href={option.href}
-                                                        className={cn(
-                                                            "flex items-center gap-3 select-none rounded-lg p-3 leading-none no-underline outline-none transition-colors",
-                                                            isActive
-                                                                ? "bg-primary/10 text-primary"
-                                                                : "hover:bg-accent hover:text-accent-foreground"
-                                                        )}
-                                                    >
-                                                        <div className={cn(
-                                                            "p-2 rounded-lg",
-                                                            isActive ? "bg-primary/20" : "bg-muted"
-                                                        )}>
-                                                            <Icon className="h-4 w-4" />
-                                                        </div>
-                                                        <div className="flex-1">
-                                                            <div className="text-sm font-medium">
-                                                                {option.id === "default" ? "anon.li" : `anon.li ${option.name}`}
+                                    {productOptions
+                                        .filter((option) => option.id !== product)
+                                        .map((option) => {
+                                            const Icon = option.icon;
+                                            return (
+                                                <li key={option.id}>
+                                                    <NavigationMenuLink asChild>
+                                                        <Link
+                                                            href={option.href}
+                                                            className="flex items-center gap-3 select-none rounded-lg p-3 leading-none no-underline outline-none transition-colors hover:bg-accent hover:text-accent-foreground"
+                                                        >
+                                                            <div className="p-2 rounded-lg bg-muted">
+                                                                <Icon className="h-4 w-4" />
                                                             </div>
-                                                            <p className="text-xs text-muted-foreground">{option.tagline}</p>
-                                                        </div>
-                                                        {isActive && <Check className="h-4 w-4 text-primary" />}
-                                                    </Link>
-                                                </NavigationMenuLink>
-                                            </li>
-                                        );
-                                    })}
+                                                            <div className="flex-1">
+                                                                <div className="text-sm font-medium">
+                                                                    {option.id === "default" ? "anon.li" : `anon.li ${option.name}`}
+                                                                </div>
+                                                                <p className="text-xs text-muted-foreground">{option.tagline}</p>
+                                                            </div>
+                                                        </Link>
+                                                    </NavigationMenuLink>
+                                                </li>
+                                            );
+                                        })}
                                 </ul>
                             </NavigationMenuContent>
                         </NavigationMenuItem>

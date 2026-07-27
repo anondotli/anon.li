@@ -45,6 +45,22 @@ describe("/api/auth MCP OAuth endpoints", () => {
         expect(delegatedUrl.searchParams.get("scope")).toBe("anon.li:aliases offline_access")
     })
 
+    it("falls back to the default scope set when only OIDC scopes are requested", async () => {
+        const { GET } = await import("@/app/api/auth/[...all]/route")
+        const response = await GET(new Request(
+            "https://anon.li/api/auth/mcp/authorize?client_id=client-1&scope=openid%20profile%20email",
+        ))
+        const body = await response.json() as { delegatedUrl: string }
+        const delegatedUrl = new URL(body.delegatedUrl)
+
+        expect(delegatedUrl.pathname).toBe("/api/auth/mcp/authorize")
+        // An empty scope would be persisted verbatim by better-auth, issuing a token
+        // that fails every tool with INSUFFICIENT_SCOPE — the default set is used instead.
+        expect(delegatedUrl.searchParams.get("scope")).toBe(
+            "anon.li:aliases anon.li:drops anon.li:forms offline_access",
+        )
+    })
+
     it("removes unverifiable id_token values from MCP token responses", async () => {
         nextAuthHandlers.POST.mockResolvedValueOnce(Response.json({
             access_token: "access-token",
@@ -148,5 +164,40 @@ describe("/.well-known/oauth-protected-resource", () => {
         expect(body.jwks_uri).toBeUndefined()
         expect(body.resource_signing_alg_values_supported).toBeUndefined()
         expect(body.bearer_methods_supported).toContain("header")
+    })
+})
+
+describe("normalizeMcpRequestedScope", () => {
+    const DEFAULT_SCOPE = "anon.li:aliases anon.li:drops anon.li:forms offline_access"
+
+    it("defaults to the full scope set when no scope is requested", async () => {
+        const { normalizeMcpRequestedScope } = await import("@/lib/mcp/oauth-metadata")
+        expect(normalizeMcpRequestedScope(null)).toBe(DEFAULT_SCOPE)
+        expect(normalizeMcpRequestedScope(undefined)).toBe(DEFAULT_SCOPE)
+        expect(normalizeMcpRequestedScope("   ")).toBe(DEFAULT_SCOPE)
+    })
+
+    it("strips OIDC-compatibility scopes while keeping functional ones", async () => {
+        const { normalizeMcpRequestedScope } = await import("@/lib/mcp/oauth-metadata")
+        expect(normalizeMcpRequestedScope("openid profile anon.li:aliases offline_access"))
+            .toBe("anon.li:aliases offline_access")
+    })
+
+    it("falls back to the default set when only OIDC scopes are requested", async () => {
+        const { normalizeMcpRequestedScope } = await import("@/lib/mcp/oauth-metadata")
+        expect(normalizeMcpRequestedScope("openid profile email")).toBe(DEFAULT_SCOPE)
+        // offline_access alone is not a functional gate either.
+        expect(normalizeMcpRequestedScope("openid offline_access")).toBe(DEFAULT_SCOPE)
+    })
+
+    it("preserves deliberate narrowing to a subset of functional scopes", async () => {
+        const { normalizeMcpRequestedScope } = await import("@/lib/mcp/oauth-metadata")
+        expect(normalizeMcpRequestedScope("openid anon.li:drops")).toBe("anon.li:drops")
+        expect(normalizeMcpRequestedScope("anon.li:aliases anon.li:forms")).toBe("anon.li:aliases anon.li:forms")
+    })
+
+    it("de-duplicates repeated scopes", async () => {
+        const { normalizeMcpRequestedScope } = await import("@/lib/mcp/oauth-metadata")
+        expect(normalizeMcpRequestedScope("anon.li:drops anon.li:drops anon.li:drops")).toBe("anon.li:drops")
     })
 })

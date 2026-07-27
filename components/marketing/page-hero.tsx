@@ -25,7 +25,7 @@ export function PageHero({ badge, title, subtitle, actions, children, background
                     {badge}
 
                     <div className="mx-auto w-full max-w-5xl space-y-6">
-                        <h1 className="font-serif text-4xl font-medium tracking-tight text-primary sm:text-5xl md:text-6xl lg:text-7xl">
+                        <h1 className="font-serif text-5xl font-medium tracking-tight text-primary md:text-6xl lg:text-7xl">
                             {title}
                         </h1>
                         {subtitle && (

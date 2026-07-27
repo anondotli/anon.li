@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { type ProductContext } from "@/config/site";
 import { productOptions } from "@/config/navigation";
-import { cn } from "@/lib/utils";
 import { Users, Shield, HelpCircle, Menu, Terminal, Puzzle, Code2 } from "lucide-react";
 import { Icons } from "@/components/shared/icons";
 import { Button } from "@/components/ui/button";
@@ -49,28 +48,24 @@ export function SiteMobileNav({ product, config, isLoggedIn }: SiteMobileNavProp
                     <div className="space-y-3">
                         <span className="text-sm font-medium text-muted-foreground uppercase tracking-wider block">Products</span>
                         <div className="grid grid-cols-3 gap-2">
-                            {productOptions.map((option) => {
-                                const Icon = option.icon;
-                                const isActive = product === option.id;
-                                return (
-                                    <Link
-                                        key={option.id}
-                                        href={option.href}
-                                        onClick={() => setIsOpen(false)}
-                                        className={cn(
-                                            "flex flex-col items-center gap-1.5 p-3 rounded-xl text-center transition-colors",
-                                            isActive
-                                                ? "bg-primary/10 text-primary"
-                                                : "hover:bg-accent"
-                                        )}
-                                    >
-                                        <Icon className="h-5 w-5" />
-                                        <span className="text-xs font-medium">
-                                            {option.id === "default" ? "Bundle" : option.name}
-                                        </span>
-                                    </Link>
-                                );
-                            })}
+                            {productOptions
+                                .filter((option) => option.id !== product)
+                                .map((option) => {
+                                    const Icon = option.icon;
+                                    return (
+                                        <Link
+                                            key={option.id}
+                                            href={option.href}
+                                            onClick={() => setIsOpen(false)}
+                                            className="flex flex-col items-center gap-1.5 p-3 rounded-xl text-center transition-colors hover:bg-accent"
+                                        >
+                                            <Icon className="h-5 w-5" />
+                                            <span className="text-xs font-medium">
+                                                {option.id === "default" ? "Bundle" : option.name}
+                                            </span>
+                                        </Link>
+                                    );
+                                })}
                         </div>
                     </div>
 
