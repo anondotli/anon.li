@@ -1,4 +1,5 @@
-import { KeyRound, ShieldCheck, Globe, Lock, Github, Bitcoin } from "lucide-react";
+import { KeyRound, ShieldCheck, Globe, Lock, Bitcoin } from "lucide-react";
+import { Icons } from "@/components/shared/icons";
 
 /**
  * Privacy/trust signals shown on the pricing page to make the "why pay for this
@@ -27,7 +28,7 @@ const SIGNALS = [
         detail: "Encrypted in your browser — we can't read them.",
     },
     {
-        icon: Github,
+        icon: Icons.gitHub,
         title: "Open source",
         detail: "Full platform, CLI, extension, and MCP server.",
     },
