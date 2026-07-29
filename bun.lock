@@ -5,10 +5,10 @@
     "": {
       "name": "anon.li",
       "dependencies": {
-        "@aws-sdk/client-s3": "^3.1096.0",
-        "@aws-sdk/s3-request-presigner": "^3.1096.0",
+        "@aws-sdk/client-s3": "^3.1098.0",
+        "@aws-sdk/s3-request-presigner": "^3.1098.0",
         "@better-auth/core": "^1.6.25",
-        "@better-auth/utils": "0.4.2",
+        "@better-auth/utils": "0.5.0",
         "@modelcontextprotocol/sdk": "^1.30.0",
         "@posthog/mcp": "0.10.1",
         "@prisma/adapter-pg": "^7.9.1",
@@ -29,7 +29,7 @@
         "@radix-ui/react-switch": "^1.3.7",
         "@radix-ui/react-tabs": "^1.1.21",
         "@radix-ui/react-tooltip": "^1.2.16",
-        "@smithy/node-http-handler": "^4.9.12",
+        "@smithy/node-http-handler": "^4.9.13",
         "@upstash/ratelimit": "^2.0.8",
         "@upstash/redis": "^1.38.0",
         "better-auth": "^1.6.25",
@@ -48,14 +48,14 @@
         "next-themes": "^0.4.6",
         "openpgp": "^6.3.1",
         "pg": "^8.22.0",
-        "posthog-js": "^1.407.3",
+        "posthog-js": "^1.408.0",
         "posthog-node": "^5.46.1",
         "qrcode": "^1.5.4",
         "react": "^19.2.8",
         "react-dom": "^19.2.8",
         "recharts": "^3.10.1",
         "remark-gfm": "^4.0.1",
-        "resend": "^6.18.0",
+        "resend": "^6.18.1",
         "server-only": "^0.0.1",
         "sonner": "^2.0.7",
         "stripe": "^22.3.2",
@@ -75,8 +75,8 @@
         "dotenv": "^17.4.2",
         "eslint": "9.39.4",
         "eslint-config-next": "^16.2.12",
-        "jsdom": "^30.0.0",
-        "postcss": "^8.5.23",
+        "jsdom": "^30.0.1",
+        "postcss": "^8.5.25",
         "prisma": "^7.9.1",
         "tailwindcss": "^4.3.3",
         "typescript": "^6.0.3",
@@ -199,7 +199,7 @@
 
     "@better-auth/telemetry": ["@better-auth/telemetry@1.6.25", "", { "peerDependencies": { "@better-auth/core": "^1.6.25", "@better-auth/utils": "0.4.2", "@better-fetch/fetch": "1.3.1" } }, "sha512-2ZfC9lp7tU6Jw/q2Lz/bKfQqGMdMwc/IQDTYdBhvtGi24qInYVnhp2ZCW57hHM9j+fq1ULOtxgg6M3T1LEaihw=="],
 
-    "@better-auth/utils": ["@better-auth/utils@0.4.2", "", { "dependencies": { "@noble/hashes": "^2.0.1" } }, "sha512-AUxrvu+HaaODsUyzDxFgwd/8RZ1yZaYo42LXKSrU2oGgR38pS1ij8nqQKNgtTWoYGpNevNXtCfgTy6loHveW9A=="],
+    "@better-auth/utils": ["@better-auth/utils@0.5.0", "", { "dependencies": { "@noble/hashes": "^2.0.1" } }, "sha512-BL8W4EfIZFwlu0r54m3v1ztjDhu6dDe/amLTm0xybmbZaNgYUqhD3SjpAsnq0q8YD6/ki4iwIgxJNLP/N3TxiA=="],
 
     "@better-fetch/fetch": ["@better-fetch/fetch@1.3.1", "", {}, "sha512-ABkD1WhyfPZprKRQI3bhATjeiFuNWC9PXhfGWqL+sg/gKrM977oFrYkdb4msM3hgUGonr7KlOsOFT5TU2rht9g=="],
 
@@ -2202,6 +2202,10 @@
     "@visx/vendor/d3-format": ["d3-format@3.1.0", "", {}, "sha512-YyUI6AEuY/Wpt8KWLgZHsIU86atmikuoOmCfommt0LYHiQSPjvX2AcFc38PX0CBpr2RCyZhjex+NS/LPOv6YqA=="],
 
     "ajv-formats/ajv": ["ajv@8.20.0", "", { "dependencies": { "fast-deep-equal": "^3.1.3", "fast-uri": "^3.0.1", "json-schema-traverse": "^1.0.0", "require-from-string": "^2.0.2" } }, "sha512-Thbli+OlOj+iMPYFBVBfJ3OmCAnaSyNn4M1vz9T6Gka5Jt9ba/HIR56joy65tY6kx/FCF5VXNB819Y7/GUrBGA=="],
+
+    "better-auth/@better-auth/utils": ["@better-auth/utils@0.4.2", "", { "dependencies": { "@noble/hashes": "^2.0.1" } }, "sha512-AUxrvu+HaaODsUyzDxFgwd/8RZ1yZaYo42LXKSrU2oGgR38pS1ij8nqQKNgtTWoYGpNevNXtCfgTy6loHveW9A=="],
+
+    "better-call/@better-auth/utils": ["@better-auth/utils@0.4.2", "", { "dependencies": { "@noble/hashes": "^2.0.1" } }, "sha512-AUxrvu+HaaODsUyzDxFgwd/8RZ1yZaYo42LXKSrU2oGgR38pS1ij8nqQKNgtTWoYGpNevNXtCfgTy6loHveW9A=="],
 
     "body-parser/content-type": ["content-type@2.0.0", "", {}, "sha512-j/O/d7GcZCyNl7/hwZAb606rzqkyvaDctLmckbxLzHvFBzTJHuGEdodATcP3yIRoDrLHkIATJuvzbFlp/ki2cQ=="],
 
