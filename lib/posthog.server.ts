@@ -1,4 +1,5 @@
 import "server-only"
+import { after } from "next/server"
 import { PostHog } from "posthog-node"
 import { sanitizeError, sanitizeObject, sanitizeString, setErrorSink } from "@/lib/logger"
 
@@ -33,11 +34,14 @@ export function getPostHogClient(): PostHog | null {
 /**
  * Capture a server-side event. Best-effort; never throws into callers.
  * Properties are sanitized with the logger's redaction before sending.
+ * `timestamp` backdates an event (one-time backfill scripts only — live
+ * call sites should omit it so PostHog stamps receipt time).
  */
 export function captureServerEvent(
     distinctId: string,
     event: string,
     properties?: Record<string, unknown>,
+    timestamp?: Date,
 ): void {
     const ph = getClient()
     if (!ph) return
@@ -46,9 +50,30 @@ export function captureServerEvent(
             distinctId,
             event,
             properties: sanitizeObject(properties ?? {}) as Record<string, unknown>,
+            ...(timestamp ? { timestamp } : {}),
         })
     } catch {
         // telemetry must never break the request
+    }
+}
+
+/**
+ * Capture a server-side event and schedule a flush once the response is sent.
+ * The one-liner for live call sites (services, actions, webhooks, auth hooks).
+ * Flush falls back to fire-and-forget when called outside a Next.js request
+ * scope (where `after()` is unavailable); flushAt:1 sends immediately anyway,
+ * so the fallback only matters for batched edge cases.
+ */
+export function trackServerEvent(
+    distinctId: string,
+    event: string,
+    properties?: Record<string, unknown>,
+): void {
+    captureServerEvent(distinctId, event, properties)
+    try {
+        after(() => flushPostHog())
+    } catch {
+        void flushPostHog()
     }
 }
 

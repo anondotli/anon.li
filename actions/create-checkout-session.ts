@@ -16,6 +16,7 @@ import {
 import { runSecureAction, type ActionState } from "@/lib/safe-action"
 import { createLogger } from "@/lib/logger"
 import { prisma } from "@/lib/prisma"
+import { trackServerEvent } from "@/lib/posthog.server"
 
 const logger = createLogger("StripeCheckout")
 
@@ -172,6 +173,20 @@ export async function createCheckoutSession(params: CheckoutParams) {
 
             if (!checkoutSession.url) {
                 throw new Error("Failed to create checkout session")
+            }
+
+            // Authoritative checkout funnel event (server-side — the client-side
+            // checkout_started was removed so the funnel isn't double-counted).
+            if (validatedParams) {
+                trackServerEvent(userId, "checkout_started", {
+                    provider: "stripe",
+                    product: validatedParams.product,
+                    tier: validatedParams.tier,
+                    frequency: validatedParams.frequency,
+                    price_id: priceId,
+                    has_promo_code: Boolean(validatedParams.promoCode),
+                    flow: "personal",
+                })
             }
 
             return checkoutSession.url

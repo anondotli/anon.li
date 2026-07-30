@@ -26,6 +26,7 @@ describe("Vercel cron configuration", () => {
             "/api/cron/cleanup",
             "/api/cron/drip",
             "/api/cron/crypto-recovery",
+            "/api/cron/business-snapshot",
             "/api/cron/heavy-user-upsell",
         ]);
         expect(new Set(paths).size).toBe(paths.length);

@@ -11,7 +11,8 @@ import { Redis } from "@upstash/redis"
 import { createLogger } from "@/lib/logger"
 import { SUBSCRIPTION_GRACE_PERIOD_DAYS, DOWNGRADE_SCHEDULING_DELAY_DAYS, DOWNGRADE_DELETION_DELAY_DAYS } from "@/lib/constants"
 import { upsertStripeSubscription } from "@/lib/services/subscription-sync"
-import { captureServerEvent, flushPostHog } from "@/lib/posthog.server"
+import { captureServerEvent, flushPostHog, trackServerEvent } from "@/lib/posthog.server"
+import { getPlanFromPriceId } from "@/config/plans"
 
 const logger = createLogger("StripeWebhook");
 
@@ -93,6 +94,8 @@ async function upsertConfiguredSubscription(userId: string | null, subscription:
 type CanonicalSubscriptionContext = {
     userId: string | null
     organizationId: string | null
+    product: string | null
+    tier: string | null
     user: { id: string; email: string } | null
 }
 
@@ -109,6 +112,8 @@ async function syncCanonicalSubscription(
         select: {
             userId: true,
             organizationId: true,
+            product: true,
+            tier: true,
             user: { select: { id: true, email: true } },
         },
     })
@@ -318,8 +323,12 @@ async function handleCheckoutSessionCompleted(event: Stripe.Event): Promise<void
 
     // Authoritative, ad-blocker-proof revenue event (server-side).
     const activatedPrice = subscription.items?.data?.[0]?.price
+    const activatedPlan = getPlanFromPriceId(priceId)
     captureServerEvent(userId, "subscription_activated", {
         provider: "stripe",
+        product: activatedPlan?.product,
+        tier: activatedPlan?.tier,
+        billing_reason: "new",
         price_id: priceId,
         amount: activatedPrice?.unit_amount != null ? activatedPrice.unit_amount / 100 : undefined,
         currency: activatedPrice?.currency,
@@ -359,6 +368,30 @@ async function handleInvoicePaymentFailed(invoice: Stripe.Invoice) {
     const isActive = subscription.status === 'active' || subscription.status === 'trialing'
 
     const context = await syncCanonicalSubscription(subscription)
+
+    // Revenue instrumentation: a failed payment attempt. Stripe fires one event
+    // per retry (each a distinct event id, so the idempotency guard doesn't dedupe
+    // them — invoice_id lets dashboards do so). billing_reason "subscription_cycle"
+    // failures are the involuntary-churn (dunning) signal; "subscription_create"
+    // failures are abandoned first purchases.
+    const failedDistinctId = context.user?.id ?? context.organizationId
+    if (failedDistinctId) {
+        trackServerEvent(failedDistinctId, "purchase_failed", {
+            provider: "stripe",
+            product: context.product ?? undefined,
+            tier: context.tier ?? undefined,
+            billing_reason: invoice.billing_reason ?? "unknown",
+            amount: invoice.amount_due != null ? invoice.amount_due / 100 : undefined,
+            currency: invoice.currency,
+            failure_code: invoice.last_finalization_error?.code ?? "unknown",
+            invoice_id: invoice.id,
+        })
+    } else {
+        logger.warn("Payment failed but no user/org to attribute", {
+            subscriptionId,
+            invoiceId: invoice.id,
+        })
+    }
 
     // If access is revoked, set drop expiry and send notification. The org path
     // does not require the (possibly deleted) buyer; it notifies current admins.
@@ -463,6 +496,18 @@ async function handleCustomerSubscriptionDeleted(subscription: Stripe.Subscripti
 
     const context = await syncCanonicalSubscription(subscription)
     if (!context) return
+
+    // Revenue instrumentation: subscription ended. cancel_reason "payment_failed"
+    // = involuntary churn; "cancellation_requested" = voluntary.
+    const canceledDistinctId = context.user?.id ?? context.organizationId
+    if (canceledDistinctId) {
+        trackServerEvent(canceledDistinctId, "subscription_canceled", {
+            provider: "stripe",
+            product: context.product ?? undefined,
+            tier: context.tier ?? undefined,
+            cancel_reason: subscription.cancellation_details?.reason ?? "unknown",
+        })
+    }
 
     // Org subscription: downgrade the ORG (grace on org drops, notify all org
     // admins), not the billing user's personal account.

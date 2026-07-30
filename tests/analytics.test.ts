@@ -33,10 +33,10 @@ describe("analytics payloads", () => {
     })
 
     it("forwards billing funnel events with their dimensions", () => {
-        analytics.checkoutStarted("bundle", "plus", "monthly")
+        analytics.upgradeClicked("bundle", "plus")
         analytics.checkoutCompleted("card")
 
-        expect(capture).toHaveBeenNthCalledWith(1, "checkout_started", { product: "bundle", tier: "plus", frequency: "monthly" })
+        expect(capture).toHaveBeenNthCalledWith(1, "upgrade_clicked", { product: "bundle", tier: "plus" })
         expect(capture).toHaveBeenNthCalledWith(2, "checkout_completed", { method: "card" })
     })
 })

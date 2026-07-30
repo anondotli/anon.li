@@ -6,6 +6,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const {
     expireInvoice,
     getInvoices,
+    postHogCapture,
+    postHogFlush,
     redisGet,
     redisSet,
     sendExpiredEmail,
@@ -13,12 +15,21 @@ const {
 } = vi.hoisted(() => ({
     expireInvoice: vi.fn(),
     getInvoices: vi.fn(),
+    postHogCapture: vi.fn(),
+    postHogFlush: vi.fn().mockResolvedValue(undefined),
     redisGet: vi.fn(),
     redisSet: vi.fn(),
     sendExpiredEmail: vi.fn(),
     sendReminderEmail: vi.fn(),
 }));
 
+vi.mock("posthog-node", () => ({
+    PostHog: class MockPostHog {
+        capture = postHogCapture;
+        captureException = vi.fn();
+        flush = postHogFlush;
+    },
+}));
 vi.mock("@upstash/redis", () => ({
     Redis: class {
         get = redisGet;
@@ -38,6 +49,7 @@ import { handleCryptoRecoveryCron } from "@/lib/services/cron-crypto-recovery";
 
 const expiredInvoice = {
     id: "invoice-1",
+    orderId: "crypto_ord_1",
     userId: "user-1",
     product: "bundle",
     tier: "plus",
@@ -51,6 +63,7 @@ const expiredInvoice = {
 describe("crypto recovery cron", () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        process.env.NEXT_PUBLIC_POSTHOG_KEY = "phc_test";
         redisGet.mockResolvedValue(null);
         redisSet.mockResolvedValue("OK");
         sendExpiredEmail.mockResolvedValue({ success: true });
@@ -79,5 +92,21 @@ describe("crypto recovery cron", () => {
         expect(expireInvoice).toHaveBeenCalledWith(expiredInvoice.id);
         expect(sendExpiredEmail).toHaveBeenCalledOnce();
         expect(result).toMatchObject({ expired: 1, expiredEmailsSent: 1, errors: 0 });
+    });
+
+    it("emits crypto_invoice_expired (source: cron) when flipping a waiting invoice", async () => {
+        getInvoices.mockResolvedValue([{ ...expiredInvoice, status: "waiting" }]);
+
+        await handleCryptoRecoveryCron();
+
+        expect(postHogCapture).toHaveBeenCalledWith(expect.objectContaining({
+            distinctId: expiredInvoice.userId,
+            event: "crypto_invoice_expired",
+            properties: expect.objectContaining({
+                source: "cron",
+                order_id: expiredInvoice.orderId,
+            }),
+        }));
+        expect(postHogFlush).toHaveBeenCalled();
     });
 });

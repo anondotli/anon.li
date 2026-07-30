@@ -3,7 +3,6 @@
 import { useTransition } from "react"
 import { toast } from "sonner"
 import { CreditCard, Bitcoin } from "lucide-react"
-import { analytics } from "@/lib/analytics"
 import { Button } from "@/components/ui/button"
 import {
     Dialog,
@@ -34,7 +33,6 @@ export function PaymentMethodDialog({
     const [isCryptoPending, startCryptoTransition] = useTransition()
 
     const handleCard = () => {
-        analytics.checkoutStarted(product, tier, "yearly")
         startCardTransition(async () => {
             try {
                 const result = await createCheckoutSession({
@@ -53,7 +51,6 @@ export function PaymentMethodDialog({
     }
 
     const handleCrypto = () => {
-        analytics.checkoutStarted(product, tier, "yearly-crypto")
         startCryptoTransition(async () => {
             try {
                 const result = await createCryptoCheckout({

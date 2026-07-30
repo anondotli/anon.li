@@ -13,6 +13,7 @@ import {
     type CryptoTier,
 } from "@/lib/crypto-prices"
 import { runSecureAction } from "@/lib/safe-action"
+import { trackServerEvent } from "@/lib/posthog.server"
 
 interface CryptoCheckoutParams {
     product: CryptoProduct
@@ -73,6 +74,14 @@ export async function createCryptoCheckout(params: CryptoCheckoutParams) {
                 planPriceId: price.stripePriceId,
                 status: "waiting",
                 userId,
+            })
+
+            // Crypto funnel entry (created → paid/expired).
+            trackServerEvent(userId, "crypto_invoice_created", {
+                product: params.product,
+                tier: params.tier,
+                amount: price.usdAmount,
+                order_id: orderId,
             })
 
             return invoice.invoice_url

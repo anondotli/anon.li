@@ -8,6 +8,7 @@ import { isOrgScope } from "@/lib/ownership"
 import { ValidationError } from "@/lib/api-error-utils"
 import { BUSINESS_PLAN } from "@/config/plans"
 import { prisma } from "@/lib/prisma"
+import { trackServerEvent } from "@/lib/posthog.server"
 
 interface TeamCheckoutParams {
     frequency: "monthly" | "yearly"
@@ -78,6 +79,17 @@ export async function createTeamCheckoutSession(params: TeamCheckoutParams) {
             if (!checkoutSession.url) {
                 throw new Error("Failed to create checkout session")
             }
+
+            // Authoritative checkout funnel event (server-side).
+            trackServerEvent(scope.userId, "checkout_started", {
+                provider: "stripe",
+                product: "business",
+                tier: "pro",
+                frequency,
+                price_id: priceId,
+                seats,
+                flow: "team",
+            })
 
             return checkoutSession.url
         }
