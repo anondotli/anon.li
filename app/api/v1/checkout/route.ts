@@ -12,6 +12,7 @@ import { isOrgScope } from "@/lib/ownership"
 import { scopeFromContext, withPolicy } from "@/lib/route-policy"
 import { stripe } from "@/lib/stripe"
 import { getStripePriceId } from "@/lib/stripe-prices"
+import { trackServerEvent } from "@/lib/posthog.server"
 
 export const dynamic = "force-dynamic"
 
@@ -110,6 +111,17 @@ export const POST = withPolicy(
         if (!checkoutSession.url) {
             return apiError("Failed to create checkout session", ErrorCodes.INTERNAL_ERROR, ctx.requestId, 500)
         }
+
+        // Authoritative checkout funnel event (server-side).
+        trackServerEvent(ctx.userId, "checkout_started", {
+            provider: "stripe",
+            product,
+            tier,
+            frequency,
+            price_id: priceId,
+            has_promo_code: Boolean(sanitizedPromo),
+            flow: "api",
+        })
 
         return apiSuccess({ url: checkoutSession.url }, ctx.requestId)
     },

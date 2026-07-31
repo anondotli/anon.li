@@ -20,16 +20,15 @@ describe("Vercel cron configuration", () => {
         const paths = config.crons?.map((cron) => cron.path) ?? [];
 
         expect(config.$schema).toBe("https://openapi.vercel.sh/vercel.json");
+        // Hobby allows at most three cron entries: the daily aggregator fans
+        // out to the dedicated job routes internally, and the weekly upsell
+        // keeps its own entry.
         expect(paths).toEqual([
-            "/api/cron/domains",
-            "/api/cron/billing",
-            "/api/cron/cleanup",
-            "/api/cron/drip",
-            "/api/cron/crypto-recovery",
+            "/api/cron/daily",
             "/api/cron/heavy-user-upsell",
         ]);
         expect(new Set(paths).size).toBe(paths.length);
-        expect(paths).not.toContain("/api/cron/daily");
+        expect(paths.length).toBeLessThanOrEqual(3);
         expect(paths).not.toContain("/api/cron/form-staging");
     });
 

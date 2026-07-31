@@ -38,14 +38,11 @@ export const analytics = {
     upgradeClicked: (product: string, tier: string) =>
         trackEvent("upgrade_clicked", { product, tier }),
 
-    /** Billing: checkout started */
-    checkoutStarted: (product: string, tier: string, frequency: string) =>
-        trackEvent("checkout_started", { product, tier, frequency }),
-
     /**
-     * Billing: checkout completed — fired on the success-return page. Measured
-     * client-side (like checkout_started) so the start→complete funnel ratio is
-     * apples-to-apples. `method` is "card" or "crypto".
+     * Billing: checkout completed — fired on the success-return page.
+     * `method` is "card" or "crypto". The authoritative checkout/purchase
+     * funnel events (`checkout_started`, `subscription_activated`) are
+     * emitted server-side — see docs/analytics-events.md.
      */
     checkoutCompleted: (method: string) =>
         trackEvent("checkout_completed", { method }),

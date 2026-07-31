@@ -2,24 +2,8 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "crons": [
     {
-      "path": "/api/cron/domains",
+      "path": "/api/cron/daily",
       "schedule": "0 1 * * *"
-    },
-    {
-      "path": "/api/cron/billing",
-      "schedule": "0 2 * * *"
-    },
-    {
-      "path": "/api/cron/cleanup",
-      "schedule": "0 3 * * *"
-    },
-    {
-      "path": "/api/cron/drip",
-      "schedule": "0 4 * * *"
-    },
-    {
-      "path": "/api/cron/crypto-recovery",
-      "schedule": "0 5 * * *"
     },
     {
       "path": "/api/cron/heavy-user-upsell",

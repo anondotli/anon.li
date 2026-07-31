@@ -15,6 +15,7 @@ import { customAlphabet } from "nanoid"
 import crypto from "node:crypto"
 import { createLogger } from "@/lib/logger"
 import { hashIp } from "@/lib/ip-hash"
+import { trackServerEvent } from "@/lib/posthog.server"
 import { ownerWhere, assertCanAccess, assertCanManage, personalScope, type OwnerScope } from "@/lib/ownership"
 import { Prisma } from "@prisma/client"
 import type { Form, FormSubmission, FormOwnerKey } from "@prisma/client"
@@ -395,6 +396,14 @@ export class FormService {
         })
 
         logger.info("Form created", { formId: form.id, userId: scope.userId, tier: tiers.form })
+
+        // Product analytics: creation == publishing (forms have no draft state).
+        trackServerEvent(scope.userId, "form_created", {
+            form_id: form.id,
+            has_file_uploads: form.allowFileUploads,
+            is_org_form: scope.organizationId !== null,
+        })
+
         return form
     }
 

@@ -70,7 +70,7 @@ Single `prisma/schema.prisma`, PostgreSQL. Models use camelCase in Prisma but ma
 
 ## Cron
 
-`vercel.json` schedules the dedicated `/api/cron/*` routes for domains, billing, cleanup, drip email, crypto recovery, and the weekly heavy-user upsell. Every schedule is Hobby-compatible (at most daily), runs in UTC with hourly precision, is auth-gated via `lib/cron-auth.ts`, and has its own Redis lock via `lib/cron-lock.ts`. Keep jobs separate so one slow or failed workload cannot consume the others' function budget. The cleanup route already removes incomplete uploads; do not add a second staging-cleanup schedule.
+Vercel Hobby caps `vercel.json` at three cron entries, so it schedules only two: `/api/cron/daily` (daily) and `/api/cron/heavy-user-upsell` (weekly). The daily aggregator fans out to the dedicated `/api/cron/*` routes (domains, billing, cleanup, drip, crypto-recovery, business-snapshot) via internal HTTP calls — each job still runs in its own function invocation with its own auth scope (`lib/cron-auth.ts`), Redis lock (`lib/cron-lock.ts`), and `maxDuration` budget, so one slow or failed workload cannot consume the others' function budget. Add new daily workloads to `DAILY_JOBS` in `app/api/cron/daily/route.ts`, not to `vercel.json`; dedicated routes stay directly invocable for incident retries. Every schedule runs in UTC with hourly precision. The cleanup route already removes incomplete uploads; do not add a second staging-cleanup schedule.
 
 ## Conventions
 

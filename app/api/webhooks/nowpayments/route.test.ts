@@ -6,6 +6,7 @@ vi.mock('server-only', () => ({}))
 
 vi.mock('@/lib/posthog.server', () => ({
     captureServerEvent: vi.fn(),
+    trackServerEvent: vi.fn(),
     flushPostHog: vi.fn(),
 }))
 vi.mock('next/server', async (importOriginal) => {

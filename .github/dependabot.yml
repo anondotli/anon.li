@@ -20,6 +20,15 @@ updates:
         update-types:
           - minor
           - patch
+    # Ecosystem-blocked holds — do not bump past these until the ecosystem
+    # (better-auth / Next.js / plugins) catches up.
+    ignore:
+      - dependency-name: eslint
+        versions: [">= 10"]
+      - dependency-name: typescript
+        versions: [">= 7"]
+      - dependency-name: "@better-auth/utils"
+        versions: [">= 0.5.0"]
 
   - package-ecosystem: github-actions
     directory: /

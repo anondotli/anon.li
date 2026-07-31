@@ -22,6 +22,7 @@ import {
 import { getOrgSeatLimit } from "@/lib/org-seats"
 import { validateOrganizationName } from "@/lib/validations/organization"
 import { rateLimit } from "@/lib/rate-limit"
+import { trackServerEvent } from "@/lib/posthog.server"
 import { MCP_DEFAULT_SCOPE, MCP_OAUTH_SCOPES } from "@/lib/mcp/oauth-metadata"
 import { purgePersonalVaultKeysOps } from "@/lib/vault/personal-purge"
 
@@ -181,9 +182,22 @@ export const auth = betterAuth({
                     }
                     return undefined
                 },
+                // Product analytics: a new team (organization) was created.
+                // `user` is the creator (verified against better-auth's hook payload).
+                afterCreateOrganization: async ({ organization, user }) => {
+                    trackServerEvent(user.id, "team_created", {
+                        team_id: organization.id,
+                    })
+                },
                 afterAddMember: async ({ member, organization }) => {
                     const actorId = (await resolveActorId()) ?? member.userId
                     recordMemberAdded({ actorId, targetUserId: member.userId, organizationId: organization.id, role: member.role })
+                    // Product analytics: attribute the seat to the joining member so
+                    // their activation journey stays trackable.
+                    trackServerEvent(member.userId, "seat_added", {
+                        team_id: organization.id,
+                        role: member.role,
+                    })
                 },
                 afterRemoveMember: async ({ member, organization }) => {
                     const actorId = (await resolveActorId()) ?? member.userId
@@ -298,6 +312,9 @@ export const auth = betterAuth({
                 },
                 after: async (user) => {
                     if (user.email) await sendWelcomeEmail(user.email)
+                    // Product analytics: authoritative signup event (client-side
+                    // registration_started only captures intent).
+                    trackServerEvent(user.id, "user_signed_up", undefined)
                 },
             },
         },

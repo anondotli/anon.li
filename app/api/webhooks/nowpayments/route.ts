@@ -7,7 +7,7 @@ import { createLogger } from "@/lib/logger"
 import { isValidCryptoProduct, isValidCryptoTier, getCryptoPrice } from "@/lib/crypto-prices"
 import type { CryptoProduct, CryptoTier } from "@/lib/crypto-prices"
 import { createCryptoSubscription } from "@/lib/services/subscription-sync"
-import { captureServerEvent, flushPostHog } from "@/lib/posthog.server"
+import { captureServerEvent, flushPostHog, trackServerEvent } from "@/lib/posthog.server"
 import { Prisma } from "@prisma/client"
 
 const logger = createLogger("NOWPaymentsWebhook")
@@ -81,7 +81,8 @@ function validateCryptoProductTier(product: string, tier: string, paymentId: str
  */
 async function postActivationSideEffects(
     payment: { id: string; userId: string; product: string; tier: string; planPriceId: string; priceAmount: number },
-    periodEnd: Date
+    periodEnd: Date,
+    orderId: string,
 ): Promise<void> {
     // Cancel any active downgrade
     try {
@@ -113,6 +114,16 @@ async function postActivationSideEffects(
         tier: payment.tier,
         frequency: "yearly",
         amount: payment.priceAmount,
+        billing_reason: "new",
+        order_id: orderId,
+    })
+    // Crypto-lifecycle alias so the crypto funnel (created → paid/expired) is
+    // self-contained without mixing in card purchases.
+    captureServerEvent(payment.userId, "crypto_invoice_paid", {
+        product: payment.product,
+        tier: payment.tier,
+        amount: payment.priceAmount,
+        order_id: orderId,
     })
     after(() => flushPostHog())
 
@@ -211,6 +222,15 @@ export async function POST(req: Request) {
                     },
                 })
             }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+
+            // Revenue instrumentation: a refund revokes the entitlement.
+            trackServerEvent(payment.userId, "subscription_canceled", {
+                provider: "crypto",
+                product: payment.product,
+                tier: payment.tier,
+                cancel_reason: "refunded",
+                order_id: orderId,
+            })
         }
 
         // Validate payment amount before activation
@@ -239,6 +259,15 @@ export async function POST(req: Request) {
                         status: "price_mismatch",
                     },
                 })
+                trackServerEvent(payment.userId, "purchase_failed", {
+                    provider: "crypto",
+                    product: payment.product,
+                    tier: payment.tier,
+                    amount: payment.priceAmount,
+                    currency: "usd",
+                    failure_reason: "price_mismatch",
+                    order_id: orderId,
+                })
                 await markIPNProcessed(paymentId, paymentStatus)
                 return new NextResponse(null, { status: 200 })
             }
@@ -260,6 +289,15 @@ export async function POST(req: Request) {
                         actuallyPaid: actuallyPaid,
                         payAmount: payAmount,
                     },
+                })
+                trackServerEvent(payment.userId, "purchase_failed", {
+                    provider: "crypto",
+                    product: payment.product,
+                    tier: payment.tier,
+                    amount: payment.priceAmount,
+                    currency: "usd",
+                    failure_reason: "underpaid",
+                    order_id: orderId,
                 })
                 await markIPNProcessed(paymentId, paymentStatus)
                 return new NextResponse(null, { status: 200 })
@@ -312,7 +350,7 @@ export async function POST(req: Request) {
 
             // Non-critical side effects outside transaction
             if (didActivate) {
-                await postActivationSideEffects(payment, periodEnd)
+                await postActivationSideEffects(payment, periodEnd, orderId)
             }
         } else if (!isRefund) {
             // Non-activation status update
@@ -331,6 +369,28 @@ export async function POST(req: Request) {
                     actuallyPaid: body.actually_paid != null ? Number(body.actually_paid) : payment.actuallyPaid,
                 },
             })
+
+            // Revenue instrumentation for terminal failure statuses. Intermediate
+            // statuses (waiting/confirming) emit nothing.
+            if (paymentStatus === "expired") {
+                trackServerEvent(payment.userId, "crypto_invoice_expired", {
+                    product: payment.product,
+                    tier: payment.tier,
+                    amount: payment.priceAmount,
+                    order_id: orderId,
+                    source: "webhook",
+                })
+            } else if (paymentStatus === "failed") {
+                trackServerEvent(payment.userId, "purchase_failed", {
+                    provider: "crypto",
+                    product: payment.product,
+                    tier: payment.tier,
+                    amount: payment.priceAmount,
+                    currency: "usd",
+                    failure_reason: "failed",
+                    order_id: orderId,
+                })
+            }
         }
     } catch (error) {
         logger.error("IPN handler failed", error, { paymentId, paymentStatus, orderId })

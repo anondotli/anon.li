@@ -12,6 +12,7 @@ import { ValidationError, NotFoundError, ForbiddenError } from "@/lib/api-error-
 import { ownerWhere, assertCanAccess, assertCanManage, type OwnerScope } from "@/lib/ownership"
 import { encryptField } from "@/lib/field-encryption"
 import { audit } from "@/lib/services/audit"
+import { trackServerEvent } from "@/lib/posthog.server"
 
 const logger = createLogger("DomainService")
 
@@ -121,6 +122,12 @@ export class DomainService {
         }, { isolationLevel: "Serializable" })
 
         logger.info("Domain created", { userId: scope.userId, domain })
+
+        // Product analytics (no domain string in properties — PII-light).
+        trackServerEvent(scope.userId, "domain_added", {
+            is_org_domain: scope.organizationId !== null,
+        })
+
         return newDomain
     }
 

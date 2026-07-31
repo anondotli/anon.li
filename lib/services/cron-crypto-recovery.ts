@@ -1,6 +1,7 @@
 import { Redis } from "@upstash/redis";
 import { getRecoverableCryptoInvoices, expireCryptoInvoice } from "@/lib/data/crypto-payment";
 import { createLogger } from "@/lib/logger";
+import { captureServerEvent, flushPostHog } from "@/lib/posthog.server";
 import {
     sendCryptoInvoiceExpiredEmail,
     sendCryptoInvoiceReminderEmail,
@@ -75,6 +76,16 @@ export async function handleCryptoRecoveryCron(): Promise<{
                         continue;
                     }
                     expired++;
+                    // Revenue instrumentation: NOWPayments IPNs don't always arrive
+                    // for stale invoices, so this cron is often the only place the
+                    // expiry is observed. Flushed once at the end of the run.
+                    captureServerEvent(invoice.userId, "crypto_invoice_expired", {
+                        product: invoice.product,
+                        tier: invoice.tier,
+                        amount: invoice.priceAmount,
+                        order_id: invoice.orderId,
+                        source: "cron",
+                    });
                 }
 
                 const result = await sendCryptoInvoiceExpiredEmail(email, {
@@ -136,6 +147,10 @@ export async function handleCryptoRecoveryCron(): Promise<{
             errors++;
         }
     }
+
+    // Deliver any crypto_invoice_expired events captured during this run
+    // before the cron route responds.
+    await flushPostHog();
 
     return { remindersSent, expired, expiredEmailsSent, errors };
 }

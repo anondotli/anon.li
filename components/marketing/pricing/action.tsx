@@ -113,7 +113,6 @@ export function PricingAction({ user, planId, isYearly, className, promoCode, cu
 
             // Monthly plans: go directly to Stripe
             startTransition(async () => {
-                analytics.checkoutStarted(product, tier, "monthly")
                 try {
                     const result = await createCheckoutSession({
                         product: product as "bundle" | "alias" | "drop" | "form",

@@ -21,6 +21,7 @@ export async function createCryptoPayment(data: {
 
 type RecoverableCryptoInvoice = {
     id: string
+    orderId: string
     userId: string
     product: string
     tier: string
