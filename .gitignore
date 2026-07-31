@@ -63,6 +63,7 @@ CLAUDE-FABLE*.md
 # internal / competitive research (never publish)
 competitor-profiles/
 docs/competitive/
+plan.md
 
 # test coverage
 coverage/
@@ -71,5 +72,6 @@ coverage/
 # AI tooling & editor state
 .agents/
 .claude/
+.mcp.json
 .idea/
 .vscode/
