@@ -2,6 +2,10 @@
 
 As a privacy-first platform, we take security vulnerabilities very seriously. We appreciate the security research community and encourage responsible disclosure.
 
+## Supported Versions
+
+Security fixes are applied to the current production release and the `main` branch. Older commits, forks, and modified self-hosted deployments are not maintained by the anon.li team.
+
 ## Reporting a Vulnerability
 
 If you discover a security vulnerability within anon.li, please send an email to **security@anon.li**.
@@ -26,7 +30,7 @@ We support good-faith security research. We will not pursue legal action against
 - Only interact with accounts you own or with explicit permission of the account holder.
 - Do not exploit a vulnerability beyond what is necessary to confirm its existence.
 - Report the vulnerability to us before disclosing it publicly.
-- Do not use the vulnerability for personal gain (beyond reasonable bug bounty rewards, if applicable).
+- Do not use the vulnerability for extortion or personal gain. anon.li does not operate a guaranteed paid bug-bounty program; any reward must be agreed separately and in writing.
 
 ## Researcher Guidelines
 

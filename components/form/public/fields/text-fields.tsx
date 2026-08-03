@@ -2,7 +2,7 @@ import { forwardRef, useImperativeHandle, useRef, useEffect } from "react"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
-import type { FieldPresentation } from "./types"
+import type { FieldAccessibilityProps, FieldPresentation } from "./types"
 import { asString } from "./types"
 import type { FormField } from "@/lib/form-schema"
 
@@ -12,7 +12,7 @@ const SPOTLIGHT_INPUT =
 const SPOTLIGHT_TEXTAREA =
     "min-h-[8rem] rounded-none border-0 border-b-2 border-border/50 bg-transparent px-0 py-2 text-xl leading-relaxed shadow-none placeholder:text-muted-foreground/40 focus-visible:border-foreground focus-visible:ring-0 resize-none"
 
-interface SingleLineProps {
+interface SingleLineProps extends FieldAccessibilityProps {
     field: Extract<FormField, { type: "short_text" | "email" | "number" | "phone" | "date" }>
     value: unknown
     onChange: (next: unknown) => void
@@ -53,7 +53,7 @@ function placeholderFor(field: SingleLineProps["field"]): string | undefined {
 }
 
 export const SingleLineField = forwardRef<FieldHandle, SingleLineProps>(function SingleLineField(
-    { field, value, onChange, onAdvance, presentation, disabled, autoFocus },
+    { field, value, onChange, onAdvance, presentation, disabled, autoFocus, invalid, describedBy },
     ref,
 ) {
     const inputRef = useFocusBridge(ref as React.RefObject<{ focus: () => void } | null>, autoFocus)
@@ -89,6 +89,8 @@ export const SingleLineField = forwardRef<FieldHandle, SingleLineProps>(function
             onKeyDown={onKeyDown}
             placeholder={placeholderFor(field)}
             disabled={disabled}
+            aria-invalid={invalid || undefined}
+            aria-describedby={describedBy}
             maxLength={"maxLength" in field ? field.maxLength : undefined}
             min={field.type === "number" || field.type === "date" ? field.min : undefined}
             max={field.type === "number" || field.type === "date" ? field.max : undefined}
@@ -104,7 +106,7 @@ interface LongTextProps extends Omit<SingleLineProps, "field"> {
 }
 
 export const LongTextField = forwardRef<FieldHandle, LongTextProps>(function LongTextField(
-    { field, value, onChange, onAdvance, presentation, disabled, autoFocus },
+    { field, value, onChange, onAdvance, presentation, disabled, autoFocus, invalid, describedBy },
     ref,
 ) {
     const inputRef = useFocusBridge(ref as React.RefObject<{ focus: () => void } | null>, autoFocus)
@@ -127,6 +129,8 @@ export const LongTextField = forwardRef<FieldHandle, LongTextProps>(function Lon
             placeholder={field.placeholder}
             maxLength={field.maxLength}
             disabled={disabled}
+            aria-invalid={invalid || undefined}
+            aria-describedby={describedBy}
             rows={presentation === "spotlight" ? 4 : 3}
             className={presentation === "spotlight" ? SPOTLIGHT_TEXTAREA : undefined}
         />

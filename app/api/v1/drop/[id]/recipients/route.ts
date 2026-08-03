@@ -42,7 +42,7 @@ export const POST = withPolicy<RouteParams>(
     },
     async (ctx, routeContext) => {
         const { id: dropId } = await routeContext.params
-        const body = await ctx.request.json().catch(() => ({}))
+        const body = await ctx.request.json().catch(() => null)
         const parsed = addRecipientsSchema.safeParse({ ...body, dropId })
         if (!parsed.success) {
             return NextResponse.json({ error: "Invalid request body" }, { status: 400 })
@@ -59,6 +59,9 @@ export const POST = withPolicy<RouteParams>(
             })),
             { restrict: parsed.data.restrict },
         )
-        return NextResponse.json({ recipients })
+        return NextResponse.json(
+            { recipients },
+            { headers: { "Cache-Control": "no-store, max-age=0" } },
+        )
     },
 )

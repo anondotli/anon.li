@@ -42,7 +42,6 @@ vi.mock("@/lib/services/drop", () => ({
 }))
 
 vi.mock("@/lib/services/drop-storage", () => ({
-    decrementStorageUsed: vi.fn(),
     deleteDropFileAndReleaseQuota: vi.fn().mockResolvedValue(true),
     deletePendingDropFileAndReleaseQuota,
 }))
@@ -568,5 +567,29 @@ describe("DELETE /api/v1/drop/[id]/file/[fileId]", () => {
 
         expect(rateLimit).toHaveBeenCalledWith("dropAbortUpload", "user-123")
         expect(response.status).toBe(429)
+    })
+
+    it("surfaces database failures instead of reporting a false successful abort", async () => {
+        const { prisma } = await import("@/lib/prisma")
+        const { DELETE } = await import("./route")
+        ;(prisma.dropFile.findUnique as unknown as ReturnType<typeof vi.fn>)
+            .mockRejectedValueOnce(new Error("database unavailable"))
+
+        const response = await DELETE(new Request(
+            "http://localhost/api/v1/drop/drop-123/file/file-123",
+            {
+                method: "DELETE",
+                body: JSON.stringify({ s3UploadId: "upload-123" }),
+                headers: {
+                    origin: "http://localhost",
+                    "content-type": "application/json",
+                },
+            },
+        ), { params: Promise.resolve({ id: "drop-123", fileId: "file-123" }) })
+
+        expect(response.status).toBe(500)
+        await expect(response.json()).resolves.toMatchObject({
+            error: { code: "INTERNAL_ERROR" },
+        })
     })
 })

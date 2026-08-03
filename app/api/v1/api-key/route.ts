@@ -12,6 +12,7 @@ import {
     apiList,
     apiSuccessWithStatus,
     ErrorCodes,
+    withNoStore,
     zodErrorToDetails,
 } from "@/lib/api-response"
 import { getApiKeys } from "@/lib/data/api-key"
@@ -23,7 +24,7 @@ export const dynamic = "force-dynamic"
 const createApiKeySchema = z.object({
     label: z.string().trim().min(1).max(100).optional(),
     expires_in_days: z.number().int().min(1).max(365).optional(),
-})
+}).strict()
 
 export const GET = withPolicy(
     {
@@ -54,6 +55,7 @@ export const GET = withPolicy(
 export const POST = withPolicy(
     {
         auth: "session",
+        organizationAccess: "subscribed",
         requireCsrf: true,
         rateLimit: "apiKey",
     },
@@ -62,7 +64,7 @@ export const POST = withPolicy(
             return apiError("Session authentication required", ErrorCodes.UNAUTHORIZED, ctx.requestId, 401)
         }
 
-        const body = await ctx.request.json().catch(() => ({}))
+        const body = await ctx.request.json().catch(() => null)
         const validation = createApiKeySchema.safeParse(body)
         if (!validation.success) {
             return apiError(
@@ -84,13 +86,13 @@ export const POST = withPolicy(
             expiresAt,
         )
 
-        return apiSuccessWithStatus({
+        return withNoStore(apiSuccessWithStatus({
             id: apiKey.id,
             key: apiKey.key,
             key_prefix: apiKey.keyPrefix,
             label: apiKey.label,
             created_at: apiKey.createdAt.toISOString(),
             expires_at: apiKey.expiresAt?.toISOString() ?? null,
-        }, ctx.requestId, 201)
+        }, ctx.requestId, 201))
     },
 )

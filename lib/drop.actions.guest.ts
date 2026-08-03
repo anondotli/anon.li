@@ -7,6 +7,10 @@
 
 import { UpgradeRequiredClientError } from "@/lib/drop.actions.client";
 import type { UpgradeRequiredDetails } from "@/lib/api-error-utils";
+import {
+    parseProvisionedFileResponse,
+    parseUploadTargetResponse,
+} from "@/lib/drop-upload-response.client";
 
 interface GuestCreateDropInput {
     iv: string;
@@ -45,8 +49,39 @@ interface GuestAddFileResult {
     uploadUrls: Record<number, string>;
 }
 
-function isUpgradeErrorBody(body: unknown): body is { error: string; details?: { upgrade?: UpgradeRequiredDetails } } {
-    return !!body && typeof body === "object" && "error" in (body as Record<string, unknown>);
+function isUpgradeDetails(value: unknown): value is UpgradeRequiredDetails {
+    if (!value || typeof value !== "object") return false;
+    const details = value as Record<string, unknown>;
+    return typeof details.scope === "string"
+        && ["guest", "free", "plus", "pro"].includes(String(details.currentTier))
+        && ["plus", "pro"].includes(String(details.suggestedTier));
+}
+
+function parseErrorBody(body: unknown): { message: string; upgrade?: UpgradeRequiredDetails } | null {
+    if (!body || typeof body !== "object") return null;
+    const record = body as Record<string, unknown>;
+    const error = record.error;
+    if (typeof error === "string") {
+        const legacyDetails = record.details;
+        const legacyUpgrade = legacyDetails && typeof legacyDetails === "object"
+            ? (legacyDetails as Record<string, unknown>).upgrade
+            : null;
+        return {
+            message: error,
+            ...(isUpgradeDetails(legacyUpgrade) ? { upgrade: legacyUpgrade } : {}),
+        };
+    }
+    if (!error || typeof error !== "object") return null;
+    const apiError = error as Record<string, unknown>;
+    if (typeof apiError.message !== "string") return null;
+    const details = apiError.details;
+    const upgrade = details && typeof details === "object" && !Array.isArray(details)
+        ? (details as Record<string, unknown>).upgrade
+        : null;
+    return {
+        message: apiError.message,
+        ...(isUpgradeDetails(upgrade) ? { upgrade } : {}),
+    };
 }
 
 async function handleErrorResponse(response: Response): Promise<never> {
@@ -57,18 +92,12 @@ async function handleErrorResponse(response: Response): Promise<never> {
         // non-JSON error
     }
 
-    if (response.status === 402 || response.status === 413) {
-        if (isUpgradeErrorBody(body) && body.details?.upgrade) {
-            throw new UpgradeRequiredClientError(body.error, body.details.upgrade);
-        }
+    const parsed = parseErrorBody(body);
+    if (parsed?.upgrade) {
+        throw new UpgradeRequiredClientError(parsed.message, parsed.upgrade);
     }
 
-    // api-response wraps UpgradeRequiredError at any status with { error, details: { upgrade } }
-    if (isUpgradeErrorBody(body) && body.details?.upgrade) {
-        throw new UpgradeRequiredClientError(body.error, body.details.upgrade);
-    }
-
-    const message = isUpgradeErrorBody(body) ? body.error : `Request failed (${response.status})`;
+    const message = parsed?.message ?? `Request failed (${response.status})`;
     throw new Error(message);
 }
 
@@ -88,19 +117,13 @@ export async function createGuestDrop(
 
     if (!response.ok) return handleErrorResponse(response);
 
-    const body = await response.json() as {
-        data?: { drop_id: string; expires_at: string | null; upload_token: string | null };
-    };
-
-    const data = body.data;
-    if (!data || !data.upload_token) {
-        throw new Error("Server did not return an upload token");
-    }
+    const body: unknown = await response.json().catch(() => null);
+    const data = parseUploadTargetResponse(body);
 
     return {
-        dropId: data.drop_id,
-        expiresAt: data.expires_at,
-        uploadToken: data.upload_token,
+        dropId: data.dropId,
+        expiresAt: data.expiresAt,
+        uploadToken: data.uploadToken,
     };
 }
 
@@ -125,7 +148,8 @@ export async function addFileToGuestDrop(
 
     if (!response.ok) return handleErrorResponse(response);
 
-    return response.json() as Promise<GuestAddFileResult>;
+    const body: unknown = await response.json().catch(() => null);
+    return parseProvisionedFileResponse(body, input.chunkCount);
 }
 
 export async function finishGuestDrop(

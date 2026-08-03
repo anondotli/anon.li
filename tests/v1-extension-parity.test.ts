@@ -202,6 +202,25 @@ describe("extension parity routes", () => {
             tier: "plus",
             vault_configured: true,
         })
+        expect(prisma.user.findUnique).toHaveBeenCalledWith(
+            expect.objectContaining({
+                select: expect.objectContaining({
+                    _count: {
+                        select: {
+                            aliases: { where: { organizationId: null } },
+                            drops: { where: { organizationId: null, deletedAt: null } },
+                            domains: { where: { organizationId: null } },
+                            recipients: { where: { organizationId: null } },
+                        },
+                    },
+                }),
+            }),
+        )
+        expect(prisma.alias.groupBy).toHaveBeenCalledWith(
+            expect.objectContaining({
+                where: { userId: "user-123", organizationId: null },
+            }),
+        )
     })
 
     it("lists wrapped drop keys with extension-facing field names", async () => {

@@ -25,6 +25,7 @@ const setPgpSchema = z.object({
 export const PUT = withPolicy<RouteParams>(
     {
         auth: "api_key",
+        organizationAccess: "subscribed",
         requireCsrf: true,
         rateLimit: "pgpOps",
     },
@@ -64,6 +65,7 @@ export const PUT = withPolicy<RouteParams>(
 export const DELETE = withPolicy<RouteParams>(
     {
         auth: "api_key",
+        organizationAccess: "subscribed",
         requireCsrf: true,
         rateLimit: "pgpOps",
     },

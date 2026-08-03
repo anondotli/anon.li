@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 
 import { Progress } from "@/components/ui/progress";
+import { Button } from "@/components/ui/button";
 import {
   Table,
   TableBody,
@@ -44,6 +45,7 @@ import { DropListActions } from "@/components/drop/drop-list-actions";
 import { RecipientsDialog, type ManagedDrop } from "@/components/drop/recipients-dialog";
 import { formatDropExpiry, getDropFileIcon, isDropExpired } from "@/components/drop/drop-list-utils";
 import { DROP_FEATURES } from "@/config/plans";
+import { useTransientState } from "@/hooks/use-transient-state";
 
 interface DropFileItem {
   id: string;
@@ -82,7 +84,7 @@ export function DropList({ initialDrops, storage, onDropsChange, userTier }: Dro
   const [recipientsDrop, setRecipientsDrop] = useState<ManagedDrop | null>(null);
   const [expandedDrops, setExpandedDrops] = useState<Set<string>>(new Set());
   const [isPending, startTransition] = useTransition();
-  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const { value: copiedId, setTransientValue: showCopied } = useTransientState<string | null>(null);
 
   // UI gate only — the server is authoritative and returns an upsell otherwise.
   const featureTier = userTier === "plus" || userTier === "pro" ? userTier : "free";
@@ -234,9 +236,8 @@ export function DropList({ initialDrops, storage, onDropsChange, userTier }: Dro
 
     try {
       await navigator.clipboard.writeText(shareUrl);
-      setCopiedId(drop.id);
+      showCopied(drop.id, 2000);
       toast.success("Link copied to clipboard");
-      setTimeout(() => setCopiedId(null), 2000);
     } catch {
       toast.error("Failed to copy link");
     }
@@ -331,19 +332,25 @@ export function DropList({ initialDrops, storage, onDropsChange, userTier }: Dro
                   <Fragment key={drop.id}>
                     <TableRow
                       className={cn(
-                        hasMultipleFiles && "cursor-pointer hover:bg-muted/50",
                         unavailable && "opacity-60"
                       )}
-                      onClick={hasMultipleFiles ? () => toggleExpanded(drop.id) : undefined}
                     >
                       <TableCell>
                         {hasMultipleFiles && (
-                          <div className="flex items-center justify-center">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={() => toggleExpanded(drop.id)}
+                            aria-label={isExpanded ? `Collapse files in ${displayName}` : `Expand files in ${displayName}`}
+                            aria-expanded={isExpanded}
+                          >
                             {isExpanded
                               ? <ChevronDown className="w-4 h-4 text-muted-foreground" />
                               : <ChevronRight className="w-4 h-4 text-muted-foreground" />
                             }
-                          </div>
+                          </Button>
                         )}
                       </TableCell>
                       <TableCell>

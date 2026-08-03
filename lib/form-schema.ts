@@ -443,6 +443,12 @@ export function validateAnswersAgainstSchema(
                 if (!Number.isFinite(num)) throw new Error(`Field "${field.label}" must be a number`)
                 if (field.min !== undefined && num < field.min) throw new Error(`Field "${field.label}" must be ≥ ${field.min}`)
                 if (field.max !== undefined && num > field.max) throw new Error(`Field "${field.label}" must be ≤ ${field.max}`)
+                if (field.step !== undefined) {
+                    const offset = (num - (field.min ?? 0)) / field.step
+                    if (Math.abs(offset - Math.round(offset)) >= 1e-9) {
+                        throw new Error(`Field "${field.label}" must use increments of ${field.step}`)
+                    }
+                }
                 out[field.id] = num
                 break
             }

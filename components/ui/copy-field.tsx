@@ -1,12 +1,13 @@
 "use client"
 
-import { useId, useState } from "react"
+import { useId } from "react"
 import { toast } from "sonner"
 import { Check, Copy } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { cn } from "@/lib/utils"
+import { useClipboard } from "@/hooks/use-clipboard"
 
 interface CopyFieldProps {
     label: string
@@ -18,15 +19,12 @@ interface CopyFieldProps {
 /** Read-only value with a one-tap copy button. */
 export function CopyField({ label, value, monospace, className }: CopyFieldProps) {
     const id = useId()
-    const [copied, setCopied] = useState(false)
+    const { copied, copy } = useClipboard(1_500)
 
     const onCopy = async () => {
-        try {
-            await navigator.clipboard.writeText(value)
-            setCopied(true)
-            setTimeout(() => setCopied(false), 1_500)
+        if (await copy(value)) {
             toast.success(`${label} copied`)
-        } catch {
+        } else {
             toast.error("Copy failed. Select and copy manually.")
         }
     }

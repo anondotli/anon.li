@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma"
 import type { SubscriptionLike } from "@/lib/limits"
+import type { Prisma } from "@prisma/client"
 
 interface AuthUserState {
     id: string
@@ -20,15 +21,25 @@ interface AuthApiKeyRecord {
     organizationSubscriptions: SubscriptionLike[] | null
 }
 
-const ACTIVE_SUBSCRIPTION_SELECT = {
-    where: { status: { in: ["active", "trialing"] } },
-    select: {
-        status: true,
-        product: true,
-        tier: true,
-        currentPeriodEnd: true,
+const ACTIVE_SUBSCRIPTION_FIELDS = {
+    status: true,
+    product: true,
+    tier: true,
+    currentPeriodEnd: true,
+} satisfies Prisma.SubscriptionSelect
+
+const ACTIVE_PERSONAL_SUBSCRIPTION_SELECT = {
+    where: {
+        organizationId: null,
+        status: { in: ["active", "trialing"] },
     },
-}
+    select: ACTIVE_SUBSCRIPTION_FIELDS,
+} satisfies Prisma.User$subscriptionsArgs
+
+const ACTIVE_ORG_SUBSCRIPTION_SELECT = {
+    where: { status: { in: ["active", "trialing"] } },
+    select: ACTIVE_SUBSCRIPTION_FIELDS,
+} satisfies Prisma.Organization$subscriptionsArgs
 
 /**
  * Active subscriptions owned by an organization. Used to derive ORG-scope
@@ -36,12 +47,23 @@ const ACTIVE_SUBSCRIPTION_SELECT = {
  * single member's personal plan. Returns a UserSub-shaped context (no personal
  * referral perk) so getPlanLimits/getDropLimits/etc. yield the org's allowances.
  */
-export async function getOrgLimitContext(organizationId: string): Promise<{ subscriptions: SubscriptionLike[]; referralPlusUntil: null }> {
-    const subscriptions = await prisma.subscription.findMany({
-        where: { organizationId, status: { in: ["active", "trialing"] } },
-        select: ACTIVE_SUBSCRIPTION_SELECT.select,
+export async function getOrgLimitContext(organizationId: string): Promise<{
+    subscriptions: SubscriptionLike[]
+    referralPlusUntil: null
+    storageUsed: bigint
+}> {
+    const organization = await prisma.organization.findUnique({
+        where: { id: organizationId },
+        select: {
+            storageUsed: true,
+            subscriptions: ACTIVE_ORG_SUBSCRIPTION_SELECT,
+        },
     })
-    return { subscriptions, referralPlusUntil: null }
+    return {
+        subscriptions: organization?.subscriptions ?? [],
+        referralPlusUntil: null,
+        storageUsed: organization?.storageUsed ?? BigInt(0),
+    }
 }
 
 /**
@@ -118,7 +140,7 @@ export async function getAuthUserState(userId: string): Promise<AuthUserState | 
             banned: true,
             twoFactorEnabled: true,
             referralPlusUntil: true,
-            subscriptions: ACTIVE_SUBSCRIPTION_SELECT,
+            subscriptions: ACTIVE_PERSONAL_SUBSCRIPTION_SELECT,
             memberships: {
                 select: {
                     organizationId: true,
@@ -159,7 +181,7 @@ export async function getAuthUserState(userId: string): Promise<AuthUserState | 
                 organizationId: { in: orgIds },
                 status: { in: ["active", "trialing"] },
             },
-            select: ACTIVE_SUBSCRIPTION_SELECT.select,
+            select: ACTIVE_SUBSCRIPTION_FIELDS,
         })
         authUser.subscriptions = [...authUser.subscriptions, ...orgSubscriptions]
     }
@@ -174,13 +196,20 @@ export async function getAuthApiKeyRecord(keyHash: string): Promise<(AuthApiKeyR
             id: true,
             expiresAt: true,
             organizationId: true,
-            organization: { select: { subscriptions: ACTIVE_SUBSCRIPTION_SELECT } },
+            organization: { select: { subscriptions: ACTIVE_ORG_SUBSCRIPTION_SELECT } },
             user: {
                 select: {
                     id: true,
                     banned: true,
                     referralPlusUntil: true,
-                    subscriptions: ACTIVE_SUBSCRIPTION_SELECT,
+                    subscriptions: ACTIVE_PERSONAL_SUBSCRIPTION_SELECT,
+                    memberships: {
+                        select: {
+                            organization: {
+                                select: { subscriptions: ACTIVE_ORG_SUBSCRIPTION_SELECT },
+                            },
+                        },
+                    },
                     deletionRequest: {
                         select: { id: true },
                     },
@@ -193,13 +222,24 @@ export async function getAuthApiKeyRecord(keyHash: string): Promise<(AuthApiKeyR
         return null
     }
 
-    const { deletionRequest: _deletionRequest, ...user } = apiKey.user
+    const {
+        deletionRequest: _deletionRequest,
+        memberships = [],
+        subscriptions,
+        ...user
+    } = apiKey.user
     return {
         id: apiKey.id,
         expiresAt: apiKey.expiresAt,
         organizationId: apiKey.organizationId,
         organizationSubscriptions: apiKey.organization?.subscriptions ?? null,
-        user,
+        user: {
+            ...user,
+            subscriptions: [
+                ...subscriptions,
+                ...memberships.flatMap((membership) => membership.organization.subscriptions),
+            ],
+        },
     }
 }
 

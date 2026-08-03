@@ -129,12 +129,12 @@ describe("decrypted form response payloads", () => {
                     JSON.stringify({
                         data: [
                             {
-                                id: "malicious_submission",
+                                id: "malicious00001",
                                 created_at: "2026-07-15T10:00:00.000Z",
                                 read_at: null,
                                 has_attached_drop: true,
-                                ephemeral_pub_key: "public-key",
-                                iv: "initial-vector",
+                                ephemeral_pub_key: "A".repeat(87),
+                                iv: "A".repeat(16),
                                 encrypted_payload: "ciphertext",
                             },
                         ],
@@ -150,7 +150,7 @@ describe("decrypted form response payloads", () => {
         )
 
         await waitFor(() => {
-            expect(result.current.decoded.malicious_submission).toEqual({
+            expect(result.current.decoded.malicious00001).toEqual({
                 status: "error",
                 error: "Invalid submission payload",
             })

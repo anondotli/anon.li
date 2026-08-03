@@ -62,6 +62,7 @@ describe("withPolicy — API key OwnerScope", () => {
 
         const res = await route(apiKeyReq())
         expect(res.status).toBe(200)
+        expect(res.headers.get("Cache-Control")).toContain("no-store")
         expect(scope!.userId).toBe("u1")
         expect(scope!.organizationId).toBe("org-9")
         expect(scope!.role).toBe("member")

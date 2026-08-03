@@ -8,7 +8,6 @@ import {
   ARGON2_HASH_LENGTH,
   AUTH_TAG_SIZE,
 } from "@/lib/constants";
-import { argon2id } from "hash-wasm";
 import {
   arrayBufferToBase64Url as encodeBase64Url,
   base64UrlToArrayBuffer as decodeBase64Url,
@@ -173,11 +172,21 @@ class FileEncryptionService {
     chunkIndex: number
   ): Promise<ArrayBuffer> {
     const iv = this.generateChunkIv(baseIv, chunkIndex);
-    return crypto.subtle.decrypt(
-      { name: "AES-GCM", iv: this.getView(iv) },
-      key,
-      encryptedChunk
-    );
+    try {
+      return await crypto.subtle.decrypt(
+        { name: "AES-GCM", iv: this.getView(iv) },
+        key,
+        encryptedChunk
+      );
+    } catch (error) {
+      const legacyIv = this.generateLegacyChunkIv(baseIv, chunkIndex);
+      if (this.equalBytes(iv, legacyIv)) throw error;
+      return crypto.subtle.decrypt(
+        { name: "AES-GCM", iv: this.getView(legacyIv) },
+        key,
+        encryptedChunk
+      );
+    }
   }
 
   private async encryptMetadataValue(
@@ -209,11 +218,22 @@ class FileEncryptionService {
     const encrypted = this.base64UrlToArrayBuffer(encryptedValue);
     const metadataIv = this.generateChunkIv(iv, domainIndex);
 
-    const decrypted = await crypto.subtle.decrypt(
-      { name: "AES-GCM", iv: this.getView(metadataIv) },
-      key,
-      encrypted
-    );
+    let decrypted: ArrayBuffer;
+    try {
+      decrypted = await crypto.subtle.decrypt(
+        { name: "AES-GCM", iv: this.getView(metadataIv) },
+        key,
+        encrypted
+      );
+    } catch (error) {
+      const legacyIv = this.generateLegacyChunkIv(iv, domainIndex);
+      if (this.equalBytes(metadataIv, legacyIv)) throw error;
+      decrypted = await crypto.subtle.decrypt(
+        { name: "AES-GCM", iv: this.getView(legacyIv) },
+        key,
+        encrypted
+      );
+    }
 
     return new TextDecoder().decode(decrypted);
   }
@@ -255,6 +275,10 @@ class FileEncryptionService {
   async deriveKeyFromPassword(password: string, salt: string): Promise<CryptoKey> {
     const saltBytes = new Uint8Array(this.base64UrlToArrayBuffer(salt));
 
+    // Argon2 is only needed for password-protected Drops/Forms. Loading the
+    // WASM implementation lazily keeps it out of the initial download and
+    // ordinary random-key encryption path.
+    const { argon2id } = await import("hash-wasm");
     const hash = await argon2id({
       password,
       salt: saltBytes,
@@ -316,16 +340,37 @@ class FileEncryptionService {
   createDecryptionStream(
     key: CryptoKey,
     baseIv: Uint8Array,
-    chunkSize: number
+    chunkSize: number,
+    expected: { encryptedSize: number; chunkCount: number },
   ): TransformStream<Uint8Array, Uint8Array> {
+    if (!Number.isSafeInteger(chunkSize) || chunkSize < 1) {
+      throw new RangeError("Encrypted chunk size must be a positive safe integer");
+    }
+    if (!Number.isSafeInteger(expected.encryptedSize) || expected.encryptedSize < AUTH_TAG_SIZE + 1) {
+      throw new RangeError("Encrypted file size is invalid");
+    }
+    if (
+      !Number.isSafeInteger(expected.chunkCount)
+      || expected.chunkCount < 1
+      || expected.chunkCount > MAX_CHUNKS_PER_FILE
+    ) {
+      throw new RangeError("Encrypted file chunk count is invalid");
+    }
+
     const encryptedChunkSize = chunkSize + AUTH_TAG_SIZE;
     let chunkIndex = 0;
+    let receivedEncryptedBytes = 0;
     let buffer = new Uint8Array(0);
     const decryptChunk = this.decryptChunk.bind(this);
     const getView = this.getView.bind(this);
 
     return new TransformStream({
       async transform(chunk, controller) {
+        receivedEncryptedBytes += chunk.byteLength;
+        if (receivedEncryptedBytes > expected.encryptedSize) {
+          throw new Error("Encrypted file is larger than declared");
+        }
+
         const newBuffer = new Uint8Array(buffer.length + chunk.length);
         newBuffer.set(buffer);
         newBuffer.set(chunk, buffer.length);
@@ -344,6 +389,10 @@ class FileEncryptionService {
 
           controller.enqueue(new Uint8Array(decrypted));
           chunkIndex++;
+
+          if (chunkIndex > expected.chunkCount) {
+            throw new Error("Encrypted file contains too many chunks");
+          }
         }
       },
 
@@ -357,21 +406,57 @@ class FileEncryptionService {
               chunkIndex
             );
             controller.enqueue(new Uint8Array(decrypted));
+            chunkIndex++;
           } catch (error) {
             controller.error(error);
+            return;
           }
+        }
+
+        if (
+          receivedEncryptedBytes !== expected.encryptedSize
+          || chunkIndex !== expected.chunkCount
+        ) {
+          controller.error(new Error("Encrypted file is incomplete or malformed"));
         }
       }
     });
   }
 
   private generateChunkIv(baseIv: Uint8Array, chunkIndex: number): Uint8Array {
-    const iv = new Uint8Array(CryptoConfig.IV_LENGTH);
-    iv.set(baseIv.slice(0, 8));
+    this.validateNonceInput(baseIv, chunkIndex);
+    const iv = baseIv.slice();
 
     const view = new DataView(iv.buffer);
-    view.setUint32(8, chunkIndex, false); // Big-endian
+    // Preserve all 96 random bits in the per-file base IV. XORing the final
+    // word with the chunk/domain counter is a bijection, so counters remain
+    // distinct within a file while independent files retain 96-bit collision
+    // resistance. Older clients overwrote this word; decryption falls back to
+    // that authenticated legacy format above.
+    view.setUint32(8, view.getUint32(8, false) ^ chunkIndex, false);
     return iv;
+  }
+
+  private generateLegacyChunkIv(baseIv: Uint8Array, chunkIndex: number): Uint8Array {
+    this.validateNonceInput(baseIv, chunkIndex);
+    const iv = new Uint8Array(CryptoConfig.IV_LENGTH);
+    iv.set(baseIv.slice(0, 8));
+    new DataView(iv.buffer).setUint32(8, chunkIndex, false);
+    return iv;
+  }
+
+  private validateNonceInput(baseIv: Uint8Array, chunkIndex: number): void {
+    if (baseIv.byteLength !== CryptoConfig.IV_LENGTH) {
+      throw new RangeError("AES-GCM base IV must be 12 bytes");
+    }
+    if (!Number.isSafeInteger(chunkIndex) || chunkIndex < 0 || chunkIndex > 0xFFFFFFFF) {
+      throw new RangeError("AES-GCM nonce counter is out of range");
+    }
+  }
+
+  private equalBytes(left: Uint8Array, right: Uint8Array): boolean {
+    return left.byteLength === right.byteLength
+      && left.every((value, index) => value === right[index]);
   }
 
   /**
@@ -400,28 +485,6 @@ class FileEncryptionService {
     return decodeBase64Url(base64url);
   }
 
-  async hashFileForResume(file: File): Promise<string> {
-    try {
-      const sampleSize = Math.min(1024 * 1024, file.size);
-      const sample = await file.slice(0, sampleSize).arrayBuffer();
-
-      const encoder = new TextEncoder();
-      const metadata = encoder.encode(`${file.name}:${file.size}:${file.lastModified}`);
-
-      const combined = new Uint8Array(sample.byteLength + metadata.byteLength);
-      combined.set(new Uint8Array(sample), 0);
-      combined.set(metadata, sample.byteLength);
-
-      const hash = await crypto.subtle.digest("SHA-256", combined);
-      return this.arrayBufferToBase64Url(hash);
-    } catch {
-      // Fallback for environments where crypto.subtle.digest might fail or be unavailable
-      const fallbackStr = `${file.name}:${file.size}:${file.lastModified}`;
-      return btoa(fallbackStr).replace(/[+/=]/g, (c) =>
-        c === '+' ? '-' : c === '/' ? '_' : ''
-      );
-    }
-  }
 }
 
 // Export a singleton instance for standard usage

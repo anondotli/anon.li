@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label"
 import { createApiKeyAction } from "@/actions/api-key"
 import { Loader2, Plus, Copy, Check } from "lucide-react"
 import { toast } from "sonner"
+import { useTransientState } from "@/hooks/use-transient-state"
 
 export function CreateApiKeyForm() {
     const [isLoading, setIsLoading] = useState(false)
@@ -31,7 +32,7 @@ export function CreateApiKeyForm() {
         }
     }
 
-    const [hasCopied, setHasCopied] = useState(false)
+    const { value: hasCopied, setTransientValue: showCopied } = useTransientState(false)
     const copyToClipboard = async () => {
         if (!newKey) return
         try {
@@ -48,8 +49,7 @@ export function CreateApiKeyForm() {
                 document.execCommand("copy")
                 document.body.removeChild(textArea)
             }
-            setHasCopied(true)
-            setTimeout(() => setHasCopied(false), 2000)
+            showCopied(true, 2000)
             toast.success("Copied to clipboard")
         } catch {
             toast.error("Failed to copy to clipboard")

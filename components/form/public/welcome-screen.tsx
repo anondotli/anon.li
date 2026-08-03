@@ -31,16 +31,8 @@ export function WelcomeScreen({
 
     useEffect(() => {
         if (!showStart || disabled) return
-        const onKey = (e: KeyboardEvent) => {
-            if (e.key === "Enter") {
-                e.preventDefault()
-                onStart()
-            }
-        }
-        window.addEventListener("keydown", onKey)
         buttonRef.current?.focus()
-        return () => window.removeEventListener("keydown", onKey)
-    }, [onStart, disabled, showStart])
+    }, [disabled, showStart])
 
     const minutes = Math.max(1, Math.ceil(questionCount * 0.4))
 

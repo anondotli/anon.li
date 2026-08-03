@@ -79,15 +79,15 @@ const createDropSchema = z.object({
     iv: z.string().length(16),
     encryptedTitle: z.string().max(1024).optional(),
     encryptedMessage: z.string().max(4096).optional(),
-    expiry: z.number().min(1).max(30).optional(),
-    maxDownloads: z.number().min(1).optional(),
+    expiry: z.number().int().min(1).max(30).optional(),
+    maxDownloads: z.number().int().min(1).max(1_000_000).optional(),
     customKey: z.boolean().optional(),
     salt: z.string().length(43).optional(),
     customKeyData: z.string().min(70).max(512).optional(),
     customKeyIv: z.string().length(16).optional(),
     hideBranding: z.boolean().optional(),
     notifyOnDownload: z.boolean().optional(),
-    fileCount: z.number().int().positive().optional(),
+    fileCount: z.number().int().min(1).max(50).optional(),
     wrappedKey: wrappedDropKeySchema,
     vaultId: vaultIdSchema,
     vaultGeneration: vaultGenerationSchema,
@@ -110,15 +110,15 @@ const createDropSchema = z.object({
 const addFileSchema = addFileActionSchema;
 
 const finishDropSchema = z.object({
-    dropId: z.string().min(1),
+    dropId: z.string().min(1).max(64),
     files: z.array(z.object({
-        fileId: z.string().min(1),
+        fileId: z.string().min(1).max(64),
         chunks: z.array(z.object({
             chunkIndex: z.number().int().min(0),
             etag: z.string().min(1).max(256),
-        })).min(1).max(MAX_CHUNKS_PER_FILE),
-    })).min(1).max(50),
-});
+        }).strict()).min(1).max(MAX_CHUNKS_PER_FILE),
+    }).strict()).min(1).max(50),
+}).strict();
 
 // ============================================================================
 // Response Types

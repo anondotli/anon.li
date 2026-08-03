@@ -28,7 +28,7 @@ const publishIdentitySchema = z.object({
     wrappedIdentityPrivateKey: wrappedIdentityPrivateKeySchema,
     vaultId: vaultIdSchema,
     vaultGeneration: vaultGenerationSchema,
-})
+}).strict()
 const ROUTE_NAME = "vault-identity"
 
 export async function GET(request: Request) {

@@ -112,7 +112,7 @@ describe("upsertStripeSubscription — seat-change audit", () => {
     })
 
     it("does NOT audit when seats are unchanged", async () => {
-        prisma.subscription.findUnique.mockResolvedValue({ seats: 5 })
+        prisma.subscription.findUnique.mockResolvedValue({ seats: 5, organizationId: "org-9" })
         await upsertStripeSubscription("owner-1", makeSub({ seats: 5 }))
         expect(audit).not.toHaveBeenCalled()
     })
@@ -124,12 +124,41 @@ describe("upsertStripeSubscription — seat-change audit", () => {
     })
 
     it("does NOT audit for a personal subscription", async () => {
+        getPlanFromPriceId.mockReturnValue({ product: "bundle", tier: "pro" })
         prisma.subscription.findUnique.mockResolvedValue(null)
         await upsertStripeSubscription("user-1", makeSub({ seats: 1, organizationId: null }))
         expect(audit).not.toHaveBeenCalled()
     })
 
+    it("rejects a Business subscription without organization ownership", async () => {
+        prisma.subscription.findUnique.mockResolvedValue(null)
+
+        await expect(upsertStripeSubscription(
+            "user-1",
+            makeSub({ seats: 1, organizationId: null }),
+        )).rejects.toThrow("Business subscriptions require organization ownership")
+
+        expect(prisma.subscription.upsert).not.toHaveBeenCalled()
+        expect(prisma.subscription.updateMany).toHaveBeenCalledWith({
+            where: { providerSubscriptionId: "sub_123" },
+            data: { status: "past_due" },
+        })
+    })
+
+    it("rejects a personal product attached to an organization", async () => {
+        getPlanFromPriceId.mockReturnValue({ product: "bundle", tier: "pro" })
+        prisma.subscription.findUnique.mockResolvedValue(null)
+
+        await expect(upsertStripeSubscription(
+            "user-1",
+            makeSub({ organizationId: "org-9" }),
+        )).rejects.toThrow("bundle subscriptions cannot be organization-owned")
+
+        expect(prisma.subscription.upsert).not.toHaveBeenCalled()
+    })
+
     it("records personal Form retention grace on an inactive sync", async () => {
+        getPlanFromPriceId.mockReturnValue({ product: "bundle", tier: "pro" })
         prisma.subscription.findUnique.mockResolvedValue(null)
 
         await upsertStripeSubscription(

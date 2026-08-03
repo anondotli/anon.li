@@ -37,6 +37,7 @@ import {
     apiRateLimitError,
     apiErrorFromUnknown,
     withApiHeaders,
+    withNoStore,
     ErrorCodes,
 } from "@/lib/api-response"
 import { ForbiddenError } from "@/lib/api-error-utils"
@@ -130,6 +131,20 @@ async function applyPolicyRateLimit<TRouteContext>(
     if (!identifier) return null
 
     return rateLimit(policy.rateLimit, identifier)
+}
+
+function finalizePolicyResponse(
+    policy: RoutePolicy,
+    response: Response,
+    requestId: string,
+    rateLimitHeaders: Headers | null,
+): Response {
+    const enriched = withApiHeaders(response, requestId, rateLimitHeaders)
+    // Authenticated API payloads routinely contain tenant-private metadata and
+    // occasionally one-time credentials. Session-cookie requests in particular
+    // must never be retained by a browser or intermediary cache. Public routes
+    // opt into cache policy explicitly at the handler level.
+    return policy.auth === "none" ? enriched : withNoStore(enriched)
 }
 
 // ─── Main middleware ────────────────────────────────────────────────────────
@@ -252,7 +267,7 @@ export function withPolicy<TRouteContext = void>(policy: RoutePolicy, handler: P
                             if (rateLimited) return rateLimited
 
                             const response = await handler(ctx, routeContext)
-                            return withApiHeaders(response, requestId, rateLimitHeaders)
+                            return finalizePolicyResponse(policy, response, requestId, rateLimitHeaders)
                         }
                         return apiError("Unauthorized", ErrorCodes.UNAUTHORIZED, requestId, 401)
                     }
@@ -354,7 +369,7 @@ export function withPolicy<TRouteContext = void>(policy: RoutePolicy, handler: P
             }
 
             const response = await handler(ctx, routeContext)
-            return withApiHeaders(response, requestId, rateLimitHeaders)
+            return finalizePolicyResponse(policy, response, requestId, rateLimitHeaders)
         } catch (error) {
             if (error instanceof ForbiddenError) {
                 return apiError(error.message, ErrorCodes.FORBIDDEN, requestId, 403)

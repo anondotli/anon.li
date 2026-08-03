@@ -60,6 +60,21 @@ describe("linear_scale field", () => {
 })
 
 describe("schema and text/date validation", () => {
+    it("enforces number bounds and configured increments", () => {
+        const doc = docWith({
+            id: "amount",
+            label: "Amount",
+            type: "number",
+            min: 1,
+            max: 10,
+            step: 0.5,
+        })
+
+        expect(validateAnswersAgainstSchema(doc, { amount: 1.5 })).toEqual({ amount: 1.5 })
+        expect(() => validateAnswersAgainstSchema(doc, { amount: 1.25 })).toThrow("increments of 0.5")
+        expect(() => validateAnswersAgainstSchema(doc, { amount: 10.5 })).toThrow("must be ≤ 10")
+    })
+
     it("rejects whitespace-only required text", () => {
         const doc = docWith({ id: "name", label: "Name", type: "short_text", required: true })
         expect(() => validateAnswersAgainstSchema(doc, { name: "   " })).toThrow("required")

@@ -49,6 +49,7 @@ vi.mock("@upstash/redis", () => ({
     },
 }))
 vi.mock("@/lib/services/subscription-sync", () => ({
+    InvalidSubscriptionOwnershipError: class InvalidSubscriptionOwnershipError extends Error {},
     upsertStripeSubscription,
 }))
 vi.mock("@/lib/prisma", () => ({
@@ -234,5 +235,54 @@ describe("stripe webhook revenue events", () => {
                 billing_reason: "new",
             }),
         })])
+    })
+
+    it("recovers organization ownership from the signed checkout session", async () => {
+        subscriptionsRetrieve.mockResolvedValue(subscriptionFixture({ id: "sub_team", metadata: {} }))
+
+        const res = await deliver({
+            id: "evt_team_checkout",
+            type: "checkout.session.completed",
+            data: {
+                object: {
+                    id: "cs_team",
+                    metadata: { userId: "user-1", organizationId: "org-1" },
+                    client_reference_id: "user-1",
+                    subscription: "sub_team",
+                },
+            },
+        })
+
+        expect(res.status).toBe(200)
+        expect(upsertStripeSubscription).toHaveBeenCalledWith(
+            "user-1",
+            expect.objectContaining({
+                metadata: expect.objectContaining({ organizationId: "org-1", userId: "user-1" }),
+            }),
+        )
+        expect(cancelDowngrade).not.toHaveBeenCalled()
+    })
+
+    it("rejects conflicting checkout and subscription organization ownership", async () => {
+        subscriptionsRetrieve.mockResolvedValue(subscriptionFixture({
+            id: "sub_conflict",
+            metadata: { organizationId: "org-stripe" },
+        }))
+
+        const res = await deliver({
+            id: "evt_team_conflict",
+            type: "checkout.session.completed",
+            data: {
+                object: {
+                    id: "cs_conflict",
+                    metadata: { userId: "user-1", organizationId: "org-session" },
+                    client_reference_id: "user-1",
+                    subscription: "sub_conflict",
+                },
+            },
+        })
+
+        expect(res.status).toBe(200)
+        expect(upsertStripeSubscription).not.toHaveBeenCalled()
     })
 })

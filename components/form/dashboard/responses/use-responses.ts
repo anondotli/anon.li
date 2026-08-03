@@ -5,6 +5,7 @@ import { useVault } from "@/components/vault/vault-provider"
 import { fetchWrappedFormKey } from "@/lib/vault/form-keys-client"
 import { unwrapVaultPayload, arrayBufferToBase64Url } from "@/lib/vault/crypto"
 import { decryptFromSubmission } from "@/lib/crypto/asymmetric"
+import { z } from "zod"
 import {
     parseDecryptedSubmissionPayload,
     type DecryptedAttachments,
@@ -45,6 +46,40 @@ interface PayloadRow {
     ephemeral_pub_key?: string
     iv?: string
     encrypted_payload?: string
+}
+
+const CiphertextRowSchema = z.object({
+    id: z.string().regex(/^[a-z0-9]{14}$/),
+    created_at: z.iso.datetime(),
+    read_at: z.iso.datetime().nullable(),
+    ephemeral_pub_key: z.string().regex(/^[A-Za-z0-9_-]{87}$/),
+    iv: z.string().regex(/^[A-Za-z0-9_-]{16}$/),
+    encrypted_payload: z.string().min(1).max(5 * 1024 * 1024).regex(/^[A-Za-z0-9_-]+$/),
+}).passthrough()
+
+const SubmissionPageResponseSchema = z.object({
+    data: z.array(CiphertextRowSchema.extend({
+        has_attached_drop: z.boolean(),
+    })).max(PAGE_SIZE),
+    meta: z.object({
+        total: z.number().int().nonnegative(),
+    }).passthrough(),
+}).passthrough()
+
+const SingleSubmissionResponseSchema = z.object({
+    data: CiphertextRowSchema,
+}).passthrough()
+
+function parseSubmissionPageResponse(payload: unknown): { rows: PayloadRow[]; total: number } {
+    const parsed = SubmissionPageResponseSchema.safeParse(payload)
+    if (!parsed.success) throw new Error("Server returned an invalid response list")
+    return { rows: parsed.data.data, total: parsed.data.meta.total }
+}
+
+function parseSingleSubmissionResponse(payload: unknown): PayloadRow {
+    const parsed = SingleSubmissionResponseSchema.safeParse(payload)
+    if (!parsed.success) throw new Error("Server returned an invalid submission response")
+    return { ...parsed.data.data, has_attached_drop: false }
 }
 
 /** Decryption state for one submission, keyed by id in the cache. */
@@ -170,8 +205,8 @@ export function useResponses(
                 { credentials: "same-origin", signal: abortRef.current?.signal },
             )
             if (!res.ok) throw new Error(`Failed to load responses (${res.status})`)
-            const body = (await res.json()) as { data: PayloadRow[]; meta?: { total?: number } }
-            return { rows: body.data ?? [], total: body.meta?.total ?? offset + (body.data?.length ?? 0) }
+            const body: unknown = await res.json().catch(() => null)
+            return parseSubmissionPageResponse(body)
         },
         [formId],
     )
@@ -207,10 +242,10 @@ export function useResponses(
                 return next
             })
         } catch (err) {
-            setKeyError(toMessage(err))
+            if (!abortRef.current?.signal.aborted) setKeyError(toMessage(err))
         } finally {
             loadingRef.current = false
-            setLoadingMore(false)
+            if (!abortRef.current?.signal.aborted) setLoadingMore(false)
         }
     }, [ensureKey, fetchPayloadPage])
 
@@ -235,8 +270,11 @@ export function useResponses(
         setSubmissions((prev) =>
             prev.map((s) => (s.id === id && !s.readAt ? { ...s, readAt: new Date().toISOString() } : s)),
         )
-        // Persist read state server-side (GET marks read by default). Fire-and-forget.
-        void fetch(`/api/v1/form/submission/${id}`, { credentials: "same-origin" }).catch(() => {})
+        // Persist read state with an explicit, CSRF-protected mutation.
+        void fetch(`/api/v1/form/submission/${id}`, {
+            method: "PATCH",
+            credentials: "same-origin",
+        }).catch(() => {})
     }, [])
 
     const removeSubmission = useCallback((id: string) => {
@@ -263,16 +301,20 @@ export function useResponses(
                 try {
                     const privateKey = await ensureKey()
                     setKeyError(null)
-                    const res = await fetch(`/api/v1/form/submission/${id}?markRead=false`, {
+                    const res = await fetch(`/api/v1/form/submission/${id}`, {
                         credentials: "same-origin",
                         signal: abortRef.current?.signal,
                     })
                     if (!res.ok) throw new Error(`Failed to load submission (${res.status})`)
-                    const body = (await res.json()) as { data: PayloadRow }
-                    const state = await decryptRow(privateKey, body.data)
+                    const body: unknown = await res.json().catch(() => null)
+                    const row = parseSingleSubmissionResponse(body)
+                    const state = await decryptRow(privateKey, row)
+                    if (abortRef.current?.signal.aborted) return
                     setDecoded((prev) => ({ ...prev, [id]: state }))
                 } catch (err) {
-                    setDecoded((prev) => ({ ...prev, [id]: { status: "error", error: toMessage(err) } }))
+                    if (!abortRef.current?.signal.aborted) {
+                        setDecoded((prev) => ({ ...prev, [id]: { status: "error", error: toMessage(err) } }))
+                    }
                 }
             })()
         },

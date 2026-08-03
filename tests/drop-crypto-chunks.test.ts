@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import { AUTH_TAG_SIZE, MAX_CHUNKS_PER_FILE, MIN_CHUNK_SIZE } from "@/lib/constants"
-import { calculateEncryptedSize, CryptoConfig } from "@/lib/crypto.client"
+import { calculateEncryptedSize, cryptoService, CryptoConfig } from "@/lib/crypto.client"
 import { buildMultipartUploadParts } from "@/lib/storage"
 
 const MiB = 1024 * 1024
@@ -57,5 +57,111 @@ describe("Drop multipart chunk sizing", () => {
 
         expect(params).toEqual({ chunkSize: MIN_CHUNK_SIZE, chunkCount: 2 })
         expect(parts.at(-1)?.contentLength).toBe(1 + AUTH_TAG_SIZE)
+    })
+})
+
+describe("Drop chunk nonces", () => {
+    it("uses the complete 96-bit base IV for new ciphertext", async () => {
+        const keyString = await cryptoService.generateKey()
+        const key = await cryptoService.importKey(keyString)
+        const baseIv = new Uint8Array([
+            1, 2, 3, 4, 5, 6, 7, 8,
+            0x10, 0x20, 0x30, 0x40,
+        ])
+        const plaintext = new TextEncoder().encode("nonce regression").buffer
+        const ciphertext = await cryptoService.encryptChunk(plaintext, key, baseIv, 3)
+
+        const legacyIv = new Uint8Array(12)
+        legacyIv.set(baseIv.slice(0, 8))
+        new DataView(legacyIv.buffer).setUint32(8, 3, false)
+
+        await expect(crypto.subtle.decrypt(
+            { name: "AES-GCM", iv: legacyIv },
+            key,
+            ciphertext,
+        )).rejects.toThrow()
+        await expect(cryptoService.decryptChunk(ciphertext, key, baseIv, 3))
+            .resolves.toEqual(plaintext)
+    })
+
+    it("still decrypts ciphertext written with the legacy 64-bit-prefix nonce", async () => {
+        const keyString = await cryptoService.generateKey()
+        const key = await cryptoService.importKey(keyString)
+        const baseIv = new Uint8Array([
+            9, 8, 7, 6, 5, 4, 3, 2,
+            0xaa, 0xbb, 0xcc, 0xdd,
+        ])
+        const legacyIv = new Uint8Array(12)
+        legacyIv.set(baseIv.slice(0, 8))
+        new DataView(legacyIv.buffer).setUint32(8, 7, false)
+        const plaintext = new TextEncoder().encode("legacy ciphertext").buffer
+        const ciphertext = await crypto.subtle.encrypt(
+            { name: "AES-GCM", iv: legacyIv },
+            key,
+            plaintext,
+        )
+
+        await expect(cryptoService.decryptChunk(ciphertext, key, baseIv, 7))
+            .resolves.toEqual(plaintext)
+    })
+})
+
+describe("Drop decryption stream integrity", () => {
+    it("decrypts only when the complete declared ciphertext is present", async () => {
+        const keyString = await cryptoService.generateKey()
+        const key = await cryptoService.importKey(keyString)
+        const baseIv = crypto.getRandomValues(new Uint8Array(12))
+        const first = await cryptoService.encryptChunk(
+            new TextEncoder().encode("abc").buffer,
+            key,
+            baseIv,
+            0,
+        )
+        const second = await cryptoService.encryptChunk(
+            new TextEncoder().encode("de").buffer,
+            key,
+            baseIv,
+            1,
+        )
+        const encryptedSize = first.byteLength + second.byteLength
+
+        const complete = new ReadableStream<Uint8Array>({
+            start(controller) {
+                controller.enqueue(new Uint8Array(first))
+                controller.enqueue(new Uint8Array(second))
+                controller.close()
+            },
+        }).pipeThrough(cryptoService.createDecryptionStream(key, baseIv, 3, {
+            encryptedSize,
+            chunkCount: 2,
+        }))
+
+        await expect(new Response(complete).text()).resolves.toBe("abcde")
+    })
+
+    it("rejects ciphertext truncated at an authenticated chunk boundary", async () => {
+        const keyString = await cryptoService.generateKey()
+        const key = await cryptoService.importKey(keyString)
+        const baseIv = crypto.getRandomValues(new Uint8Array(12))
+        const first = await cryptoService.encryptChunk(
+            new TextEncoder().encode("abc").buffer,
+            key,
+            baseIv,
+            0,
+        )
+
+        const truncated = new ReadableStream<Uint8Array>({
+            start(controller) {
+                controller.enqueue(new Uint8Array(first))
+                controller.close()
+            },
+        }).pipeThrough(cryptoService.createDecryptionStream(key, baseIv, 3, {
+            encryptedSize: first.byteLength + 18,
+            chunkCount: 2,
+        }))
+
+        await expect(new Response(truncated).arrayBuffer()).rejects.toThrow(
+            "Encrypted file is incomplete or malformed",
+        )
     })
 })

@@ -5,7 +5,7 @@
 
 import { EXPIRY_LIMITS } from "@/config/plans"
 import { apiError, apiSuccess, ErrorCodes } from "@/lib/api-response"
-import { getDisplayPlanLimits, getDropLimits, getEffectiveTier, type SubscriptionLike } from "@/lib/limits"
+import { getDisplayPlanLimits, getDropLimits, getEffectiveTier } from "@/lib/limits"
 import { DAY_MS } from "@/lib/constants"
 import { isOrgScope } from "@/lib/ownership"
 import { prisma } from "@/lib/prisma"
@@ -26,22 +26,7 @@ export const GET = withPolicy(
             return apiError("A personal API key is required", ErrorCodes.FORBIDDEN, ctx.requestId, 403)
         }
 
-        type UserResult = {
-            id: string
-            email: string | null
-            name: string | null
-            storageUsed: bigint
-            createdAt: Date
-            referralPlusUntil: Date | null
-            subscriptions: SubscriptionLike[]
-            _count: { aliases: number; drops: number; domains: number; recipients: number }
-        } | null
-
-        const [user, aliasByFormat, security]: [
-            UserResult,
-            { format: string; _count: { _all: number } }[],
-            { id: string } | null,
-        ] = await Promise.all([
+        const [user, aliasByFormat, security] = await Promise.all([
             prisma.user.findUnique({
                 where: { id: ctx.userId },
                 select: {
@@ -51,30 +36,21 @@ export const GET = withPolicy(
                     storageUsed: true,
                     createdAt: true,
                     referralPlusUntil: true,
-                    subscriptions: {
-                        where: { status: { in: ["active", "trialing"] } },
-                        select: {
-                            status: true,
-                            product: true,
-                            tier: true,
-                            currentPeriodEnd: true,
-                        },
-                    },
                     _count: {
                         select: {
-                            aliases: true,
-                            drops: { where: { deletedAt: null } },
-                            domains: true,
-                            recipients: true,
+                            aliases: { where: { organizationId: null } },
+                            drops: { where: { organizationId: null, deletedAt: null } },
+                            domains: { where: { organizationId: null } },
+                            recipients: { where: { organizationId: null } },
                         },
                     },
                 },
             }),
             prisma.alias.groupBy({
                 by: ["format"],
-                where: { userId: ctx.userId },
+                where: { userId: ctx.userId, organizationId: null },
                 _count: { _all: true },
-            }) as unknown as Promise<{ format: string; _count: { _all: number } }[]>,
+            }),
             prisma.userSecurity.findUnique({
                 where: { userId: ctx.userId },
                 select: { id: true },
@@ -85,11 +61,15 @@ export const GET = withPolicy(
             return apiError("User not found", ErrorCodes.NOT_FOUND, ctx.requestId, 404)
         }
 
-        const tier = getEffectiveTier(user)
-        const aliasLimits = getDisplayPlanLimits(user)
-        const dropLimits = getDropLimits(user)
+        const limitContext = {
+            subscriptions: ctx.user?.subscriptions ?? [],
+            referralPlusUntil: user.referralPlusUntil,
+        }
+        const tier = getEffectiveTier(limitContext)
+        const aliasLimits = getDisplayPlanLimits(limitContext)
+        const dropLimits = getDropLimits(limitContext)
         const now = Date.now()
-        const product = user.subscriptions
+        const product = limitContext.subscriptions
             .filter((s) => !s.currentPeriodEnd || s.currentPeriodEnd.getTime() + DAY_MS > now)
             .find((s) => s.tier === "plus" || s.tier === "pro")?.product ?? null
         const randomCount = aliasByFormat.find((group) => group.format === "RANDOM")?._count._all ?? 0

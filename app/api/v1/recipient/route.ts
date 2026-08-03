@@ -48,6 +48,7 @@ function toApiFormat(recipient: {
 export const GET = withPolicy(
     {
         auth: "api_key",
+        organizationAccess: "subscribed",
         rateLimit: "api",
     },
     async (ctx) => {
@@ -64,6 +65,7 @@ export const GET = withPolicy(
 export const POST = withPolicy(
     {
         auth: "api_key",
+        organizationAccess: "subscribed",
         requireCsrf: true,
         rateLimit: "recipientOps",
     },

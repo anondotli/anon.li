@@ -9,7 +9,7 @@ import { NextResponse } from "next/server"
 import { apiError, apiSuccess, ErrorCodes, generateRequestId, withNoStore, zodErrorToDetails } from "@/lib/api-response"
 import { withPolicy, scopeFromContext } from "@/lib/route-policy"
 import { FormService } from "@/lib/services/form"
-import { updateFormSchema } from "@/lib/validations/form"
+import { FormId, updateFormSchema } from "@/lib/validations/form"
 import { getClientIp, rateLimit } from "@/lib/rate-limit"
 import { NotFoundError, UpgradeRequiredError } from "@/lib/api-error-utils"
 
@@ -24,7 +24,12 @@ const getHandler = withPolicy<RouteParams>(
         rateLimitIdentifier: async () => getClientIp(),
     },
     async (_ctx, routeContext) => {
-        const { id } = await routeContext.params
+        const { id: rawId } = await routeContext.params
+        const parsedId = FormId.safeParse(rawId)
+        if (!parsedId.success) {
+            return apiError("Invalid form ID", ErrorCodes.VALIDATION_ERROR, _ctx.requestId, 400)
+        }
+        const id = parsedId.data
         const perIp = await rateLimit("formList", `${await getClientIp()}:${id}`)
         if (perIp) return perIp
 
@@ -63,12 +68,18 @@ export const GET = getHandler
 export const DELETE = withPolicy<RouteParams>(
     {
         auth: "api_key_or_session",
+        organizationAccess: "subscribed",
         apiQuota: "form",
         requireCsrf: true,
         rateLimit: "formOps",
     },
     async (ctx, routeContext) => {
-        const { id } = await routeContext.params
+        const { id: rawId } = await routeContext.params
+        const parsedId = FormId.safeParse(rawId)
+        if (!parsedId.success) {
+            return apiError("Invalid form ID", ErrorCodes.VALIDATION_ERROR, ctx.requestId, 400)
+        }
+        const id = parsedId.data
         await FormService.deleteForm(id, scopeFromContext(ctx))
         return apiSuccess({ deleted: true, id }, ctx.requestId)
     },
@@ -77,12 +88,18 @@ export const DELETE = withPolicy<RouteParams>(
 const updateHandler = withPolicy<RouteParams>(
     {
         auth: "api_key_or_session",
+        organizationAccess: "subscribed",
         apiQuota: "form",
         requireCsrf: true,
         rateLimit: "formOps",
     },
     async (ctx, routeContext) => {
-        const { id } = await routeContext.params
+        const { id: rawId } = await routeContext.params
+        const parsedId = FormId.safeParse(rawId)
+        if (!parsedId.success) {
+            return apiError("Invalid form ID", ErrorCodes.VALIDATION_ERROR, ctx.requestId, 400)
+        }
+        const id = parsedId.data
         const body = await ctx.request.json().catch(() => null)
         const parsed = updateFormSchema.safeParse(body)
         if (!parsed.success) {
@@ -96,7 +113,13 @@ const updateHandler = withPolicy<RouteParams>(
             }, ctx.requestId)
         } catch (error) {
             if (error instanceof UpgradeRequiredError) {
-                return apiError(error.message, ErrorCodes.PAYMENT_REQUIRED, ctx.requestId, 402)
+                return apiError(
+                    error.message,
+                    ErrorCodes.PAYMENT_REQUIRED,
+                    ctx.requestId,
+                    402,
+                    { upgrade: error.details },
+                )
             }
             throw error
         }
@@ -106,12 +129,18 @@ const updateHandler = withPolicy<RouteParams>(
 const toggleHandler = withPolicy<RouteParams>(
     {
         auth: "api_key_or_session",
+        organizationAccess: "subscribed",
         apiQuota: "form",
         requireCsrf: true,
         rateLimit: "formOps",
     },
     async (ctx, routeContext) => {
-        const { id } = await routeContext.params
+        const { id: rawId } = await routeContext.params
+        const parsedId = FormId.safeParse(rawId)
+        if (!parsedId.success) {
+            return apiError("Invalid form ID", ErrorCodes.VALIDATION_ERROR, ctx.requestId, 400)
+        }
+        const id = parsedId.data
         const disabled = await FormService.toggleForm(id, scopeFromContext(ctx))
         return apiSuccess({ disabled }, ctx.requestId)
     },

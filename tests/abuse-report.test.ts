@@ -8,25 +8,40 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { NextResponse } from "next/server"
 
-const { rateLimit, checkRateLimit, getClientIp, abuseReportFindUnique } = vi.hoisted(() => ({
+const {
+    rateLimit,
+    checkRateLimit,
+    getClientIp,
+    abuseReportFindUnique,
+    abuseReportFindFirst,
+    abuseReportCreate,
+    dropFindUnique,
+} = vi.hoisted(() => ({
     rateLimit: vi.fn(),
     checkRateLimit: vi.fn(),
     getClientIp: vi.fn().mockResolvedValue("203.0.113.5"),
     abuseReportFindUnique: vi.fn(),
+    abuseReportFindFirst: vi.fn(),
+    abuseReportCreate: vi.fn(),
+    dropFindUnique: vi.fn(),
 }))
 
 vi.mock("@/lib/rate-limit", () => ({
     rateLimit,
     checkRateLimit,
     getClientIp,
-    rateLimiters: { reportStatus: {}, reportAbuse: {} },
+    rateLimiters: { reportStatus: {}, reportAbuse: {}, reportAbusePerResource: {} },
 }))
 
 vi.mock("@/lib/prisma", () => ({
     prisma: {
-        abuseReport: { findUnique: abuseReportFindUnique, findFirst: vi.fn(), create: vi.fn() },
-        drop: { findUnique: vi.fn() },
-        alias: { findUnique: vi.fn() },
+        abuseReport: {
+            findUnique: abuseReportFindUnique,
+            findFirst: abuseReportFindFirst,
+            create: abuseReportCreate,
+        },
+        drop: { findUnique: dropFindUnique },
+        alias: { findFirst: vi.fn() },
         form: { findUnique: vi.fn() },
     },
 }))
@@ -76,6 +91,7 @@ describe("GET /api/abuse/status", () => {
         const token = "c".repeat(32)
         const res = await GET(new Request(`http://localhost/api/abuse/status?token=${token}`))
         expect(res.status).toBe(200)
+        expect(res.headers.get("Cache-Control")).toBe("private, no-store")
         expect(await res.json()).toMatchObject({ status: "reviewing" })
     })
 })
@@ -85,6 +101,7 @@ describe("POST /api/abuse", () => {
         vi.clearAllMocks()
         getClientIp.mockResolvedValue("203.0.113.5")
         rateLimit.mockResolvedValue(null)
+        checkRateLimit.mockResolvedValue(null)
     })
 
     it("returns the limiter response when the per-IP report limit is hit", async () => {
@@ -111,5 +128,50 @@ describe("POST /api/abuse", () => {
             })
         )
         expect(res.status).toBe(400)
+    })
+
+    it("rejects malformed JSON with 400", async () => {
+        const { POST } = await import("@/app/api/abuse/route")
+        const res = await POST(
+            new Request("http://localhost/api/abuse", {
+                method: "POST",
+                body: "{",
+                headers: { "content-type": "application/json" },
+            }),
+        )
+        expect(res.status).toBe(400)
+    })
+
+    it("deduplicates and rate-limits within the resource type namespace", async () => {
+        dropFindUnique.mockResolvedValue({ id: "shared-id", takenDown: false, disabled: false })
+        abuseReportFindFirst.mockResolvedValue(null)
+        abuseReportCreate.mockResolvedValue({ id: "report-1" })
+
+        const { POST } = await import("@/app/api/abuse/route")
+        const res = await POST(
+            new Request("http://localhost/api/abuse", {
+                method: "POST",
+                body: JSON.stringify({
+                    serviceType: "drop",
+                    resourceId: "shared-id",
+                    reason: "spam",
+                    description: "This is a sufficiently detailed abuse report.",
+                    turnstileToken: "verified-token",
+                }),
+                headers: { "content-type": "application/json" },
+            }),
+        )
+
+        expect(res.status).toBe(200)
+        expect(res.headers.get("Cache-Control")).toBe("private, no-store")
+        expect(abuseReportFindFirst).toHaveBeenCalledWith({
+            where: expect.objectContaining({
+                reporterIp: expect.any(String),
+                serviceType: "drop",
+                resourceId: "shared-id",
+            }),
+            select: { id: true },
+        })
+        expect(checkRateLimit).toHaveBeenCalledWith({}, "resource:drop:shared-id")
     })
 })

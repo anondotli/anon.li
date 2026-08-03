@@ -28,7 +28,7 @@ const grantSchema = z.object({
     targetUserId: idSchema,
     wrappedOrgVaultKey: z.string().min(1).max(4096),
     orgKeyGeneration: z.number().int().positive(),
-})
+}).strict()
 
 export async function GET(request: Request) {
     const requestId = generateRequestId()

@@ -60,7 +60,7 @@ const initialDrop: DropMetadata = {
     files: [{
         id: "file-1",
         encryptedName: "encrypted-name",
-        size: "3",
+        size: "19",
         mimeType: "application/octet-stream",
         iv: "file-iv",
         chunkSize: 3,

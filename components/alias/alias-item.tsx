@@ -37,6 +37,7 @@ import {
 } from "@/components/ui/collapsible"
 import { toast } from "sonner"
 import { formatRelativeTime } from "@/lib/format"
+import { useClipboard } from "@/hooks/use-clipboard"
 
 interface Recipient {
     id: string
@@ -80,7 +81,7 @@ export function AliasItem({ alias, metadata, recipients = [] }: AliasItemProps) 
     const router = useRouter()
     const vault = useVault()
     const [isPending, startTransition] = useTransition()
-    const [hasCopied, setHasCopied] = useState(false)
+    const { copied: hasCopied, copy } = useClipboard()
     const [isExpanded, setIsExpanded] = useState(false)
     const [isEditingLabel, setIsEditingLabel] = useState(false)
     const [isEditingNote, setIsEditingNote] = useState(false)
@@ -95,12 +96,9 @@ export function AliasItem({ alias, metadata, recipients = [] }: AliasItemProps) 
     const recipientEmail = currentRecipient?.email || "Unknown"
 
     const handleCopy = async () => {
-        try {
-            await navigator.clipboard.writeText(alias.email)
-            setHasCopied(true)
+        if (await copy(alias.email)) {
             toast.success("Copied to clipboard")
-            setTimeout(() => setHasCopied(false), 2000)
-        } catch {
+        } else {
             toast.error("Failed to copy")
         }
     }

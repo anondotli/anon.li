@@ -26,6 +26,8 @@ interface Props {
     presentation: FieldPresentation
     disabled?: boolean
     autoFocus?: boolean
+    invalid?: boolean
+    describedBy?: string
 }
 
 export const FieldInput = forwardRef<FieldHandle, Props>(function FieldInput(props, ref) {

@@ -44,6 +44,7 @@ vi.mock("@/lib/data/auth", () => ({
     getOrgLimitContext: vi.fn().mockResolvedValue({
         subscriptions: [{ status: "active", product: "business", tier: "pro", currentPeriodEnd: null }],
         referralPlusUntil: null,
+        storageUsed: BigInt(0),
     }),
 }))
 
@@ -92,7 +93,11 @@ describe("RecipientService.addRecipient — scope-aware uniqueness", () => {
 
     it("rejects org-scope creation when the team has no active subscription", async () => {
         const { getOrgLimitContext } = await import("@/lib/data/auth")
-        vi.mocked(getOrgLimitContext).mockResolvedValueOnce({ subscriptions: [], referralPlusUntil: null })
+        vi.mocked(getOrgLimitContext).mockResolvedValueOnce({
+            subscriptions: [],
+            referralPlusUntil: null,
+            storageUsed: BigInt(0),
+        })
 
         const { RecipientService } = await import("@/lib/services/recipient")
 

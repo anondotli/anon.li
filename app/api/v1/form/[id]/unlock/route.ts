@@ -9,14 +9,14 @@ import { ForbiddenError, NotFoundError } from "@/lib/api-error-utils"
 import { getClientIp } from "@/lib/rate-limit"
 import { withPolicy } from "@/lib/route-policy"
 import { FormService } from "@/lib/services/form"
-import { customKeyProofSchema } from "@/lib/validations/form"
+import { customKeyProofSchema, FormId } from "@/lib/validations/form"
 import { z } from "zod"
 
 interface RouteParams {
     params: Promise<{ id: string }>
 }
 
-const bodySchema = z.object({ customKeyProof: customKeyProofSchema })
+const bodySchema = z.object({ customKeyProof: customKeyProofSchema }).strict()
 
 export const POST = withPolicy<RouteParams>(
     {
@@ -25,7 +25,12 @@ export const POST = withPolicy<RouteParams>(
         rateLimitIdentifier: async () => getClientIp(),
     },
     async (ctx, routeContext) => {
-        const { id } = await routeContext.params
+        const { id: rawId } = await routeContext.params
+        const parsedId = FormId.safeParse(rawId)
+        if (!parsedId.success) {
+            return apiError("Invalid form ID", ErrorCodes.VALIDATION_ERROR, ctx.requestId, 400)
+        }
+        const id = parsedId.data
         const body = await ctx.request.json().catch(() => null)
         const parsed = bodySchema.safeParse(body)
         if (!parsed.success) {

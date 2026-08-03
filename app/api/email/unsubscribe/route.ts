@@ -65,7 +65,10 @@ export async function GET(req: NextRequest) {
     const title = result.ok ? "Unsubscribed" : "Couldn't unsubscribe";
     return new NextResponse(htmlPage(title, result.message, result.ok), {
         status: result.ok ? 200 : 400,
-        headers: { "Content-Type": "text/html; charset=utf-8" },
+        headers: {
+            "Cache-Control": "private, no-store",
+            "Content-Type": "text/html; charset=utf-8",
+        },
     });
 }
 
@@ -85,6 +88,9 @@ export async function POST(req: NextRequest) {
     const result = await unsubscribe(token);
     return NextResponse.json(
         { success: result.ok, message: result.message },
-        { status: result.ok ? 200 : 400 },
+        {
+            status: result.ok ? 200 : 400,
+            headers: { "Cache-Control": "private, no-store" },
+        },
     );
 }

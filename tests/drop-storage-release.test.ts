@@ -40,7 +40,7 @@ describe("deleteDropFileAndReleaseQuota", () => {
         await expect(deleteDropFileAndReleaseQuota("file-1")).resolves.toBeNull()
     })
 
-    it("derives the quota owner from the parent drop in SQL", async () => {
+    it("derives both possible quota owners from the parent drop in SQL", async () => {
         (prisma.$queryRaw as ReturnType<typeof vi.fn>).mockResolvedValue([
             { storageKey: "org-key", s3UploadId: null, size: BigInt(1) },
         ])
@@ -54,6 +54,8 @@ describe("deleteDropFileAndReleaseQuota", () => {
         const sql = ((prisma.$queryRaw as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as TemplateStringsArray).join("?")
         expect(sql).toContain('FROM deleted_file, "drops" AS parent')
         expect(sql).toContain('owner."id" = parent."userId"')
+        expect(sql).toContain('UPDATE "organizations" AS owner')
+        expect(sql).toContain('owner."id" = parent."organizationId"')
     })
 })
 
@@ -81,12 +83,12 @@ describe("deletePendingDropFileAndReleaseQuota", () => {
 describe("deleteDropFilesAndReleaseQuota", () => {
     it("reports only rows claimed by each whole-drop deletion attempt", async () => {
         (prisma.$queryRaw as ReturnType<typeof vi.fn>)
-            .mockResolvedValueOnce([{ id: "drop-1", userId: "user-1" }])
+            .mockResolvedValueOnce([{ id: "drop-1", userId: "user-1", organizationId: null }])
             .mockResolvedValueOnce([
                 { storageKey: "key-1", s3UploadId: "upload-1", size: BigInt(100) },
                 { storageKey: "key-2", s3UploadId: null, size: BigInt(200) },
             ])
-            .mockResolvedValueOnce([{ id: "drop-1", userId: "user-1" }])
+            .mockResolvedValueOnce([{ id: "drop-1", userId: "user-1", organizationId: null }])
             .mockResolvedValueOnce([])
 
         await expect(deleteDropFilesAndReleaseQuota("drop-1")).resolves.toEqual({
@@ -114,6 +116,23 @@ describe("deleteDropFilesAndReleaseQuota", () => {
             expect.any(Function),
             { isolationLevel: "ReadCommitted" },
         )
+    })
+
+    it("releases a team drop from the organization counter", async () => {
+        (prisma.$queryRaw as ReturnType<typeof vi.fn>)
+            .mockResolvedValueOnce([{ id: "drop-1", userId: "creator-1", organizationId: "org-1" }])
+            .mockResolvedValueOnce([
+                { storageKey: "key-1", s3UploadId: null, size: BigInt(75) },
+            ])
+
+        await expect(deleteDropFilesAndReleaseQuota("drop-1")).resolves.toMatchObject({
+            releasedBytes: BigInt(75),
+        })
+
+        const sql = ((prisma.$executeRaw as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as TemplateStringsArray).join("?")
+        expect(sql).toContain('UPDATE "organizations"')
+        expect(sql).not.toContain('UPDATE "users"')
+        expect((prisma.$executeRaw as ReturnType<typeof vi.fn>).mock.calls[0]?.[2]).toBe("org-1")
     })
 
     it("returns a no-op result when no row is returned", async () => {

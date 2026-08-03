@@ -25,6 +25,10 @@ import { rateLimit } from "@/lib/rate-limit"
 import { trackServerEvent } from "@/lib/posthog.server"
 import { MCP_DEFAULT_SCOPE, MCP_OAUTH_SCOPES } from "@/lib/mcp/oauth-metadata"
 import { purgePersonalVaultKeysOps } from "@/lib/vault/personal-purge"
+import {
+    isSafeMcpRedirectUri,
+    validateMcpClientRegistration,
+} from "@/lib/mcp/client-registration"
 
 const ACCOUNT_DELETION_PENDING_MESSAGE = "Account deletion is already in progress for this user."
 
@@ -347,6 +351,48 @@ export const auth = betterAuth({
                     identifier === undefined ? rateLimit(type) : rateLimit(type, identifier),
                 ))
                 if (results.some(Boolean)) throw tooManyRequests(code)
+            }
+
+            if (ctx.path === "/mcp/register") {
+                if (await rateLimit("mcpRegister")) {
+                    throw tooManyRequests("MCP_REGISTRATION_RATE_LIMITED")
+                }
+                const registrationError = validateMcpClientRegistration(ctx.body)
+                if (registrationError) {
+                    throw APIError.from("BAD_REQUEST", {
+                        message: registrationError,
+                        code: "INVALID_MCP_CLIENT_REGISTRATION",
+                    })
+                }
+                return
+            }
+
+            if (ctx.path === "/mcp/authorize") {
+                if (await rateLimit("mcpOAuth")) {
+                    throw tooManyRequests("MCP_AUTHORIZATION_RATE_LIMITED")
+                }
+                const redirectUri = (ctx.query as { redirect_uri?: unknown } | undefined)?.redirect_uri
+                if (!isSafeMcpRedirectUri(redirectUri)) {
+                    throw APIError.from("BAD_REQUEST", {
+                        message: "Invalid or insecure redirect URI",
+                        code: "INVALID_MCP_REDIRECT_URI",
+                    })
+                }
+                return
+            }
+
+            if (ctx.path === "/mcp/token") {
+                if (await rateLimit("mcpToken")) {
+                    throw tooManyRequests("MCP_TOKEN_RATE_LIMITED")
+                }
+                return
+            }
+
+            if (ctx.path === "/oauth2/consent") {
+                if (await rateLimit("mcpOAuth")) {
+                    throw tooManyRequests("MCP_CONSENT_RATE_LIMITED")
+                }
+                return
             }
 
             // Credential sign-in: throttle by client IP and by submitted email

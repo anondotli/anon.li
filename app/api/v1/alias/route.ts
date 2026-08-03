@@ -45,6 +45,7 @@ const generateSchema = z.object({
 export const GET = withPolicy(
     {
         auth: "api_key",
+        organizationAccess: "subscribed",
         apiQuota: "alias",
         rateLimit: "api",
     },
@@ -80,6 +81,7 @@ export const GET = withPolicy(
 export const POST = withPolicy(
     {
         auth: "api_key",
+        organizationAccess: "subscribed",
         apiQuota: "alias",
         requireCsrf: true,
         checkBan: "alias",
@@ -93,11 +95,14 @@ export const POST = withPolicy(
         const url = new URL(ctx.request.url)
         const isGenerate = url.searchParams.get("generate") === "true"
 
-        let body: unknown = {}
-        if (isGenerate) {
-            body = await ctx.request.json().catch(() => ({}))
-        } else {
-            body = await ctx.request.json().catch(() => null)
+        const rawBody = await ctx.request.text()
+        let body: unknown = isGenerate ? {} : null
+        if (rawBody.trim()) {
+            try {
+                body = JSON.parse(rawBody) as unknown
+            } catch {
+                body = null
+            }
         }
 
         if (hasAliasMetadataFields(body)) {

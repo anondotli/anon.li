@@ -149,7 +149,7 @@ export function fieldLabelMap(fields: FormFieldMeta[]): Record<string, string> {
 }
 
 /** Current field ids first, followed by removed/historical ids in encounter order. */
-export function orderedAnswerIds(fields: FormFieldMeta[], answerSets: Record<string, unknown>[]): string[] {
+function orderedAnswerIds(fields: FormFieldMeta[], answerSets: Record<string, unknown>[]): string[] {
     const ids = fields.map((field) => field.id)
     const seen = new Set(ids)
     for (const answers of answerSets) {

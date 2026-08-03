@@ -1,4 +1,3 @@
-import { AUTH_TAG_SIZE } from "@/lib/constants";
 import { getFormOwnerEntitlements } from "@/lib/services/form-entitlements";
 import { prisma } from "@/lib/prisma";
 import { UpgradeRequiredError, ValidationError } from "@/lib/api-error-utils";
@@ -6,6 +5,7 @@ import { FormSchemaDoc, type FormField } from "@/lib/form-schema";
 import { getValidUploadTokenForRequest } from "@/lib/services/drop-upload-token";
 import { PLAN_ENTITLEMENTS } from "@/config/plans";
 import { orgScope, personalScope, type OwnerScope } from "@/lib/ownership";
+import { plaintextSizeFromEncrypted } from "@/lib/drop-size";
 
 type FileUploadInput = {
     dropId: string;
@@ -45,10 +45,6 @@ function assertSubscribedFormOwner(
         "This team form is paused until its Business subscription is active.",
         { scope: "form_file_uploads", currentTier: "free", suggestedTier: "pro" },
     );
-}
-
-function plaintextSizeFromEncrypted(size: number, chunkCount: number): number {
-    return Math.max(0, size - chunkCount * AUTH_TAG_SIZE);
 }
 
 function mimeAllowed(mimeType: string, accepted?: string[]): boolean {

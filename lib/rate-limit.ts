@@ -115,6 +115,9 @@ export const rateLimiters = {
   passwordReset: createLimiter("ratelimit:password:reset", 5, "1 h"),
   passwordResetEmail: createLimiter("ratelimit:password:reset:email", 3, "1 h"),
   cspReport: createLimiter("ratelimit:csp:report", 20, "1 m"),
+  mcpRegister: createLimiter("ratelimit:mcp:register", 20, "1 h"),
+  mcpOAuth: createLimiter("ratelimit:mcp:oauth", 120, "1 m"),
+  mcpToken: createLimiter("ratelimit:mcp:token", 60, "1 m"),
 };
 
 export type RateLimitKey = keyof typeof rateLimiters
@@ -137,6 +140,9 @@ const FAIL_CLOSED_LIMITERS: ReadonlySet<RateLimitKey> = new Set([
   "passwordResetEmail",
   "emailResend",
   "orgInvite",
+  "mcpRegister",
+  "mcpOAuth",
+  "mcpToken",
 ])
 
 /**

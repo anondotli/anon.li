@@ -110,7 +110,7 @@ export default function SecurityPage() {
                             <CardDescription>Full control over your data</CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-3 text-sm text-muted-foreground">
-                            <p>• Export all your account data (GDPR compliant)</p>
+                            <p>• Export a personal-workspace data summary in JSON</p>
                             <p>• Permanent account deletion on request</p>
                             <p>• Removes all aliases, drops, and domains</p>
                             <p>• Live account data purged immediately on deletion</p>

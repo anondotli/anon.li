@@ -1,5 +1,6 @@
 import "server-only"
 import crypto from "crypto"
+import { z } from "zod"
 import { createLogger } from "@/lib/logger"
 
 const logger = createLogger("NOWPayments")
@@ -16,31 +17,12 @@ interface CreateInvoiceParams {
     cancelUrl: string
 }
 
-interface InvoiceResponse {
-    id: string
-    invoice_url: string
-    order_id: string
-    order_description: string
-    price_amount: number
-    price_currency: string
-    created_at: string
-}
+const invoiceResponseSchema = z.object({
+    id: z.union([z.string(), z.number()]).transform(String),
+    invoice_url: z.url(),
+}).passthrough()
 
-interface PaymentStatus {
-    payment_id: number
-    invoice_id: number | null
-    payment_status: string
-    pay_address: string
-    price_amount: number
-    price_currency: string
-    pay_amount: number
-    pay_currency: string
-    actually_paid: number
-    order_id: string
-    order_description: string
-    created_at: string
-    updated_at: string
-}
+type InvoiceResponse = z.infer<typeof invoiceResponseSchema>
 
 export class NOWPaymentsClient {
     private apiKey: string
@@ -78,24 +60,14 @@ export class NOWPaymentsClient {
             throw new Error(`NOWPayments API error: ${response.status}`)
         }
 
-        return response.json()
-    }
-
-    async getPaymentStatus(paymentId: string): Promise<PaymentStatus> {
-        const response = await fetch(`${NOWPAYMENTS_API_URL}/payment/${paymentId}`, {
-            headers: {
-                "x-api-key": this.apiKey,
-            },
-            signal: AbortSignal.timeout(10_000),
-        })
-
-        if (!response.ok) {
-            const error = await response.text()
-            logger.error("Failed to get payment status", new Error(error))
-            throw new Error(`NOWPayments API error: ${response.status}`)
+        const payload = await response.json().catch(() => null)
+        const parsed = invoiceResponseSchema.safeParse(payload)
+        if (!parsed.success) {
+            logger.error("NOWPayments returned an invalid invoice response", parsed.error)
+            throw new Error("NOWPayments returned an invalid invoice response")
         }
 
-        return response.json()
+        return parsed.data
     }
 
     /**

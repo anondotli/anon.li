@@ -1,11 +1,13 @@
 
 import { auth } from "@/auth"
-import { prisma } from "@/lib/prisma"
 import { redirect } from "next/navigation"
 import { AddDomainDialog, DomainItem } from "@/components/domain"
 import { getPlanLimits } from "@/lib/limits"
 import { scopeFromSession } from "@/lib/auth-session"
 import { getDomains } from "@/lib/data/domain"
+import { getOrgLimitContext, isOrgSubscribed } from "@/lib/data/auth"
+import { getUserById } from "@/lib/data/user"
+import { TeamWorkspaceLocked } from "@/components/dashboard/team/team-workspace-locked"
 import { Progress } from "@/components/ui/progress"
 import { AlertTriangle, Globe } from "lucide-react"
 import Link from "next/link"
@@ -13,43 +15,31 @@ export default async function DomainsPage() {
     const session = await auth()
     if (!session?.user?.id) redirect("/login")
 
-    const user = await prisma.user.findUnique({
-        where: { id: session.user.id },
-        include: {
-            subscriptions: {
-                where: { status: { in: ["active", "trialing"] } },
-                select: {
-                    status: true,
-                    product: true,
-                    tier: true,
-                    currentPeriodEnd: true,
-                },
-            },
-        },
-    }) ?? null
+    const user = await getUserById(session.user.id)
 
     if (!user) redirect("/login")
 
     // Org-aware: in a team context this lists the org's domains (shared across
     // members), not just the current user's personal domains.
     const scope = scopeFromSession(session)
+    if (scope.organizationId && !(await isOrgSubscribed(scope.organizationId))) {
+        return (
+            <div className="flex flex-col gap-8">
+                <div className="border-b border-border/40 pb-6">
+                    <h2 className="text-3xl font-medium tracking-tight font-serif">Domains</h2>
+                    <p className="text-muted-foreground font-light">Manage your custom domains.</p>
+                </div>
+                <TeamWorkspaceLocked resource="domains" />
+            </div>
+        )
+    }
     const domains = (await getDomains(scope)).sort(
         (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
-    ) as unknown as Array<{
-        id: string
-        domain: string
-        verified: boolean
-        ownershipVerified: boolean
-        mxVerified: boolean
-        spfVerified: boolean
-        dnsVerified: boolean
-        verificationToken: string
-        dkimPublicKey: string | null
-        dkimSelector: string | null
-        dkimVerified: boolean
-        scheduledForRemovalAt: Date | null
-    }>
-    const { domains: domainsLimit } = getPlanLimits(user)
+    )
+    const limitContext = scope.organizationId
+        ? await getOrgLimitContext(scope.organizationId)
+        : user
+    const { domains: domainsLimit } = getPlanLimits(limitContext)
     const usagePercent = domainsLimit === -1 ? 0 : Math.min((domains.length / domainsLimit) * 100, 100)
     const isUnlimited = domainsLimit === -1
 
@@ -74,7 +64,7 @@ export default async function DomainsPage() {
             </div>
 
             {/* Downgrade Warning */}
-            {user.downgradedAt && (
+            {!scope.organizationId && user.downgradedAt && (
                 <div className="flex items-start gap-3 px-4 py-3 rounded-lg text-sm bg-destructive/10 text-destructive border border-destructive/20">
                     <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
                     <div>

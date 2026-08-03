@@ -47,6 +47,7 @@ function toApiFormat(recipient: {
 export const GET = withPolicy<RouteParams>(
     {
         auth: "api_key",
+        organizationAccess: "subscribed",
         rateLimit: "api",
     },
     async (ctx, routeContext) => {
@@ -63,6 +64,7 @@ export const GET = withPolicy<RouteParams>(
 export const PATCH = withPolicy<RouteParams>(
     {
         auth: "api_key",
+        organizationAccess: "subscribed",
         requireCsrf: true,
         rateLimit: "recipientOps",
     },
@@ -95,6 +97,7 @@ export const PATCH = withPolicy<RouteParams>(
 export const DELETE = withPolicy<RouteParams>(
     {
         auth: "api_key",
+        organizationAccess: "subscribed",
         requireCsrf: true,
         rateLimit: "recipientOps",
     },

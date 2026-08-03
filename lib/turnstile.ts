@@ -3,7 +3,10 @@ import { createLogger } from "@/lib/logger";
 const logger = createLogger("Turnstile");
 
 export async function validateTurnstileToken(token: string): Promise<boolean> {
-    const secretKey = process.env.TURNSTILE_SECRET_KEY!;
+    const secretKey = process.env.TURNSTILE_SECRET_KEY;
+    if (!secretKey || token.length < 1 || token.length > 2048) {
+        return false;
+    }
 
     try {
         const formData = new FormData();
@@ -15,9 +18,15 @@ export async function validateTurnstileToken(token: string): Promise<boolean> {
             body: formData,
             signal: AbortSignal.timeout(5_000),
         });
+        if (!result.ok) return false;
 
-        const outcome: { success: boolean } = await result.json();
-        return outcome.success;
+        const outcome: unknown = await result.json();
+        return Boolean(
+            outcome
+            && typeof outcome === "object"
+            && "success" in outcome
+            && outcome.success === true,
+        );
     } catch (error) {
         logger.error("Turnstile validation network error", error);
         return false;

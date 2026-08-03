@@ -84,8 +84,9 @@ export function DropDownloadView({
                 keyString={keyString}
                 ivString={firstFile.iv}
                 size={firstFile.size}
-                chunkSize={firstFile.chunkSize ?? 0}
-                chunkCount={firstFile.chunkCount ?? 1}
+                encryptedSize={firstFile.encryptedSize}
+                chunkSize={firstFile.chunkSize}
+                chunkCount={firstFile.chunkCount}
                 recipientToken={recipientToken}
                 // A preview fetch exposes the full plaintext and therefore must
                 // consume a download. Hide it on globally capped or recipient-

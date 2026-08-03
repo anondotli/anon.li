@@ -14,6 +14,7 @@ import { verifyTwoFactorLogin } from "@/actions/two-factor"
 import { toast } from "sonner"
 import { Shield, ShieldAlert, ShieldCheck, KeyRound } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { useDelayedCallback } from "@/hooks/use-delayed-callback"
 
 type VerifyStatus = "idle" | "verifying" | "error" | "success"
 type InputMode = "totp" | "backup"
@@ -25,6 +26,16 @@ export function TwoFactorVerifyForm() {
     const [status, setStatus] = useState<VerifyStatus>("idle")
     const inputRef = useRef<HTMLInputElement>(null)
     const backupInputRef = useRef<HTMLInputElement>(null)
+    const { schedule: scheduleErrorReset } = useDelayedCallback(() => {
+        if (inputMode === "totp") {
+            setCode("")
+            inputRef.current?.focus()
+        } else {
+            setBackupCode("")
+            backupInputRef.current?.focus()
+        }
+        setStatus("idle")
+    }, 600)
 
     // Auto-focus input on mount and when switching modes
     useEffect(() => {
@@ -38,16 +49,7 @@ export function TwoFactorVerifyForm() {
     const showError = (message: string) => {
         setStatus("error")
         toast.error(message)
-        setTimeout(() => {
-            if (inputMode === "totp") {
-                setCode("")
-                inputRef.current?.focus()
-            } else {
-                setBackupCode("")
-                backupInputRef.current?.focus()
-            }
-            setStatus("idle")
-        }, 600)
+        scheduleErrorReset()
     }
 
     const verifyCode = async (codeToVerify: string) => {

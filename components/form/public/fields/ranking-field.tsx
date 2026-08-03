@@ -3,14 +3,14 @@
 import { forwardRef, useImperativeHandle, useRef, useEffect, useState } from "react"
 import { ChevronUp, ChevronDown, GripVertical } from "lucide-react"
 import { cn } from "@/lib/utils"
-import type { FieldPresentation } from "./types"
+import type { FieldAccessibilityProps, FieldPresentation } from "./types"
 import type { FormField } from "@/lib/form-schema"
 
 interface RankingHandle {
     focus: () => void
 }
 
-interface Props {
+interface Props extends FieldAccessibilityProps {
     field: Extract<FormField, { type: "ranking" }>
     value: unknown
     onChange: (next: unknown) => void
@@ -44,7 +44,7 @@ function isFullOrder(value: unknown, options: string[]): boolean {
 }
 
 export const RankingField = forwardRef<RankingHandle, Props>(function RankingField(
-    { field, value, onChange, presentation, disabled, autoFocus },
+    { field, value, onChange, presentation, disabled, autoFocus, describedBy },
     ref,
 ) {
     const containerRef = useRef<HTMLDivElement>(null)
@@ -62,9 +62,7 @@ export const RankingField = forwardRef<RankingHandle, Props>(function RankingFie
         if (!isFullOrder(value, field.options)) {
             onChange(normalizeOrder(value, field.options))
         }
-        // Run once on mount; subsequent reorders flow through `move`.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [])
+    }, [field.options, onChange, value])
 
     const order = normalizeOrder(value, field.options)
     const [dragIndex, setDragIndex] = useState<number | null>(null)
@@ -83,7 +81,14 @@ export const RankingField = forwardRef<RankingHandle, Props>(function RankingFie
     const spotlight = presentation === "spotlight"
 
     return (
-        <div ref={containerRef} tabIndex={-1} className="space-y-2 outline-none" role="list" aria-label={field.label}>
+        <div
+            ref={containerRef}
+            tabIndex={-1}
+            className="space-y-2 outline-none"
+            role="list"
+            aria-label={field.label}
+            aria-describedby={describedBy}
+        >
             {order.map((option, index) => (
                 <div
                     key={option}

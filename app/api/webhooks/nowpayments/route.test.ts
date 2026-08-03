@@ -119,7 +119,6 @@ function sortObjectForMock(obj: Record<string, unknown>): Record<string, unknown
 import { POST } from './route'
 import { prisma } from '@/lib/prisma'
 import { createCryptoSubscription } from '@/lib/services/subscription-sync'
-import { getCryptoPrice } from '@/lib/crypto-prices'
 
 const IPN_SECRET = 'test-ipn-secret'
 const originalEnv = process.env
@@ -145,14 +144,22 @@ function sortObject(obj: Record<string, unknown>): Record<string, unknown> {
 }
 
 function makeRequest(body: Record<string, unknown>, signature?: string): Request {
-    const sig = signature ?? makeSignature(body)
+    const completeBody = {
+        invoice_id: 'invoice_test',
+        price_amount: 39.49,
+        price_currency: 'usd',
+        pay_amount: 0.001,
+        actually_paid: 0.001,
+        ...body,
+    }
+    const sig = signature ?? makeSignature(completeBody)
     return new Request('http://localhost/api/webhooks/nowpayments', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
             'x-nowpayments-sig': sig,
         },
-        body: JSON.stringify(body),
+        body: JSON.stringify(completeBody),
     })
 }
 
@@ -221,32 +228,35 @@ describe('NOWPayments IPN Webhook', () => {
         )
     })
 
-    it('should release a missing-price claim so an immediate retry is reprocessed', async () => {
-        const orderId = 'crypto_retry_missing_price'
+    it('should release an incomplete-amount claim so a corrected retry is reprocessed', async () => {
+        const orderId = 'crypto_retry_missing_amount'
         const payment = makeCryptoPayment({
-            id: 'cp_retry_missing_price',
-            nowPaymentId: 'payment_retry_missing_price',
+            id: 'cp_retry_missing_amount',
+            nowPaymentId: 'payment_retry_missing_amount',
             orderId,
             status: 'confirming',
         })
         ;(prisma.cryptoPayment.findUnique as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(payment)
-        vi.mocked(getCryptoPrice).mockReturnValueOnce(null)
 
         const body = {
             payment_id: payment.nowPaymentId,
             payment_status: 'finished',
             order_id: orderId,
             pay_currency: 'btc',
-            pay_amount: 0.001,
-            actually_paid: 0.001,
+            pay_amount: undefined,
+            actually_paid: undefined,
         }
         const failedRes = await POST(makeRequest(body))
-        const retryRes = await POST(makeRequest(body))
+        const retryRes = await POST(makeRequest({
+            ...body,
+            pay_amount: 0.001,
+            actually_paid: 0.001,
+        }))
 
         expect(failedRes.status).toBe(500)
         expect(retryRes.status).toBe(200)
         expect(mockRedisDel).toHaveBeenCalledWith(
-            'nowpay:ipn:payment_retry_missing_price:finished'
+            'nowpay:ipn:payment_retry_missing_amount:finished'
         )
         expect(prisma.cryptoPayment.findUnique).toHaveBeenCalledTimes(2)
         expect(createCryptoSubscription).toHaveBeenCalledTimes(1)
@@ -255,6 +265,7 @@ describe('NOWPayments IPN Webhook', () => {
     it('should update payment status on valid IPN', async () => {
         const body = {
             payment_id: '456',
+            invoice_id: 'inv_1',
             payment_status: 'confirming',
             order_id: 'crypto_test123',
             pay_currency: 'btc',
@@ -297,9 +308,34 @@ describe('NOWPayments IPN Webhook', () => {
         )
     })
 
+    it('should reject a signed callback bound to a different invoice', async () => {
+        const payment = makeCryptoPayment({ status: 'confirming' })
+        ;(prisma.cryptoPayment.findUnique as unknown as ReturnType<typeof vi.fn>)
+            .mockResolvedValue(payment)
+
+        const res = await POST(makeRequest({
+            payment_id: 'payment-other',
+            invoice_id: 'invoice-other',
+            payment_status: 'finished',
+            order_id: payment.orderId,
+        }))
+
+        expect(res.status).toBe(200)
+        expect(prisma.cryptoPayment.updateMany).not.toHaveBeenCalled()
+        expect(prisma.user.update).not.toHaveBeenCalled()
+        expect(createCryptoSubscription).not.toHaveBeenCalled()
+        expect(mockRedisSet).toHaveBeenNthCalledWith(
+            2,
+            'nowpay:ipn:payment-other:finished',
+            'done',
+            { ex: 86400 * 7 },
+        )
+    })
+
     it('should activate subscription on finished status', async () => {
         const body = {
             payment_id: '789',
+            invoice_id: 'inv_2',
             payment_status: 'finished',
             order_id: 'crypto_finish',
             pay_currency: 'btc',
@@ -506,6 +542,7 @@ describe('NOWPayments IPN Webhook', () => {
     it('should skip IPN for terminal statuses', async () => {
         const body = {
             payment_id: '999',
+            invoice_id: 'inv_3',
             payment_status: 'waiting',
             order_id: 'crypto_terminal',
             pay_currency: 'btc',

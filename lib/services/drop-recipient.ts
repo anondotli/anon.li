@@ -46,7 +46,7 @@ export async function validateRecipientAccess(
     dropId: string,
     rawToken: string,
 ): Promise<ValidRecipient | null> {
-    if (!rawToken) return null;
+    if (!/^[A-Za-z0-9_-]{43}$/.test(rawToken)) return null;
 
     const tokenHash = hashRecipientToken(rawToken);
     const r = await prisma.dropRecipient.findUnique({

@@ -44,6 +44,7 @@ const updateAliasSchema = z.object({
 export const GET = withPolicy<RouteParams>(
     {
         auth: "api_key",
+        organizationAccess: "subscribed",
         apiQuota: "alias",
         rateLimit: "api",
     },
@@ -74,6 +75,7 @@ export const GET = withPolicy<RouteParams>(
 export const PATCH = withPolicy<RouteParams>(
     {
         auth: "api_key",
+        organizationAccess: "subscribed",
         apiQuota: "alias",
         requireCsrf: true,
         rateLimit: "api",
@@ -171,6 +173,7 @@ export const PATCH = withPolicy<RouteParams>(
 export const DELETE = withPolicy<RouteParams>(
     {
         auth: "api_key",
+        organizationAccess: "subscribed",
         apiQuota: "alias",
         requireCsrf: true,
         rateLimit: "api",

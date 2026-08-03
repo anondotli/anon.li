@@ -22,6 +22,7 @@ import {
 } from "@/lib/drop-utils";
 import { getDropLimits, getEffectiveTier, assertOrgPlanActive } from "@/lib/limits";
 import { getOrgLimitContext } from "@/lib/data/auth";
+import { getUserById } from "@/lib/data/user";
 import {
     generateStorageKey,
     initiateMultipartUpload,
@@ -127,7 +128,7 @@ interface FileReservationInput extends AddFileInput {
 }
 
 interface AuthenticatedFileReservationInput extends FileReservationInput {
-    ownerUserId: string;
+    ownerUserId: string | null;
     organizationId: string | null;
     storageLimit: bigint;
     quotaExceededError: UpgradeRequiredError;
@@ -217,10 +218,10 @@ async function createAuthenticatedFileReservation(
 
         if (!drop || drop.deletedAt) throw new NotFoundError("Drop not found");
         if (drop.uploadComplete) throw new ValidationError("Drop upload already completed");
-        if (
-            drop.userId !== input.ownerUserId
-            || drop.organizationId !== input.organizationId
-        ) {
+        const ownerChanged = input.organizationId
+            ? drop.organizationId !== input.organizationId
+            : drop.organizationId !== null || drop.userId !== input.ownerUserId;
+        if (ownerChanged) {
             throw new ForbiddenError("Access denied");
         }
 
@@ -252,12 +253,19 @@ async function createAuthenticatedFileReservation(
             }
         }
 
-        const reserved = await tx.$executeRaw`
-            UPDATE "users"
-            SET "storageUsed" = "storageUsed" + ${BigInt(input.size)}
-            WHERE "id" = ${input.ownerUserId}
-              AND "storageUsed" + ${BigInt(input.size)} <= ${input.storageLimit}
-        `;
+        const reserved = input.organizationId
+            ? await tx.$executeRaw`
+                UPDATE "organizations"
+                SET "storageUsed" = "storageUsed" + ${BigInt(input.size)}
+                WHERE "id" = ${input.organizationId}
+                  AND "storageUsed" + ${BigInt(input.size)} <= ${input.storageLimit}
+            `
+            : await tx.$executeRaw`
+                UPDATE "users"
+                SET "storageUsed" = "storageUsed" + ${BigInt(input.size)}
+                WHERE "id" = ${input.ownerUserId}
+                  AND "storageUsed" + ${BigInt(input.size)} <= ${input.storageLimit}
+            `;
         if (reserved === 0) {
             throw input.quotaExceededError;
         }
@@ -694,8 +702,8 @@ export class DropService {
 
         // Verify caller mode matches drop ownership
         DropService.verifyDropAccess(drop, scope);
-        const quotaUserId = scope ? drop.userId : null;
-        if (scope && !quotaUserId) {
+        const quotaUserId = scope && !scope.organizationId ? drop.userId : null;
+        if (scope && !scope.organizationId && !quotaUserId) {
             throw new ForbiddenError("This drop no longer has a storage owner");
         }
         let authenticatedQuota: Pick<
@@ -704,35 +712,16 @@ export class DropService {
         > | null = null;
 
         if (scope) {
-            // Authenticated path: validate against plan limits and reserve
-            // storage atomically to prevent TOCTOU. In org scope the file-size /
-            // storage-ceiling limits derive from the org's own plan.
-            //
-            // TODO(track-c) — org-pooled storage (own change, needs a migration):
-            // org-owned drops currently meter against the creating member's
-            // `users.storageUsed`. Reserve and reclaim are internally consistent
-            // (both hit that user counter), so there's no drift — but usage is
-            // per-member, not pooled across the org, and a member's personal usage
-            // is checked against the ORG limit. To pool it:
-            //   1. Add Organization.storageUsed BigInt @default(0) (+ migration).
-            //   2. Here: in org scope, reserve against the org counter
-            //      (atomic UPDATE on `organizations`), not the user.
-            //   3. Route EVERY reclaim path to the org counter for org-owned
-            //      drops: deleteFilesAndReclaimQuota / drop-storage.ts, the four
-            //      drop-cleanup.ts sites, admin.ts takedown, and the
-            //      billing-downgrade.ts reconciliation (which sums per user).
-            //   4. Add pooling + concurrency/drift tests across those paths.
-            // Missing any reclaim path leaks the org counter, so do it as one
-            // coordinated change.
-            // Org members may collaborate on the same drop, but until org-pooled
-            // storage exists every file must be charged to Drop.userId (the
-            // creator). Reclaim derives that same owner from the parent row.
-            const userLimits = await getUserAndLimits(quotaUserId!);
-            const storageUsed = userLimits.storageUsed;
+            // Authenticated reservations are atomic against their owning quota:
+            // personal drops charge the account, while team drops share one
+            // organization-wide counter independent of the creating member.
+            const userLimits = await getUserAndLimits(scope.userId);
+            let storageUsed = userLimits.storageUsed;
             let limits = userLimits.limits;
             let tier = userLimits.tier;
             if (scope.organizationId) {
                 const orgCtx = await getOrgLimitContext(scope.organizationId);
+                storageUsed = orgCtx.storageUsed;
                 limits = getDropLimits(orgCtx);
                 tier = getEffectiveTier(orgCtx);
             }
@@ -881,7 +870,7 @@ export class DropService {
                     fileId,
                     storageKey,
                     s3UploadId,
-                    ownerUserId: quotaUserId!,
+                    ownerUserId: drop.userId,
                     organizationId: drop.organizationId,
                     ...authenticatedQuota!,
                 });
@@ -1023,15 +1012,11 @@ export class DropService {
             }
 
             const actualSize = BigInt(metadata.contentLength);
-            const minExpectedSize = file.declaredSize * BigInt(9) / BigInt(10);
             let invalidSizeMessage: string | null = null;
             if (actualSize > file.declaredSize) {
                 invalidSizeMessage = "File size mismatch: uploaded more than declared";
-            } else if (
-                actualSize <= BigInt(0) ||
-                (actualSize < minExpectedSize && file.declaredSize > BigInt(1024))
-            ) {
-                invalidSizeMessage = "File size mismatch: uploaded significantly less than declared";
+            } else if (actualSize < file.declaredSize) {
+                invalidSizeMessage = "File size mismatch: uploaded less than declared";
             }
 
             if (invalidSizeMessage) {
@@ -1039,7 +1024,13 @@ export class DropService {
                 // lock. Row deletion and declared-byte quota release commit as
                 // one unit; storage cleanup happens only after that commit.
                 await tx.dropFile.delete({ where: { id: fileId } });
-                if (file.ownerUserId) {
+                if (file.organizationId) {
+                    await tx.$executeRaw`
+                        UPDATE "organizations"
+                        SET "storageUsed" = GREATEST(0::bigint, "storageUsed" - ${file.declaredSize})
+                        WHERE "id" = ${file.organizationId}
+                    `;
+                } else if (file.ownerUserId) {
                     await tx.$executeRaw`
                         UPDATE "users"
                         SET "storageUsed" = GREATEST(0::bigint, "storageUsed" - ${file.declaredSize})
@@ -1056,20 +1047,8 @@ export class DropService {
 
             await tx.dropFile.update({
                 where: { id: fileId },
-                data: { uploadComplete: true, size: actualSize },
+                data: { uploadComplete: true, size: file.declaredSize },
             });
-
-            // Correct the exact creator reservation in the same transaction as
-            // uploadComplete. This runs once because every retry is serialized
-            // by the DropFile lock and exits above once completion is visible.
-            if (file.ownerUserId && actualSize < file.declaredSize) {
-                const difference = file.declaredSize - actualSize;
-                await tx.$executeRaw`
-                    UPDATE "users"
-                    SET "storageUsed" = GREATEST(0::bigint, "storageUsed" - ${difference})
-                    WHERE "id" = ${file.ownerUserId}
-                `;
-            }
 
             return { status: "completed" };
         }, {
@@ -1732,16 +1711,7 @@ export class DropService {
             const orgCtx = await getOrgLimitContext(scope.organizationId);
             return { features: getDropLimits(orgCtx).features, tier: getEffectiveTier(orgCtx) };
         }
-        const user = await prisma.user.findUnique({
-            where: { id: scope.userId },
-            select: {
-                referralPlusUntil: true,
-                subscriptions: {
-                    where: { status: { in: ["active", "trialing"] } },
-                    select: { status: true, product: true, tier: true, currentPeriodEnd: true },
-                },
-            },
-        });
+        const user = await getUserById(scope.userId);
         return { features: getDropLimits(user).features, tier: getEffectiveTier(user) };
     }
 

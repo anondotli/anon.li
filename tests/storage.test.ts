@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import type { DeleteObjectsCommandOutput } from "@aws-sdk/client-s3"
 
 const originalEnv = process.env
 
@@ -42,6 +43,29 @@ describe("storage configuration", () => {
         const presignedUrl = await getPresignedDownloadUrl("drop/file-123", 60)
 
         expect(new URL(presignedUrl).origin).toBe("https://account-id.r2.cloudflarestorage.com")
+    })
+
+    it("batches object deletions at the S3 limit", async () => {
+        const { DeleteObjectsCommand, S3Client } = await import("@aws-sdk/client-s3")
+        const clientPrototype = S3Client.prototype as unknown as {
+            send(command: InstanceType<typeof DeleteObjectsCommand>): Promise<DeleteObjectsCommandOutput>
+        }
+        const send = vi.spyOn(clientPrototype, "send").mockResolvedValue({
+            $metadata: {},
+        })
+        const { deleteObjects } = await import("@/lib/storage")
+        const keys = Array.from({ length: 2_500 }, (_, index) => `key-${index}`)
+
+        await expect(deleteObjects(keys)).resolves.toEqual([])
+        expect(send).toHaveBeenCalledTimes(3)
+
+        const batchSizes = send.mock.calls.map(([command]) => {
+            if (!(command instanceof DeleteObjectsCommand)) {
+                throw new Error("Expected an S3 DeleteObjectsCommand")
+            }
+            return command.input.Delete?.Objects?.length
+        })
+        expect(batchSizes).toEqual([1_000, 1_000, 500])
     })
 
     it("throws a service-unavailable error when the private S3 endpoint is missing", async () => {

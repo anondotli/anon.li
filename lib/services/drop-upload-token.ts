@@ -33,6 +33,9 @@ export type ValidUploadToken = {
 };
 
 async function getValidUploadToken(raw: string, dropId?: string): Promise<ValidUploadToken | null> {
+    // Tokens are exactly 32 random bytes encoded without base64 padding.
+    // Reject malformed capabilities before hashing or querying the database.
+    if (!/^[A-Za-z0-9_-]{43}$/.test(raw)) return null;
     const tokenHash = hashUploadToken(raw);
     const record = await prisma.uploadToken.findUnique({
         where: { tokenHash },

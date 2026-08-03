@@ -43,7 +43,7 @@ export async function getEffectiveTiers(userId: string | null): Promise<Effectiv
                 // Personal subs OR subs owned by any org the user is a member of
                 // (seat-based inheritance): a member inherits the org's plan.
                 OR: [
-                    { userId },
+                    { userId, organizationId: null },
                     { organization: { members: { some: { userId } } } },
                 ],
             },

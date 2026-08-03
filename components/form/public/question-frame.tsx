@@ -79,6 +79,9 @@ export const QuestionFrame = forwardRef<QuestionFrameHandle, Props>(function Que
     const showOk = !behavior.autoAdvances || !field.required
     const padded = String(index).padStart(String(total).length, "0")
     const spotlight = presentation === "spotlight"
+    const helpId = field.helpText ? `${field.id}-help` : null
+    const errorId = error ? `${field.id}-error` : null
+    const describedBy = [helpId, errorId].filter(Boolean).join(" ") || undefined
 
     return (
         <div ref={wrapperRef} className={cn(spotlight && "w-full max-w-2xl")}>
@@ -106,6 +109,7 @@ export const QuestionFrame = forwardRef<QuestionFrameHandle, Props>(function Que
             {overrideHelp ??
                 (field.helpText ? (
                     <p
+                        id={helpId ?? undefined}
                         className={cn(
                             "text-muted-foreground",
                             spotlight ? "mt-3 max-w-xl text-base leading-relaxed" : "mt-1 text-xs",
@@ -125,11 +129,17 @@ export const QuestionFrame = forwardRef<QuestionFrameHandle, Props>(function Que
                     presentation={presentation}
                     disabled={disabled}
                     autoFocus={spotlight}
+                    invalid={Boolean(error)}
+                    describedBy={describedBy}
                 />
             </div>
 
             {error ? (
-                <div className="mt-4 flex items-center gap-2 text-sm text-destructive">
+                <div
+                    id={`${field.id}-error`}
+                    role="alert"
+                    className="mt-4 flex items-center gap-2 text-sm text-destructive"
+                >
                     <AlertCircle className="h-4 w-4 shrink-0" />
                     <span>{error}</span>
                 </div>
@@ -149,7 +159,7 @@ export const QuestionFrame = forwardRef<QuestionFrameHandle, Props>(function Que
                     </Button>
                     {field.type === "long_text" ? (
                         <KeyboardHint>
-                            <Kbd>Shift</Kbd> + <Kbd>↵</Kbd> for new line · <Kbd>⌘</Kbd> + <Kbd>↵</Kbd> to continue
+                            <Kbd>↵</Kbd> for new line · <Kbd>⌘/Ctrl</Kbd> + <Kbd>↵</Kbd> to continue
                         </KeyboardHint>
                     ) : (
                         <PressEnterHint label="to continue" />

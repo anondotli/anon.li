@@ -11,7 +11,6 @@ const DOT_SIZE = 2
 export function InteractiveDotGrid() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const mousePos = useRef<{ x: number; y: number } | null>(null)
-  const animationRef = useRef<number | undefined>(undefined)
   const primaryColorRef = useRef<string>("0, 0, 0")
   const staticPatternRef = useRef<ImageData | null>(null)
 
@@ -31,19 +30,22 @@ export function InteractiveDotGrid() {
       primaryColorRef.current = `${rgb[0]}, ${rgb[1]}, ${rgb[2]}`
     }
 
-    const isMobile = window.matchMedia("(pointer: coarse)").matches
+    const isStatic = window.matchMedia("(pointer: coarse), (prefers-reduced-motion: reduce)").matches
 
     let width = 0
     let height = 0
     let dpr = 1
+    let bounds = canvas.getBoundingClientRect()
+    let frameId: number | undefined
+    let resizeFrameId: number | undefined
 
     const setupCanvas = () => {
-      const rect = canvas.getBoundingClientRect()
-      dpr = window.devicePixelRatio || 1
-      width = rect.width
-      height = rect.height
-      canvas.width = width * dpr
-      canvas.height = height * dpr
+      bounds = canvas.getBoundingClientRect()
+      dpr = Math.min(window.devicePixelRatio || 1, 2)
+      width = bounds.width
+      height = bounds.height
+      canvas.width = Math.round(width * dpr)
+      canvas.height = Math.round(height * dpr)
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
       staticPatternRef.current = null
     }
@@ -67,17 +69,8 @@ export function InteractiveDotGrid() {
       staticPatternRef.current = ctx.getImageData(0, 0, canvas.width, canvas.height)
     }
 
-    // On mobile: draw once, no animation loop
-    if (isMobile) {
-      setupCanvas()
-      requestAnimationFrame(() => drawStaticAndCache())
-      return
-    }
-
-    let isAnimating = false
-    let idleTimeout: ReturnType<typeof setTimeout> | undefined
-
     const draw = () => {
+      frameId = undefined
       const mouse = mousePos.current
 
       // Restore cached static pattern instead of redrawing all dots
@@ -114,62 +107,71 @@ export function InteractiveDotGrid() {
           }
         }
       }
-
-      if (isAnimating) {
-        animationRef.current = requestAnimationFrame(draw)
-      }
     }
 
-    const startAnimation = () => {
-      if (!isAnimating) {
-        isAnimating = true
-        animationRef.current = requestAnimationFrame(draw)
+    const scheduleDraw = () => {
+      if (frameId === undefined) {
+        frameId = requestAnimationFrame(draw)
       }
-      clearTimeout(idleTimeout)
-      idleTimeout = setTimeout(() => {
-        isAnimating = false
-      }, 100)
     }
 
     const handleMouseMove = (e: MouseEvent) => {
-      const rect = canvas.getBoundingClientRect()
-      mousePos.current = {
-        x: e.clientX - rect.left,
-        y: e.clientY - rect.top,
+      const isInside = e.clientX >= bounds.left
+        && e.clientX <= bounds.right
+        && e.clientY >= bounds.top
+        && e.clientY <= bounds.bottom
+
+      if (!isInside) {
+        if (mousePos.current) {
+          mousePos.current = null
+          scheduleDraw()
+        }
+        return
       }
-      startAnimation()
+
+      mousePos.current = {
+        x: e.clientX - bounds.left,
+        y: e.clientY - bounds.top,
+      }
+      scheduleDraw()
     }
 
-    const handleMouseLeave = (e: MouseEvent) => {
-      const rect = canvas.getBoundingClientRect()
-      const x = e.clientX
-      const y = e.clientY
-      if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
+    const handleMouseLeave = () => {
+      if (mousePos.current) {
         mousePos.current = null
-        startAnimation()
+        scheduleDraw()
       }
     }
 
     setupCanvas()
-    requestAnimationFrame(() => drawStaticAndCache())
+    scheduleDraw()
 
-    document.addEventListener("mousemove", handleMouseMove, { passive: true })
-    document.addEventListener("mouseleave", handleMouseLeave)
+    if (!isStatic) {
+      document.addEventListener("mousemove", handleMouseMove, { passive: true })
+      document.addEventListener("mouseleave", handleMouseLeave)
+    }
 
     const resizeObserver = new ResizeObserver(() => {
-      setupCanvas()
-      drawStaticAndCache()
+      if (resizeFrameId !== undefined) return
+      resizeFrameId = requestAnimationFrame(() => {
+        resizeFrameId = undefined
+        setupCanvas()
+        scheduleDraw()
+      })
     })
     resizeObserver.observe(canvas)
 
     return () => {
-      document.removeEventListener("mousemove", handleMouseMove)
-      document.removeEventListener("mouseleave", handleMouseLeave)
+      if (!isStatic) {
+        document.removeEventListener("mousemove", handleMouseMove)
+        document.removeEventListener("mouseleave", handleMouseLeave)
+      }
       resizeObserver.disconnect()
-      isAnimating = false
-      clearTimeout(idleTimeout)
-      if (animationRef.current) {
-        cancelAnimationFrame(animationRef.current)
+      if (frameId !== undefined) {
+        cancelAnimationFrame(frameId)
+      }
+      if (resizeFrameId !== undefined) {
+        cancelAnimationFrame(resizeFrameId)
       }
     }
   }, [])

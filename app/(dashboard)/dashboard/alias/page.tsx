@@ -1,6 +1,7 @@
 import { auth } from "@/auth"
 import { scopeFromSession } from "@/lib/auth-session"
-import { isOrgSubscribed } from "@/lib/data/auth"
+import { getOrgLimitContext, isOrgSubscribed } from "@/lib/data/auth"
+import { getUserById } from "@/lib/data/user"
 import { TeamWorkspaceLocked } from "@/components/dashboard/team/team-workspace-locked"
 import { ownerWhere } from "@/lib/ownership"
 import { countAliasesByFormat } from "@/lib/data/alias"
@@ -24,20 +25,7 @@ export default async function DashboardPage() {
     const session = await auth()
     if (!session?.user?.id) redirect("/login")
 
-    const user = await prisma.user.findUnique({
-        where: { id: session.user.id },
-        include: {
-            subscriptions: {
-                where: { status: { in: ["active", "trialing"] } },
-                select: {
-                    status: true,
-                    product: true,
-                    tier: true,
-                    currentPeriodEnd: true,
-                },
-            },
-        },
-    }) ?? null
+    const user = await getUserById(session.user.id)
 
     if (!user) redirect("/login")
 
@@ -70,7 +58,7 @@ export default async function DashboardPage() {
     // stay accurate even when the rendered list is capped. (True scale would
     // call for server-side pagination + search; unreachable at current volume.)
     const ALIAS_RENDER_CAP = 1000
-    const [aliasRows, aliasCounts] = await Promise.all([
+    const [aliases, aliasCounts] = await Promise.all([
         prisma.alias.findMany({
             where: ownerWhere(scope),
             orderBy: { createdAt: "desc" },
@@ -87,28 +75,13 @@ export default async function DashboardPage() {
         }),
         countAliasesByFormat(scope),
     ])
-    const aliases = aliasRows as unknown as Array<{
-        id: string
-        email: string
-        format: string
-        domain: string
-        active: boolean
-        legacyLabel: string | null
-        legacyNote: string | null
-        encryptedLabel: string | null
-        encryptedNote: string | null
-        emailsReceived: number
-        emailsBlocked: number
-        lastEmailAt: Date | null
-        createdAt: Date
-        recipientId: string | null
-        recipient: { id: string; email: string; pgpPublicKey: string | null } | null
-    }>
-
     const customCount = aliasCounts.custom
     const randomCount = aliasCounts.random
 
-    const { random: randomLimit, custom: customLimit } = getDisplayPlanLimits(user)
+    const limitContext = scope.organizationId
+        ? await getOrgLimitContext(scope.organizationId)
+        : user
+    const { random: randomLimit, custom: customLimit } = getDisplayPlanLimits(limitContext)
 
     // Calculate percentages
     const randomPercent = randomLimit === -1 ? 0 : Math.min((randomCount / randomLimit) * 100, 100)
@@ -189,7 +162,7 @@ export default async function DashboardPage() {
             />
 
             {/* Downgrade Warning */}
-            {user.downgradedAt && (
+            {!scope.organizationId && user.downgradedAt && (
                 <div className="flex items-start gap-3 px-4 py-3 rounded-lg text-sm bg-destructive/10 text-destructive border border-destructive/20">
                     <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
                     <div>

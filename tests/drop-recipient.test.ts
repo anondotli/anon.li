@@ -38,6 +38,9 @@ function sha256(raw: string): string {
     return crypto.createHash("sha256").update(raw).digest("hex");
 }
 
+const RAW_TOKEN = "a".repeat(43);
+const OTHER_TOKEN = "b".repeat(43);
+
 // A recipient row that passes all eligibility checks unless overridden.
 function validRow(overrides: Record<string, unknown> = {}) {
     return {
@@ -61,8 +64,7 @@ describe("recipient token helpers", () => {
     it("generateRecipientToken returns a random raw token + matching hash", () => {
         const a = generateRecipientToken();
         const b = generateRecipientToken();
-        expect(a.raw).toMatch(/^[A-Za-z0-9_-]+$/);
-        expect(a.raw.length).toBeGreaterThan(20);
+        expect(a.raw).toMatch(/^[A-Za-z0-9_-]{43}$/);
         expect(a.tokenHash).toBe(sha256(a.raw));
         expect(a.raw).not.toBe(b.raw); // unique per call
     });
@@ -78,15 +80,15 @@ describe("validateRecipientAccess", () => {
 
     it("looks up by token HASH, never the raw token", async () => {
         recipientFindUnique.mockResolvedValue(validRow());
-        await validateRecipientAccess("drop-123", "raw-token");
+        await validateRecipientAccess("drop-123", RAW_TOKEN);
         expect(recipientFindUnique).toHaveBeenCalledWith(
-            expect.objectContaining({ where: { tokenHash: sha256("raw-token") } }),
+            expect.objectContaining({ where: { tokenHash: sha256(RAW_TOKEN) } }),
         );
     });
 
     it("accepts a valid, eligible recipient", async () => {
         recipientFindUnique.mockResolvedValue(validRow());
-        expect(await validateRecipientAccess("drop-123", "raw")).toMatchObject({
+        expect(await validateRecipientAccess("drop-123", RAW_TOKEN)).toMatchObject({
             id: "rec-1",
             dropId: "drop-123",
         });
@@ -94,27 +96,27 @@ describe("validateRecipientAccess", () => {
 
     it("rejects unknown tokens", async () => {
         recipientFindUnique.mockResolvedValue(null);
-        expect(await validateRecipientAccess("drop-123", "raw")).toBeNull();
+        expect(await validateRecipientAccess("drop-123", RAW_TOKEN)).toBeNull();
     });
 
     it("rejects a token bound to a different drop", async () => {
         recipientFindUnique.mockResolvedValue(validRow({ dropId: "drop-OTHER" }));
-        expect(await validateRecipientAccess("drop-123", "raw")).toBeNull();
+        expect(await validateRecipientAccess("drop-123", RAW_TOKEN)).toBeNull();
     });
 
     it("rejects revoked recipients", async () => {
         recipientFindUnique.mockResolvedValue(validRow({ revokedAt: new Date() }));
-        expect(await validateRecipientAccess("drop-123", "raw")).toBeNull();
+        expect(await validateRecipientAccess("drop-123", RAW_TOKEN)).toBeNull();
     });
 
     it("rejects expired recipients", async () => {
         recipientFindUnique.mockResolvedValue(validRow({ expiresAt: new Date(Date.now() - 1000) }));
-        expect(await validateRecipientAccess("drop-123", "raw")).toBeNull();
+        expect(await validateRecipientAccess("drop-123", RAW_TOKEN)).toBeNull();
     });
 
     it("rejects recipients at their per-recipient download cap", async () => {
         recipientFindUnique.mockResolvedValue(validRow({ maxDownloads: 3, downloads: 3 }));
-        expect(await validateRecipientAccess("drop-123", "raw")).toBeNull();
+        expect(await validateRecipientAccess("drop-123", RAW_TOKEN)).toBeNull();
     });
 });
 
@@ -129,13 +131,13 @@ describe("resolveDownloadAccess (restricted vs anonymous matrix)", () => {
 
     it("non-restricted, valid token → allowed and attributed to the recipient", async () => {
         recipientFindUnique.mockResolvedValue(validRow());
-        const r = await resolveDownloadAccess("drop-123", false, "raw");
+        const r = await resolveDownloadAccess("drop-123", false, RAW_TOKEN);
         expect(r).toEqual({ allowed: true, recipientId: "rec-1" });
     });
 
     it("non-restricted, invalid token → falls back to anonymous (token ignored)", async () => {
         recipientFindUnique.mockResolvedValue(null);
-        const r = await resolveDownloadAccess("drop-123", false, "bogus");
+        const r = await resolveDownloadAccess("drop-123", false, OTHER_TOKEN);
         expect(r).toEqual({ allowed: true, recipientId: null });
     });
 
@@ -146,13 +148,13 @@ describe("resolveDownloadAccess (restricted vs anonymous matrix)", () => {
 
     it("restricted, invalid/revoked token → denied", async () => {
         recipientFindUnique.mockResolvedValue(validRow({ revokedAt: new Date() }));
-        const r = await resolveDownloadAccess("drop-123", true, "raw");
+        const r = await resolveDownloadAccess("drop-123", true, RAW_TOKEN);
         expect(r).toEqual({ allowed: false, recipientId: null });
     });
 
     it("restricted, valid token → allowed", async () => {
         recipientFindUnique.mockResolvedValue(validRow());
-        const r = await resolveDownloadAccess("drop-123", true, "raw");
+        const r = await resolveDownloadAccess("drop-123", true, RAW_TOKEN);
         expect(r).toEqual({ allowed: true, recipientId: "rec-1" });
     });
 });

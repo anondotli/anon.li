@@ -73,6 +73,7 @@ function toApiFormat(domain: {
 export const GET = withPolicy<RouteParams>(
     {
         auth: "api_key",
+        organizationAccess: "subscribed",
         rateLimit: "api",
     },
     async (ctx, routeContext) => {
@@ -93,6 +94,7 @@ export const GET = withPolicy<RouteParams>(
 export const DELETE = withPolicy<RouteParams>(
     {
         auth: "api_key",
+        organizationAccess: "subscribed",
         requireCsrf: true,
         rateLimit: "domainOps",
     },

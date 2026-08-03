@@ -12,25 +12,13 @@ import { ApiUsageCard } from "@/components/dashboard"
 import { FormService } from "@/lib/services/form"
 import { countAliasesByFormat } from "@/lib/data/alias"
 import { personalScope } from "@/lib/ownership"
+import { getUserById } from "@/lib/data/user"
 
 export default async function UsagePage() {
     const session = await auth()
     if (!session?.user?.id) redirect("/login")
 
-    const user = await prisma.user.findUnique({
-        where: { id: session.user.id },
-        include: {
-            subscriptions: {
-                where: { status: { in: ["active", "trialing"] } },
-                select: {
-                    status: true,
-                    product: true,
-                    tier: true,
-                    currentPeriodEnd: true,
-                },
-            },
-        },
-    })
+    const user = await getUserById(session.user.id)
 
     if (!user) redirect("/login")
 

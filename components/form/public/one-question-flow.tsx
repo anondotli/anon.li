@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import type { FormField, FormSchemaDoc } from "@/lib/form-schema"
-import { isBlankObject, missingRequiredAddressParts, describeAddressParts, isIsoDateValue } from "@/lib/form-schema"
 import { useVisibleFormFields } from "@/components/form/use-visible-form-fields"
+import { isFormAnswerEmpty, validateFormFieldAnswer } from "@/lib/form-answer-validation"
 import { QuestionFrame, type QuestionFrameHandle } from "./question-frame"
 import { ProgressRail } from "./progress-rail"
 import { getFieldBehavior, letterToIndex } from "./fields"
@@ -17,54 +17,6 @@ interface Props {
     disabled?: boolean
     /** Render-prop slot below the question content (for Turnstile, errors, progress). */
     bottomSlot?: (ctx: { field: FormField; isLast: boolean }) => React.ReactNode
-}
-
-function isAnswerEmpty(value: unknown): boolean {
-    if (value === undefined || value === null) return true
-    if (typeof value === "string") return value.trim() === ""
-    if (Array.isArray(value)) return value.length === 0
-    if (typeof value === "object") return isBlankObject(value as Record<string, unknown>)
-    return false
-}
-
-function validateAnswer(field: FormField, value: unknown): string | null {
-    if (isAnswerEmpty(value)) {
-        return field.required ? "This question is required" : null
-    }
-    switch (field.type) {
-        case "email":
-            if (typeof value === "string" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
-                return "Enter a valid email address"
-            }
-            return null
-        case "number":
-            if (typeof value === "number") {
-                if (field.min !== undefined && value < field.min) return `Must be at least ${field.min}`
-                if (field.max !== undefined && value > field.max) return `Must be at most ${field.max}`
-            }
-            return null
-        case "short_text":
-        case "long_text":
-            if ("maxLength" in field && field.maxLength && typeof value === "string" && value.length > field.maxLength) {
-                return `Keep this under ${field.maxLength} characters`
-            }
-            return null
-        case "date":
-            if (typeof value !== "string" || !isIsoDateValue(value)) return "Enter a valid date"
-            if (field.min && value < field.min) return `Choose ${field.min} or later`
-            if (field.max && value > field.max) return `Choose ${field.max} or earlier`
-            return null
-        case "ranking":
-            if (!Array.isArray(value) || value.length !== field.options.length) return "Rank every option"
-            return null
-        case "address": {
-            const missing = missingRequiredAddressParts(field, value)
-            if (missing.length > 0) return `Enter ${describeAddressParts(missing)}`
-            return null
-        }
-        default:
-            return null
-    }
 }
 
 export function OneQuestionFlow({
@@ -105,7 +57,7 @@ export function OneQuestionFlow({
     const goForward = useCallback(async () => {
         if (!current) return
         const value = answers[current.id]
-        const err = validateAnswer(current, value)
+        const err = validateFormFieldAnswer(current, value)
         if (err) {
             setError(err)
             frameRef.current?.shake()
@@ -134,7 +86,7 @@ export function OneQuestionFlow({
         if (wasAutoAdvanced.current.has(current.id)) return
         if (!interactedStepsRef.current.has(current.id)) return
         const value = answers[current.id]
-        if (isAnswerEmpty(value)) return
+        if (isFormAnswerEmpty(value)) return
         wasAutoAdvanced.current.add(current.id)
         const id = window.setTimeout(() => {
             void goForward()
@@ -149,8 +101,9 @@ export function OneQuestionFlow({
 
         const onKey = (e: KeyboardEvent) => {
             const target = e.target as HTMLElement | null
-            const isInInput =
-                target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)
+            const isInInput = Boolean(target?.closest(
+                "button, input, textarea, select, a[href], [contenteditable='true']",
+            ))
 
             if (e.key === "Escape") {
                 e.preventDefault()
@@ -260,7 +213,7 @@ export function OneQuestionFlow({
                 index={clampedStep + 1}
                 total={visibleFields.length}
                 canBack={clampedStep > 0}
-                canForward={!current.required || !isAnswerEmpty(answers[current.id])}
+                canForward={!current.required || !isFormAnswerEmpty(answers[current.id])}
                 onBack={goBack}
                 onForward={() => void goForward()}
                 disabled={disabled || submitting}

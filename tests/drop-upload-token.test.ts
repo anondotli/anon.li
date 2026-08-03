@@ -50,8 +50,7 @@ describe("upload-token service", () => {
         uploadTokenCreate.mockResolvedValue(undefined);
         const raw = await issueUploadToken("drop-abc");
 
-        expect(raw).toMatch(/^[A-Za-z0-9_-]+$/);
-        expect(raw.length).toBeGreaterThan(20);
+        expect(raw).toMatch(/^[A-Za-z0-9_-]{43}$/);
         expect(uploadTokenCreate).toHaveBeenCalledTimes(1);
 
         const args = uploadTokenCreate.mock.calls[0]?.[0];
@@ -71,14 +70,24 @@ describe("upload-token service", () => {
     it("getValidUploadTokenForRequest rejects unknown tokens", async () => {
         uploadTokenFindUnique.mockResolvedValue(null);
         const token = await getValidUploadTokenForRequest(
-            makeRequest({ "x-upload-token": "bogus" }),
+            makeRequest({ "x-upload-token": "a".repeat(43) }),
             "drop-123",
         );
         expect(token).toBeNull();
     });
 
+    it("rejects malformed capabilities without querying storage", async () => {
+        const token = await getValidUploadTokenForRequest(
+            makeRequest({ "x-upload-token": "bogus" }),
+            "drop-123",
+        );
+
+        expect(token).toBeNull();
+        expect(uploadTokenFindUnique).not.toHaveBeenCalled();
+    });
+
     it("getValidUploadTokenForRequest rejects tokens bound to a different drop", async () => {
-        const raw = "raw-token-value";
+        const raw = "b".repeat(43);
         uploadTokenFindUnique.mockResolvedValue({
             id: "token-1",
             dropId: "drop-OTHER",
@@ -94,7 +103,7 @@ describe("upload-token service", () => {
     });
 
     it("getValidUploadTokenForRequest rejects expired tokens", async () => {
-        const raw = "raw-token-value";
+        const raw = "c".repeat(43);
         uploadTokenFindUnique.mockResolvedValue({
             id: "token-1",
             dropId: "drop-123",
@@ -110,7 +119,7 @@ describe("upload-token service", () => {
     });
 
     it("getValidUploadTokenForRequest accepts a valid token for the matching drop", async () => {
-        const raw = "raw-token-value";
+        const raw = "d".repeat(43);
         uploadTokenFindUnique.mockResolvedValue({
             id: "token-1",
             dropId: "drop-123",

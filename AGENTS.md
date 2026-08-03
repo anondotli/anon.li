@@ -13,7 +13,10 @@ Use Bun for dependencies and scripts.
 - `bun run build` runs `prisma generate` and creates a production build.
 - `bun run start` serves the production build.
 - `bun run lint` runs ESLint across the repository.
+- `bun run typecheck` generates route/Prisma types and runs strict TypeScript checks.
+- `bun run deadcode` checks for unused files, dependencies, and exports with Knip.
 - `bun run test` runs the Vitest suite once.
+- `bun run check` runs every local quality gate, including a production build.
 - `bunx prisma generate` refreshes Prisma client code; `bunx prisma db push` syncs the local schema.
 
 ## Coding Style & Naming Conventions
@@ -22,7 +25,7 @@ Write TypeScript with strict types; avoid `any`. Use the `@/` path alias for rep
 
 ## Testing Guidelines
 
-Vitest runs in `jsdom` with setup from `vitest.setup.ts`. Name tests `*.test.ts` or `*.test.tsx` and place broad tests in `tests/`; colocated route tests are also used for API handlers. Add focused coverage for changed behavior, especially authentication, billing, vault, crypto, storage, rate limiting, and API validation paths. Run `bun run test` before submitting changes.
+Vitest runs in `jsdom` with setup from `vitest.setup.ts`. Name tests `*.test.ts` or `*.test.tsx` and place broad tests in `tests/`; colocated route tests are also used for API handlers. Add focused coverage for changed behavior, especially authentication, billing, vault, crypto, storage, rate limiting, and API validation paths. Run `bun run check` before submitting changes.
 
 ## Commit & Pull Request Guidelines
 

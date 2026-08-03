@@ -82,8 +82,7 @@ describe('POST /api/v1/alias Validation', () => {
       emailsBlocked: 0,
       lastEmailAt: null,
       scheduledForRemovalAt: null
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any)
+    })
   })
 
   it('should reject extremely long description', async () => {

@@ -16,6 +16,7 @@ const unlockSchema = z.object({
 export const POST = withPolicy(
     {
         auth: "api_key",
+        requireCsrf: true,
         rateLimit: "vaultOps",
     },
     async (ctx) => {

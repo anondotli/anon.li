@@ -44,7 +44,7 @@ export async function getVaultSession(options?: {
     fresh?: boolean
 }): Promise<VaultSessionResult | null> {
     const result = await betterAuth.api.getSession({ headers: await headers() })
-    if (!result?.session || !result?.user?.id || !result.user.email) {
+    if (!result?.session || !result?.user?.id || !result.user.email || result.user.banned) {
         return null
     }
 

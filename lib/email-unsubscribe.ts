@@ -7,15 +7,20 @@ import crypto from "crypto";
  * base64url-encoded, truncated to 32 chars. Tokens never expire — unsubscribing
  * is idempotent, and the flag on the user row is the source of truth.
  *
- * AUTH_SECRET is already required at startup (lib/env.ts), so verification will
- * always succeed in production. In tests we fall back to a deterministic stub.
+ * AUTH_SECRET is required at startup (lib/env.ts). Token operations also fail
+ * closed locally so a partial/misconfigured deployment cannot silently sign
+ * forgeable links with a public fallback secret.
  */
 
 const HMAC_SCOPE = "unsub";
 const HMAC_LENGTH = 32;
 
 function getSecret(): string {
-    return process.env.AUTH_SECRET || "test-secret-do-not-use-in-prod";
+    const secret = process.env.AUTH_SECRET;
+    if (!secret) {
+        throw new Error("AUTH_SECRET is required for unsubscribe tokens");
+    }
+    return secret;
 }
 
 function hmac(userId: string): string {

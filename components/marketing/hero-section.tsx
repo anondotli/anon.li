@@ -14,7 +14,7 @@ export function HeroSection() {
                     <span className="italic text-muted-foreground">Not by Request.</span>
                 </>
             }
-            subtitle="Anonymous email aliases, end-to-end encrypted file sharing, and confidential forms. We can't read any of it - by design, not by policy."
+            subtitle="Anonymous email aliases plus end-to-end encrypted file sharing and confidential forms. Drop and Form content stays unreadable to us by design."
             actions={<HeroAuthCta />}
         >
             <HeroTrustBar

@@ -134,7 +134,10 @@ export class BillingDowngradeService {
                 email: true,
                 downgradedAt: true,
                 subscriptions: {
-                    where: { status: { in: ["active", "trialing"] } },
+                    where: {
+                        organizationId: null,
+                        status: { in: ["active", "trialing"] },
+                    },
                     select: { id: true },
                 },
             },
@@ -301,7 +304,12 @@ export class BillingDowngradeService {
         const users = await prisma.user.findMany({
             where: {
                 downgradedAt: { not: null, lte: schedulingCutoff },
-                subscriptions: { none: { status: { in: ["active", "trialing"] } } },
+                subscriptions: {
+                    none: {
+                        organizationId: null,
+                        status: { in: ["active", "trialing"] },
+                    },
+                },
                 // Exclude users who already have resources scheduled
                 AND: [
                     { aliases: { none: { scheduledForRemovalAt: { not: null }, organizationId: null } } },
@@ -343,7 +351,10 @@ export class BillingDowngradeService {
                 id: true,
                 email: true,
                 subscriptions: {
-                    where: { status: { in: ["active", "trialing"] } },
+                    where: {
+                        organizationId: null,
+                        status: { in: ["active", "trialing"] },
+                    },
                     select: {
                         status: true,
                         product: true,

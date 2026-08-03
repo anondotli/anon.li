@@ -11,13 +11,14 @@ import {
 import {
     vaultGenerationSchema,
     vaultIdSchema,
+    vaultResourceIdSchema,
     wrappedDropKeySchema,
 } from "@/lib/vault/validation"
 
 export const dynamic = "force-dynamic"
 
 const storeDropKeySchema = z.object({
-    drop_id: z.string().min(1),
+    drop_id: vaultResourceIdSchema,
     wrapped_key: wrappedDropKeySchema,
     vault_id: vaultIdSchema,
     vault_generation: vaultGenerationSchema,
@@ -26,6 +27,7 @@ const storeDropKeySchema = z.object({
 export const GET = withPolicy(
     {
         auth: "api_key",
+        organizationAccess: "subscribed",
         rateLimit: "vaultDropKeysRead",
     },
     async (ctx) => {
@@ -38,6 +40,9 @@ export const GET = withPolicy(
         const dropId = url.searchParams.get("drop_id") || url.searchParams.get("dropId")
 
         if (dropId) {
+            if (!vaultResourceIdSchema.safeParse(dropId).success) {
+                return withNoStore(apiError("Invalid drop id", ErrorCodes.VALIDATION_ERROR, ctx.requestId, 400))
+            }
             const dropKey = await prisma.dropOwnerKey.findFirst({
                 where: {
                     dropId,
@@ -102,6 +107,8 @@ export const GET = withPolicy(
 export const POST = withPolicy(
     {
         auth: "api_key",
+        organizationAccess: "subscribed",
+        requireCsrf: true,
         rateLimit: "vaultOps",
     },
     async (ctx) => {

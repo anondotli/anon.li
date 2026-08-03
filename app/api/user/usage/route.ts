@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server"
-import { auth } from "@/auth"
-import { prisma } from "@/lib/prisma"
 import { rateLimit } from "@/lib/rate-limit"
 import { readApiRateLimit, readDropApiRateLimit } from "@/lib/api-rate-limit"
 import { createLogger } from "@/lib/logger"
+import { requireSession } from "@/lib/api-auth"
+import { getUserById } from "@/lib/data/user"
 
 const logger = createLogger("UserUsageAPI")
 
@@ -27,43 +27,33 @@ function formatQuota(result: { limit: number; remaining: number; reset: Date }) 
  */
 export async function GET() {
     try {
-        const session = await auth()
-        if (!session?.user?.id) {
+        const session = await requireSession()
+        if (!session) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
         }
 
         // Rate limit check - use dropList limiter (60/min) for frequent but bounded queries
-        const rateLimited = await rateLimit("dropList", session.user.id)
+        const rateLimited = await rateLimit("dropList", session.userId)
         if (rateLimited) return rateLimited
 
-        const user = await prisma.user.findUnique({
-            where: { id: session.user.id },
-            select: {
-                subscriptions: {
-                    where: { status: { in: ["active", "trialing"] } },
-                    select: {
-                        status: true,
-                        product: true,
-                        tier: true,
-                        currentPeriodEnd: true,
-                    },
-                },
-            },
-        })
+        const user = await getUserById(session.userId)
 
         if (!user) {
             return NextResponse.json({ error: "User not found" }, { status: 404 })
         }
 
         const [aliasResult, dropResult] = await Promise.all([
-            readApiRateLimit(session.user.id, user),
-            readDropApiRateLimit(session.user.id, user),
+            readApiRateLimit(session.userId, user),
+            readDropApiRateLimit(session.userId, user),
         ])
 
-        return NextResponse.json({
-            alias: formatQuota(aliasResult),
-            drop: formatQuota(dropResult),
-        })
+        return NextResponse.json(
+            {
+                alias: formatQuota(aliasResult),
+                drop: formatQuota(dropResult),
+            },
+            { headers: { "Cache-Control": "private, no-store" } },
+        )
     } catch (error) {
         logger.error("Error fetching API usage", error)
         return NextResponse.json(

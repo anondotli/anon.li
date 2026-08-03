@@ -210,7 +210,7 @@ export default function FAQPage() {
                         You can enable TOTP-based two-factor authentication from your account settings. Use any authenticator app (Google Authenticator, Authy, 1Password, and so on) for a second factor on top of your normal sign-in.
                     </FAQItem>
                     <FAQItem value="data-export" question="Can I export my data?">
-                        Yes. You can export your account data from your dashboard settings. We also support full account deletion, which immediately removes your live account data including aliases, drops, and domains.
+                        Yes. Dashboard settings provides a machine-readable summary of your personal-workspace profile and product metadata. Credential secrets, encrypted form responses, file contents, and team-owned resources are excluded; contact privacy@anon.li for a formal access request. We also support full account deletion, which immediately removes your live personal account data.
                     </FAQItem>
                     <FAQItem value="anonymous-payments" question="Can I pay anonymously?">
                         We support cryptocurrency checkout through NOWPayments. The exact coins and networks available depend on NOWPayments at checkout, and crypto purchases activate 1 year of access per payment with no recurring billing.

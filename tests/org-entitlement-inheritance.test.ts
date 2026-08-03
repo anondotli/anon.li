@@ -17,6 +17,7 @@ vi.mock("@/lib/prisma", () => ({
 }))
 
 import { getAuthUserState } from "@/lib/data/auth"
+import { getUserById } from "@/lib/data/user"
 import { getEffectiveTier, getPlanLimits } from "@/lib/limits"
 import { PLAN_ENTITLEMENTS } from "@/config/plans"
 
@@ -76,5 +77,27 @@ describe("org entitlement inheritance (seat-based)", () => {
 
         const state = await getAuthUserState("u1")
         expect(getEffectiveTier(state)).toBe("pro")
+    })
+
+    it("uses the same seat inheritance model outside request authentication", async () => {
+        const personal = { status: "active", product: "alias", tier: "plus", currentPeriodEnd: null }
+        const team = { status: "active", product: "business", tier: "pro", currentPeriodEnd: null }
+        findUnique.mockResolvedValue({
+            id: "u1",
+            subscriptions: [personal],
+            memberships: [{ organization: { subscriptions: [team] } }],
+        })
+
+        const user = await getUserById("u1")
+
+        expect(user?.subscriptions).toEqual([personal, team])
+        expect(findUnique).toHaveBeenCalledWith(expect.objectContaining({
+            where: { id: "u1" },
+            include: expect.objectContaining({
+                subscriptions: expect.objectContaining({
+                    where: expect.objectContaining({ organizationId: null }),
+                }),
+            }),
+        }))
     })
 })

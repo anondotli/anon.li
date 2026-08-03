@@ -75,8 +75,9 @@ function getEnvVarsFromSchema(): Set<string> {
     const envTs = readFileSync(resolve(__dirname, "../lib/env.ts"), "utf-8")
     const varNames = new Set<string>()
 
-    // Match property names in z.object({ KEY: z... })
-    const matches = envTs.matchAll(/^\s+(\w+):\s*z\./gm)
+    // Match uppercase environment properties regardless of whether their
+    // schema is inline or shared through a named validator.
+    const matches = envTs.matchAll(/^\s+([A-Z][A-Z0-9_]+):\s*/gm)
     for (const match of matches) {
         varNames.add(match[1]!)
     }

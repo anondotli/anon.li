@@ -77,7 +77,7 @@ export async function cleanupStaleDomains() {
         include: { user: true },
         orderBy: { createdAt: "asc" },
         take: STALE_CLEANUP_BATCH_SIZE,
-    }) as unknown as Array<{ id: string; domain: string; organizationId: string | null; user: { id: string; email: string | null } | null }>;
+    });
 
     if (staleDomains.length === 0) return results;
 

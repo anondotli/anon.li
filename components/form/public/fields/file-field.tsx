@@ -6,14 +6,14 @@ import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { formatBytes } from "@/lib/format"
 import { getFileIcon } from "@/lib/file-icons"
-import type { FieldPresentation } from "./types"
+import type { FieldAccessibilityProps, FieldPresentation } from "./types"
 import type { FormField } from "@/lib/form-schema"
 
 interface FileHandle {
     focus: () => void
 }
 
-interface Props {
+interface Props extends FieldAccessibilityProps {
     field: Extract<FormField, { type: "file" }>
     value: unknown
     onChange: (next: unknown) => void
@@ -38,12 +38,13 @@ function mimeAllowed(mimeType: string, accepted?: string[]): boolean {
 }
 
 export const FileField = forwardRef<FileHandle, Props>(function FileField(
-    { field, value, onChange, presentation, disabled, autoFocus },
+    { field, value, onChange, presentation, disabled, autoFocus, invalid, describedBy },
     ref,
 ) {
     const dropRef = useRef<HTMLDivElement>(null)
     const inputRef = useRef<HTMLInputElement>(null)
     const [dragOver, setDragOver] = useState(false)
+    const [selectionError, setSelectionError] = useState<string | null>(null)
 
     useImperativeHandle(ref, () => ({ focus: () => dropRef.current?.focus() }), [])
     useEffect(() => {
@@ -55,15 +56,42 @@ export const FileField = forwardRef<FileHandle, Props>(function FileField(
     const accept = field.acceptedMimeTypes?.join(",")
 
     const addFiles = (incoming: File[]) => {
-        const accepted = incoming
-            .filter((f) => mimeAllowed(f.type || "application/octet-stream", field.acceptedMimeTypes))
-            .filter((f) => !field.maxFileSize || f.size <= field.maxFileSize)
-            .slice(0, remaining)
+        const valid = incoming.filter((file) => (
+            file.size > 0
+            && mimeAllowed(file.type || "application/octet-stream", field.acceptedMimeTypes)
+            && (!field.maxFileSize || file.size <= field.maxFileSize)
+        ))
+        const accepted = valid.slice(0, remaining)
+        const rejected = incoming.length - accepted.length
         if (accepted.length > 0) onChange([...files, ...accepted])
+        if (rejected > 0) {
+            const hasEmpty = incoming.some((file) => file.size === 0)
+            const hasWrongType = incoming.some((file) => !mimeAllowed(
+                file.type || "application/octet-stream",
+                field.acceptedMimeTypes,
+            ))
+            const hasOversized = incoming.some((file) => Boolean(
+                field.maxFileSize && file.size > field.maxFileSize,
+            ))
+            setSelectionError(
+                hasEmpty
+                    ? "Empty files cannot be attached."
+                    : hasWrongType
+                      ? "One or more files use a type this question does not accept."
+                      : hasOversized
+                        ? `One or more files exceed the ${formatBytes(field.maxFileSize!, 0)} limit.`
+                        : `This question allows at most ${field.maxFiles} files.`,
+            )
+        } else {
+            setSelectionError(null)
+        }
         if (inputRef.current) inputRef.current.value = ""
     }
 
-    const remove = (i: number) => onChange(files.filter((_, idx) => idx !== i))
+    const remove = (i: number) => {
+        setSelectionError(null)
+        onChange(files.filter((_, idx) => idx !== i))
+    }
 
     const onDrop = (e: React.DragEvent<HTMLDivElement>) => {
         e.preventDefault()
@@ -74,6 +102,8 @@ export const FileField = forwardRef<FileHandle, Props>(function FileField(
     }
 
     const spotlight = presentation === "spotlight"
+    const selectionErrorId = selectionError ? `${field.id}-selection-error` : null
+    const combinedDescription = [describedBy, selectionErrorId].filter(Boolean).join(" ") || undefined
 
     return (
         <div className="space-y-3">
@@ -111,9 +141,11 @@ export const FileField = forwardRef<FileHandle, Props>(function FileField(
             {remaining > 0 ? (
                 <div
                     ref={dropRef}
-                    tabIndex={0}
+                    tabIndex={disabled ? -1 : 0}
                     role="button"
                     aria-label={files.length === 0 ? "Attach files" : "Add another file"}
+                    aria-disabled={disabled || undefined}
+                    aria-describedby={combinedDescription}
                     onClick={() => !disabled && inputRef.current?.click()}
                     onKeyDown={(e) => {
                         if ((e.key === "Enter" || e.key === " ") && !disabled) {
@@ -148,6 +180,12 @@ export const FileField = forwardRef<FileHandle, Props>(function FileField(
                 </div>
             ) : null}
 
+            {selectionError ? (
+                <p id={selectionErrorId ?? undefined} role="alert" className="text-xs text-destructive">
+                    {selectionError}
+                </p>
+            ) : null}
+
             <input
                 ref={inputRef}
                 id={field.id}
@@ -157,6 +195,8 @@ export const FileField = forwardRef<FileHandle, Props>(function FileField(
                 className="hidden"
                 onChange={(e) => addFiles(Array.from(e.target.files ?? []))}
                 disabled={disabled}
+                aria-invalid={invalid || undefined}
+                aria-describedby={combinedDescription}
             />
         </div>
     )

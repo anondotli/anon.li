@@ -112,6 +112,7 @@ const { mockUpsertStripeSubscription } = vi.hoisted(() => ({
     mockUpsertStripeSubscription: vi.fn().mockResolvedValue(true),
 }))
 vi.mock("@/lib/services/subscription-sync", () => ({
+    InvalidSubscriptionOwnershipError: class InvalidSubscriptionOwnershipError extends Error {},
     upsertStripeSubscription: mockUpsertStripeSubscription,
 }))
 
@@ -286,29 +287,4 @@ describe("Billing Edge Cases", () => {
         })
     })
 
-    describe("Duplicate subscription blocking", () => {
-        it("should block checkout when active Subscription exists (API route)", async () => {
-            // This test would require importing the checkout API route with full mocking.
-            // For now, verify the core logic: prisma.subscription.findFirst is used in checkout.
-            // The actual integration is tested by the type system + manual QA.
-
-            // Simulate: user has an active subscription
-            ;(prisma.subscription.findFirst as Mock).mockResolvedValueOnce({
-                id: "sub_existing",
-                status: "active",
-                currentPeriodEnd: new Date(Date.now() + 86400 * 30 * 1000),
-            })
-
-            const result = await prisma.subscription.findFirst({
-                where: {
-                    userId: "user_1",
-                    status: { in: ["active", "trialing"] },
-                    currentPeriodEnd: { gt: new Date() },
-                },
-            })
-
-            expect(result).not.toBeNull()
-            expect(result!.status).toBe("active")
-        })
-    })
 })

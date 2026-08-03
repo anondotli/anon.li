@@ -90,11 +90,12 @@ export function PricingGrid({ user, currentPlanId }: PricingGridProps) {
 
     const highlightRef = useRef<HTMLDivElement | null>(null)
     const individualRef = useRef<HTMLDivElement | null>(null)
+    const shouldScrollOnMount = useRef(Boolean(initial.tier || wantsIndividual))
 
     // On mount, scroll the highlighted card (or the opened individual section) into
     // view so emailed/deep links land directly on the card they were pitching.
     useEffect(() => {
-        if (!highlightedTier && !wantsIndividual) return
+        if (!shouldScrollOnMount.current) return
         const node = highlightRef.current ?? individualRef.current
         if (!node) return
         const frame = requestAnimationFrame(() => {
@@ -106,8 +107,6 @@ export function PricingGrid({ user, currentPlanId }: PricingGridProps) {
             cancelAnimationFrame(frame)
             window.clearTimeout(timeout)
         }
-        // Mount-only: deep-link intent is read once.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
     const handleIndividualChange = (next: IndividualProduct) => {

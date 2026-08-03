@@ -88,6 +88,14 @@ export const POST = withPolicy<RouteParams>(
             userAgent,
         })
 
-        return NextResponse.json({ success: true, downloadUrls })
+        return NextResponse.json(
+            { success: true, downloadUrls },
+            {
+                headers: {
+                    "Cache-Control": "no-store, max-age=0",
+                    "Referrer-Policy": "no-referrer",
+                },
+            },
+        )
     },
 )

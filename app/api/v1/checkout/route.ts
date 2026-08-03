@@ -6,9 +6,10 @@
 
 import { z } from "zod"
 
-import { apiError, apiSuccess, ErrorCodes, zodErrorToDetails } from "@/lib/api-response"
+import { apiError, apiSuccess, ErrorCodes, withNoStore, zodErrorToDetails } from "@/lib/api-response"
 import { getUserBillingState } from "@/lib/data/user"
 import { isOrgScope } from "@/lib/ownership"
+import { prisma } from "@/lib/prisma"
 import { scopeFromContext, withPolicy } from "@/lib/route-policy"
 import { stripe } from "@/lib/stripe"
 import { getStripePriceId } from "@/lib/stripe-prices"
@@ -53,6 +54,24 @@ export const POST = withPolicy(
         const priceId = getStripePriceId(product, tier, frequency)
         if (!priceId) {
             return apiError("Invalid price configuration", ErrorCodes.INVALID_REQUEST, ctx.requestId, 400)
+        }
+
+        const existingSubscription = await prisma.subscription.findFirst({
+            where: {
+                userId: ctx.userId,
+                organizationId: null,
+                status: { in: ["active", "trialing"] },
+                currentPeriodEnd: { gt: new Date() },
+            },
+            select: { id: true },
+        })
+        if (existingSubscription) {
+            return apiError(
+                "You already have an active subscription. Manage it from your billing page.",
+                ErrorCodes.CONFLICT,
+                ctx.requestId,
+                409,
+            )
         }
 
         const user = await getUserBillingState(ctx.userId)
@@ -123,6 +142,6 @@ export const POST = withPolicy(
             flow: "api",
         })
 
-        return apiSuccess({ url: checkoutSession.url }, ctx.requestId)
+        return withNoStore(apiSuccess({ url: checkoutSession.url }, ctx.requestId))
     },
 )

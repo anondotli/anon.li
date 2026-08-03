@@ -7,11 +7,13 @@
 
 import { z } from "zod"
 
-import { apiError, apiList, apiSuccess, ErrorCodes, zodErrorToDetails } from "@/lib/api-response"
+import { apiError, apiList, apiSuccess, ErrorCodes, withNoStore, zodErrorToDetails } from "@/lib/api-response"
 import { checkVaultIdentity, vaultIdentityErrorResponse } from "@/lib/vault/identity"
 import { getDropLimits } from "@/lib/limits"
 import { isOrgScope, ownerWhere, type OwnerScope } from "@/lib/ownership"
 import { prisma } from "@/lib/prisma"
+import { getOrgLimitContext } from "@/lib/data/auth"
+import { getUserById } from "@/lib/data/user"
 import { getClientIp, checkRateLimit, rateLimiters } from "@/lib/rate-limit"
 import { withPolicy, scopeFromContext } from "@/lib/route-policy"
 import { DropService, type DropListItem } from "@/lib/services/drop"
@@ -37,16 +39,16 @@ const createDropSchema = z.object({
     iv: z.string().regex(/^[A-Za-z0-9_-]{16}$/, "IV must be 16 base64url characters"),
     encryptedTitle: z.string().max(1024).optional(),
     encryptedMessage: z.string().max(4096).optional(),
-    expiry: z.number().min(1).max(30).optional(),
-    maxDownloads: z.number().min(1).optional(),
+    expiry: z.number().int().min(1).max(30).optional(),
+    maxDownloads: z.number().int().min(1).max(1_000_000).optional(),
     customKey: z.boolean().optional(),
     salt: z.string().length(43).optional(),
     customKeyData: z.string().min(70).max(512).optional(),
     customKeyIv: z.string().length(16).optional(),
     hideBranding: z.boolean().optional(),
     notifyOnDownload: z.boolean().optional(),
-    fileCount: z.number().int().positive().optional(),
-    turnstileToken: z.string().optional(),
+    fileCount: z.number().int().min(1).max(50).optional(),
+    turnstileToken: z.string().min(1).max(2048).optional(),
     ownerKey: ownerKeySchema.optional(),
 }).refine((data) => {
     if (data.customKey) {
@@ -74,28 +76,15 @@ export const GET = withPolicy(
         const limit = Math.min(Math.max(parseInt(url.searchParams.get("limit") || "50", 10) || 50, 1), 100)
         const offset = Math.max(parseInt(url.searchParams.get("offset") || "0", 10) || 0, 0)
 
-        const [result, user] = await Promise.all([
-            DropService.listDrops(scopeFromContext(ctx), { limit, offset }),
-            prisma.user.findUnique({
-                where: { id: ctx.userId },
-                select: {
-                    storageUsed: true,
-                    referralPlusUntil: true,
-                    subscriptions: {
-                        where: { status: { in: ["active", "trialing"] } },
-                        select: {
-                            status: true,
-                            product: true,
-                            tier: true,
-                            currentPeriodEnd: true,
-                        },
-                    },
-                },
-            }),
+        const scope = scopeFromContext(ctx)
+        const [result, user, orgLimitContext] = await Promise.all([
+            DropService.listDrops(scope, { limit, offset }),
+            getUserById(ctx.userId),
+            isOrgScope(scope) ? getOrgLimitContext(scope.organizationId) : null,
         ])
 
-        const limits = getDropLimits(user)
-        const storageUsed = user?.storageUsed || BigInt(0)
+        const limits = getDropLimits(orgLimitContext ?? user)
+        const storageUsed = orgLimitContext?.storageUsed ?? user?.storageUsed ?? BigInt(0)
         const storageLimit = BigInt(limits.maxStorage)
 
         const data = result.drops.map((drop: DropListItem) => ({
@@ -124,7 +113,7 @@ export const POST = withPolicy(
         rateLimitIdentifier: async (ctx) => ctx.userId ?? await getClientIp(),
     },
     async (ctx) => {
-        const body = await ctx.request.json()
+        const body = await ctx.request.json().catch(() => null)
         const validation = createDropSchema.safeParse(body)
 
         if (!validation.success) {
@@ -227,15 +216,15 @@ export const POST = withPolicy(
             }
         }
 
-        // Guests receive a single-use upload token bound to this drop.
-        // The raw token is shown once; only its SHA-256 is stored server-side.
+        // Guests receive an upload capability bound to this drop. The raw token
+        // is shown once; only its SHA-256 is stored server-side.
         const uploadToken = ctx.userId ? null : await issueUploadToken(result.dropId)
 
-        return apiSuccess({
+        return withNoStore(apiSuccess({
             drop_id: result.dropId,
             expires_at: result.expiresAt?.toISOString() || null,
             owner_key_stored: Boolean(ownerKey && ctx.userId),
             upload_token: uploadToken,
-        }, ctx.requestId)
+        }, ctx.requestId))
     }
 )

@@ -2,14 +2,15 @@
 
 import { forwardRef, useImperativeHandle, useRef, useEffect } from "react"
 import { cn } from "@/lib/utils"
-import type { FieldPresentation } from "./types"
+import type { FieldAccessibilityProps, FieldPresentation } from "./types"
 import type { FormField } from "@/lib/form-schema"
+import { useDelayedCallback } from "@/hooks/use-delayed-callback"
 
 interface LinearScaleHandle {
     focus: () => void
 }
 
-interface Props {
+interface Props extends FieldAccessibilityProps {
     field: Extract<FormField, { type: "linear_scale" }>
     value: unknown
     onChange: (next: unknown) => void
@@ -20,7 +21,7 @@ interface Props {
 }
 
 export const LinearScaleField = forwardRef<LinearScaleHandle, Props>(function LinearScaleField(
-    { field, value, onChange, onAdvance, presentation, disabled, autoFocus },
+    { field, value, onChange, onAdvance, presentation, disabled, autoFocus, invalid, describedBy },
     ref,
 ) {
     const containerRef = useRef<HTMLDivElement>(null)
@@ -32,15 +33,22 @@ export const LinearScaleField = forwardRef<LinearScaleHandle, Props>(function Li
     const current = typeof value === "number" ? value : null
     const spotlight = presentation === "spotlight"
     const steps = Array.from({ length: field.max - field.min + 1 }, (_, i) => field.min + i)
+    const { schedule: scheduleAdvance } = useDelayedCallback(onAdvance, 220)
 
     const pick = (n: number) => {
         onChange(n)
-        if (onAdvance) window.setTimeout(onAdvance, 220)
+        scheduleAdvance()
     }
 
     return (
         <div ref={containerRef} tabIndex={-1} className="space-y-3 outline-none">
-            <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={field.label}>
+            <div
+                className="flex flex-wrap gap-2"
+                role="radiogroup"
+                aria-label={field.label}
+                aria-invalid={invalid || undefined}
+                aria-describedby={describedBy}
+            >
                 {steps.map((n) => {
                     const selected = n === current
                     return (

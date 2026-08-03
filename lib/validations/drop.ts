@@ -31,9 +31,9 @@ const fileFields = {
     // `size` is encrypted bytes. The bounded allowance covers at most one
     // 16-byte AES-GCM tag for every protocol-valid part.
     size: z.number().int().positive().max(MAX_DROP_ENCRYPTED_FILE_SIZE),
-    encryptedName: z.string().min(1),
+    encryptedName: z.string().min(1).max(2048),
     iv: z.string().regex(/^[A-Za-z0-9_-]{16}$/, "IV must be 16 base64url characters"),
-    mimeType: z.string().min(1).regex(/^[\w\-]+\/[\w\-+.]+$/, "Invalid MIME type format")
+    mimeType: z.string().min(1).max(200).regex(/^[\w\-]+\/[\w\-+.]+$/, "Invalid MIME type format")
         .refine(v => !/^(text\/html|application\/javascript|application\/x-javascript|text\/javascript|application\/xhtml\+xml)$/i.test(v), "This MIME type is not allowed"),
     chunkCount: z.number().int().positive().max(MAX_CHUNKS_PER_FILE),
     chunkSize: z.number().int().positive(),
@@ -47,6 +47,7 @@ export const addFileApiSchema = z.object(fileFields)
     .extend({
         formFieldId: z.string().min(1).max(64).optional(),
     })
+    .strict()
     .refine(chunkSizeValid, {
         message: "Chunk size must be at least 5MB for multi-part uploads",
         path: ["chunkSize"],
@@ -65,9 +66,10 @@ export const addFileApiSchema = z.object(fileFields)
  * Used by: actions/drop.ts
  */
 export const addFileActionSchema = z.object({
-    dropId: z.string().min(1),
+    dropId: z.string().min(1).max(64),
     ...fileFields,
 })
+    .strict()
     .refine(chunkSizeValid, {
         message: "Chunk size must be at least 5MB for multi-part uploads",
         path: ["chunkSize"],
@@ -85,12 +87,12 @@ export const addFileActionSchema = z.object({
  * A single drop recipient. The decryption key is never sent here — the server
  * only mints an access token; the client assembles the share link with the key.
  */
-export const recipientInputSchema = z.object({
+const recipientInputSchema = z.object({
     email: z.string().email().max(254),
     label: z.string().max(120).optional(),
     maxDownloads: z.number().int().positive().max(100_000).optional(),
     expiresAt: z.string().datetime().optional(),
-});
+}).strict();
 
 /**
  * Add recipients to a drop and/or toggle "restrict downloads to named recipients".
@@ -102,7 +104,7 @@ export const addRecipientsSchema = z.object({
     restrict: z.boolean().optional(),
     /** Email each new recipient their keyless access link (never carries the key). */
     notify: z.boolean().optional(),
-}).refine((d) => d.recipients.length > 0 || d.restrict !== undefined, {
+}).strict().refine((d) => d.recipients.length > 0 || d.restrict !== undefined, {
     message: "Provide at least one recipient or change the restriction setting",
     path: ["recipients"],
 });

@@ -6,6 +6,7 @@ import util from "util"
 import { prisma } from "@/lib/prisma"
 import { getPlanLimits, assertOrgPlanActive } from "@/lib/limits"
 import { getOrgLimitContext } from "@/lib/data/auth"
+import { getUserById } from "@/lib/data/user"
 import { generateDkimKeys } from "@/lib/dkim"
 import { createLogger } from "@/lib/logger"
 import { ValidationError, NotFoundError, ForbiddenError } from "@/lib/api-error-utils"
@@ -55,20 +56,7 @@ export class DomainService {
         // Check plan limits. In org scope the limit derives from the org's own
         // plan (Business), not the creating member's personal plan; the count is
         // already pooled across the org via ownerWhere(scope).
-        const user = await prisma.user.findUnique({
-            where: { id: scope.userId },
-            include: {
-                subscriptions: {
-                    where: { status: { in: ["active", "trialing"] } },
-                    select: {
-                        status: true,
-                        product: true,
-                        tier: true,
-                        currentPeriodEnd: true,
-                    },
-                },
-            }
-        })
+        const user = await getUserById(scope.userId)
 
         if (!user) {
             throw new NotFoundError("User not found")

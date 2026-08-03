@@ -8,6 +8,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GET as runDaily } from "@/app/api/cron/daily/route";
 
 const originalSecret = process.env.CRON_SECRET;
+const originalAppUrl = process.env.NEXT_PUBLIC_APP_URL;
+const originalVercelUrl = process.env.VERCEL_URL;
 
 const DAILY_JOB_PATHS = [
     "https://example.com/api/cron/domains",
@@ -33,10 +35,17 @@ const authorizedRequest = () =>
 describe("daily cron aggregator", () => {
     beforeEach(() => {
         process.env.CRON_SECRET = "test-cron-secret";
+        process.env.NEXT_PUBLIC_APP_URL = "https://example.com";
+        delete process.env.VERCEL_URL;
     });
 
     afterEach(() => {
-        process.env.CRON_SECRET = originalSecret;
+        if (originalSecret === undefined) delete process.env.CRON_SECRET;
+        else process.env.CRON_SECRET = originalSecret;
+        if (originalAppUrl === undefined) delete process.env.NEXT_PUBLIC_APP_URL;
+        else process.env.NEXT_PUBLIC_APP_URL = originalAppUrl;
+        if (originalVercelUrl === undefined) delete process.env.VERCEL_URL;
+        else process.env.VERCEL_URL = originalVercelUrl;
         vi.unstubAllGlobals();
     });
 
@@ -67,6 +76,18 @@ describe("daily cron aggregator", () => {
             expect(init.headers.authorization).toBe("Bearer test-cron-secret");
             expect(init.cache).toBe("no-store");
         }
+    });
+
+    it("ignores the incoming host when dispatching the base cron secret", async () => {
+        const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { success: true }));
+        vi.stubGlobal("fetch", fetchMock);
+
+        const response = await runDaily(new Request("https://attacker.example/api/cron/daily", {
+            headers: { authorization: "Bearer test-cron-secret" },
+        }) as never);
+
+        expect(response.status).toBe(200);
+        expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(DAILY_JOB_PATHS);
     });
 
     it("returns 500 and names failed jobs while still running the rest", async () => {

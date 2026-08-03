@@ -5,6 +5,7 @@ import Image from "next/image"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { toast } from "sonner"
+import { parseHttpsOrLoopbackHttpUrl } from "@/lib/url-safety"
 
 interface ConsentScope {
     key: string
@@ -33,17 +34,28 @@ export function ConsentForm({ consentCode, clientName, clientIcon, scopes, userE
                     credentials: "include",
                     body: JSON.stringify({ accept, consent_code: consentCode }),
                 })
-                const data = await res.json().catch(() => null)
+                const data: unknown = await res.json().catch(() => null)
                 if (!res.ok) {
-                    toast.error(data?.error_description || data?.message || "Authorization failed")
+                    const error = data && typeof data === "object" ? data as Record<string, unknown> : null
+                    const message = typeof error?.error_description === "string"
+                        ? error.error_description
+                        : typeof error?.message === "string"
+                            ? error.message
+                            : "Authorization failed"
+                    toast.error(message)
                     setDecision(null)
                     return
                 }
-                if (data?.redirectURI) {
-                    window.location.href = data.redirectURI
-                } else {
-                    window.location.href = "/dashboard"
+                const redirectValue = data && typeof data === "object" && "redirectURI" in data
+                    ? (data as { redirectURI?: unknown }).redirectURI
+                    : null
+                const redirectUrl = parseHttpsOrLoopbackHttpUrl(redirectValue)
+                if (!redirectUrl) {
+                    toast.error("Authorization succeeded, but the client returned an unsafe redirect URL.")
+                    setDecision(null)
+                    return
                 }
+                window.location.assign(redirectUrl.toString())
             } catch {
                 toast.error("Network error. Please try again.")
                 setDecision(null)
@@ -63,6 +75,7 @@ export function ConsentForm({ consentCode, clientName, clientIcon, scopes, userE
                             height={56}
                             className="mx-auto rounded-lg"
                             unoptimized
+                            referrerPolicy="no-referrer"
                         />
                     ) : null}
                     <CardTitle>Authorize {clientName}</CardTitle>

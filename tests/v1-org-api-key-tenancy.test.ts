@@ -25,6 +25,7 @@ const context: TestContext = {
 
 const prisma = {
     user: { findUnique: vi.fn() },
+    subscription: { findFirst: vi.fn() },
     alias: { groupBy: vi.fn() },
     userSecurity: { findUnique: vi.fn() },
     organization: { findUnique: vi.fn() },
@@ -136,6 +137,7 @@ beforeEach(() => {
     prisma.drop.findFirst.mockResolvedValue({ id: "drop-1" })
     prisma.drop.deleteMany.mockResolvedValue({ count: 1 })
     prisma.dropOwnerKey.findMany.mockResolvedValue([])
+    prisma.subscription.findFirst.mockResolvedValue(null)
     createDrop.mockResolvedValue({ dropId: "drop-1", expiresAt: null })
     persistOwnedDropKey.mockResolvedValue(undefined)
     verifyCredentialSecret.mockResolvedValue(true)
@@ -296,6 +298,29 @@ describe("personal-only v1 endpoints", () => {
         }))
 
         expect(response.status).toBe(200)
+        expect(prisma.subscription.findFirst).toHaveBeenCalledWith({
+            where: {
+                userId: "user-1",
+                organizationId: null,
+                status: { in: ["active", "trialing"] },
+                currentPeriodEnd: { gt: expect.any(Date) },
+            },
+            select: { id: true },
+        })
         expect(createCheckoutSession).toHaveBeenCalledOnce()
+    })
+
+    it("does not create a second personal subscription", async () => {
+        prisma.subscription.findFirst.mockResolvedValueOnce({ id: "sub-1" })
+        const { POST } = await import("@/app/api/v1/checkout/route")
+
+        const response = await POST(new Request("https://anon.li/api/v1/checkout", {
+            method: "POST",
+            body: JSON.stringify({ product: "drop", tier: "plus", frequency: "monthly" }),
+        }))
+
+        expect(response.status).toBe(409)
+        expect(getUserBillingState).not.toHaveBeenCalled()
+        expect(createCheckoutSession).not.toHaveBeenCalled()
     })
 })

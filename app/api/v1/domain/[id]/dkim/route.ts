@@ -17,6 +17,7 @@ interface RouteParams {
 export const POST = withPolicy<RouteParams>(
     {
         auth: "api_key",
+        organizationAccess: "subscribed",
         requireCsrf: true,
         rateLimit: "domainOps",
     },

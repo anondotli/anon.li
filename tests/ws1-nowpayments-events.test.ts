@@ -71,11 +71,13 @@ import { POST } from "@/app/api/webhooks/nowpayments/route"
 
 const payment = {
     id: "pay-1",
+    invoiceId: "invoice-1",
     orderId: "crypto_ord_1",
     userId: "user-1",
     product: "bundle",
     tier: "plus",
     priceAmount: 39.49,
+    priceCurrency: "usd",
     payCurrency: "btc",
     payAmount: 0.001,
     actuallyPaid: 0,
@@ -83,10 +85,18 @@ const payment = {
 }
 
 async function deliver(body: Record<string, unknown>) {
+    const completeBody = {
+        invoice_id: "invoice-1",
+        price_amount: 39.49,
+        price_currency: "usd",
+        pay_amount: 0.001,
+        actually_paid: 0.001,
+        ...body,
+    }
     const req = new Request("http://localhost/api/webhooks/nowpayments", {
         method: "POST",
         headers: { "x-nowpayments-sig": "sig", "content-type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify(completeBody),
     })
     return POST(req)
 }

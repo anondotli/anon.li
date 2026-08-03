@@ -5,15 +5,21 @@ import { useRouter } from "next/navigation"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { CheckCircle2, Clock, Loader2, XCircle } from "lucide-react"
+import {
+    isInternalCryptoFailureStatus,
+    isNowPaymentsPaymentStatus,
+    type InternalCryptoFailureStatus,
+    type NowPaymentsPaymentStatus,
+} from "@/lib/crypto-payment-status"
 
 interface CryptoSuccessContentProps {
     orderId: string
 }
 
-type PaymentStatus = "waiting" | "confirming" | "confirmed" | "sending" | "finished" | "failed" | "expired" | "refunded"
+type PaymentStatus = NowPaymentsPaymentStatus | InternalCryptoFailureStatus | "unknown"
 
 const STATUS_STEPS: { key: PaymentStatus[]; label: string }[] = [
-    { key: ["waiting"], label: "Waiting for payment" },
+    { key: ["waiting", "partially_paid"], label: "Waiting for full payment" },
     { key: ["confirming"], label: "Confirming transaction" },
     { key: ["confirmed", "sending"], label: "Payment confirmed" },
     { key: ["finished"], label: "Subscription active" },
@@ -28,7 +34,12 @@ function isTerminalSuccess(status: PaymentStatus): boolean {
 }
 
 function isTerminalFailure(status: PaymentStatus): boolean {
-    return status === "failed" || status === "expired" || status === "refunded"
+    return status === "failed"
+        || status === "expired"
+        || status === "refunded"
+        || status === "underpaid"
+        || status === "price_mismatch"
+        || status === "unknown"
 }
 
 export function CryptoSuccessContent({ orderId }: CryptoSuccessContentProps) {
@@ -48,9 +59,15 @@ export function CryptoSuccessContent({ orderId }: CryptoSuccessContentProps) {
             try {
                 const res = await fetch(`/api/crypto/status?orderId=${encodeURIComponent(orderId)}`)
                 if (!res.ok || cancelled) return
-                const data = await res.json()
-                if (!cancelled) {
-                    setStatus(data.status as PaymentStatus)
+                const data: unknown = await res.json()
+                const nextStatus = data && typeof data === "object" && "status" in data
+                    ? data.status
+                    : null
+                if (cancelled) return
+                if (isNowPaymentsPaymentStatus(nextStatus) || isInternalCryptoFailureStatus(nextStatus)) {
+                    setStatus(nextStatus)
+                } else {
+                    setStatus("unknown")
                 }
             } catch {
                 // Silently retry on network error
@@ -83,13 +100,29 @@ export function CryptoSuccessContent({ orderId }: CryptoSuccessContentProps) {
                 <Card className="w-full max-w-md rounded-3xl">
                     <CardContent className="p-8 text-center space-y-4">
                         <XCircle className="h-12 w-12 text-destructive mx-auto" />
-                        <h2 className="text-xl font-medium font-serif">Payment {status === "refunded" ? "Refunded" : status === "expired" ? "Expired" : "Failed"}</h2>
+                        <h2 className="text-xl font-medium font-serif">
+                            {status === "refunded"
+                                ? "Payment Refunded"
+                                : status === "expired"
+                                    ? "Payment Expired"
+                                    : status === "underpaid"
+                                        ? "Payment Underpaid"
+                                        : status === "unknown"
+                                            ? "Payment Status Unavailable"
+                                            : "Payment Failed"}
+                        </h2>
                         <p className="text-muted-foreground">
                             {status === "expired"
                                 ? "The payment window has expired. Please try again."
                                 : status === "refunded"
                                     ? "Your payment has been refunded."
-                                    : "Something went wrong with your payment. Please try again."}
+                                    : status === "underpaid"
+                                        ? "The amount received was below the required total. Please contact support before trying again."
+                                        : status === "price_mismatch"
+                                            ? "The invoice details could not be verified. Please contact support before trying again."
+                                            : status === "unknown"
+                                                ? "We could not verify the latest payment state. Check your billing page or contact support."
+                                                : "Something went wrong with your payment. Please try again."}
                         </p>
                         <Button onClick={() => router.push("/dashboard/billing")} className="w-full">
                             Try Again

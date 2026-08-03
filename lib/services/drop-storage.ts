@@ -2,23 +2,9 @@ import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 
 /**
- * Decrement a user's storageUsed with a GREATEST(0, ...) floor to prevent negative values.
- * This is for non-destructive size corrections only. The floor does not make a
- * retry idempotent; row-deletion paths must use one of the atomic claim helpers.
- */
-export async function decrementStorageUsed(userId: string, size: bigint): Promise<void> {
-    if (size <= BigInt(0)) return;
-    await prisma.$executeRaw`
-        UPDATE "users"
-        SET "storageUsed" = GREATEST(0, "storageUsed" - ${size})
-        WHERE "id" = ${userId}
-    `;
-}
-
-/**
  * Atomically remove a DropFile row and release exactly that row's reservation
- * from its parent drop's creator. The owner is derived in SQL, so an authorized
- * organization member cannot accidentally release bytes from their own counter.
+ * from its owning account or organization. The quota owner is derived in SQL,
+ * so an authorized team member cannot release bytes from the wrong counter.
  * The DELETE CTE makes retries idempotent.
  */
 export interface ClaimedDropFile {
@@ -36,7 +22,7 @@ export async function deleteDropFileAndReleaseQuota(
             WHERE "id" = ${fileId}
             RETURNING "dropId", "storageKey", "s3UploadId", "size"
         ),
-        quota_update AS (
+        user_quota_update AS (
             UPDATE "users" AS owner
             SET "storageUsed" = GREATEST(
                 0::bigint,
@@ -44,7 +30,19 @@ export async function deleteDropFileAndReleaseQuota(
             )
             FROM deleted_file, "drops" AS parent
             WHERE parent."id" = deleted_file."dropId"
+              AND parent."organizationId" IS NULL
               AND owner."id" = parent."userId"
+            RETURNING owner."id"
+        ),
+        organization_quota_update AS (
+            UPDATE "organizations" AS owner
+            SET "storageUsed" = GREATEST(
+                0::bigint,
+                owner."storageUsed" - deleted_file."size"
+            )
+            FROM deleted_file, "drops" AS parent
+            WHERE parent."id" = deleted_file."dropId"
+              AND owner."id" = parent."organizationId"
             RETURNING owner."id"
         )
         SELECT
@@ -75,7 +73,7 @@ export async function deletePendingDropFileAndReleaseQuota(
               AND "uploadComplete" = FALSE
             RETURNING "dropId", "storageKey", "s3UploadId", "size"
         ),
-        quota_update AS (
+        user_quota_update AS (
             UPDATE "users" AS owner
             SET "storageUsed" = GREATEST(
                 0::bigint,
@@ -83,7 +81,19 @@ export async function deletePendingDropFileAndReleaseQuota(
             )
             FROM deleted_file, "drops" AS parent
             WHERE parent."id" = deleted_file."dropId"
+              AND parent."organizationId" IS NULL
               AND owner."id" = parent."userId"
+            RETURNING owner."id"
+        ),
+        organization_quota_update AS (
+            UPDATE "organizations" AS owner
+            SET "storageUsed" = GREATEST(
+                0::bigint,
+                owner."storageUsed" - deleted_file."size"
+            )
+            FROM deleted_file, "drops" AS parent
+            WHERE parent."id" = deleted_file."dropId"
+              AND owner."id" = parent."organizationId"
             RETURNING owner."id"
         )
         SELECT
@@ -127,12 +137,16 @@ async function claimDropFilesAndReleaseQuota(
         // following DELETE then receives a fresh snapshot and sees that row.
         // A single data-modifying CTE would retain its statement-start snapshot
         // and could miss the newly committed child before the parent cascade.
-        const targets = await tx.$queryRaw<Array<{ id: string; userId: string | null }>>`
+        const targets = await tx.$queryRaw<Array<{
+            id: string;
+            userId: string | null;
+            organizationId: string | null;
+        }>>`
             UPDATE "drops" AS target
             SET "deletedAt" = COALESCE("deletedAt", NOW())
             WHERE target."id" = ${dropId}
             ${guard}
-            RETURNING target."id", target."userId"
+            RETURNING target."id", target."userId", target."organizationId"
         `;
         const target = targets[0];
         if (!target) {
@@ -149,7 +163,16 @@ async function claimDropFilesAndReleaseQuota(
             BigInt(0),
         );
 
-        if (target.userId && releasedBytes > BigInt(0)) {
+        if (target.organizationId && releasedBytes > BigInt(0)) {
+            await tx.$executeRaw`
+                UPDATE "organizations"
+                SET "storageUsed" = GREATEST(
+                    0::bigint,
+                    "storageUsed" - ${releasedBytes}
+                )
+                WHERE "id" = ${target.organizationId}
+            `;
+        } else if (target.userId && releasedBytes > BigInt(0)) {
             await tx.$executeRaw`
                 UPDATE "users"
                 SET "storageUsed" = GREATEST(

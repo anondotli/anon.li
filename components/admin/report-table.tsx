@@ -152,6 +152,12 @@ export function ReportTable({ reports, total, page, totalPages, status, serviceT
                                     key={report.id}
                                     className="cursor-pointer hover:bg-muted/50"
                                     onClick={() => router.push(`/admin/reports/${report.id}`)}
+                                    tabIndex={0}
+                                    onKeyDown={(event) => {
+                                        if (event.key === "Enter" && event.target === event.currentTarget) {
+                                            router.push(`/admin/reports/${report.id}`)
+                                        }
+                                    }}
                                 >
                                     <TableCell>
                                         <div className="flex items-center gap-2">

@@ -5,7 +5,7 @@
 import { apiError, apiList, ErrorCodes, zodErrorToDetails } from "@/lib/api-response"
 import { withPolicy, scopeFromContext } from "@/lib/route-policy"
 import { FormService } from "@/lib/services/form"
-import { listSubmissionsQuerySchema } from "@/lib/validations/form"
+import { FormId, listSubmissionsQuerySchema } from "@/lib/validations/form"
 
 interface RouteParams {
     params: Promise<{ id: string }>
@@ -14,11 +14,17 @@ interface RouteParams {
 export const GET = withPolicy<RouteParams>(
     {
         auth: "api_key_or_session",
+        organizationAccess: "subscribed",
         apiQuota: "form",
         rateLimit: "formSubmissionRead",
     },
     async (ctx, routeContext) => {
-        const { id } = await routeContext.params
+        const { id: rawId } = await routeContext.params
+        const parsedId = FormId.safeParse(rawId)
+        if (!parsedId.success) {
+            return apiError("Invalid form ID", ErrorCodes.VALIDATION_ERROR, ctx.requestId, 400)
+        }
+        const id = parsedId.data
         const url = new URL(ctx.request.url)
         const parsed = listSubmissionsQuerySchema.safeParse({
             limit: url.searchParams.get("limit"),

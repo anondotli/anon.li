@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { Loader2, AlertCircle, Eye, EyeOff, Lock, Shield } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -11,13 +11,9 @@ import { encryptForForm } from "@/lib/crypto/asymmetric"
 import type { FormField, FormSchemaDoc as FormSchemaDocument } from "@/lib/form-schema"
 import {
     FormSchemaDoc as FormSchemaValidator,
-    isFieldVisible,
-    isBlankObject,
     validateAnswersAgainstSchema,
-    missingRequiredAddressParts,
-    describeAddressParts,
-    isIsoDateValue,
 } from "@/lib/form-schema"
+import { collectFormFieldErrors } from "@/lib/form-answer-validation"
 import {
     uploadFormAttachments,
     type FormAttachmentProgress,
@@ -76,13 +72,17 @@ export function FormSubmissionPage({ form }: Props) {
         form.customKey || focusedMode ? { kind: "welcome" } : { kind: "questions" },
     )
     const [view, setView] = useState<View>({ state: "idle" })
-    const [initialNow] = useState(() => Date.now())
+    const [pastClose, setPastClose] = useState(() => Boolean(
+        form.closesAt && form.closesAt.getTime() <= Date.now(),
+    ))
     const [turnstileToken, setTurnstileToken] = useState<string | null>(null)
     const [turnstileRequested, setTurnstileRequested] = useState(false)
     const [turnstileRenderKey, setTurnstileRenderKey] = useState(0)
+    const submissionInFlightRef = useRef(false)
+    const uploadAbortRef = useRef<AbortController | null>(null)
 
     const [customKeyProof, setCustomKeyProof] = useState<string | null>(null)
-    const isClosed = !form.active || (form.closesAt && form.closesAt.getTime() < initialNow)
+    const isClosed = !form.active || pastClose
     const isPasswordProtected = form.customKey && !schema
     const submitting = view.state === "submitting" || view.state === "uploading"
     const onActiveQuestions = phase.kind === "questions" && !isClosed && !isPasswordProtected
@@ -92,17 +92,42 @@ export function FormSubmissionPage({ form }: Props) {
         setTurnstileRenderKey((k) => k + 1)
     }, [])
 
+    useEffect(() => {
+        if (!form.closesAt || pastClose) return
+        let timer: number | undefined
+        const schedule = () => {
+            const remaining = form.closesAt!.getTime() - Date.now()
+            if (remaining <= 0) {
+                setPastClose(true)
+                return
+            }
+            timer = window.setTimeout(schedule, Math.min(remaining, 2_147_483_647))
+        }
+        schedule()
+        return () => {
+            if (timer !== undefined) window.clearTimeout(timer)
+        }
+    }, [form.closesAt, pastClose])
+
+    useEffect(() => () => uploadAbortRef.current?.abort(), [])
+
     const handleAnswersChange = useCallback((next: Record<string, unknown>) => {
+        const changedIds = new Set([...Object.keys(answers), ...Object.keys(next)])
+        for (const id of [...changedIds]) {
+            if (Object.is(answers[id], next[id])) changedIds.delete(id)
+        }
         setAnswers(next)
-        setFieldErrors((prev) => (Object.keys(prev).length > 0 ? {} : prev))
-    }, [])
+        setFieldErrors((previous) => Object.fromEntries(
+            Object.entries(previous).filter(([id]) => !changedIds.has(id)),
+        ))
+    }, [answers])
 
     const onSubmit = useCallback(async (verifiedTurnstileToken?: string) => {
         if (!schema) {
             setView({ state: "error", message: "Unlock the form before submitting." })
             return
         }
-        const errors = collectFieldErrors(schema, answers)
+        const errors = collectFormFieldErrors(schema, answers)
         if (Object.keys(errors).length > 0) {
             setFieldErrors(errors)
             setTurnstileRequested(false)
@@ -128,6 +153,8 @@ export function FormSubmissionPage({ form }: Props) {
             setView({ state: "error", message: "Unlock the form before submitting." })
             return
         }
+        if (submissionInFlightRef.current) return
+        submissionInFlightRef.current = true
         setView({ state: "submitting" })
         try {
             const selectedFiles = collectSelectedFiles(schema, answers)
@@ -141,14 +168,20 @@ export function FormSubmissionPage({ form }: Props) {
             if (selectedFiles.length > 0) {
                 if (!form.allowFileUploads) throw new Error("This form does not accept file uploads")
                 const controller = new AbortController()
-                const upload = await uploadFormAttachments({
-                    formId: form.id,
-                    files: selectedFiles,
-                    turnstileToken: tokenForSubmit,
-                    customKeyProof,
-                    signal: controller.signal,
-                    onProgress: (progress) => setView({ state: "uploading", progress }),
-                })
+                uploadAbortRef.current = controller
+                let upload
+                try {
+                    upload = await uploadFormAttachments({
+                        formId: form.id,
+                        files: selectedFiles,
+                        turnstileToken: tokenForSubmit,
+                        customKeyProof,
+                        signal: controller.signal,
+                        onProgress: (progress) => setView({ state: "uploading", progress }),
+                    })
+                } finally {
+                    if (uploadAbortRef.current === controller) uploadAbortRef.current = null
+                }
                 attachedDropId = upload.dropId
                 attachmentUploadToken = upload.uploadToken
                 uploadedFiles = upload.files
@@ -210,7 +243,13 @@ export function FormSubmissionPage({ form }: Props) {
             setPhase({ kind: "thanks" })
         } catch (err) {
             resetTurnstile()
-            setView({ state: "error", message: err instanceof Error ? err.message : "Submission failed" })
+            const aborted = err instanceof Error
+                && (err.name === "AbortError" || err.message === "Upload cancelled")
+            setView(aborted
+                ? { state: "idle" }
+                : { state: "error", message: err instanceof Error ? err.message : "Submission failed" })
+        } finally {
+            submissionInFlightRef.current = false
         }
     }, [
         answers,
@@ -224,6 +263,10 @@ export function FormSubmissionPage({ form }: Props) {
         resetTurnstile,
     ])
 
+    const cancelUpload = useCallback(() => {
+        uploadAbortRef.current?.abort()
+    }, [])
+
     const handleTurnstileVerify = useCallback((token: string) => {
         setTurnstileToken(token)
         setTurnstileRequested(false)
@@ -232,6 +275,7 @@ export function FormSubmissionPage({ form }: Props) {
 
     const submitAnother = useCallback(() => {
         setAnswers({})
+        setFieldErrors({})
         setView({ state: "idle" })
         setTurnstileRequested(false)
         resetTurnstile()
@@ -330,6 +374,7 @@ export function FormSubmissionPage({ form }: Props) {
                             onTurnstileError={resetTurnstile}
                             onTurnstileExpire={() => setTurnstileToken(null)}
                             showBranding={!form.hideBranding}
+                            onCancelUpload={cancelUpload}
                         />
                     )}
                 />
@@ -355,6 +400,7 @@ export function FormSubmissionPage({ form }: Props) {
                             onTurnstileExpire={() => setTurnstileToken(null)}
                             onSubmit={onSubmit}
                             showBranding={!form.hideBranding}
+                            onCancelUpload={cancelUpload}
                         />
                     }
                 />
@@ -389,94 +435,6 @@ function isFile(v: unknown): v is File {
     return typeof File !== "undefined" && v instanceof File
 }
 
-function isAnswerEmpty(value: unknown): boolean {
-    if (value === undefined || value === null) return true
-    if (typeof value === "string") return value.trim() === ""
-    if (Array.isArray(value)) return value.length === 0
-    if (typeof value === "object") return isBlankObject(value as Record<string, unknown>)
-    return false
-}
-
-function validateFieldAnswer(field: FormField, value: unknown): string | null {
-    if (isAnswerEmpty(value)) {
-        return field.required ? "This field is required" : null
-    }
-    switch (field.type) {
-        case "email":
-            if (typeof value !== "string" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
-                return "Enter a valid email address"
-            }
-            return null
-        case "short_text":
-        case "long_text":
-        case "phone":
-            if (typeof value !== "string") return "Must be text"
-            if ("maxLength" in field && field.maxLength && value.length > field.maxLength) {
-                return `Keep this under ${field.maxLength} characters`
-            }
-            return null
-        case "date":
-            if (typeof value !== "string" || !isIsoDateValue(value)) return "Enter a valid date"
-            if (field.min && value < field.min) return `Choose ${field.min} or later`
-            if (field.max && value > field.max) return `Choose ${field.max} or earlier`
-            return null
-        case "number": {
-            const num = typeof value === "number" ? value : Number(value)
-            if (!Number.isFinite(num)) return "Must be a number"
-            if (field.min !== undefined && num < field.min) return `Must be at least ${field.min}`
-            if (field.max !== undefined && num > field.max) return `Must be at most ${field.max}`
-            return null
-        }
-        case "rating": {
-            const num = typeof value === "number" ? value : Number(value)
-            if (!Number.isInteger(num) || num < 1 || num > field.max) return `Must be 1–${field.max}`
-            return null
-        }
-        case "linear_scale": {
-            const num = typeof value === "number" ? value : Number(value)
-            if (!Number.isInteger(num) || num < field.min || num > field.max) {
-                return `Must be ${field.min}–${field.max}`
-            }
-            return null
-        }
-        case "ranking":
-            if (!Array.isArray(value) || value.length !== field.options.length) return "Rank every option"
-            return null
-        case "address": {
-            const missing = missingRequiredAddressParts(field, value)
-            if (missing.length > 0) return `Enter ${describeAddressParts(missing)}`
-            return null
-        }
-        case "single_select":
-        case "dropdown":
-            if (typeof value !== "string" || !field.options.includes(value)) return "Pick a valid option"
-            return null
-        case "multi_select":
-            if (!Array.isArray(value)) return "Pick at least one option"
-            for (const v of value) {
-                if (typeof v !== "string" || !field.options.includes(v)) return "Pick a valid option"
-            }
-            return null
-        case "file":
-            if (!Array.isArray(value)) return "Attach files to continue"
-            if (value.length > field.maxFiles) return `Attach at most ${field.maxFiles} ${field.maxFiles === 1 ? "file" : "files"}`
-            return null
-    }
-}
-
-function collectFieldErrors(
-    schema: FormSchemaDocument,
-    answers: Record<string, unknown>,
-): Record<string, string> {
-    const errors: Record<string, string> = {}
-    for (const field of schema.fields) {
-        if (!isFieldVisible(field, answers)) continue
-        const err = validateFieldAnswer(field, answers[field.id])
-        if (err) errors[field.id] = err
-    }
-    return errors
-}
-
 function mimeAllowed(mimeType: string, accepted?: Extract<FormField, { type: "file" }>["acceptedMimeTypes"]): boolean {
     if (!accepted || accepted.length === 0) return true
     const m = mimeType.toLowerCase()
@@ -497,6 +455,7 @@ interface FocusedFooterProps {
     onTurnstileError: () => void
     onTurnstileExpire: () => void
     showBranding: boolean
+    onCancelUpload: () => void
 }
 
 function FocusedFooter({
@@ -508,16 +467,19 @@ function FocusedFooter({
     onTurnstileError,
     onTurnstileExpire,
     showBranding,
+    onCancelUpload,
 }: FocusedFooterProps) {
     return (
         <div className="space-y-4">
             {view.state === "error" ? (
-                <div className="flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+                <div role="alert" className="flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
                     <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
                     <span>{view.message}</span>
                 </div>
             ) : null}
-            {view.state === "uploading" ? <AttachmentProgress progress={view.progress} /> : null}
+            {view.state === "uploading" ? (
+                <AttachmentProgress progress={view.progress} onCancel={onCancelUpload} />
+            ) : null}
             {view.state === "submitting" ? (
                 <div className="inline-flex items-center gap-2 mr-4 text-sm text-muted-foreground">
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -554,6 +516,7 @@ interface ClassicFooterProps {
     onTurnstileExpire: () => void
     onSubmit: () => void | Promise<void>
     showBranding: boolean
+    onCancelUpload: () => void
 }
 
 function ClassicFooter({
@@ -568,17 +531,20 @@ function ClassicFooter({
     onTurnstileExpire,
     onSubmit,
     showBranding,
+    onCancelUpload,
 }: ClassicFooterProps) {
     const submitDisabled = disabled || (turnstileRequested && !turnstileToken)
     return (
         <div className="space-y-4">
             {view.state === "error" ? (
-                <div className="flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+                <div role="alert" className="flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
                     <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
                     <span>{view.message}</span>
                 </div>
             ) : null}
-            {view.state === "uploading" ? <AttachmentProgress progress={view.progress} /> : null}
+            {view.state === "uploading" ? (
+                <AttachmentProgress progress={view.progress} onCancel={onCancelUpload} />
+            ) : null}
             {turnstileRequested ? (
                 <div className="flex justify-center">
                     <Turnstile
@@ -620,7 +586,13 @@ function ClassicFooter({
     )
 }
 
-function AttachmentProgress({ progress }: { progress: FormAttachmentProgress }) {
+function AttachmentProgress({
+    progress,
+    onCancel,
+}: {
+    progress: FormAttachmentProgress
+    onCancel: () => void
+}) {
     const pct =
         progress.totalChunks > 0
             ? Math.round((progress.uploadedChunks / progress.totalChunks) * 100)
@@ -628,7 +600,11 @@ function AttachmentProgress({ progress }: { progress: FormAttachmentProgress }) 
               ? 5
               : 0
     return (
-        <div className="space-y-2 rounded-xl border border-border/60 bg-secondary/30 p-3">
+        <div
+            className="space-y-2 rounded-xl border border-border/60 bg-secondary/30 p-3"
+            role="status"
+            aria-live="polite"
+        >
             <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
                 <span className="truncate">
                     {progress.phase === "preparing" && "Preparing upload"}
@@ -639,6 +615,9 @@ function AttachmentProgress({ progress }: { progress: FormAttachmentProgress }) 
                 <span>{pct}%</span>
             </div>
             <Progress value={pct} className="h-1.5" />
+            <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
+                Cancel upload
+            </Button>
         </div>
     )
 }

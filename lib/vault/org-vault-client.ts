@@ -37,6 +37,13 @@ import {
     wrapOrgVaultKeyForMember,
 } from "@/lib/vault/org-vault-key"
 import { broadcastVaultMessage } from "@/lib/vault/sync"
+import {
+    IdentityMaterialSchema,
+    OwnMemberKeyResponseSchema,
+    PendingMemberSchema,
+    parseVaultData,
+} from "@/lib/vault/client-schemas"
+import { z } from "zod"
 
 interface IdentityMaterial {
     identityPublicKey: string | null
@@ -54,10 +61,11 @@ interface OwnMemberKeyResponse {
     currentGeneration: number
 }
 
-interface PendingMember {
-    userId: string
-    identityPublicKey: string
-}
+const SealedBoxSchema = z.object({
+    ephemeralPublicKey: z.string().regex(/^[A-Za-z0-9_-]{87}$/),
+    iv: z.string().regex(/^[A-Za-z0-9_-]{16}$/),
+    ciphertext: z.string().min(1).max(1_024).regex(/^[A-Za-z0-9_-]+$/),
+}).strict()
 
 export interface OrgVaultKeyHandle {
     key: CryptoKey
@@ -97,7 +105,10 @@ function serializeSealedBox(box: SealedBox): string {
 }
 
 function parseSealedBox(serialized: string): SealedBox {
-    return JSON.parse(serialized) as SealedBox
+    const value: unknown = JSON.parse(serialized)
+    const parsed = SealedBoxSchema.safeParse(value)
+    if (!parsed.success) throw new Error("Invalid sealed team key")
+    return parsed.data
 }
 
 function isConflict(error: unknown): boolean {
@@ -105,12 +116,14 @@ function isConflict(error: unknown): boolean {
 }
 
 async function fetchIdentityMaterial(): Promise<IdentityMaterial> {
-    return readVaultApiData<IdentityMaterial>("/api/vault/identity")
+    return readVaultApiData("/api/vault/identity", undefined, parseVaultData(IdentityMaterialSchema))
 }
 
 async function fetchOwnMemberKey(orgId: string): Promise<OwnMemberKeyResponse> {
-    return readVaultApiData<OwnMemberKeyResponse>(
+    return readVaultApiData(
         `/api/vault/org-keys?organizationId=${encodeURIComponent(orgId)}`,
+        undefined,
+        parseVaultData(OwnMemberKeyResponseSchema),
     )
 }
 
@@ -226,8 +239,14 @@ async function reconcileOrgGrants(orgId: string, vaultKey: CryptoKey): Promise<n
     const handle = await getOrgVaultKey(orgId, vaultKey)
     if (!handle) return 0
 
-    const { pending, currentGeneration } = await readVaultApiData<{ pending: PendingMember[]; currentGeneration: number }>(
+    const { pending, currentGeneration } = await readVaultApiData(
         `/api/vault/org-keys/pending?organizationId=${encodeURIComponent(orgId)}`,
+        undefined,
+        parseVaultData(z.object({
+            pending: PendingMemberSchema.array(),
+            currentGeneration: z.number().int().nonnegative(),
+            seeded: z.boolean(),
+        }).strict()),
     )
 
     // Our key must be the current generation to grant it to others; otherwise we
@@ -271,8 +290,14 @@ export async function bootstrapOrgVault(opts: {
         return { status: "pending", grantedCount: 0 }
     }
 
-    const { seeded } = await readVaultApiData<{ pending: PendingMember[]; seeded: boolean; currentGeneration: number }>(
+    const { seeded } = await readVaultApiData(
         `/api/vault/org-keys/pending?organizationId=${encodeURIComponent(opts.orgId)}`,
+        undefined,
+        parseVaultData(z.object({
+            pending: PendingMemberSchema.array(),
+            seeded: z.boolean(),
+            currentGeneration: z.number().int().nonnegative(),
+        }).strict()),
     )
     if (!seeded) {
         await seedOrgVaultKey(opts.orgId)
@@ -303,8 +328,10 @@ export async function rotateOrgVaultKey(
     const newOrgVaultKey = await generateOrgVaultKey()
 
     // Re-grant the new key to every current member with a published pubkey.
-    const { members } = await readVaultApiData<{ members: PendingMember[] }>(
+    const { members } = await readVaultApiData(
         `/api/vault/org-keys/members?organizationId=${encodeURIComponent(orgId)}`,
+        undefined,
+        parseVaultData(z.object({ members: PendingMemberSchema.array() }).strict()),
     )
     const memberGrants: { userId: string; wrappedOrgVaultKey: string }[] = []
     for (const member of members) {
@@ -313,10 +340,18 @@ export async function rotateOrgVaultKey(
     }
 
     // Re-wrap every org-owned owner key from the old key to the new key.
-    const { dropKeys, formKeys } = await readVaultApiData<{
-        dropKeys: { id: string; wrappedKey: string }[]
-        formKeys: { id: string; wrappedKey: string }[]
-    }>(`/api/vault/org-keys/rekey?organizationId=${encodeURIComponent(orgId)}`)
+    const ownerKeyRecord = z.object({
+        id: z.string().min(1).max(64),
+        wrappedKey: z.string().min(16).max(2_048).regex(/^[A-Za-z0-9_-]+$/),
+    }).strict()
+    const { dropKeys, formKeys } = await readVaultApiData(
+        `/api/vault/org-keys/rekey?organizationId=${encodeURIComponent(orgId)}`,
+        undefined,
+        parseVaultData(z.object({
+            dropKeys: ownerKeyRecord.array(),
+            formKeys: ownerKeyRecord.array(),
+        }).strict()),
+    )
 
     // Drop owner keys are raw AES content keys (AES-KW via wrapVaultManagedKey).
     const reDrop: { id: string; wrappedKey: string }[] = []

@@ -22,11 +22,6 @@ vi.mock('@/lib/storage', () => ({
     getPresignedDownloadUrl: vi.fn(),
 }));
 
-// Mock drop-storage
-vi.mock('@/lib/services/drop-storage', () => ({
-    decrementStorageUsed: vi.fn(),
-}));
-
 // Mock logger
 vi.mock('@/lib/logger', () => ({
     createLogger: vi.fn(() => ({ info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() })),
@@ -43,12 +38,9 @@ describe('DropCleanupService.cleanupOrphanedFiles', () => {
       { id: '2', storageKey: 'key2' },
     ];
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (prisma.orphanedFile.findMany as any).mockResolvedValue(orphanedFiles);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (storage.deleteObjects as any).mockResolvedValue([]);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (prisma.orphanedFile.deleteMany as any).mockResolvedValue({ count: 2 });
+    (prisma.orphanedFile.findMany as ReturnType<typeof vi.fn>).mockResolvedValue(orphanedFiles);
+    (storage.deleteObjects as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    (prisma.orphanedFile.deleteMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 2 });
 
     const result = await DropCleanupService.cleanupOrphanedFiles();
 
@@ -63,8 +55,7 @@ describe('DropCleanupService.cleanupOrphanedFiles', () => {
   });
 
   it('should handle empty list', async () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (prisma.orphanedFile.findMany as any).mockResolvedValue([]);
+    (prisma.orphanedFile.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
 
     const result = await DropCleanupService.cleanupOrphanedFiles();
 
@@ -79,14 +70,10 @@ describe('DropCleanupService.cleanupOrphanedFiles', () => {
       { id: '2', storageKey: 'key2' },
     ];
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (prisma.orphanedFile.findMany as any).mockResolvedValue(orphanedFiles);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (storage.deleteObjects as any).mockRejectedValue(new Error('S3 Error'));
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (storage.deleteObject as any).mockResolvedValue(undefined);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (prisma.orphanedFile.delete as any).mockResolvedValue({ id: '1' });
+    (prisma.orphanedFile.findMany as ReturnType<typeof vi.fn>).mockResolvedValue(orphanedFiles);
+    (storage.deleteObjects as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('S3 Error'));
+    (storage.deleteObject as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+    (prisma.orphanedFile.delete as ReturnType<typeof vi.fn>).mockResolvedValue({ id: '1' });
 
     const result = await DropCleanupService.cleanupOrphanedFiles();
 

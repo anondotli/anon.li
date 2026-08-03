@@ -21,6 +21,7 @@ interface FilePreviewProps {
     keyString: string;
     ivString: string;
     size: number;
+    encryptedSize: number;
     chunkSize: number;
     chunkCount: number;
     recipientToken?: string | null;
@@ -44,6 +45,7 @@ export function FilePreview({
     keyString,
     ivString,
     size,
+    encryptedSize,
     chunkSize,
     chunkCount,
     recipientToken = null,
@@ -81,6 +83,9 @@ export function FilePreview({
             if (!response.ok) throw new Error("Failed to fetch file");
 
             const encryptedData = await response.arrayBuffer();
+            if (encryptedData.byteLength !== encryptedSize) {
+                throw new Error("Encrypted file size mismatch");
+            }
 
             // Import key and decrypt
             const key = await cryptoService.importKey(keyString);
@@ -98,6 +103,9 @@ export function FilePreview({
 
             // Combine chunks
             const totalSize = decryptedChunks.reduce((sum, chunk) => sum + chunk.byteLength, 0);
+            if (totalSize !== size) {
+                throw new Error("Decrypted file size mismatch");
+            }
             const combined = new Uint8Array(totalSize);
             let offset = 0;
             for (const chunk of decryptedChunks) {
@@ -121,7 +129,7 @@ export function FilePreview({
         } finally {
             setLoading(false);
         }
-    }, [mimeType, size, fileId, dropId, keyString, ivString, chunkSize, chunkCount, recipientToken]);
+    }, [mimeType, size, encryptedSize, fileId, dropId, keyString, ivString, chunkSize, chunkCount, recipientToken]);
 
     const closePreview = useCallback(() => {
         setShowPreview(false);
@@ -158,7 +166,19 @@ export function FilePreview({
     if (!showPreview) {
         if (children) {
             return (
-                <div onClick={loadPreview} className="cursor-pointer relative group">
+                <div
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`Preview ${filename}`}
+                    onClick={loadPreview}
+                    onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault()
+                            void loadPreview()
+                        }
+                    }}
+                    className="cursor-pointer relative group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
                     {children}
                     {/* Hover overlay hint */}
                     <div className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity rounded-2xl">

@@ -12,15 +12,16 @@ import { getMemberOrgIds, isOrgMember } from "@/lib/vault/org-access"
 import {
     vaultGenerationSchema,
     vaultIdSchema,
+    vaultResourceIdSchema,
     wrappedDropKeySchema,
 } from "@/lib/vault/validation"
 
 const storeDropKeySchema = z.object({
-    dropId: z.string().min(1),
+    dropId: vaultResourceIdSchema,
     wrappedKey: wrappedDropKeySchema,
     vaultId: vaultIdSchema,
     vaultGeneration: vaultGenerationSchema,
-})
+}).strict()
 const ROUTE_NAME = "drop-keys"
 
 export async function GET(request: Request) {
@@ -46,6 +47,9 @@ export async function GET(request: Request) {
         const dropId = url.searchParams.get("dropId")
 
         if (dropId) {
+            if (!vaultResourceIdSchema.safeParse(dropId).success) {
+                return withNoStore(apiError("Invalid dropId", ErrorCodes.VALIDATION_ERROR, requestId, 400))
+            }
             const dropKey = await prisma.dropOwnerKey.findUnique({
                 where: { dropId },
                 select: {
@@ -75,7 +79,13 @@ export async function GET(request: Request) {
                 return withNoStore(apiError("Drop key not found", ErrorCodes.NOT_FOUND, requestId, 404))
             }
 
-            return withNoStore(apiSuccess(dropKey, requestId))
+            return withNoStore(apiSuccess({
+                dropId: dropKey.dropId,
+                wrappedKey: dropKey.wrappedKey,
+                vaultGeneration: dropKey.vaultGeneration,
+                organizationId: dropKey.organizationId,
+                orgKeyGeneration: dropKey.orgKeyGeneration,
+            }, requestId))
         }
 
         // List: the user's personal keys plus every org key for orgs they belong

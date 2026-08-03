@@ -32,8 +32,11 @@ export async function GET(req: Request) {
         )
     }
 
-    return NextResponse.json({
-        status: report.status,
-        createdAt: report.createdAt,
-    })
+    return NextResponse.json(
+        {
+            status: report.status,
+            createdAt: report.createdAt,
+        },
+        { headers: { "Cache-Control": "private, no-store" } },
+    )
 }

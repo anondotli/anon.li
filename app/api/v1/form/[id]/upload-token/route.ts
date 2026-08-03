@@ -8,7 +8,7 @@
 
 import { z } from "zod"
 
-import { apiError, apiSuccess, ErrorCodes, zodErrorToDetails } from "@/lib/api-response"
+import { apiError, apiSuccess, ErrorCodes, withNoStore, zodErrorToDetails } from "@/lib/api-response"
 import { withPolicy } from "@/lib/route-policy"
 import { FormService } from "@/lib/services/form"
 import { DropService } from "@/lib/services/drop"
@@ -20,6 +20,7 @@ import { prisma } from "@/lib/prisma"
 import { NotFoundError, ForbiddenError, UpgradeRequiredError, ValidationError } from "@/lib/api-error-utils"
 import { getClientIp, rateLimit } from "@/lib/rate-limit"
 import { validateTurnstileToken } from "@/lib/turnstile"
+import { FormId } from "@/lib/validations/form"
 
 const MAX_LIVE_FORM_STAGING_DROPS = 10
 
@@ -33,12 +34,12 @@ const bodySchema = z.object({
         fieldId: z.string().min(1).max(64),
         size: z.number().int().positive(),
         mimeType: z.string().min(1).max(200),
-    })).min(1).max(20),
+    }).strict()).min(1).max(20),
     fileCount: z.number().int().min(1).max(20).optional(),
     expiry: z.number().int().min(1).max(30).optional(),
     turnstileToken: z.string().min(1).max(2048).optional(),
     customKeyProof: z.string().regex(/^[A-Za-z0-9_-]+$/).min(1).max(512).optional(),
-})
+}).strict()
 
 export const POST = withPolicy<RouteParams>(
     {
@@ -47,7 +48,12 @@ export const POST = withPolicy<RouteParams>(
         rateLimitIdentifier: async (ctx) => ctx.userId ?? await getClientIp(),
     },
     async (ctx, routeContext) => {
-        const { id } = await routeContext.params
+        const { id: rawId } = await routeContext.params
+        const parsedId = FormId.safeParse(rawId)
+        if (!parsedId.success) {
+            return apiError("Invalid form ID", ErrorCodes.VALIDATION_ERROR, ctx.requestId, 400)
+        }
+        const id = parsedId.data
         const clientIp = await getClientIp()
         const perIpLimited = await rateLimit("formSubmit", clientIp)
         if (perIpLimited) return perIpLimited
@@ -164,14 +170,20 @@ export const POST = withPolicy<RouteParams>(
                 throw error
             }
 
-            return apiSuccess({
+            return withNoStore(apiSuccess({
                 drop_id: result.dropId,
                 upload_token: rawToken,
                 expires_at: result.expiresAt?.toISOString() ?? null,
-            }, ctx.requestId)
+            }, ctx.requestId))
         } catch (error) {
             if (error instanceof UpgradeRequiredError) {
-                return apiError(error.message, ErrorCodes.PAYMENT_REQUIRED, ctx.requestId, 402)
+                return apiError(
+                    error.message,
+                    ErrorCodes.PAYMENT_REQUIRED,
+                    ctx.requestId,
+                    402,
+                    { upgrade: error.details },
+                )
             }
             if (error instanceof ForbiddenError) {
                 return apiError(error.message, ErrorCodes.FORBIDDEN, ctx.requestId, 403)

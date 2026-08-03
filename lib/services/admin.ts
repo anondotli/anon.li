@@ -451,7 +451,7 @@ export class AdminService {
             by: ["domain"],
             where: { domain: { in: domainNames } },
             _count: { domain: true }
-        }) as unknown as { domain: string; _count: { domain: number } }[]
+        })
 
         const countsMap = new Map<string, number>()
         aliasCounts.forEach((ac) => {

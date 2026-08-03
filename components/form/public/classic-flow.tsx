@@ -88,6 +88,9 @@ interface ClassicFieldProps {
 }
 
 function ClassicField({ field, index, value, onChange, error, disabled }: ClassicFieldProps) {
+    const helpId = field.helpText ? `${field.id}-help` : null
+    const errorId = error ? `${field.id}-error` : null
+    const describedBy = [helpId, errorId].filter(Boolean).join(" ") || undefined
     return (
         <div
             data-field-id={field.id}
@@ -113,7 +116,7 @@ function ClassicField({ field, index, value, onChange, error, disabled }: Classi
                 </label>
             </div>
             {field.helpText ? (
-                <p className="ml-7 mt-2 text-sm leading-relaxed text-muted-foreground">
+                <p id={helpId ?? undefined} className="ml-7 mt-2 text-sm leading-relaxed text-muted-foreground">
                     {field.helpText}
                 </p>
             ) : null}
@@ -124,9 +127,12 @@ function ClassicField({ field, index, value, onChange, error, disabled }: Classi
                     onChange={onChange}
                     presentation="compact"
                     disabled={disabled}
+                    invalid={Boolean(error)}
+                    describedBy={describedBy}
                 />
                 {error ? (
                     <div
+                        id={errorId ?? undefined}
                         role="alert"
                         className="mt-3 inline-flex items-center gap-2 rounded-full border border-destructive/30 bg-destructive/5 px-3 py-1 text-xs text-destructive"
                     >

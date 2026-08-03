@@ -61,6 +61,14 @@ describe("unsubscribe token verification", () => {
         const rotated = await import("@/lib/email-unsubscribe");
         expect(rotated.verifyUnsubscribeToken(token)).toBeNull();
     });
+
+    it("fails closed when AUTH_SECRET is missing", async () => {
+        delete process.env.AUTH_SECRET;
+        const { verifyUnsubscribeToken } = await import("@/lib/email-unsubscribe");
+        expect(() => verifyUnsubscribeToken("user_abc.invalid")).toThrow(
+            "AUTH_SECRET is required for unsubscribe tokens",
+        );
+    });
 });
 
 describe("/api/email/unsubscribe route", () => {
@@ -85,6 +93,7 @@ describe("/api/email/unsubscribe route", () => {
         const res = await GET(req);
         expect(res.status).toBe(200);
         expect(res.headers.get("Content-Type")).toContain("text/html");
+        expect(res.headers.get("Cache-Control")).toBe("private, no-store");
         expect(userUpdate).toHaveBeenCalledWith({
             where: { id: "user_abc" },
             data: { dripUnsubscribed: true },

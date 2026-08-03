@@ -19,23 +19,6 @@ interface SaveFilePickerWindow extends Window {
     }>
 }
 
-interface OpfsFileHandle {
-    readonly kind?: "file"
-    readonly name: string
-    createWritable: () => Promise<WritableStream<Uint8Array>>
-    getFile: () => Promise<File>
-}
-
-interface OpfsDirectoryHandle {
-    getFileHandle: (name: string, options: { create: true }) => Promise<OpfsFileHandle>
-    removeEntry: (name: string) => Promise<void>
-    values?: () => AsyncIterableIterator<OpfsFileHandle>
-}
-
-interface OpfsStorageManager {
-    getDirectory?: () => Promise<OpfsDirectoryHandle>
-}
-
 export interface PreparedDownloadDestination {
     readonly kind: "file-system" | "opfs" | "memory"
     write: (chunk: Uint8Array) => Promise<void>
@@ -53,9 +36,7 @@ function randomTemporaryName(): string {
     return `${TEMPORARY_FILE_PREFIX}${id}`
 }
 
-async function cleanupStaleOpfsDownloads(root: OpfsDirectoryHandle): Promise<void> {
-    if (!root.values) return
-
+async function cleanupStaleOpfsDownloads(root: FileSystemDirectoryHandle): Promise<void> {
     const cutoff = Date.now() - STALE_OPFS_FILE_AGE_MS
     try {
         for await (const entry of root.values()) {
@@ -126,10 +107,10 @@ function streamDestination(
 async function prepareOpfsDestination(
     filename: string,
 ): Promise<PreparedDownloadDestination | null> {
-    const storage = navigator.storage as unknown as OpfsStorageManager | undefined
-    if (!storage?.getDirectory) return null
+    const storage = navigator.storage
+    if (typeof storage?.getDirectory !== "function") return null
 
-    let root: OpfsDirectoryHandle | null = null
+    let root: FileSystemDirectoryHandle | null = null
     let temporaryName: string | null = null
 
     try {

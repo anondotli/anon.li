@@ -1,11 +1,11 @@
 import { auth } from "@/auth"
 import { scopeFromSession } from "@/lib/auth-session"
-import { isOrgSubscribed } from "@/lib/data/auth"
+import { getOrgLimitContext, isOrgSubscribed } from "@/lib/data/auth"
+import { getUserById } from "@/lib/data/user"
 import { TeamWorkspaceLocked } from "@/components/dashboard/team/team-workspace-locked"
 import { redirect } from "next/navigation"
 import { RecipientService } from "@/lib/services/recipient"
 import { getRecipientLimit } from "@/lib/limits"
-import { prisma } from "@/lib/prisma"
 import { Progress } from "@/components/ui/progress"
 import { RecipientList, AddRecipientDialog } from "@/components/recipients"
 import { Mail, ArrowLeft, AlertTriangle } from "lucide-react"
@@ -16,23 +16,7 @@ export default async function RecipientsPage() {
     const session = await auth()
     if (!session?.user?.id) redirect("/login")
 
-    const user = await prisma.user.findUnique({
-        where: { id: session.user.id },
-        select: {
-            id: true,
-            email: true,
-            downgradedAt: true,
-            subscriptions: {
-                where: { status: { in: ["active", "trialing"] } },
-                select: {
-                    status: true,
-                    product: true,
-                    tier: true,
-                    currentPeriodEnd: true,
-                },
-            },
-        }
-    })
+    const user = await getUserById(session.user.id)
 
     if (!user) redirect("/login")
 
@@ -63,7 +47,10 @@ export default async function RecipientsPage() {
 
     // Fetch recipients
     const recipients = await RecipientService.getRecipients(scope)
-    const recipientLimit = getRecipientLimit(user)
+    const limitContext = scope.organizationId
+        ? await getOrgLimitContext(scope.organizationId)
+        : user
+    const recipientLimit = getRecipientLimit(limitContext)
     const recipientCount = recipients.length
     const recipientPercent = recipientLimit === -1 ? 0 : Math.min((recipientCount / recipientLimit) * 100, 100)
 
@@ -117,7 +104,7 @@ export default async function RecipientsPage() {
             </div>
 
             {/* Downgrade Warning */}
-            {user.downgradedAt && (
+            {!scope.organizationId && user.downgradedAt && (
                 <div className="flex items-start gap-3 px-4 py-3 rounded-lg text-sm bg-destructive/10 text-destructive border border-destructive/20">
                     <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
                     <div>

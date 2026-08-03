@@ -35,5 +35,5 @@ body:
     attributes:
       label: Privacy considerations
       options:
-        - label: This proposal preserves anon.li's zero-knowledge guarantees (the server never learns keys or plaintext).
+        - label: For Drop/Form changes, this proposal keeps ordinary decryption keys and plaintext out of the server.
           required: false

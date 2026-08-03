@@ -27,7 +27,11 @@ export class VaultApiError extends Error {
     }
 }
 
-export async function readVaultApiData<T>(input: string, init?: RequestInit): Promise<T> {
+export async function readVaultApiData<T>(
+    input: string,
+    init?: RequestInit,
+    parse?: (value: unknown) => T,
+): Promise<T> {
     const headers = new Headers(init?.headers)
     if (init?.body && !headers.has("Content-Type")) {
         headers.set("Content-Type", "application/json")
@@ -39,16 +43,24 @@ export async function readVaultApiData<T>(input: string, init?: RequestInit): Pr
         headers,
     })
 
-    const payload = await response.json().catch(() => null)
+    const payload: unknown = await response.json().catch(() => null)
 
     if (!response.ok) {
+        const error = payload && typeof payload === "object" && "error" in payload
+            ? (payload as { error?: unknown }).error
+            : null
+        const errorRecord = error && typeof error === "object" ? error as Record<string, unknown> : null
         throw new VaultApiError(
-            payload?.error?.message || "Request failed",
-            payload?.error?.code || "UNKNOWN",
+            typeof errorRecord?.message === "string" ? errorRecord.message : "Request failed",
+            typeof errorRecord?.code === "string" ? errorRecord.code : "UNKNOWN",
         )
     }
 
-    return payload.data as T
+    if (!payload || typeof payload !== "object" || !("data" in payload)) {
+        throw new VaultApiError("Vault API returned an invalid response", "INVALID_RESPONSE")
+    }
+    const data = (payload as { data?: unknown }).data
+    return parse ? parse(data) : data as T
 }
 
 export async function persistTrustedBrowser(vaultKey: CryptoKey, vaultGeneration: number, vaultId: string) {

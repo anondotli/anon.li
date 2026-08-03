@@ -27,7 +27,8 @@ import {
 } from "@/lib/api-error-utils"
 import { getFormLimitsAsync } from "@/lib/limits"
 import { PLAN_ENTITLEMENTS } from "@/config/plans"
-import { AUTH_TAG_SIZE, DAY_MS } from "@/lib/constants"
+import { DAY_MS } from "@/lib/constants"
+import { plaintextSizeFromEncrypted } from "@/lib/drop-size"
 import { FormSchemaDoc, type FormSchemaDoc as FormSchemaDocType } from "@/lib/form-schema"
 import { hashUploadToken } from "@/lib/services/drop-upload-token"
 import {
@@ -862,7 +863,7 @@ export class FormService {
                     liveLimits.maxSubmissionFileSize,
                 )
                 const plaintextBytes = attachedDrop.files.reduce((sum, file) => (
-                    sum + Math.max(0, Number(file.size) - (file.chunkCount ?? 1) * AUTH_TAG_SIZE)
+                    sum + plaintextSizeFromEncrypted(Number(file.size), file.chunkCount ?? 1)
                 ), 0)
                 if (plaintextBytes > attachmentLimit) {
                     throw new UpgradeRequiredError("Attachment size exceeds this form's file upload limit.", {
@@ -1019,7 +1020,6 @@ export class FormService {
     static async getSubmission(
         submissionId: string,
         scope: OwnerScope,
-        options: { markRead?: boolean } = {},
     ): Promise<SubmissionDetail> {
         const sub = await prisma.formSubmission.findUnique({
             where: { id: submissionId },
@@ -1028,13 +1028,6 @@ export class FormService {
         if (!sub || sub.form.deletedAt) throw new NotFoundError("Submission not found")
         assertCanAccess(sub.form, scope)
 
-        if (options.markRead && !sub.readAt) {
-            await prisma.formSubmission.update({
-                where: { id: submissionId },
-                data: { readAt: new Date() },
-            })
-        }
-
         return {
             id: sub.id,
             ephemeralPubKey: sub.ephemeralPubKey,
@@ -1042,9 +1035,35 @@ export class FormService {
             encryptedPayload: sub.encryptedPayload,
             attachedDropId: sub.attachedDropId,
             createdAt: sub.createdAt,
-            readAt: sub.readAt ?? (options.markRead ? new Date() : null),
+            readAt: sub.readAt,
             hasAttachedDrop: sub.attachedDropId !== null,
         }
+    }
+
+    static async markSubmissionRead(submissionId: string, scope: OwnerScope): Promise<Date> {
+        const sub = await prisma.formSubmission.findUnique({
+            where: { id: submissionId },
+            include: { form: { select: { userId: true, organizationId: true, deletedAt: true } } },
+        })
+        if (!sub || sub.form.deletedAt) throw new NotFoundError("Submission not found")
+        assertCanAccess(sub.form, scope)
+
+        if (sub.readAt) return sub.readAt
+
+        const readAt = new Date()
+        const updated = await prisma.formSubmission.updateMany({
+            where: { id: submissionId, readAt: null },
+            data: { readAt },
+        })
+        if (updated.count === 1) return readAt
+
+        // A concurrent reader may have won the idempotent update.
+        const current = await prisma.formSubmission.findUnique({
+            where: { id: submissionId },
+            select: { readAt: true },
+        })
+        if (!current) throw new NotFoundError("Submission not found")
+        return current.readAt ?? readAt
     }
 
     static async deleteSubmission(submissionId: string, scope: OwnerScope): Promise<void> {

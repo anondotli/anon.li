@@ -91,8 +91,7 @@ describe('DropCleanupService.cleanupExpiredDrops', () => {
     ];
 
     // Mock findMany to return the expired drops
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (prisma.drop.findMany as ReturnType<typeof vi.fn>).mockResolvedValue(expiredDrops as any);
+    (prisma.drop.findMany as ReturnType<typeof vi.fn>).mockResolvedValue(expiredDrops);
 
     // Mock deletes to resolve successfully
     (storage.deleteObject as ReturnType<typeof vi.fn>).mockResolvedValue([]);
@@ -100,10 +99,8 @@ describe('DropCleanupService.cleanupExpiredDrops', () => {
     claimDrop
       .mockResolvedValueOnce(claimed({ storageKey: 'key1' }, { storageKey: 'key2' }))
       .mockResolvedValueOnce(claimed({ storageKey: 'key3' }));
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (prisma.drop.delete as ReturnType<typeof vi.fn>).mockResolvedValue({ id: 'deleted' } as any);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (prisma.drop.deleteMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 2 } as any);
+    (prisma.drop.delete as ReturnType<typeof vi.fn>).mockResolvedValue({ id: 'deleted' });
+    (prisma.drop.deleteMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 2 });
 
     const result = await DropCleanupService.cleanupExpiredDrops();
 
@@ -137,10 +134,8 @@ describe('DropCleanupService.cleanupExpiredDrops', () => {
     ];
 
     // Mock findMany to return the expired drops
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (prisma.drop.findMany as ReturnType<typeof vi.fn>).mockResolvedValue(expiredDrops as any);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (prisma.drop.deleteMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 1 } as any);
+    (prisma.drop.findMany as ReturnType<typeof vi.fn>).mockResolvedValue(expiredDrops);
+    (prisma.drop.deleteMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 1 });
     claimDrop.mockResolvedValueOnce(claimed());
 
     const result = await DropCleanupService.cleanupExpiredDrops();
@@ -170,8 +165,7 @@ describe('DropCleanupService.cleanupExpiredDrops', () => {
       },
     ];
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (prisma.drop.findMany as ReturnType<typeof vi.fn>).mockResolvedValue(expiredDrops as any);
+    (prisma.drop.findMany as ReturnType<typeof vi.fn>).mockResolvedValue(expiredDrops);
 
     // Mock deleteObjects to fail
     (storage.deleteObjects as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('S3 error'));

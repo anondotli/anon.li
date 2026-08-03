@@ -9,7 +9,9 @@ const logger = createLogger("UserExportAPI")
 
 /**
  * GET /api/user/export
- * Generates a comprehensive data export for the authenticated user
+ * Generates a portable personal-workspace data summary for the authenticated user.
+ * Credential secrets, encrypted response payloads, file contents, and team-owned
+ * resources are intentionally excluded.
  */
 export async function GET() {
     try {
@@ -36,7 +38,11 @@ export async function GET() {
                 createdAt: true,
                 referralPlusUntil: true,
                 subscriptions: {
-                    where: { status: { in: ["active", "trialing"] } },
+                    where: {
+                        organizationId: null,
+                        status: { in: ["active", "trialing"] },
+                    },
+                    orderBy: { createdAt: "desc" },
                     select: {
                         provider: true,
                         product: true,
@@ -45,6 +51,7 @@ export async function GET() {
                         currentPeriodStart: true,
                         currentPeriodEnd: true,
                         cancelAtPeriodEnd: true,
+                        createdAt: true,
                     },
                 },
             }
@@ -54,85 +61,106 @@ export async function GET() {
             return NextResponse.json({ error: "User not found" }, { status: 404 })
         }
 
-        // Fetch related data separately
-        const aliases = await prisma.alias.findMany({
-            where: { userId: userId },
-            select: {
-                email: true,
-                localPart: true,
-                domain: true,
-                active: true,
-                format: true,
-                recipient: {
-                    select: {
-                        email: true,
-                    }
+        // Org-controlled resources have a separate organization export. Keep
+        // this download strictly personal even when the user created team rows.
+        const personalWhere = { userId, organizationId: null } as const
+        const [aliases, domains, drops, forms, recipients, apiKeys] = await Promise.all([
+            prisma.alias.findMany({
+                where: personalWhere,
+                select: {
+                    email: true,
+                    localPart: true,
+                    domain: true,
+                    active: true,
+                    format: true,
+                    recipient: {
+                        select: {
+                            email: true,
+                        },
+                    },
+                    createdAt: true,
+                    updatedAt: true,
                 },
-                createdAt: true,
-                updatedAt: true,
-            }
-        }) as unknown as Array<{ email: string; localPart: string; domain: string; active: boolean; format: string; recipient: { email: string } | null; createdAt: Date; updatedAt: Date }>
-
-        const domains = await prisma.domain.findMany({
-            where: { userId: userId },
-            select: {
-                domain: true,
-                verified: true,
-                ownershipVerified: true,
-                mxVerified: true,
-                spfVerified: true,
-                dkimVerified: true,
-                dkimSelector: true,
-                createdAt: true,
-                updatedAt: true,
-            }
-        }) as unknown as Array<{ domain: string; verified: boolean; ownershipVerified: boolean; mxVerified: boolean; spfVerified: boolean; dkimVerified: boolean; dkimSelector: string | null; createdAt: Date; updatedAt: Date }>
-
-        const drops = await prisma.drop.findMany({
-            where: { userId: userId },
-            select: {
-                id: true,
-                encryptedTitle: true,
-                encryptedMessage: true,
-                downloads: true,
-                maxDownloads: true,
-                expiresAt: true,
-                customKey: true,
-                hideBranding: true,
-                deletedAt: true,
-                createdAt: true,
-                updatedAt: true,
-                files: {
-                    select: {
-                        id: true,
-                        encryptedName: true,
-                        size: true,
-                        mimeType: true,
-                    }
-                }
-            }
-        }) as unknown as Array<{ id: string; encryptedTitle: string | null; encryptedMessage: string | null; downloads: number; maxDownloads: number | null; expiresAt: Date | null; customKey: boolean; hideBranding: boolean; deletedAt: Date | null; createdAt: Date; updatedAt: Date; files: Array<{ id: string; encryptedName: string | null; size: bigint | null; mimeType: string | null }> }>
-
-        const recipients = await prisma.recipient.findMany({
-            where: { userId: userId },
-            select: {
-                email: true,
-                verified: true,
-                isDefault: true,
-                pgpFingerprint: true,
-                pgpKeyName: true,
-                createdAt: true,
-            }
-        }) as unknown as Array<{ email: string; verified: boolean; isDefault: boolean; pgpFingerprint: string | null; pgpKeyName: string | null; createdAt: Date }>
-
-        const apiKeys = await prisma.apiKey.findMany({
-            where: { userId: userId },
-            select: {
-                keyPrefix: true,
-                label: true,
-                createdAt: true,
-            }
-        }) as unknown as Array<{ keyPrefix: string; label: string | null; createdAt: Date }>
+            }),
+            prisma.domain.findMany({
+                where: personalWhere,
+                select: {
+                    domain: true,
+                    verified: true,
+                    ownershipVerified: true,
+                    mxVerified: true,
+                    spfVerified: true,
+                    dkimVerified: true,
+                    dkimSelector: true,
+                    createdAt: true,
+                    updatedAt: true,
+                },
+            }),
+            prisma.drop.findMany({
+                where: personalWhere,
+                select: {
+                    id: true,
+                    encryptedTitle: true,
+                    encryptedMessage: true,
+                    downloads: true,
+                    maxDownloads: true,
+                    expiresAt: true,
+                    customKey: true,
+                    hideBranding: true,
+                    deletedAt: true,
+                    createdAt: true,
+                    updatedAt: true,
+                    files: {
+                        select: {
+                            id: true,
+                            encryptedName: true,
+                            size: true,
+                            mimeType: true,
+                        },
+                    },
+                },
+            }),
+            prisma.form.findMany({
+                where: personalWhere,
+                select: {
+                    id: true,
+                    title: true,
+                    description: true,
+                    schemaJson: true,
+                    active: true,
+                    disabledByUser: true,
+                    customKey: true,
+                    maxSubmissions: true,
+                    closesAt: true,
+                    hideBranding: true,
+                    allowFileUploads: true,
+                    submissionsCount: true,
+                    takenDown: true,
+                    deletedAt: true,
+                    createdAt: true,
+                    updatedAt: true,
+                },
+            }),
+            prisma.recipient.findMany({
+                where: personalWhere,
+                select: {
+                    email: true,
+                    verified: true,
+                    isDefault: true,
+                    pgpFingerprint: true,
+                    pgpKeyName: true,
+                    createdAt: true,
+                },
+            }),
+            prisma.apiKey.findMany({
+                where: personalWhere,
+                select: {
+                    keyPrefix: true,
+                    label: true,
+                    createdAt: true,
+                },
+            }),
+        ])
 
         // Get plan info
         const aliasLimits = getDisplayPlanLimits(user)
@@ -158,6 +186,12 @@ export async function GET() {
                 currentPeriodEnd: primarySub?.currentPeriodEnd ?? null,
                 cancelAtPeriodEnd: primarySub?.cancelAtPeriodEnd ?? false,
             },
+            subscriptions: user.subscriptions.map(subscription => ({
+                ...subscription,
+                currentPeriodStart: subscription.currentPeriodStart?.toISOString() ?? null,
+                currentPeriodEnd: subscription.currentPeriodEnd?.toISOString() ?? null,
+                createdAt: subscription.createdAt.toISOString(),
+            })),
             limits: {
                 alias: aliasLimits,
                 drop: dropLimits,
@@ -168,6 +202,7 @@ export async function GET() {
                 aliasCount: aliases.length,
                 domainCount: domains.length,
                 dropCount: drops.length,
+                formCount: forms.length,
             },
             aliases: aliases.map(alias => ({
                 email: alias.email,
@@ -196,6 +231,13 @@ export async function GET() {
                 createdAt: drop.createdAt.toISOString(),
                 updatedAt: drop.updatedAt.toISOString(),
             })),
+            forms: forms.map(form => ({
+                ...form,
+                closesAt: form.closesAt?.toISOString() ?? null,
+                deletedAt: form.deletedAt?.toISOString() ?? null,
+                createdAt: form.createdAt.toISOString(),
+                updatedAt: form.updatedAt.toISOString(),
+            })),
             recipients: recipients.map(r => ({
                 ...r,
                 createdAt: r.createdAt.toISOString(),
@@ -209,6 +251,7 @@ export async function GET() {
 
         return new NextResponse(JSON.stringify(exportData, null, 2), {
             headers: {
+                "Cache-Control": "private, no-store",
                 "Content-Type": "application/json",
                 "Content-Disposition": `attachment; filename="anon-li-export-${new Date().toISOString().split("T")[0]}.json"`,
             },

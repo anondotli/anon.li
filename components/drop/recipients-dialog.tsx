@@ -27,6 +27,7 @@ import {
   listDropAccessEventsAction,
 } from "@/actions/drop";
 import type { RecipientListItem, AccessEventItem } from "@/lib/services/drop";
+import { useTransientState } from "@/hooks/use-transient-state";
 
 export interface ManagedDrop {
   id: string;
@@ -57,7 +58,7 @@ export function RecipientsDialog({ drop, origin, canManage, canViewLogs, onClose
   const [notify, setNotify] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [newLinks, setNewLinks] = useState<{ email: string; url: string }[]>([]);
-  const [copied, setCopied] = useState<string | null>(null);
+  const { value: copied, setTransientValue: showCopied } = useTransientState<string | null>(null);
 
   const [events, setEvents] = useState<AccessEventItem[] | null>(null);
   const [logLocked, setLogLocked] = useState(false);
@@ -156,8 +157,7 @@ export function RecipientsDialog({ drop, origin, canManage, canViewLogs, onClose
   const copy = async (url: string, id: string) => {
     try {
       await navigator.clipboard.writeText(url);
-      setCopied(id);
-      setTimeout(() => setCopied(null), 2000);
+      showCopied(id, 2000);
     } catch {
       toast.error("Failed to copy");
     }

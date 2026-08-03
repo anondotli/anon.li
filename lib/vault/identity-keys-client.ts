@@ -2,12 +2,7 @@
 
 import { readVaultApiData } from "@/lib/vault/client"
 import { provisionIdentityKeypair } from "@/lib/vault/identity-keypair"
-
-interface StoredIdentityResponse {
-    identityPublicKey: string | null
-    wrappedIdentityPrivateKey: string | null
-    identityKeyGeneration: number | null
-}
+import { IdentityMaterialSchema, parseVaultData } from "@/lib/vault/client-schemas"
 
 /**
  * Ensure the user has an identity keypair provisioned for the CURRENT vault
@@ -25,7 +20,11 @@ export async function ensureIdentityKeypair(
     vaultGeneration: number,
     vaultId: string,
 ): Promise<string> {
-    const existing = await readVaultApiData<StoredIdentityResponse>("/api/vault/identity")
+    const existing = await readVaultApiData(
+        "/api/vault/identity",
+        undefined,
+        parseVaultData(IdentityMaterialSchema),
+    )
     if (existing.identityPublicKey && existing.identityKeyGeneration === vaultGeneration) {
         return existing.identityPublicKey
     }

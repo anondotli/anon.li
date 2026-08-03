@@ -12,8 +12,8 @@ Closes #
 
 ## Checklist
 
-- [ ] `bun run check` passes (lint, typecheck, tests, build)
+- [ ] `bun run check` passes (lint, typecheck, dead-code check, tests, build)
 - [ ] Strict TypeScript, no `any`
-- [ ] If the schema changed: Prisma migration included (`bunx prisma migrate dev`) and called out below
+- [ ] If the schema changed: Prisma migration included (`bun run db:migrate --name …`) and called out below
 - [ ] Security-sensitive paths (crypto, vault, auth, billing, abuse reporting): change is small and has focused tests
 - [ ] I agree my contributions are licensed under AGPL-3.0 (see [CONTRIBUTING.md](https://github.com/anondotli/anon.li/blob/main/CONTRIBUTING.md))

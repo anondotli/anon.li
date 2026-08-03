@@ -58,7 +58,7 @@ export const POST = withPolicy<RouteParams>(
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
         }
 
-        const body = await ctx.request.json()
+        const body = await ctx.request.json().catch(() => null)
         const validation = addFileApiSchema.safeParse(body)
         if (!validation.success) {
             return NextResponse.json({ error: "Invalid request body" }, { status: 400 })
@@ -103,10 +103,18 @@ export const POST = withPolicy<RouteParams>(
             throw error
         }
 
-        return NextResponse.json({
-            fileId: result.fileId,
-            s3UploadId: result.s3UploadId,
-            uploadUrls,
-        })
+        return NextResponse.json(
+            {
+                fileId: result.fileId,
+                s3UploadId: result.s3UploadId,
+                uploadUrls,
+            },
+            {
+                headers: {
+                    "Cache-Control": "no-store, max-age=0",
+                    "Referrer-Policy": "no-referrer",
+                },
+            },
+        )
     },
 )

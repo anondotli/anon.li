@@ -1,6 +1,7 @@
 "use client"
 
 import { readVaultApiData } from "@/lib/vault/client"
+import { parseVaultData, WrappedDropKeyRecordSchema } from "@/lib/vault/client-schemas"
 
 interface WrappedDropKeyRecord {
     dropId: string
@@ -47,7 +48,11 @@ export async function fetchWrappedDropKeys(): Promise<WrappedDropKeyRecord[]> {
     }
 
     try {
-        wrappedDropKeysInflight = readVaultApiData<WrappedDropKeyRecord[]>("/api/vault/drop-keys")
+        wrappedDropKeysInflight = readVaultApiData(
+            "/api/vault/drop-keys",
+            undefined,
+            parseVaultData(WrappedDropKeyRecordSchema.array()),
+        )
         const records = await wrappedDropKeysInflight
         cacheWrappedDropKeys(records)
         return records

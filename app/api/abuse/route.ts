@@ -27,8 +27,8 @@ const reportSchema = z.object({
     description: z.string().min(20).max(5000),
     contactEmail: z.string().email().max(254).optional().or(z.literal("")),
     decryptionKey: z.string().max(500).optional(),
-    turnstileToken: z.string().optional(),
-});
+    turnstileToken: z.string().min(1).max(2048).optional(),
+}).strict();
 
 function getReportPriority(reason: string): string {
     switch (reason) {
@@ -54,7 +54,7 @@ export async function POST(req: Request) {
             return rateLimited;
         }
 
-        const body = await req.json();
+        const body = await req.json().catch(() => null);
 
         const parsed = reportSchema.safeParse(body);
         if (!parsed.success) {
@@ -96,6 +96,9 @@ export async function POST(req: Request) {
             if (urlMatch?.[1]) {
                 normalizedResourceId = urlMatch[1];
             }
+        }
+        if (data.serviceType === "alias") {
+            normalizedResourceId = normalizedResourceId.toLowerCase();
         }
 
         // Validate resource existence
@@ -142,6 +145,7 @@ export async function POST(req: Request) {
         const existingReport = await prisma.abuseReport.findFirst({
             where: {
                 reporterIp: ipHash,
+                serviceType: data.serviceType,
                 resourceId: normalizedResourceId,
                 createdAt: { gte: twentyFourHoursAgo },
             },
@@ -158,7 +162,7 @@ export async function POST(req: Request) {
         // Per-resource rate limiting: max 10 reports per resource per day (regardless of IP)
         const resourceLimited = await checkRateLimit(
             rateLimiters.reportAbusePerResource,
-            `resource:${normalizedResourceId}`
+            `resource:${data.serviceType}:${normalizedResourceId}`
         );
         if (resourceLimited) {
             return NextResponse.json(
@@ -243,13 +247,16 @@ export async function POST(req: Request) {
             }
         }
 
-        return NextResponse.json({
-            success: true,
-            message: autoResolved
-                ? "Report submitted. This content has already been addressed by our team."
-                : "Report submitted successfully. Our team will review it shortly.",
-            trackingToken,
-        });
+        return NextResponse.json(
+            {
+                success: true,
+                message: autoResolved
+                    ? "Report submitted. This content has already been addressed by our team."
+                    : "Report submitted successfully. Our team will review it shortly.",
+                trackingToken,
+            },
+            { headers: { "Cache-Control": "private, no-store" } },
+        );
     } catch (error) {
         logger.error("Report abuse error", error);
         return NextResponse.json(

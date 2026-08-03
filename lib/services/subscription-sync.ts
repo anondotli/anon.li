@@ -10,6 +10,13 @@ import { DAY_MS, SUBSCRIPTION_GRACE_PERIOD_DAYS } from "@/lib/constants"
 const logger = createLogger("SubscriptionSync")
 const FORM_ENTITLING_PRODUCTS = ["form", "bundle", "business"] as const
 
+export class InvalidSubscriptionOwnershipError extends Error {
+    constructor(message: string) {
+        super(message)
+        this.name = "InvalidSubscriptionOwnershipError"
+    }
+}
+
 function grantsForm(product: string): boolean {
     return (FORM_ENTITLING_PRODUCTS as readonly string[]).includes(product)
 }
@@ -153,6 +160,21 @@ export async function upsertStripeSubscription(
     const organizationId = existing
         ? existing.organizationId
         : (subscription.metadata?.organizationId || null)
+
+    // Business is the only organization-owned product. Enforce this at the
+    // canonical billing boundary so missing/conflicting Stripe metadata cannot
+    // grant a team plan to one account or attach a personal plan to a team.
+    if ((plan.product === "business") !== Boolean(organizationId)) {
+        await prisma.subscription.updateMany({
+            where: { providerSubscriptionId: subscription.id },
+            data: { status: "past_due" },
+        })
+        throw new InvalidSubscriptionOwnershipError(
+            plan.product === "business"
+                ? "Business subscriptions require organization ownership"
+                : `${plan.product} subscriptions cannot be organization-owned`,
+        )
+    }
     // Default to the PRIOR seat count (never silently shrink to 1) when Stripe
     // omits the item quantity on a webhook payload.
     const seats = item?.quantity ?? existing?.seats ?? 1
@@ -224,7 +246,12 @@ export async function syncSubscriptionFromStripe(userId: string): Promise<{
 }> {
     const SYNC_LIMIT = 50
     const subscriptions = await prisma.subscription.findMany({
-        where: { userId, provider: "stripe", providerSubscriptionId: { not: null } },
+        where: {
+            userId,
+            organizationId: null,
+            provider: "stripe",
+            providerSubscriptionId: { not: null },
+        },
         select: { providerSubscriptionId: true, organizationId: true, product: true },
         orderBy: { createdAt: "desc" },
         take: SYNC_LIMIT,

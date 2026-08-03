@@ -10,7 +10,10 @@ import { NextResponse, after } from "next/server"
 import { Redis } from "@upstash/redis"
 import { createLogger } from "@/lib/logger"
 import { SUBSCRIPTION_GRACE_PERIOD_DAYS, DOWNGRADE_SCHEDULING_DELAY_DAYS, DOWNGRADE_DELETION_DELAY_DAYS } from "@/lib/constants"
-import { upsertStripeSubscription } from "@/lib/services/subscription-sync"
+import {
+    InvalidSubscriptionOwnershipError,
+    upsertStripeSubscription,
+} from "@/lib/services/subscription-sync"
 import { captureServerEvent, flushPostHog, trackServerEvent } from "@/lib/posthog.server"
 import { getPlanFromPriceId } from "@/config/plans"
 
@@ -85,7 +88,15 @@ function getSubscriptionPriceId(subscription: Stripe.Subscription): string | nul
 }
 
 async function upsertConfiguredSubscription(userId: string | null, subscription: Stripe.Subscription): Promise<void> {
-    const upserted = await upsertStripeSubscription(userId, subscription)
+    let upserted: boolean
+    try {
+        upserted = await upsertStripeSubscription(userId, subscription)
+    } catch (error) {
+        if (error instanceof InvalidSubscriptionOwnershipError) {
+            throw new PermanentWebhookError(error.message)
+        }
+        throw error
+    }
     if (!upserted) {
         throw new Error(`Stripe subscription ${subscription.id} has an unconfigured price`)
     }
@@ -304,25 +315,44 @@ async function handleCheckoutSessionCompleted(event: Stripe.Event): Promise<void
     }
 
     const subscription = await stripe.subscriptions.retrieve(subscriptionId)
-    const priceId = getSubscriptionPriceId(subscription)
+    const sessionOrganizationId = session.metadata?.organizationId || null
+    const subscriptionOrganizationId = subscription.metadata?.organizationId || null
+    if (
+        sessionOrganizationId
+        && subscriptionOrganizationId
+        && sessionOrganizationId !== subscriptionOrganizationId
+    ) {
+        throw new PermanentWebhookError("Checkout and subscription organization metadata conflict")
+    }
+    const subscriptionWithOwnership = sessionOrganizationId && !subscriptionOrganizationId
+        ? {
+            ...subscription,
+            metadata: {
+                ...subscription.metadata,
+                userId,
+                organizationId: sessionOrganizationId,
+            },
+        }
+        : subscription
+    const priceId = getSubscriptionPriceId(subscriptionWithOwnership)
 
     if (!priceId) {
         throw new Error(`Stripe subscription ${subscriptionId} has no price ID`)
     }
 
     // Write to canonical Subscription table (required - transient failures will retry via Stripe)
-    await upsertConfiguredSubscription(userId, subscription)
+    await upsertConfiguredSubscription(userId, subscriptionWithOwnership)
 
     // An org checkout belongs to the organization, not to the purchaser's
     // personal account. Do not clear an unrelated personal downgrade merely
     // because that user paid on behalf of their team.
-    if (!subscription.metadata?.organizationId) {
+    if (!subscriptionWithOwnership.metadata?.organizationId) {
         const { BillingDowngradeService } = await import("@/lib/services/billing-downgrade")
         await BillingDowngradeService.cancelDowngrade(userId)
     }
 
     // Authoritative, ad-blocker-proof revenue event (server-side).
-    const activatedPrice = subscription.items?.data?.[0]?.price
+    const activatedPrice = subscriptionWithOwnership.items?.data?.[0]?.price
     const activatedPlan = getPlanFromPriceId(priceId)
     captureServerEvent(userId, "subscription_activated", {
         provider: "stripe",

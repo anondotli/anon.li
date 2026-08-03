@@ -175,6 +175,12 @@ export function DataTable<T>({
                                     isClickable && "cursor-pointer hover:bg-muted/60"
                                 )}
                                 onClick={() => isClickable && handleRowClick(row)}
+                                tabIndex={isClickable ? 0 : undefined}
+                                onKeyDown={(event) => {
+                                    if (isClickable && event.key === "Enter" && event.target === event.currentTarget) {
+                                        handleRowClick(row)
+                                    }
+                                }}
                             >
                                 {columns.map((column, i) => (
                                     <TableCell key={i} className={column.className}>

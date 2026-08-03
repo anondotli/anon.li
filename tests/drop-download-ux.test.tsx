@@ -24,7 +24,7 @@ describe("Drop recipient download UX", () => {
                     expiresAt: null,
                     hideBranding: true,
                     files: [
-                        { id: "a", encryptedName: "a", decryptedName: "photo.png", size: 10, mimeType: "image/png", iv: "iv", chunkSize: 1, chunkCount: 1 },
+                        { id: "a", encryptedName: "a", decryptedName: "photo.png", size: 10, encryptedSize: 26, mimeType: "image/png", iv: "iv", chunkSize: 10, chunkCount: 1 },
                     ],
                 }}
                 keyString="key"
@@ -56,8 +56,8 @@ describe("Drop recipient download UX", () => {
                     expiresAt: null,
                     hideBranding: true,
                     files: [
-                        { id: "a", encryptedName: "a", decryptedName: "a.bin", size: 400_000_000, mimeType: "application/octet-stream", iv: "iv", chunkSize: 1, chunkCount: 1 },
-                        { id: "b", encryptedName: "b", decryptedName: "b.bin", size: 400_000_000, mimeType: "application/octet-stream", iv: "iv", chunkSize: 1, chunkCount: 1 },
+                        { id: "a", encryptedName: "a", decryptedName: "a.bin", size: 400_000_000, encryptedSize: 400_000_016, mimeType: "application/octet-stream", iv: "iv", chunkSize: 400_000_000, chunkCount: 1 },
+                        { id: "b", encryptedName: "b", decryptedName: "b.bin", size: 400_000_000, encryptedSize: 400_000_016, mimeType: "application/octet-stream", iv: "iv", chunkSize: 400_000_000, chunkCount: 1 },
                     ],
                 }}
                 keyString="key"
@@ -94,7 +94,7 @@ describe("Drop recipient download UX", () => {
                     expiresAt: null,
                     hideBranding: true,
                     files: [
-                        { id: "a", encryptedName: "a", decryptedName: "a.bin", size: 10, mimeType: "application/octet-stream", iv: "iv", chunkSize: 1, chunkCount: 1 },
+                        { id: "a", encryptedName: "a", decryptedName: "a.bin", size: 10, encryptedSize: 26, mimeType: "application/octet-stream", iv: "iv", chunkSize: 10, chunkCount: 1 },
                     ],
                 }}
                 keyString="key"
@@ -124,7 +124,7 @@ describe("Drop recipient download UX", () => {
                 JSON.stringify({ url: "https://r2.example/file" }),
                 { status: 200, headers: { "content-type": "application/json" } },
             ))
-            .mockResolvedValueOnce(new Response(new Uint8Array([1, 2, 3]), { status: 200 }))
+            .mockResolvedValueOnce(new Response(new Uint8Array(19), { status: 200 }))
 
         render(
             <FilePreview
@@ -135,6 +135,7 @@ describe("Drop recipient download UX", () => {
                 keyString="invalid-key-is-fine-after-fetch"
                 ivString="AAAAAAAAAAAAAAAA"
                 size={3}
+                encryptedSize={19}
                 chunkSize={3}
                 chunkCount={1}
                 recipientToken="recipient-secret"

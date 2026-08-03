@@ -76,7 +76,7 @@ const updateFormBaseSchema = z.object({
     customKeyData: z.string().min(70).max(512).nullable().optional(),
     customKeyIv: z.string().regex(/^[A-Za-z0-9_-]{16}$/).nullable().optional(),
     customKeyVerifier: Base64UrlSha256.nullable().optional(),
-})
+}).strict()
 
 export const updateFormSchema = updateFormBaseSchema.superRefine((data, ctx) => {
     if (data.customKey !== true) return
@@ -95,17 +95,17 @@ export const submitFormSchema = z.object({
     ephemeralPubKey: PublicKey,
     iv: z.string().regex(/^[A-Za-z0-9_-]{16}$/, "IV must be 16 base64url characters"),
     encryptedPayload: Base64Url.min(1).max(5 * 1024 * 1024), // ~5MB cap before ciphertext is rejected
-    attachedDropId: z.string().min(1).optional(),
-    attachmentUploadToken: z.string().min(16).max(256).optional(),
+    attachedDropId: z.string().min(1).max(64).optional(),
+    attachmentUploadToken: Base64UrlSha256.optional(),
     attachmentManifest: z.array(z.object({
         fieldId: z.string().min(1).max(64),
         fileId: z.string().min(1).max(64),
         size: z.number().int().positive(),
         mimeType: z.string().min(1).max(200),
-    })).max(100).optional(),
+    }).strict()).max(100).optional(),
     turnstileToken: z.string().min(1).max(2048).optional(),
     customKeyProof: Base64Url.min(1).max(512).optional(),
-})
+}).strict()
 
 export const customKeyProofSchema = Base64Url.min(1).max(512)
 

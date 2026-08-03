@@ -144,7 +144,13 @@ export const POST = withPolicy(
             }, ctx.requestId)
         } catch (error) {
             if (error instanceof UpgradeRequiredError) {
-                return apiError(error.message, ErrorCodes.PAYMENT_REQUIRED, ctx.requestId, 402)
+                return apiError(
+                    error.message,
+                    ErrorCodes.PAYMENT_REQUIRED,
+                    ctx.requestId,
+                    402,
+                    { upgrade: error.details },
+                )
             }
             throw error
         }

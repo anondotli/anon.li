@@ -32,10 +32,16 @@ interface ReportFormData {
 }
 
 const turnstileSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY!;
+const ServiceTypeSchema = z.enum(["alias", "drop", "form"]);
+const AbuseResponseSchema = z.object({
+    trackingToken: z.string().regex(/^[a-f0-9]{32}$/),
+}).passthrough();
+
 export function ReportAbuseForm() {
     const searchParams = useSearchParams();
+    const requestedService = ServiceTypeSchema.safeParse(searchParams.get("service"));
     const [formData, setFormData] = useState<ReportFormData>({
-        serviceType: (searchParams.get("service") as ServiceType) || "",
+        serviceType: requestedService.success ? requestedService.data : "",
         resourceId: searchParams.get("id") || "",
         reason: "",
         description: "",
@@ -110,16 +116,21 @@ export function ReportAbuseForm() {
                 }),
             });
 
-            const result = await response.json();
+            const result: unknown = await response.json().catch(() => null);
 
             if (!response.ok) {
                 if (response.status === 429) {
                     throw new Error("Too many reports submitted. Please try again later.");
                 }
-                throw new Error(result.error || "Failed to submit report");
+                const message = result && typeof result === "object" && "error" in result
+                    ? (result as { error?: unknown }).error
+                    : null;
+                throw new Error(typeof message === "string" ? message : "Failed to submit report");
             }
 
-            setTrackingToken(result.trackingToken || null);
+            const parsed = AbuseResponseSchema.safeParse(result);
+            if (!parsed.success) throw new Error("Server returned an invalid report response");
+            setTrackingToken(parsed.data.trackingToken);
             setSubmitted(true);
         } catch (err) {
             setError(err instanceof Error ? err.message : "Failed to submit report. Please try again.");
@@ -296,6 +307,7 @@ export function ReportAbuseForm() {
                                             : "Select a service first"
                             }
                             disabled={!formData.serviceType}
+                            maxLength={500}
                         />
                         <p className="text-xs text-muted-foreground">
                             {formData.serviceType === "drop"
@@ -317,6 +329,8 @@ export function ReportAbuseForm() {
                                 value={formData.decryptionKey || ""}
                                 onChange={(e) => setFormData({ ...formData, decryptionKey: e.target.value })}
                                 placeholder="e.g., key-123456 or password used to decrypt"
+                                maxLength={500}
+                                autoComplete="off"
                             />
                             <p className="text-xs text-muted-foreground">
                                 We need the key or password to inspect the drop content.
@@ -355,8 +369,11 @@ export function ReportAbuseForm() {
                             onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                             placeholder="Please provide details about the abuse. Include any relevant context, such as how you encountered this content..."
                             rows={4}
+                            minLength={20}
+                            maxLength={5000}
+                            aria-describedby="report-description-help"
                         />
-                        <p className="text-xs text-muted-foreground">
+                        <p id="report-description-help" className="text-xs text-muted-foreground">
                             {formData.description.trim().length < 20
                                 ? `${20 - formData.description.trim().length} more characters needed`
                                 : "Be as specific as possible."}
@@ -372,6 +389,7 @@ export function ReportAbuseForm() {
                             value={formData.contactEmail}
                             onChange={(e) => setFormData({ ...formData, contactEmail: e.target.value })}
                             placeholder="your@email.com"
+                            maxLength={254}
                         />
                         <p className="text-xs text-muted-foreground">
                             Provide your email if you&apos;d like to receive updates about your report.
@@ -390,7 +408,7 @@ export function ReportAbuseForm() {
                     )}
 
                     {error && (
-                        <div className="p-3 rounded-lg bg-destructive/10 text-destructive text-sm">
+                        <div role="alert" className="p-3 rounded-lg bg-destructive/10 text-destructive text-sm">
                             {error}
                         </div>
                     )}

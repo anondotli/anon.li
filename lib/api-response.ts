@@ -9,7 +9,11 @@
 
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
-import { ApiError } from "./api-error-utils";
+import {
+    ApiError,
+    UpgradeRequiredError,
+    type UpgradeRequiredDetails,
+} from "./api-error-utils";
 import { createLogger } from "@/lib/logger";
 
 const logger = createLogger("APIResponse");
@@ -63,6 +67,8 @@ interface ErrorDetail {
     message: string;
 }
 
+type ApiErrorDetails = ErrorDetail[] | { upgrade: UpgradeRequiredDetails };
+
 /**
  * Error response wrapper
  */
@@ -70,7 +76,7 @@ interface ApiErrorResponse {
     error: {
         message: string;
         code: string;
-        details?: ErrorDetail[];
+        details?: ApiErrorDetails;
     };
     meta: ResponseMeta;
 }
@@ -166,13 +172,13 @@ export function apiError(
     code: ErrorCode,
     requestId: string,
     status: number,
-    details?: ErrorDetail[]
+    details?: ApiErrorDetails
 ): NextResponse<ApiErrorResponse> {
     const response: ApiErrorResponse = {
         error: {
             message,
             code,
-            ...(details && details.length > 0 ? { details } : {}),
+            ...(details && (!Array.isArray(details) || details.length > 0) ? { details } : {}),
         },
         meta: {
             request_id: requestId,
@@ -208,6 +214,16 @@ export function apiErrorFromUnknown(
             requestId,
             400,
             zodErrorToDetails(error)
+        );
+    }
+
+    if (error instanceof UpgradeRequiredError) {
+        return apiError(
+            error.message,
+            ErrorCodes.PAYMENT_REQUIRED,
+            requestId,
+            error.statusCode,
+            { upgrade: error.details },
         );
     }
 

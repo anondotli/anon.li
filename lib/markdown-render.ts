@@ -1,7 +1,4 @@
-type HtmlToTextCompile = (options: unknown) => (html: string, metadata?: { baseUrl: string }) => string
-type HtmlToTextModule = {
-    compile: HtmlToTextCompile
-}
+import { compile } from "html-to-text"
 
 type HtmlToTextBuilder = {
     addInline: (text: string) => void
@@ -27,11 +24,6 @@ type MarkdownDocument = {
     markdown: string
     tokens: number
 }
-
-// `html-to-text` ships without TypeScript declarations here, so we load it via
-// CommonJS and keep the typing boundary local to this module.
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const { compile } = require("html-to-text") as HtmlToTextModule
 
 function collectText(node: HtmlToTextNode | undefined): string {
     if (!node) return ""

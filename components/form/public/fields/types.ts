@@ -2,6 +2,11 @@ import type { FormField } from "@/lib/form-schema"
 
 export type FieldPresentation = "spotlight" | "compact"
 
+export interface FieldAccessibilityProps {
+    invalid?: boolean
+    describedBy?: string
+}
+
 export interface FieldBehavior {
     /** When true, plain Enter inside the input advances to next step. */
     enterAdvances: boolean

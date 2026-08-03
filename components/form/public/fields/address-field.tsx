@@ -3,7 +3,7 @@
 import { forwardRef, useImperativeHandle, useRef, useEffect } from "react"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
-import type { FieldPresentation } from "./types"
+import type { FieldAccessibilityProps, FieldPresentation } from "./types"
 import {
     getAddressParts,
     enabledAddressParts,
@@ -17,7 +17,7 @@ interface AddressHandle {
     focus: () => void
 }
 
-interface Props {
+interface Props extends FieldAccessibilityProps {
     field: Extract<FormField, { type: "address" }>
     value: unknown
     onChange: (next: unknown) => void
@@ -33,7 +33,7 @@ function asAddress(value: unknown): AddressValue {
 }
 
 export const AddressField = forwardRef<AddressHandle, Props>(function AddressField(
-    { field, value, onChange, presentation, disabled, autoFocus },
+    { field, value, onChange, presentation, disabled, autoFocus, invalid, describedBy },
     ref,
 ) {
     const firstRef = useRef<HTMLInputElement>(null)
@@ -76,6 +76,8 @@ export const AddressField = forwardRef<AddressHandle, Props>(function AddressFie
                     aria-required={partRequired || undefined}
                     autoComplete={meta.autoComplete}
                     disabled={disabled}
+                    aria-invalid={invalid || undefined}
+                    aria-describedby={describedBy}
                     className={inputClass}
                 />
                 {/* Custom placeholder so the required star can be tinted red. */}

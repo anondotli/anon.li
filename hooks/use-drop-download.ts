@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { cryptoService } from "@/lib/crypto.client";
 import { getDrop, recordDownload, type DropMetadata } from "@/lib/drop.actions.client";
-import { zipSync } from "fflate";
 import { MAX_ZIP_SIZE, MIN_CHUNK_SIZE, AUTH_TAG_SIZE } from "@/lib/constants";
 import { normalizeDropKeyInput, parseDropShareFragment } from "@/lib/drop-link";
 import { formatBytes } from "@/lib/format";
+import { plaintextSizeFromEncrypted } from "@/lib/drop-size";
 import {
     sanitizeArchivePath,
     sanitizeDownloadFilename,
@@ -23,11 +23,14 @@ interface DecryptedFile {
     id: string;
     encryptedName: string;
     decryptedName: string;
+    /** Original plaintext bytes shown to the recipient. */
     size: number;
+    /** Stored ciphertext bytes, including one AES-GCM tag per chunk. */
+    encryptedSize: number;
     mimeType: string;
     iv: string;
-    chunkSize: number | null;
-    chunkCount: number | null;
+    chunkSize: number;
+    chunkCount: number;
 }
 
 export interface DecryptedDrop {
@@ -142,17 +145,34 @@ export function useDropDownload({
                 const decryptedFiles = await Promise.all(
                     rawDrop.files.map(async (file) => {
                         try {
+                            const encryptedSize = Number(file.size);
+                            const chunkSize = file.chunkSize ?? MIN_CHUNK_SIZE;
+                            const chunkCount = file.chunkCount
+                                ?? Math.ceil(encryptedSize / (chunkSize + AUTH_TAG_SIZE));
+                            const size = plaintextSizeFromEncrypted(encryptedSize, chunkCount);
+                            if (
+                                !Number.isSafeInteger(encryptedSize)
+                                || !Number.isSafeInteger(chunkSize)
+                                || !Number.isSafeInteger(chunkCount)
+                                || size < 1
+                                || chunkSize < 1
+                                || chunkCount < 1
+                            ) {
+                                throw new Error("Invalid encrypted file metadata");
+                            }
+
                             const fileIv = new Uint8Array(cryptoService.base64UrlToArrayBuffer(file.iv));
                             const decryptedName = await cryptoService.decryptFilename(file.encryptedName, key, fileIv);
                             return {
                                 id: file.id,
                                 encryptedName: file.encryptedName,
                                 decryptedName,
-                                size: parseInt(file.size),
+                                size,
+                                encryptedSize,
                                 mimeType: file.mimeType,
                                 iv: file.iv,
-                                chunkSize: file.chunkSize ?? null,
-                                chunkCount: file.chunkCount ?? null,
+                                chunkSize,
+                                chunkCount,
                             };
                         } catch {
                             decryptFailures++;
@@ -160,11 +180,12 @@ export function useDropDownload({
                                 id: file.id,
                                 encryptedName: file.encryptedName,
                                 decryptedName: `File ${file.id}`,
-                                size: parseInt(file.size),
+                                size: 0,
+                                encryptedSize: 0,
                                 mimeType: file.mimeType,
                                 iv: file.iv,
-                                chunkSize: file.chunkSize ?? null,
-                                chunkCount: file.chunkCount ?? null,
+                                chunkSize: file.chunkSize ?? MIN_CHUNK_SIZE,
+                                chunkCount: file.chunkCount ?? 1,
                             };
                         }
                     })
@@ -294,8 +315,10 @@ export function useDropDownload({
 
             if (!response.body) throw new Error("ReadableStream not supported in this browser");
 
-            const chunkSize = file.chunkSize || MIN_CHUNK_SIZE;
-            const decryptionStream = cryptoService.createDecryptionStream(key, iv, chunkSize);
+            const decryptionStream = cryptoService.createDecryptionStream(key, iv, file.chunkSize, {
+                encryptedSize: file.encryptedSize,
+                chunkCount: file.chunkCount,
+            });
             const decryptedStream = response.body.pipeThrough(decryptionStream);
 
             const reader = decryptedStream.getReader();
@@ -391,15 +414,15 @@ export function useDropDownload({
                 if (!response.ok) throw new Error(`Failed to download ${file.decryptedName}`);
 
                 const encryptedData = await response.arrayBuffer();
+                if (encryptedData.byteLength !== file.encryptedSize) {
+                    throw new Error(`Encrypted file size mismatch for ${file.decryptedName}`);
+                }
                 const totalEncryptedSize = encryptedData.byteLength;
 
-                // Calculate chunks - use stored size or estimate
-                const baseChunkSize = file.chunkSize || Math.ceil(file.size / Math.ceil(file.size / MIN_CHUNK_SIZE));
-                const encryptedChunkSize = baseChunkSize + AUTH_TAG_SIZE;
-                const chunkCount = Math.ceil(totalEncryptedSize / encryptedChunkSize);
+                const encryptedChunkSize = file.chunkSize + AUTH_TAG_SIZE;
 
                 const decryptedChunks: ArrayBuffer[] = [];
-                for (let j = 0; j < chunkCount; j++) {
+                for (let j = 0; j < file.chunkCount; j++) {
                     const start = j * encryptedChunkSize;
                     const end = Math.min(start + encryptedChunkSize, totalEncryptedSize);
                     const chunk = encryptedData.slice(start, end);
@@ -409,6 +432,9 @@ export function useDropDownload({
 
                 // Combine
                 const totalDecryptedSize = decryptedChunks.reduce((sum, c) => sum + c.byteLength, 0);
+                if (totalDecryptedSize !== file.size) {
+                    throw new Error(`Decrypted file size mismatch for ${file.decryptedName}`);
+                }
                 const combined = new Uint8Array(totalDecryptedSize);
                 let offset = 0;
                 for (const chunk of decryptedChunks) {
@@ -426,6 +452,7 @@ export function useDropDownload({
             setCurrentFile("Creating ZIP archive...");
             setDownloadProgress(85);
 
+            const { zipSync } = await import("fflate");
             const zipped = zipSync(zipFiles);
 
             setCurrentFile("Downloading...");

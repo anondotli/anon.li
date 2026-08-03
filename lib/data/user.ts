@@ -10,11 +10,14 @@ import type { SubscriptionLike } from "@/lib/limits"
 export type UserWithSubscriptions = User & { subscriptions: SubscriptionLike[] }
 
 export async function getUserById(id: string): Promise<UserWithSubscriptions | null> {
-    return await prisma.user.findUnique({
+    const user = await prisma.user.findUnique({
         where: { id },
         include: {
             subscriptions: {
-                where: { status: { in: ["active", "trialing"] } },
+                where: {
+                    organizationId: null,
+                    status: { in: ["active", "trialing"] },
+                },
                 select: {
                     status: true,
                     product: true,
@@ -22,8 +25,35 @@ export async function getUserById(id: string): Promise<UserWithSubscriptions | n
                     currentPeriodEnd: true,
                 },
             },
+            memberships: {
+                select: {
+                    organization: {
+                        select: {
+                            subscriptions: {
+                                where: { status: { in: ["active", "trialing"] } },
+                                select: {
+                                    status: true,
+                                    product: true,
+                                    tier: true,
+                                    currentPeriodEnd: true,
+                                },
+                            },
+                        },
+                    },
+                },
+            },
         },
     })
+
+    if (!user) return null
+    const { memberships = [], subscriptions = [], ...record } = user
+    return {
+        ...record,
+        subscriptions: [
+            ...subscriptions,
+            ...memberships.flatMap((membership) => membership.organization.subscriptions),
+        ],
+    }
 }
 
 /**
@@ -39,6 +69,7 @@ export async function getUserBillingState(userId: string) {
         prisma.subscription.findFirst({
             where: {
                 userId,
+                organizationId: null,
                 provider: "stripe",
                 providerCustomerId: { not: null },
             },
@@ -71,18 +102,7 @@ export async function getUserIdByStripeCustomerId(stripeCustomerId: string) {
         select: { userId: true },
         orderBy: { createdAt: "desc" },
     })
-    return sub ? { id: sub.userId } : null
-}
-
-/**
- * Look up a user by Stripe subscription ID via the canonical Subscription table.
- */
-export async function getUserByStripeSubscriptionId(stripeSubscriptionId: string) {
-    const sub = await prisma.subscription.findUnique({
-        where: { providerSubscriptionId: stripeSubscriptionId },
-        select: { user: { select: { id: true, email: true } } },
-    })
-    return sub?.user ?? null
+    return sub?.userId ? { id: sub.userId } : null
 }
 
 /**
@@ -120,7 +140,19 @@ export async function getDripCohort(opts: {
             createdAt: { gte: lowerBound, lt: upperBound },
             emailVerified: true,
             banned: false,
-            subscriptions: { none: { status: { in: ["active", "trialing"] } } },
+            subscriptions: {
+                none: {
+                    organizationId: null,
+                    status: { in: ["active", "trialing"] },
+                },
+            },
+            memberships: {
+                none: {
+                    organization: {
+                        subscriptions: { some: { status: { in: ["active", "trialing"] } } },
+                    },
+                },
+            },
             dripUnsubscribed: false,
             email: {
                 notIn: excludeEmails,
@@ -161,10 +193,18 @@ export async function getHeavyFreeUsers(opts: {
     }>>`
         SELECT u.id, u.email, COUNT(a.id)::int AS "aliasCount", COALESCE(SUM(a."emailsReceived"), 0)::int AS "emailsForwarded"
         FROM users u
-        INNER JOIN aliases a ON a."userId" = u.id
+        INNER JOIN aliases a ON a."userId" = u.id AND a."organizationId" IS NULL
         WHERE NOT EXISTS (
             SELECT 1 FROM subscriptions s
             WHERE s."userId" = u.id
+              AND s."organizationId" IS NULL
+              AND s.status IN ('active', 'trialing')
+          )
+          AND NOT EXISTS (
+            SELECT 1
+            FROM members m
+            INNER JOIN subscriptions s ON s."organizationId" = m."organizationId"
+            WHERE m."userId" = u.id
               AND s.status IN ('active', 'trialing')
           )
           AND u.banned = false
@@ -188,6 +228,7 @@ export async function getCryptoRenewalReminderUsers(now: Date, windowEnd: Date) 
     const subs = await prisma.subscription.findMany({
         where: {
             provider: "crypto",
+            organizationId: null,
             status: { in: ["active", "trialing"] },
             currentPeriodEnd: { gt: now, lte: windowEnd },
         },

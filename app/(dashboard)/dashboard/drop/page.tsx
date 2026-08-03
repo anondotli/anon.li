@@ -6,7 +6,8 @@ import Link from "next/link";
 import { getEffectiveTier, getDropLimits } from "@/lib/limits";
 import { prisma } from "@/lib/prisma";
 import { scopeFromSession } from "@/lib/auth-session";
-import { isOrgSubscribed } from "@/lib/data/auth";
+import { getOrgLimitContext, isOrgSubscribed } from "@/lib/data/auth";
+import { getUserById } from "@/lib/data/user";
 import { ownerWhere } from "@/lib/ownership";
 import { TeamWorkspaceLocked } from "@/components/dashboard/team/team-workspace-locked";
 import type { DropData, StorageData } from "@/actions/drop";
@@ -42,29 +43,17 @@ export default async function DropDashboardPage() {
   }
 
   // Get user with storage info
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    select: {
-      storageUsed: true,
-      downgradedAt: true,
-      referralPlusUntil: true,
-      subscriptions: {
-        where: { status: { in: ["active", "trialing"] } },
-        select: {
-          status: true,
-          product: true,
-          tier: true,
-          currentPeriodEnd: true,
-        },
-      },
-    }
-  });
+  const user = await getUserById(session.user.id);
 
-  const tier = getEffectiveTier(user);
-  const limits = getDropLimits(user);
+  const orgLimitContext = scope.organizationId
+    ? await getOrgLimitContext(scope.organizationId)
+    : null;
+  const limitContext = orgLimitContext ?? user;
+  const tier = getEffectiveTier(limitContext);
+  const limits = getDropLimits(limitContext);
 
   // Fetch drops with files in a single query
-  const drops = (await prisma.drop.findMany({
+  const drops = await prisma.drop.findMany({
     where: {
       ...ownerWhere(scope),
       uploadComplete: true,
@@ -83,23 +72,7 @@ export default async function DropDashboardPage() {
         },
       },
     },
-  })) as unknown as Array<{
-    id: string
-    encryptedTitle: string | null
-    iv: string
-    downloads: number
-    maxDownloads: number | null
-    expiresAt: Date | null
-    customKey: boolean
-    hideBranding: boolean
-    disabled: boolean
-    takenDown: boolean
-    takedownReason: string | null
-    uploadComplete: boolean
-    restrictToRecipients: boolean
-    createdAt: Date
-    files: Array<{ id: string; encryptedName: string | null; size: bigint | null; mimeType: string | null; iv: string }>
-  }>;
+  });
 
   // Transform to serializable format
   const dropsData: DropData[] = drops.map((drop) => {
@@ -135,11 +108,11 @@ export default async function DropDashboardPage() {
   });
 
   const storageData: StorageData = {
-    used: (user?.storageUsed || BigInt(0)).toString(),
+    used: (orgLimitContext?.storageUsed ?? user?.storageUsed ?? BigInt(0)).toString(),
     limit: limits.maxStorage.toString(),
   };
 
-  const storageUsed = Number(user?.storageUsed || BigInt(0));
+  const storageUsed = Number(orgLimitContext?.storageUsed ?? user?.storageUsed ?? BigInt(0));
   const storagePercent = limits.maxStorage > 0
     ? Math.min((storageUsed / limits.maxStorage) * 100, 100)
     : 0;
@@ -161,7 +134,7 @@ export default async function DropDashboardPage() {
       </div>
 
       {/* Downgrade Warning */}
-      {user?.downgradedAt && (
+      {!scope.organizationId && user?.downgradedAt && (
         <div className="flex items-start gap-3 px-4 py-3 rounded-lg text-sm bg-destructive/10 text-destructive border border-destructive/20">
           <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
           <div>

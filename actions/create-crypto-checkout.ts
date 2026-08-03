@@ -37,6 +37,7 @@ export async function createCryptoCheckout(params: CryptoCheckoutParams) {
             const existingSub = await prisma.subscription.findFirst({
                 where: {
                     userId,
+                    organizationId: null,
                     status: { in: ["active", "trialing"] },
                     currentPeriodEnd: { gt: new Date() },
                 },

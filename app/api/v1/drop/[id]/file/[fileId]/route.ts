@@ -199,95 +199,91 @@ export const DELETE = withPolicy<RouteParams>(
         rateLimitIdentifier: async (ctx) => ctx.userId ?? await getClientIp(),
     },
     async (ctx, routeContext) => {
-        try {
-            const { id: dropId, fileId } = await routeContext.params
-            let authenticatedScope: OwnerScope | null = null
-            let tokenScope: OwnerScope | null = null
-            const hasUploadToken = Boolean(ctx.request.headers.get("x-upload-token"))
+        const { id: dropId, fileId } = await routeContext.params
+        let authenticatedScope: OwnerScope | null = null
+        let tokenScope: OwnerScope | null = null
+        const hasUploadToken = Boolean(ctx.request.headers.get("x-upload-token"))
 
-            // Token-bound aborts are bound to the upload token — without a valid
-            // token, we reject before touching the database.
-            if (hasUploadToken) {
-                const access = await resolveTokenUploadAccess(ctx.request, dropId)
-                if (!access) {
-                    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-                }
-                tokenScope = scopeForTokenUploadAccess(access)
-            } else if (!ctx.userId) {
-                return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-            } else {
-                authenticatedScope = scopeFromContext(ctx)
-            }
-
-            const body = await ctx.request.json().catch(() => ({}))
-            const validation = abortSchema.safeParse(body)
-
-            if (!validation.success) {
-                return NextResponse.json({ error: "Invalid request body" }, { status: 400 })
-            }
-
-            const { s3UploadId } = validation.data
-
-            const file = await prisma.dropFile.findUnique({
-                where: { id: fileId },
-                include: { drop: true },
-            })
-
-            if (!file) {
-                return NextResponse.json({ success: true })
-            }
-
-            if (file.drop.id !== dropId) {
-                return NextResponse.json({ error: "File not found" }, { status: 404 })
-            }
-
-            if (file.s3UploadId && s3UploadId !== file.s3UploadId) {
-                return NextResponse.json({ error: "Unauthorized upload ID" }, { status: 401 })
-            }
-
-            if (hasUploadToken) {
-                // Preserve token-bound ownership semantics for guest and form
-                // uploads: the token, rather than the caller's active scope,
-                // authorizes the abort.
-                if (tokenScope
-                    ? !isWithinScope(file.drop, tokenScope)
-                    : file.drop.userId !== null || file.drop.organizationId !== null
-                ) {
-                    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-                }
-            } else if (!authenticatedScope || !isWithinScope(file.drop, authenticatedScope)) {
-                // Session/API-key calls are scoped to the resolved tenant. This
-                // prevents an active org context from reaching the actor's
-                // personal drops while allowing any member to act on org drops.
+        // Token-bound aborts are bound to the upload token — without a valid
+        // token, we reject before touching the database.
+        if (hasUploadToken) {
+            const access = await resolveTokenUploadAccess(ctx.request, dropId)
+            if (!access) {
                 return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
             }
+            tokenScope = scopeForTokenUploadAccess(access)
+        } else if (!ctx.userId) {
+            return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+        } else {
+            authenticatedScope = scopeFromContext(ctx)
+        }
 
-            // Claim the still-pending row before touching storage. A finalizer
-            // that already committed uploadComplete wins atomically; returning
-            // null makes this abort a successful no-op with no stale-key delete.
-            const claimed = await deletePendingDropFileAndReleaseQuota(fileId)
-            if (!claimed) {
-                return NextResponse.json({ success: true })
-            }
+        const body = await ctx.request.json().catch(() => null)
+        const validation = abortSchema.safeParse(body)
 
-            if (claimed.s3UploadId) {
-                await abortMultipartUpload(claimed.storageKey, claimed.s3UploadId).catch(() => {
-                    // It may already have completed; reconcile the object below.
-                })
-            }
+        if (!validation.success) {
+            return NextResponse.json({ error: "Invalid request body" }, { status: 400 })
+        }
 
-            // A multipart completion can reach storage before its final DB
-            // update. Delete any such reconciled object and persist a retry if
-            // object storage is temporarily unavailable.
-            await deleteObject(claimed.storageKey).catch(async () => {
-                await prisma.orphanedFile.create({
-                    data: { storageKey: claimed.storageKey },
-                }).catch(() => undefined)
-            })
+        const { s3UploadId } = validation.data
 
-            return NextResponse.json({ success: true })
-        } catch {
+        const file = await prisma.dropFile.findUnique({
+            where: { id: fileId },
+            include: { drop: true },
+        })
+
+        if (!file) {
             return NextResponse.json({ success: true })
         }
+
+        if (file.drop.id !== dropId) {
+            return NextResponse.json({ error: "File not found" }, { status: 404 })
+        }
+
+        if (file.s3UploadId && s3UploadId !== file.s3UploadId) {
+            return NextResponse.json({ error: "Unauthorized upload ID" }, { status: 401 })
+        }
+
+        if (hasUploadToken) {
+            // Preserve token-bound ownership semantics for guest and form
+            // uploads: the token, rather than the caller's active scope,
+            // authorizes the abort.
+            if (tokenScope
+                ? !isWithinScope(file.drop, tokenScope)
+                : file.drop.userId !== null || file.drop.organizationId !== null
+            ) {
+                return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+            }
+        } else if (!authenticatedScope || !isWithinScope(file.drop, authenticatedScope)) {
+            // Session/API-key calls are scoped to the resolved tenant. This
+            // prevents an active org context from reaching the actor's
+            // personal drops while allowing any member to act on org drops.
+            return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+        }
+
+        // Claim the still-pending row before touching storage. A finalizer
+        // that already committed uploadComplete wins atomically; returning
+        // null makes this abort a successful no-op with no stale-key delete.
+        const claimed = await deletePendingDropFileAndReleaseQuota(fileId)
+        if (!claimed) {
+            return NextResponse.json({ success: true })
+        }
+
+        if (claimed.s3UploadId) {
+            await abortMultipartUpload(claimed.storageKey, claimed.s3UploadId).catch(() => {
+                // It may already have completed; reconcile the object below.
+            })
+        }
+
+        // A multipart completion can reach storage before its final DB
+        // update. Delete any such reconciled object and persist a retry if
+        // object storage is temporarily unavailable.
+        await deleteObject(claimed.storageKey).catch(async () => {
+            await prisma.orphanedFile.create({
+                data: { storageKey: claimed.storageKey },
+            }).catch(() => undefined)
+        })
+
+        return NextResponse.json({ success: true })
     },
 )

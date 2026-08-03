@@ -3,6 +3,11 @@
 import { pMapLimit } from "@/lib/async-utils"
 import { CryptoConfig, calculateEncryptedSize, cryptoService } from "@/lib/crypto.client"
 import { uploadChunk } from "@/lib/drop.client"
+import {
+    parseProvisionedFileResponse,
+    parseUploadTargetResponse,
+    type ProvisionedFileResponse,
+} from "@/lib/drop-upload-response.client"
 
 export type SelectedFormFile = {
     fieldId: string
@@ -27,22 +32,6 @@ export type FormAttachmentProgress = {
     totalFiles: number
     uploadedChunks: number
     totalChunks: number
-}
-
-type FormUploadTokenResponse = {
-    data?: {
-        drop_id: string
-        upload_token: string | null
-        expires_at: string | null
-    }
-    error?: { message?: string } | string
-}
-
-type AddFileResponse = {
-    fileId: string
-    s3UploadId: string
-    uploadUrls: Record<number, string>
-    error?: string
 }
 
 export type FormAttachmentUploadResult = {
@@ -103,10 +92,8 @@ export async function uploadFormAttachments({
         throw new Error(readErrorMessage(body, `Unable to prepare file upload (${tokenResponse.status})`))
     }
 
-    const tokenBody = (await tokenResponse.json()) as FormUploadTokenResponse
-    const dropId = tokenBody.data?.drop_id
-    const uploadToken = tokenBody.data?.upload_token
-    if (!dropId || !uploadToken) throw new Error("Server did not return a form upload token")
+    const tokenBody: unknown = await tokenResponse.json().catch(() => null)
+    const { dropId, uploadToken } = parseUploadTargetResponse(tokenBody)
 
     const totalChunks = files.reduce((sum, { file }) => sum + CryptoConfig.getChunkParams(file.size).chunkCount, 0)
     let uploadedChunks = 0
@@ -225,7 +212,7 @@ async function addFileToFormDrop(
         chunkSize: number
     },
     signal: AbortSignal,
-): Promise<AddFileResponse> {
+): Promise<ProvisionedFileResponse> {
     const response = await fetch(`/api/v1/drop/${dropId}/file`, {
         method: "POST",
         credentials: "omit",
@@ -236,9 +223,9 @@ async function addFileToFormDrop(
         body: JSON.stringify(input),
         signal,
     })
-    const body = await response.json().catch(() => ({}))
+    const body: unknown = await response.json().catch(() => null)
     if (!response.ok) throw new Error(readErrorMessage(body, `Unable to upload file (${response.status})`))
-    return body as AddFileResponse
+    return parseProvisionedFileResponse(body, input.chunkCount)
 }
 
 async function finishFormDrop(

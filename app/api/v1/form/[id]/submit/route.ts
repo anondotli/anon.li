@@ -6,7 +6,7 @@
 import { apiError, apiSuccess, ErrorCodes, zodErrorToDetails } from "@/lib/api-response"
 import { withPolicy } from "@/lib/route-policy"
 import { FormService } from "@/lib/services/form"
-import { submitFormSchema } from "@/lib/validations/form"
+import { FormId, submitFormSchema } from "@/lib/validations/form"
 import { getClientIp } from "@/lib/rate-limit"
 import { validateTurnstileToken } from "@/lib/turnstile"
 import { notifyFormSubmission } from "@/lib/services/form-notifications"
@@ -25,7 +25,12 @@ export const POST = withPolicy<RouteParams>(
         rateLimitIdentifier: async (ctx) => ctx.userId ?? await getClientIp(),
     },
     async (ctx, routeContext) => {
-        const { id } = await routeContext.params
+        const { id: rawId } = await routeContext.params
+        const parsedId = FormId.safeParse(rawId)
+        if (!parsedId.success) {
+            return apiError("Invalid form ID", ErrorCodes.VALIDATION_ERROR, ctx.requestId, 400)
+        }
+        const id = parsedId.data
         const limited = await rateLimit("formSubmit", await getClientIp())
         if (limited) return limited
         const body = await ctx.request.json().catch(() => null)
@@ -71,7 +76,13 @@ export const POST = withPolicy<RouteParams>(
                 return apiError(error.message, ErrorCodes.VALIDATION_ERROR, ctx.requestId, 400)
             }
             if (error instanceof UpgradeRequiredError) {
-                return apiError(error.message, ErrorCodes.PAYMENT_REQUIRED, ctx.requestId, 402)
+                return apiError(
+                    error.message,
+                    ErrorCodes.PAYMENT_REQUIRED,
+                    ctx.requestId,
+                    402,
+                    { upgrade: error.details },
+                )
             }
             throw error
         }

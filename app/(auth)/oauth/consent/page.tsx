@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation"
 import { prisma } from "@/lib/prisma"
 import { getSession } from "@/lib/auth-session"
 import { ConsentForm } from "./consent-form"
+import { parseHttpsUrl } from "@/lib/url-safety"
 
 export const dynamic = "force-dynamic"
 
@@ -51,7 +52,7 @@ export default async function OAuthConsentPage({ searchParams }: ConsentPageProp
         <ConsentForm
             consentCode={consentCode}
             clientName={client.name}
-            clientIcon={client.icon ?? null}
+            clientIcon={parseHttpsUrl(client.icon)?.toString() ?? null}
             scopes={scopes.map((s) => ({
                 key: s,
                 description: SCOPE_DESCRIPTIONS[s] ?? `Scope: ${s}`,

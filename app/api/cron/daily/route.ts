@@ -40,6 +40,23 @@ type JobResult = {
     error?: string;
 };
 
+function getDispatchOrigin(): string {
+    // Never derive the destination from req.url / Host while attaching the base
+    // CRON_SECRET: a forged host could otherwise exfiltrate the credential.
+    // VERCEL_URL is deployment-owned and keeps preview dispatches self-contained;
+    // self-hosted/local installs use the required canonical application URL.
+    const vercelUrl = process.env.VERCEL_URL;
+    const configuredUrl = vercelUrl
+        ? (/^https?:\/\//.test(vercelUrl) ? vercelUrl : `https://${vercelUrl}`)
+        : process.env.NEXT_PUBLIC_APP_URL;
+
+    if (!configuredUrl) {
+        throw new Error("No trusted cron dispatch origin is configured");
+    }
+
+    return new URL(configuredUrl).origin;
+}
+
 async function handleCron(req: NextRequest) {
     if (!validateCronAuth(req, "daily")) {
         return new NextResponse("Unauthorized", { status: 401 });
@@ -54,9 +71,13 @@ async function handleCron(req: NextRequest) {
         return new NextResponse("Internal Server Error", { status: 500 });
     }
 
-    // Derive the base URL from the incoming request so dispatch works on
-    // production, preview deployments, and local dev without extra env vars.
-    const origin = new URL(req.url).origin;
+    let origin: string;
+    try {
+        origin = getDispatchOrigin();
+    } catch (error) {
+        logger.error("Unable to resolve trusted daily cron dispatch origin", error);
+        return new NextResponse("Internal Server Error", { status: 500 });
+    }
     const results: Record<string, JobResult> = {};
 
     for (const job of DAILY_JOBS) {

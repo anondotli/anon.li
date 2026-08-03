@@ -4,11 +4,11 @@ import { prisma } from "@/lib/prisma"
 import { NOWPaymentsClient } from "@/lib/nowpayments"
 import { Redis } from "@upstash/redis"
 import { createLogger } from "@/lib/logger"
-import { isValidCryptoProduct, isValidCryptoTier, getCryptoPrice } from "@/lib/crypto-prices"
-import type { CryptoProduct, CryptoTier } from "@/lib/crypto-prices"
+import { isValidCryptoProduct, isValidCryptoTier } from "@/lib/crypto-prices"
 import { createCryptoSubscription } from "@/lib/services/subscription-sync"
 import { captureServerEvent, flushPostHog, trackServerEvent } from "@/lib/posthog.server"
 import { Prisma } from "@prisma/client"
+import { isNowPaymentsPaymentStatus } from "@/lib/crypto-payment-status"
 
 const logger = createLogger("NOWPaymentsWebhook")
 
@@ -150,11 +150,13 @@ export async function POST(req: Request) {
         return new NextResponse("Invalid signature", { status: 400 })
     }
 
-    const paymentId = String(body.payment_id ?? "")
-    const paymentStatus = String(body.payment_status ?? "")
-    const orderId = String(body.order_id ?? "")
+    const paymentId = typeof body.payment_id === "string" || typeof body.payment_id === "number"
+        ? String(body.payment_id)
+        : ""
+    const paymentStatus = body.payment_status
+    const orderId = typeof body.order_id === "string" ? body.order_id : ""
 
-    if (!paymentId || !paymentStatus || !orderId) {
+    if (!paymentId || !isNowPaymentsPaymentStatus(paymentStatus) || !orderId) {
         logger.error("Missing required IPN fields", undefined, { paymentId, paymentStatus, orderId })
         return new NextResponse(null, { status: 200 })
     }
@@ -173,6 +175,22 @@ export async function POST(req: Request) {
 
         if (!payment) {
             logger.error("CryptoPayment not found for orderId", undefined, { orderId })
+            await markIPNProcessed(paymentId, paymentStatus)
+            return new NextResponse(null, { status: 200 })
+        }
+
+        // This integration creates NOWPayments invoices, so every callback must
+        // remain bound to the immutable invoice id returned at checkout. Payment
+        // ids may legitimately change for repeated deposits, but the invoice id
+        // does not. `order_id` alone is merchant-controlled metadata and is not a
+        // sufficient financial ownership check.
+        const incomingInvoiceId = body.invoice_id == null ? "" : String(body.invoice_id)
+        if (incomingInvoiceId !== payment.invoiceId) {
+            logger.error("NOWPayments invoice binding mismatch", undefined, {
+                orderId,
+                expectedInvoiceId: payment.invoiceId,
+                incomingInvoiceId,
+            })
             await markIPNProcessed(paymentId, paymentStatus)
             return new NextResponse(null, { status: 200 })
         }
@@ -235,18 +253,22 @@ export async function POST(req: Request) {
 
         // Validate payment amount before activation
         if (!isRefund && shouldActivate) {
-            const expectedPrice = getCryptoPrice(payment.product as CryptoProduct, payment.tier as CryptoTier)
-            if (!expectedPrice) {
-                logger.error("Cannot resolve expected price for crypto payment — blocking activation", undefined, {
-                    paymentId: payment.id, product: payment.product, tier: payment.tier,
-                })
-                // Return 500 so NOWPayments retries (price config may be a transient deploy issue)
-                await releaseIPNClaim(paymentId, paymentStatus)
-                return new NextResponse(null, { status: 500 })
-            }
-            if (Math.abs(payment.priceAmount - expectedPrice.usdAmount) > 0.50) {
-                logger.error("Crypto payment priceAmount does not match expected plan price — blocking activation", undefined, {
-                    paymentId: payment.id, priceAmount: payment.priceAmount, expectedAmount: expectedPrice.usdAmount,
+            // The stored invoice amount is the immutable checkout contract.
+            // Comparing against today's pricing would incorrectly reject an
+            // invoice after a legitimate catalog price change.
+            const incomingPriceAmount = Number(body.price_amount)
+            const incomingPriceCurrency = String(body.price_currency ?? "").toLowerCase()
+            if (
+                !Number.isFinite(incomingPriceAmount)
+                || Math.abs(payment.priceAmount - incomingPriceAmount) > 0.50
+                || incomingPriceCurrency !== payment.priceCurrency.toLowerCase()
+            ) {
+                logger.error("Crypto IPN invoice amount does not match checkout — blocking activation", undefined, {
+                    paymentId: payment.id,
+                    storedAmount: payment.priceAmount,
+                    incomingAmount: incomingPriceAmount,
+                    storedCurrency: payment.priceCurrency,
+                    incomingCurrency: incomingPriceCurrency,
                 })
                 // Price mismatch is permanent — update status but don't activate
                 await prisma.cryptoPayment.updateMany({
@@ -271,9 +293,25 @@ export async function POST(req: Request) {
                 await markIPNProcessed(paymentId, paymentStatus)
                 return new NextResponse(null, { status: 200 })
             }
-            const actuallyPaid = body.actually_paid != null ? Number(body.actually_paid) : 0
-            const payAmount = body.pay_amount != null ? Number(body.pay_amount) : 0
-            if (payAmount > 0 && actuallyPaid < payAmount * 0.95) {
+            const actuallyPaid = Number(body.actually_paid)
+            const payAmount = Number(body.pay_amount)
+            if (
+                !Number.isFinite(actuallyPaid)
+                || !Number.isFinite(payAmount)
+                || actuallyPaid <= 0
+                || payAmount <= 0
+            ) {
+                logger.error("Crypto success IPN omitted valid payment amounts — blocking activation", undefined, {
+                    paymentId: payment.id,
+                    actuallyPaid,
+                    payAmount,
+                })
+                // A signed but incomplete provider payload should be retried;
+                // entitlement activation always fails closed.
+                await releaseIPNClaim(paymentId, paymentStatus)
+                return new NextResponse(null, { status: 500 })
+            }
+            if (actuallyPaid < payAmount * 0.95) {
                 logger.error("Crypto payment underpaid — blocking activation", undefined, {
                     paymentId: payment.id, actuallyPaid, payAmount,
                 })

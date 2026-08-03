@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Download, Loader2, FileJson, Mail, Globe, FileText, Key } from "lucide-react"
+import { ClipboardList, Download, Loader2, FileJson, Mail, Globe, FileText, Key } from "lucide-react"
 import { toast } from "sonner"
 
 export function DataExportSection() {
@@ -40,6 +40,7 @@ export function DataExportSection() {
         { icon: Mail, label: "Email aliases" },
         { icon: Globe, label: "Custom domains" },
         { icon: FileText, label: "Files metadata" },
+        { icon: ClipboardList, label: "Form definitions" },
         { icon: Key, label: "PGP key info" },
     ]
 
@@ -54,7 +55,7 @@ export function DataExportSection() {
                         <div>
                             <CardTitle className="text-lg font-medium">Export Your Data</CardTitle>
                             <CardDescription className="text-sm">
-                                Download a copy of your data in JSON format
+                                Download a portable summary of your personal workspace
                             </CardDescription>
                         </div>
                     </div>
@@ -90,7 +91,7 @@ export function DataExportSection() {
                         ))}
                     </div>
                     <p className="text-xs text-muted-foreground mt-3 pt-3 border-t border-border/40">
-                        File contents are not included as they are end-to-end encrypted.
+                        File contents, encrypted form responses, credential secrets, and team-owned data are not included.
                     </p>
                 </div>
             </CardContent>

@@ -4,10 +4,10 @@
  */
 
 import { getDropLimits, getEffectiveTier, type SubscriptionLike } from "@/lib/limits";
-import { prisma } from "@/lib/prisma";
 import { formatBytes } from "@/lib/format";
 import { ForbiddenError, ValidationError, UpgradeRequiredError } from "@/lib/api-error-utils";
 import { evaluateBan } from "@/lib/data/user-bans";
+import { getUserById } from "@/lib/data/user";
 
 type DropTier = "guest" | "free" | "plus" | "pro";
 
@@ -86,27 +86,7 @@ export function calculateExpiry(
  * Get user and their limits, with ban checking
  */
 export async function getUserAndLimits(userId: string): Promise<UserLimits> {
-    const user = await prisma.user.findUnique({
-        where: { id: userId },
-        select: {
-            id: true,
-            banned: true,
-            banFileUpload: true,
-            banReason: true,
-            storageUsed: true,
-            storageLimit: true,
-            referralPlusUntil: true,
-            subscriptions: {
-                where: { status: { in: ["active", "trialing"] } },
-                select: {
-                    status: true,
-                    product: true,
-                    tier: true,
-                    currentPeriodEnd: true,
-                },
-            },
-        },
-    });
+    const user = await getUserById(userId);
 
     if (user) {
         const ban = evaluateBan(user, "upload");

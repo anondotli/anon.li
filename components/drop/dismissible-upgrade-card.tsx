@@ -41,7 +41,8 @@ export function DismissibleUpgradeCard() {
     useEffect(() => {
         const dismissed = localStorage.getItem(STORAGE_KEY);
         // Defer state update to avoid synchronous update warning
-        setTimeout(() => setIsDismissed(dismissed === "true"), 0);
+        const timer = window.setTimeout(() => setIsDismissed(dismissed === "true"), 0);
+        return () => window.clearTimeout(timer);
     }, []);
 
     const handleDismiss = () => {

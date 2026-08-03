@@ -744,7 +744,7 @@ model TwoFactor {
 model AbuseReport {
   id String @id @default(cuid())
 
-  serviceType String // "alias" or "drop"
+  serviceType String // "alias", "drop", or "form"
   resourceId  String
   reason      String
   description String @db.Text
@@ -942,6 +942,10 @@ model Organization {
   orgKeyGeneration         Int       @default(0) @map("org_key_generation")
   keyRotationRecommendedAt DateTime? @map("key_rotation_recommended_at")
   formRetentionGraceUntil  DateTime? @map("form_retention_grace_until")
+
+  // Ciphertext bytes reserved by every Drop owned by this organization.
+  // Team storage is pooled; personal Drop bytes remain on User.storageUsed.
+  storageUsed BigInt @default(0)
 
   // Plugin relations
   members     Member[]

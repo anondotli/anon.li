@@ -28,6 +28,7 @@ function base64UrlSchema(options?: {
 }
 
 export const vaultIdSchema = z.cuid()
+export const vaultResourceIdSchema = z.string().min(1).max(64)
 export const authSecretSchema = base64UrlSchema({ min: 16, max: 2048 })
 export const authSaltSchema = base64UrlSchema({ exactLength: 43 })
 export const vaultSaltSchema = base64UrlSchema({ exactLength: 43 })

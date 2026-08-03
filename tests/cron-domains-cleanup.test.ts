@@ -39,12 +39,12 @@ vi.mock('@/lib/resend', () => {
     }
 })
 
-describe('Performance Benchmark: cleanupStaleDomains', () => {
+describe('cleanupStaleDomains batching', () => {
     beforeEach(() => {
         vi.clearAllMocks()
     })
 
-    it('measures execution time of cleanupStaleDomains', async () => {
+    it('batch-deletes stale domains and notifies every owner', async () => {
         // Setup data
         const domainCount = 100
         const domains = Array.from({ length: domainCount }, (_, i) => ({
@@ -55,35 +55,13 @@ describe('Performance Benchmark: cleanupStaleDomains', () => {
             user: { email: `user-${i}@example.com` }
         }))
 
-        // Setup mocks with delays
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        ;(prisma.domain.findMany as ReturnType<typeof vi.fn>).mockResolvedValue(domains as any)
+        // The cleanup should issue one database delete while retaining a
+        // notification for every affected owner.
+        ;(prisma.domain.findMany as ReturnType<typeof vi.fn>).mockResolvedValue(domains)
+        ;(prisma.domain.deleteMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: domainCount })
+        ;(resend.sendDomainDeletedEmail as ReturnType<typeof vi.fn>).mockResolvedValue({ success: true, data: {} })
 
-        ;(prisma.domain.delete as ReturnType<typeof vi.fn>).mockImplementation(async () => {
-            await new Promise(resolve => setTimeout(resolve, 10)) // 10ms db delay
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            return {} as any
-        })
-
-        ;(prisma.domain.deleteMany as ReturnType<typeof vi.fn>).mockImplementation(async () => {
-            await new Promise(resolve => setTimeout(resolve, 20)) // 20ms batch db delay
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            return { count: domainCount } as any
-        })
-
-        ;(resend.sendDomainDeletedEmail as ReturnType<typeof vi.fn>).mockImplementation(async () => {
-            await new Promise(resolve => setTimeout(resolve, 50)) // 50ms email delay
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            return { success: true, data: {} } as any
-        })
-
-        // Run and measure
-        const start = performance.now()
         const results = await cleanupStaleDomains()
-        const end = performance.now()
-
-        console.log(`cleanupStaleDomains execution time: ${(end - start).toFixed(2)}ms for ${domainCount} domains`)
-        console.log('Results:', results)
 
         expect(results.deleted).toBe(domainCount)
         expect(prisma.domain.delete).not.toHaveBeenCalled()

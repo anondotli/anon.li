@@ -25,6 +25,7 @@ import {
 import { toast } from "sonner"
 import { formatRelativeTime } from "@/lib/format"
 import { RecipientPgpDialog } from "./recipient-pgp-dialog"
+import { useClipboard } from "@/hooks/use-clipboard"
 
 interface Recipient {
     id: string
@@ -45,18 +46,15 @@ interface RecipientItemProps {
 
 export function RecipientItem({ recipient }: RecipientItemProps) {
     const [isPending, startTransition] = useTransition()
-    const [hasCopied, setHasCopied] = useState(false)
+    const { copied: hasCopied, copy } = useClipboard()
     const [isExpanded, setIsExpanded] = useState(false)
     const [isPgpDialogOpen, setIsPgpDialogOpen] = useState(false)
     const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
 
     const handleCopyEmail = async () => {
-        try {
-            await navigator.clipboard.writeText(recipient.email)
-            setHasCopied(true)
+        if (await copy(recipient.email)) {
             toast.success("Copied to clipboard")
-            setTimeout(() => setHasCopied(false), 2000)
-        } catch {
+        } else {
             toast.error("Failed to copy")
         }
     }
@@ -99,24 +97,11 @@ export function RecipientItem({ recipient }: RecipientItemProps) {
         return fingerprint.toUpperCase().match(/.{1,4}/g)?.join(" ") || fingerprint
     }
 
-    const handleCardClick = (e: React.MouseEvent) => {
-        // Don't toggle if clicking on a button or interactive element
-        const target = e.target as HTMLElement
-        if (target.closest('button') || target.closest('a') || target.closest('[role="button"]')) {
-            return
-        }
-        setIsExpanded(!isExpanded)
-    }
-
     return (
         <>
             <Collapsible open={isExpanded} onOpenChange={setIsExpanded}>
                 <div className="border rounded-xl bg-card overflow-hidden">
-                    {/* Main Row - Clickable */}
-                    <div
-                        className="p-4 cursor-pointer hover:bg-muted/50 transition-colors"
-                        onClick={handleCardClick}
-                    >
+                    <div className="p-4 transition-colors hover:bg-muted/50">
                         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
                             {/* Email info */}
                             <div className="flex items-start sm:items-center gap-3 min-w-0 flex-1">
@@ -207,13 +192,19 @@ export function RecipientItem({ recipient }: RecipientItemProps) {
                                     </Button>
                                 )}
 
-                                <div className="ml-auto text-muted-foreground sm:ml-0">
-                                    {isExpanded ? (
-                                        <ChevronUp className="h-4 w-4" />
-                                    ) : (
-                                        <ChevronDown className="h-4 w-4" />
-                                    )}
-                                </div>
+                                <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    className="ml-auto h-8 w-8 text-muted-foreground sm:ml-0"
+                                    aria-label={isExpanded ? "Collapse recipient details" : "Expand recipient details"}
+                                    aria-expanded={isExpanded}
+                                    onClick={() => setIsExpanded((value) => !value)}
+                                >
+                                    {isExpanded
+                                        ? <ChevronUp className="h-4 w-4" />
+                                        : <ChevronDown className="h-4 w-4" />}
+                                </Button>
                             </div>
                         </div>
                     </div>

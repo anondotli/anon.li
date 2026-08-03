@@ -28,13 +28,13 @@ const completeDropSchema = z.object({}).strict()
 
 const finishDropSchema = z.object({
     files: z.array(z.object({
-        fileId: z.string().min(1),
+        fileId: z.string().min(1).max(64),
         chunks: z.array(z.object({
             chunkIndex: z.number().int().min(0),
             etag: z.string().min(1).max(256),
-        })).min(1).max(MAX_CHUNKS_PER_FILE),
-    })).min(1).max(100),
-})
+        }).strict()).min(1).max(MAX_CHUNKS_PER_FILE),
+    }).strict()).min(1).max(50),
+}).strict()
 
 const getHandler = withPolicy<RouteParams>(
     {
@@ -90,7 +90,7 @@ const completeHandler = withPolicy<RouteParams>(
     },
     async (ctx, routeContext) => {
         const { id: dropId } = await routeContext.params
-        const body = await ctx.request.json().catch(() => ({}))
+        const body = await ctx.request.json().catch(() => null)
         const validation = completeDropSchema.safeParse(body)
 
         if (!validation.success) {
@@ -128,7 +128,7 @@ const finishHandler = withPolicy<RouteParams>(
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
         }
 
-        const body = await ctx.request.json().catch(() => ({}))
+        const body = await ctx.request.json().catch(() => null)
         const validation = finishDropSchema.safeParse(body)
 
         if (!validation.success) {

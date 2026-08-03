@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useTransition, useCallback, useRef } from "react"
 import { useClipboard } from "@/hooks/use-clipboard"
+import { useDelayedCallback } from "@/hooks/use-delayed-callback"
 import Image from "next/image"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -93,6 +94,10 @@ export function TwoFactorSettings() {
     const { copied: copiedSecret, copy: copySecretToClipboard } = useClipboard()
     const { copied: copiedBackup, copy: copyBackupToClipboard } = useClipboard()
     const otpRef = useRef<HTMLInputElement>(null)
+    const { schedule: scheduleOtpFocus, cancel: cancelOtpFocus } = useDelayedCallback(
+        () => otpRef.current?.focus(),
+        100,
+    )
 
     const loadStatus = useCallback(() => {
         startTransition(async () => {
@@ -110,9 +115,10 @@ export function TwoFactorSettings() {
     // Auto-focus OTP input when reaching verify step
     useEffect(() => {
         if (setupStep === "verify") {
-            setTimeout(() => otpRef.current?.focus(), 100)
+            scheduleOtpFocus()
         }
-    }, [setupStep])
+        return cancelOtpFocus
+    }, [setupStep, scheduleOtpFocus, cancelOtpFocus])
 
     const handleStartSetup = () => {
         startTransition(async () => {
@@ -137,7 +143,7 @@ export function TwoFactorSettings() {
             if (result.error) {
                 toast.error(result.error)
                 setVerificationCode("")
-                setTimeout(() => otpRef.current?.focus(), 100)
+                scheduleOtpFocus()
             } else if (result.success) {
                 toast.success("Two-factor authentication enabled!")
                 setShowSetupDialog(false)

@@ -3,14 +3,15 @@
 import { forwardRef, useImperativeHandle, useRef, useEffect } from "react"
 import { Star } from "lucide-react"
 import { cn } from "@/lib/utils"
-import type { FieldPresentation } from "./types"
+import type { FieldAccessibilityProps, FieldPresentation } from "./types"
 import type { FormField } from "@/lib/form-schema"
+import { useDelayedCallback } from "@/hooks/use-delayed-callback"
 
 interface RatingHandle {
     focus: () => void
 }
 
-interface Props {
+interface Props extends FieldAccessibilityProps {
     field: Extract<FormField, { type: "rating" }>
     value: unknown
     onChange: (next: unknown) => void
@@ -21,7 +22,7 @@ interface Props {
 }
 
 export const RatingField = forwardRef<RatingHandle, Props>(function RatingField(
-    { field, value, onChange, onAdvance, presentation, disabled, autoFocus },
+    { field, value, onChange, onAdvance, presentation, disabled, autoFocus, invalid, describedBy },
     ref,
 ) {
     const containerRef = useRef<HTMLDivElement>(null)
@@ -34,10 +35,11 @@ export const RatingField = forwardRef<RatingHandle, Props>(function RatingField(
     const max = field.max
     const useStars = max <= 5
     const spotlight = presentation === "spotlight"
+    const { schedule: scheduleAdvance } = useDelayedCallback(onAdvance, 220)
 
     const pick = (n: number) => {
         onChange(n)
-        if (onAdvance) window.setTimeout(onAdvance, 220)
+        scheduleAdvance()
     }
 
     return (
@@ -49,6 +51,8 @@ export const RatingField = forwardRef<RatingHandle, Props>(function RatingField(
                 )}
                 role="radiogroup"
                 aria-label={field.label}
+                aria-invalid={invalid || undefined}
+                aria-describedby={describedBy}
             >
                 {Array.from({ length: max }, (_, i) => i + 1).map((n) => {
                     const active = n <= current

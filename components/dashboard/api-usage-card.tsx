@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
 import { Key, Loader2 } from "lucide-react"
+import { z } from "zod"
 
 interface QuotaData {
     used: number
@@ -17,6 +18,19 @@ interface ApiUsageResponse {
     alias: QuotaData
     drop: QuotaData
 }
+
+const QuotaDataSchema = z.object({
+    used: z.number().int().nonnegative(),
+    limit: z.number().int().min(-1),
+    remaining: z.number().int().min(-1),
+    resetAt: z.iso.datetime().nullable(),
+    unlimited: z.boolean(),
+}).strict()
+
+const ApiUsageResponseSchema = z.object({
+    alias: QuotaDataSchema,
+    drop: QuotaDataSchema,
+}).strict()
 
 interface ApiUsageCardProps {
     /** Show as compact card (used in api-keys page) or grid card (used in usage page) */
@@ -88,22 +102,26 @@ export function ApiUsageCard({ variant = "grid", wide = false }: ApiUsageCardPro
     const [error, setError] = useState<string | null>(null)
 
     useEffect(() => {
+        const controller = new AbortController()
         async function fetchUsage() {
             try {
-                const res = await fetch("/api/user/usage")
+                const res = await fetch("/api/user/usage", { signal: controller.signal })
                 if (!res.ok) {
                     throw new Error("Failed to fetch usage")
                 }
-                const data = await res.json()
-                setUsage(data)
+                const body: unknown = await res.json().catch(() => null)
+                const parsed = ApiUsageResponseSchema.safeParse(body)
+                if (!parsed.success) throw new Error("Invalid usage response")
+                setUsage(parsed.data)
             } catch {
-                setError("Could not load API usage")
+                if (!controller.signal.aborted) setError("Could not load API usage")
             } finally {
-                setLoading(false)
+                if (!controller.signal.aborted) setLoading(false)
             }
         }
 
-        fetchUsage()
+        void fetchUsage()
+        return () => controller.abort()
     }, [])
 
     return (
@@ -125,11 +143,12 @@ export function ApiUsageCard({ variant = "grid", wide = false }: ApiUsageCardPro
             </CardHeader>
             <CardContent className="p-6 pt-0 space-y-4">
                 {loading ? (
-                    <div className="flex items-center justify-center py-2">
-                        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                    <div className="flex items-center justify-center py-2" role="status">
+                        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" aria-hidden="true" />
+                        <span className="sr-only">Loading API usage</span>
                     </div>
                 ) : error ? (
-                    <p className="text-sm text-muted-foreground">{error}</p>
+                    <p className="text-sm text-muted-foreground" role="alert">{error}</p>
                 ) : usage ? (
                     <div className={wide ? "grid md:grid-cols-2 gap-6" : "space-y-4"}>
                         <QuotaSection label="Alias API" quota={usage.alias} />

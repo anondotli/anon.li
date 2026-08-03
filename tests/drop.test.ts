@@ -8,6 +8,7 @@ import { DropService } from "@/lib/services/drop";
 import { prisma } from "@/lib/prisma";
 import * as storage from "@/lib/storage";
 import * as dropUtils from "@/lib/drop-utils";
+import { getOrgLimitContext } from "@/lib/data/auth";
 import { orgScope, personalScope } from "@/lib/ownership";
 
 // Mock dependencies
@@ -68,7 +69,7 @@ vi.mock("@/lib/drop-utils", () => ({
 }));
 
 vi.mock("@/lib/data/auth", () => ({
-    getOrgLimitContext: vi.fn().mockResolvedValue({ subscriptions: [] }),
+    getOrgLimitContext: vi.fn().mockResolvedValue({ subscriptions: [], storageUsed: BigInt(0) }),
 }));
 
 vi.mock("@/lib/limits", () => ({
@@ -246,7 +247,7 @@ describe("DropService.completeFileUpload", () => {
         expect(storage.deleteObject).not.toHaveBeenCalled();
     });
 
-    it("atomically credits an org size correction to the creator", async () => {
+    it("rejects an undersized org object and credits the team's full reservation", async () => {
         const state = pendingFile({
             id: "org-file",
             declaredSize: BigInt(1100),
@@ -261,15 +262,31 @@ describe("DropService.completeFileUpload", () => {
             contentType: "application/octet-stream",
         });
 
-        await DropService.completeFileUpload(
+        await expect(DropService.completeFileUpload(
             state.id,
             orgScope("collaborating-member", "org-1", "member"),
-        );
-        expect(harness.executeRaw.mock.calls[0]?.[1]).toBe(BigInt(100));
-        expect(harness.executeRaw.mock.calls[0]?.[2]).toBe("creator-user");
-        expect(harness.update.mock.invocationCallOrder[0]).toBeLessThan(
-            harness.executeRaw.mock.invocationCallOrder[0]!,
-        );
+        )).rejects.toThrow("uploaded less than declared");
+        expect(harness.remove).toHaveBeenCalledWith({ where: { id: state.id } });
+        expect(harness.executeRaw.mock.calls[0]?.[1]).toBe(BigInt(1100));
+        expect(harness.executeRaw.mock.calls[0]?.[2]).toBe("org-1");
+        expect(harness.update).not.toHaveBeenCalled();
+        expect(storage.abortMultipartUpload).toHaveBeenCalledWith("d/fi/org-file", "upload-123");
+        expect(storage.deleteObject).toHaveBeenCalledWith("d/fi/org-file");
+    });
+
+    it("rejects even a one-byte short small object", async () => {
+        const state = pendingFile({ declaredSize: BigInt(20) });
+        const harness = installFinalizationTransaction(state);
+        (storage.getObjectMetadata as ReturnType<typeof vi.fn>).mockResolvedValue({
+            contentLength: 19,
+            contentType: "application/octet-stream",
+        });
+
+        await expect(DropService.completeFileUpload(state.id, personalScope("user-123")))
+            .rejects.toThrow("uploaded less than declared");
+        expect(harness.remove).toHaveBeenCalledWith({ where: { id: state.id } });
+        expect(harness.executeRaw.mock.calls[0]?.[1]).toBe(BigInt(20));
+        expect(harness.update).not.toHaveBeenCalled();
     });
 
     it("claims a definite size violation before cleaning up storage", async () => {
@@ -299,7 +316,7 @@ describe("DropService.addFile authenticated quota owner", () => {
         vi.clearAllMocks();
     });
 
-    it("charges the org drop creator and locks the parent before inserting a file", async () => {
+    it("charges the pooled organization quota and locks the parent before inserting a file", async () => {
         const drop = {
             id: "org-drop",
             userId: "creator-user",
@@ -316,6 +333,10 @@ describe("DropService.addFile authenticated quota owner", () => {
             storageUsed: BigInt(0),
             limits: { maxStorage: 1_000_000, maxFileSize: 1_000_000 },
             tier: "pro",
+        });
+        (getOrgLimitContext as ReturnType<typeof vi.fn>).mockResolvedValue({
+            subscriptions: [{ status: "active", product: "business", tier: "pro" }],
+            storageUsed: BigInt(20),
         });
         (storage.generateStorageKey as ReturnType<typeof vi.fn>).mockReturnValue("drop/file-1");
         (storage.initiateMultipartUpload as ReturnType<typeof vi.fn>).mockResolvedValue("upload-1");
@@ -347,8 +368,12 @@ describe("DropService.addFile authenticated quota owner", () => {
             },
         );
 
-        expect(dropUtils.getUserAndLimits).toHaveBeenCalledWith("creator-user");
-        expect(txExecuteRaw.mock.calls[0]?.[2]).toBe("creator-user");
+        expect(dropUtils.getUserAndLimits).toHaveBeenCalledWith("collaborating-member");
+        expect(getOrgLimitContext).toHaveBeenCalledWith("org-1");
+        const reserveSql = (txExecuteRaw.mock.calls[0]?.[0] as TemplateStringsArray).join("?");
+        expect(reserveSql).toContain('UPDATE "organizations"');
+        expect(reserveSql).not.toContain('UPDATE "users"');
+        expect(txExecuteRaw.mock.calls[0]?.[2]).toBe("org-1");
         const lockSql = (txQueryRaw.mock.calls[0]?.[0] as TemplateStringsArray).join("?");
         expect(lockSql).toContain("FOR UPDATE");
         expect(txQueryRaw.mock.invocationCallOrder[0]).toBeLessThan(

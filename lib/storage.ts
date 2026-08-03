@@ -129,7 +129,7 @@ const DOWNLOAD_PRESIGNED_URL_EXPIRES = 3600; // 1 hour
 // R2 follows the S3 maximum of seven days. Large uploads receive all part URLs
 // up front, so a one-hour lifetime made the advertised 250 GiB transfer size
 // impossible on ordinary connections.
-export const UPLOAD_PRESIGNED_URL_EXPIRES = 7 * 24 * 60 * 60;
+const UPLOAD_PRESIGNED_URL_EXPIRES = 7 * 24 * 60 * 60;
 export const UPLOAD_URL_SIGNING_CONCURRENCY = 32;
 const MAX_MULTIPART_PART_SIZE = 5 * 1024 * 1024 * 1024;
 

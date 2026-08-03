@@ -56,3 +56,48 @@ describe('NOWPaymentsClient.verifyIPNSignature', () => {
         expect(NOWPaymentsClient.verifyIPNSignature(payload, signature)).toBe(true)
     })
 })
+
+describe('NOWPaymentsClient.createInvoice', () => {
+    const originalEnv = process.env
+
+    beforeEach(() => {
+        process.env = { ...originalEnv, NOWPAYMENTS_API_KEY: 'api-key' }
+    })
+
+    afterEach(() => {
+        process.env = originalEnv
+        vi.unstubAllGlobals()
+    })
+
+    const input = {
+        priceAmount: 39.49,
+        orderId: 'crypto_order',
+        orderDescription: 'Bundle Plus',
+        ipnCallbackUrl: 'https://anon.li/api/webhooks/nowpayments',
+        successUrl: 'https://anon.li/success',
+        cancelUrl: 'https://anon.li/cancel',
+    }
+
+    it('validates and normalizes the external invoice response', async () => {
+        vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+            id: 12345,
+            invoice_url: 'https://nowpayments.io/payment/12345',
+            extra_provider_field: true,
+        }), { status: 200 })))
+
+        const client = new NOWPaymentsClient()
+        await expect(client.createInvoice(input)).resolves.toMatchObject({
+            id: '12345',
+            invoice_url: 'https://nowpayments.io/payment/12345',
+        })
+    })
+
+    it('fails closed when the provider omits the checkout URL', async () => {
+        vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ id: '12345' }), {
+            status: 200,
+        })))
+
+        const client = new NOWPaymentsClient()
+        await expect(client.createInvoice(input)).rejects.toThrow(/invalid invoice response/i)
+    })
+})

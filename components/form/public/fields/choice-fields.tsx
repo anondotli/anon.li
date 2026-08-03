@@ -3,17 +3,18 @@
 import { forwardRef, useImperativeHandle, useRef, useEffect } from "react"
 import { Check } from "lucide-react"
 import { cn } from "@/lib/utils"
-import type { FieldPresentation } from "./types"
+import type { FieldAccessibilityProps, FieldPresentation } from "./types"
 import { indexToLetter } from "./letters"
 import type { FormField } from "@/lib/form-schema"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { asString } from "./types"
+import { useDelayedCallback } from "@/hooks/use-delayed-callback"
 
 interface ChoiceHandle {
     focus: () => void
 }
 
-interface SingleSelectProps {
+interface SingleSelectProps extends FieldAccessibilityProps {
     field: Extract<FormField, { type: "single_select" }>
     value: unknown
     onChange: (next: unknown) => void
@@ -24,7 +25,7 @@ interface SingleSelectProps {
 }
 
 export const SingleSelectField = forwardRef<ChoiceHandle, SingleSelectProps>(function SingleSelectField(
-    { field, value, onChange, onAdvance, presentation, disabled, autoFocus },
+    { field, value, onChange, onAdvance, presentation, disabled, autoFocus, describedBy },
     ref,
 ) {
     const containerRef = useRef<HTMLDivElement>(null)
@@ -34,10 +35,11 @@ export const SingleSelectField = forwardRef<ChoiceHandle, SingleSelectProps>(fun
     }, [autoFocus])
 
     const selected = asString(value)
+    const { schedule: scheduleAdvance } = useDelayedCallback(onAdvance, 220)
     const handlePick = (opt: string) => {
         onChange(opt)
         // Slight delay so the selection animation is visible before advance.
-        if (onAdvance) window.setTimeout(onAdvance, 220)
+        scheduleAdvance()
     }
 
     const spotlight = presentation === "spotlight"
@@ -49,6 +51,7 @@ export const SingleSelectField = forwardRef<ChoiceHandle, SingleSelectProps>(fun
             role="radiogroup"
             aria-label={field.label}
             aria-disabled={disabled}
+            aria-describedby={describedBy}
             className={cn("space-y-2 outline-none", spotlight && "space-y-2.5")}
         >
             {field.options.map((opt, i) => {
@@ -95,7 +98,7 @@ export const SingleSelectField = forwardRef<ChoiceHandle, SingleSelectProps>(fun
     )
 })
 
-interface MultiSelectProps {
+interface MultiSelectProps extends FieldAccessibilityProps {
     field: Extract<FormField, { type: "multi_select" }>
     value: unknown
     onChange: (next: unknown) => void
@@ -105,7 +108,7 @@ interface MultiSelectProps {
 }
 
 export const MultiSelectField = forwardRef<ChoiceHandle, MultiSelectProps>(function MultiSelectField(
-    { field, value, onChange, presentation, disabled, autoFocus },
+    { field, value, onChange, presentation, disabled, autoFocus, invalid, describedBy },
     ref,
 ) {
     const containerRef = useRef<HTMLDivElement>(null)
@@ -129,6 +132,7 @@ export const MultiSelectField = forwardRef<ChoiceHandle, MultiSelectProps>(funct
             role="group"
             aria-label={field.label}
             aria-disabled={disabled}
+            aria-describedby={describedBy}
             className={cn("space-y-2 outline-none", spotlight && "space-y-2.5")}
         >
             {field.options.map((opt, i) => {
@@ -140,6 +144,7 @@ export const MultiSelectField = forwardRef<ChoiceHandle, MultiSelectProps>(funct
                         type="button"
                         role="checkbox"
                         aria-checked={isSelected}
+                        aria-invalid={invalid || undefined}
                         onClick={() => toggle(opt)}
                         disabled={disabled}
                         data-selected={isSelected}
@@ -182,7 +187,7 @@ export const MultiSelectField = forwardRef<ChoiceHandle, MultiSelectProps>(funct
     )
 })
 
-interface DropdownProps {
+interface DropdownProps extends FieldAccessibilityProps {
     field: Extract<FormField, { type: "dropdown" }>
     value: unknown
     onChange: (next: unknown) => void
@@ -193,7 +198,7 @@ interface DropdownProps {
 }
 
 export const DropdownField = forwardRef<ChoiceHandle, DropdownProps>(function DropdownField(
-    { field, value, onChange, presentation, disabled, autoFocus },
+    { field, value, onChange, presentation, disabled, autoFocus, invalid, describedBy },
     ref,
 ) {
     const triggerRef = useRef<HTMLButtonElement>(null)
@@ -208,6 +213,8 @@ export const DropdownField = forwardRef<ChoiceHandle, DropdownProps>(function Dr
             <SelectTrigger
                 ref={triggerRef}
                 id={field.id}
+                aria-invalid={invalid || undefined}
+                aria-describedby={describedBy}
                 className={cn(
                     spotlight && "h-14 rounded-xl border-2 border-border/50 bg-background/60 px-5 text-lg",
                 )}

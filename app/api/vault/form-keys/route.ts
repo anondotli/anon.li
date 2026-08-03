@@ -12,15 +12,16 @@ import { getMemberOrgIds, isOrgMember } from "@/lib/vault/org-access"
 import {
     vaultGenerationSchema,
     vaultIdSchema,
+    vaultResourceIdSchema,
     wrappedFormKeySchema,
 } from "@/lib/vault/validation"
 
 const storeFormKeySchema = z.object({
-    formId: z.string().min(1),
+    formId: vaultResourceIdSchema,
     wrappedKey: wrappedFormKeySchema,
     vaultId: vaultIdSchema,
     vaultGeneration: vaultGenerationSchema,
-})
+}).strict()
 const ROUTE_NAME = "form-keys"
 
 export async function GET(request: Request) {
@@ -46,6 +47,9 @@ export async function GET(request: Request) {
         const formId = url.searchParams.get("formId")
 
         if (formId) {
+            if (!vaultResourceIdSchema.safeParse(formId).success) {
+                return withNoStore(apiError("Invalid formId", ErrorCodes.VALIDATION_ERROR, requestId, 400))
+            }
             const formKey = await prisma.formOwnerKey.findUnique({
                 where: { formId },
                 select: {
@@ -75,7 +79,13 @@ export async function GET(request: Request) {
                 return withNoStore(apiError("Form key not found", ErrorCodes.NOT_FOUND, requestId, 404))
             }
 
-            return withNoStore(apiSuccess(formKey, requestId))
+            return withNoStore(apiSuccess({
+                formId: formKey.formId,
+                wrappedKey: formKey.wrappedKey,
+                vaultGeneration: formKey.vaultGeneration,
+                organizationId: formKey.organizationId,
+                orgKeyGeneration: formKey.orgKeyGeneration,
+            }, requestId))
         }
 
         // List: personal keys plus every org key for orgs the user belongs to.
