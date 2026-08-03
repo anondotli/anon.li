@@ -51,12 +51,18 @@ vi.mock("@upstash/redis", () => ({
 vi.mock("@/lib/services/subscription-sync", () => ({
     InvalidSubscriptionOwnershipError: class InvalidSubscriptionOwnershipError extends Error {},
     upsertStripeSubscription,
+    markSubscriptionCanceledLocally: vi.fn().mockResolvedValue(undefined),
 }))
 vi.mock("@/lib/prisma", () => ({
     prisma: {
-        subscription: { findUnique: subscriptionFindUnique },
+        subscription: {
+            findUnique: subscriptionFindUnique,
+            count: vi.fn().mockResolvedValue(0),
+            findFirst: vi.fn().mockResolvedValue(null),
+        },
         drop: { updateMany: dropUpdateMany },
         organization: { update: vi.fn() },
+        user: { findUnique: vi.fn().mockResolvedValue(null) },
     },
 }))
 vi.mock("@/lib/services/billing-downgrade", () => ({

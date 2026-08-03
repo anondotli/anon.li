@@ -37,7 +37,10 @@ describe("GET /api/user/usage", () => {
         vi.clearAllMocks()
         auth.mockResolvedValue({ user: { id: "user-123" } })
         rateLimit.mockResolvedValue(null)
-        prismaUserFindUnique.mockResolvedValue({ subscriptions: [] })
+        // Shape shared by both consumers of user.findUnique: requireSession →
+        // getAuthUserState (needs memberships + no deletionRequest) and
+        // getUserById (destructures memberships/subscriptions).
+        prismaUserFindUnique.mockResolvedValue({ subscriptions: [], memberships: [] })
         readApiRateLimit.mockResolvedValue({ success: true, limit: 500, remaining: 450, reset: new Date("2026-04-16T00:00:00.000Z") })
         readDropApiRateLimit.mockResolvedValue({ success: true, limit: 500, remaining: 475, reset: new Date("2026-04-16T00:00:00.000Z") })
     })

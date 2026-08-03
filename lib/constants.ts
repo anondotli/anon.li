@@ -53,3 +53,6 @@ export const DOWNGRADE_SCHEDULING_DELAY_DAYS = 7;
 
 /** Days after scheduling before excess resources are deleted */
 export const DOWNGRADE_DELETION_DELAY_DAYS = 7;
+
+/** Minimum days between two abandoned-checkout recovery emails to the same user */
+export const CHECKOUT_RECOVERY_THROTTLE_DAYS = 7;

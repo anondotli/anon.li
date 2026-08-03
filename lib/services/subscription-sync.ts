@@ -237,6 +237,35 @@ export async function upsertStripeSubscription(
 }
 
 /**
+ * Cancel a canonical subscription row without a full Stripe upsert — used when
+ * Stripe deletes a subscription whose price is no longer configured (e.g. a
+ * legacy plan that predates a repricing) or whose ownership is invalid.
+ * Revocation must not depend on price configuration, otherwise deletion events
+ * for old plans 500 until Stripe gives up retrying. Re-syncs the Form retention
+ * grace from the row's stored product, mirroring the resource_missing handling
+ * in syncSubscriptionFromStripe.
+ */
+export async function markSubscriptionCanceledLocally(providerSubscriptionId: string): Promise<void> {
+    const row = await prisma.subscription.findUnique({
+        where: { providerSubscriptionId },
+        select: { organizationId: true, userId: true, product: true },
+    })
+    if (!row) return
+
+    const result = await prisma.subscription.updateMany({
+        where: { providerSubscriptionId },
+        data: { status: "canceled", cancelAtPeriodEnd: false },
+    })
+    if (result.count === 0) return
+
+    if (row.organizationId) {
+        await syncOrganizationFormRetentionGrace(row.organizationId, "canceled", row.product)
+    } else if (row.userId) {
+        await syncPersonalFormRetentionGrace(row.userId, "canceled", row.product)
+    }
+}
+
+/**
  * Sync subscription state from Stripe to database.
  * Use this when webhooks may have been missed or for on-demand verification.
  */

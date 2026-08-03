@@ -9,9 +9,10 @@ import { stripe } from "@/lib/stripe"
 import { NextResponse, after } from "next/server"
 import { Redis } from "@upstash/redis"
 import { createLogger } from "@/lib/logger"
-import { SUBSCRIPTION_GRACE_PERIOD_DAYS, DOWNGRADE_SCHEDULING_DELAY_DAYS, DOWNGRADE_DELETION_DELAY_DAYS } from "@/lib/constants"
+import { SUBSCRIPTION_GRACE_PERIOD_DAYS, DOWNGRADE_SCHEDULING_DELAY_DAYS, DOWNGRADE_DELETION_DELAY_DAYS, CHECKOUT_RECOVERY_THROTTLE_DAYS } from "@/lib/constants"
 import {
     InvalidSubscriptionOwnershipError,
+    markSubscriptionCanceledLocally,
     upsertStripeSubscription,
 } from "@/lib/services/subscription-sync"
 import { captureServerEvent, flushPostHog, trackServerEvent } from "@/lib/posthog.server"
@@ -211,6 +212,9 @@ export async function POST(req: Request) {
             case "checkout.session.completed":
                 await handleCheckoutSessionCompleted(event)
                 break
+            case "checkout.session.expired":
+                await handleCheckoutSessionExpired(event)
+                break
             case "invoice.payment_succeeded":
                 await handleInvoicePaymentSucceeded(event.data.object as Stripe.Invoice)
                 break
@@ -367,6 +371,126 @@ async function handleCheckoutSessionCompleted(event: Stripe.Event): Promise<void
     after(() => flushPostHog())
 }
 
+/**
+ * Abandoned-checkout recovery (WS2): Stripe expires unpaid Checkout Sessions
+ * ~24 h after creation, so this event IS the "checkout_started without
+ * purchase" moment. Emits the funnel's loss event, then sends a one-time
+ * founder-voiced recovery email.
+ *
+ * Expiry confers no access, so an unresolvable owner is acknowledged
+ * permanently (like deletions) instead of burning Stripe's retry window, and
+ * email failures are logged but never thrown — otherwise Stripe retries the
+ * webhook and the user could receive the same recovery email twice.
+ */
+async function handleCheckoutSessionExpired(event: Stripe.Event): Promise<void> {
+    const session = event.data.object as Stripe.Checkout.Session
+    let userId = session?.metadata?.userId || session?.client_reference_id
+
+    // Fallback: match by the email the customer typed into the checkout form.
+    if (!userId && (session.customer_email || session.customer_details?.email)) {
+        const email = session.customer_email || session.customer_details?.email
+        if (email) {
+            const user = await getUserIdByEmail(email)
+            if (user) userId = user.id
+        }
+    }
+
+    if (!userId) {
+        logger.warn("Checkout session expired but no userId found", {
+            eventId: event.id,
+            sessionId: session.id,
+            customerEmail: session.customer_email || session.customer_details?.email,
+            clientReferenceId: session.client_reference_id,
+        })
+        throw new PermanentWebhookError("Expired checkout session has no userId")
+    }
+
+    const organizationId = session.metadata?.organizationId || null
+
+    // Resolve the abandoned plan for the event + email copy. Best-effort:
+    // recovery must not depend on price configuration (a session for an
+    // archived price still deserves a recovery email).
+    const price = session.line_items?.data?.[0]?.price ?? null
+    const priceId = price?.id ?? null
+    const plan = priceId ? getPlanFromPriceId(priceId) : null
+
+    // Funnel loss event — emitted regardless of whether the email goes out.
+    trackServerEvent(userId, "checkout_expired", {
+        provider: "stripe",
+        product: plan?.product,
+        tier: plan?.tier,
+        frequency: price?.recurring?.interval,
+        price_id: priceId ?? undefined,
+        is_org_checkout: Boolean(organizationId),
+        session_id: session.id,
+    })
+
+    // Don't nudge someone who already converted via another session or provider
+    // in the meantime. Scoped like the checkout itself: an expired team
+    // checkout checks the org's subscriptions, a personal one the user's.
+    const activeSubscriptions = await prisma.subscription.count({
+        where: organizationId
+            ? { organizationId, status: { in: ["active", "trialing"] } }
+            : { userId, organizationId: null, status: { in: ["active", "trialing"] } },
+    })
+    if (activeSubscriptions > 0) {
+        logger.info("Checkout expired but a subscription is already active; skipping recovery email", {
+            userId,
+            organizationId,
+            sessionId: session.id,
+        })
+        return
+    }
+
+    // One recovery email per user per throttle window, no matter how many
+    // sessions they let expire. Claim before sending; release on send failure
+    // so a later expired session can still trigger the email.
+    const redisClient = getRedis()
+    const throttleKey = `checkout:recovery:${userId}`
+    const claimed = await redisClient.set(throttleKey, "sent", {
+        nx: true,
+        ex: CHECKOUT_RECOVERY_THROTTLE_DAYS * 86400,
+    })
+    if (claimed === null) {
+        logger.info("Checkout recovery email already sent recently; skipping", {
+            userId,
+            sessionId: session.id,
+        })
+        return
+    }
+
+    const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { email: true },
+    })
+    if (!user?.email) {
+        logger.warn("Checkout expired but the user has no email address", {
+            userId,
+            sessionId: session.id,
+        })
+        return
+    }
+
+    try {
+        const { sendCheckoutRecoveryEmail } = await import("@/lib/resend")
+        const result = await sendCheckoutRecoveryEmail(
+            user.email,
+            userId,
+            { product: plan?.product ?? null, tier: plan?.tier ?? null },
+            `checkout-recovery/${session.id}`,
+        )
+        if (!result.success) {
+            await redisClient.del(throttleKey)
+        }
+    } catch (error) {
+        await redisClient.del(throttleKey)
+        logger.error("Failed to send checkout recovery email", error, {
+            userId,
+            sessionId: session.id,
+        })
+    }
+}
+
 /** Sync subscription state on successful payment (renewal or retry). */
 async function handleInvoicePaymentSucceeded(invoice: Stripe.Invoice) {
     const subscriptionId = typeof invoice.subscription === 'string' ? invoice.subscription : (invoice.subscription as Stripe.Subscription)?.id
@@ -518,14 +642,130 @@ async function handleCustomerSubscriptionUpdated(subscription: Stripe.Subscripti
     }
 }
 
-/** Revoke access, set grace period on drops, and begin downgrade flow. */
+/**
+ * Resolve the owner of a deleted subscription that has no canonical row.
+ * Tries in order: another canonical row for the same Stripe customer (the user
+ * re-subscribed since), then the Stripe customer's email address. Returns null
+ * when nobody is resolvable; transient Stripe failures propagate so the
+ * webhook retries, but a purged customer returns null (it can never resolve).
+ */
+async function resolveUnlinkedSubscriptionOwner(
+    subscription: Stripe.Subscription,
+): Promise<{ id: string; email: string } | null> {
+    const customerId = typeof subscription.customer === "string"
+        ? subscription.customer
+        : subscription.customer?.id
+    if (!customerId) return null
+
+    const byCustomer = await getUserIdByStripeCustomerId(customerId)
+    if (byCustomer) {
+        const user = await prisma.user.findUnique({
+            where: { id: byCustomer.id },
+            select: { id: true, email: true },
+        })
+        if (user) return user
+    }
+
+    let customer: Stripe.Customer | Stripe.DeletedCustomer
+    try {
+        customer = await stripe.customers.retrieve(customerId)
+    } catch (error) {
+        if (error instanceof Stripe.errors.StripeInvalidRequestError && error.code === "resource_missing") {
+            return null
+        }
+        throw error
+    }
+    if (customer.deleted || !customer.email) return null
+
+    const byEmail = await getUserIdByEmail(customer.email)
+    if (!byEmail) return null
+    return prisma.user.findUnique({
+        where: { id: byEmail.id },
+        select: { id: true, email: true },
+    })
+}
+
+/**
+ * Whether the user still holds another active/trialing PERSONAL subscription
+ * (any provider). The subscription being deleted has already been canceled (or
+ * never had a canonical row), so it cannot count itself here.
+ */
+async function hasOtherActivePersonalSubscription(userId: string): Promise<boolean> {
+    const count = await prisma.subscription.count({
+        where: {
+            userId,
+            organizationId: null,
+            status: { in: ["active", "trialing"] },
+        },
+    })
+    return count > 0
+}
+
+/**
+ * Revoke access, set grace period on drops, and begin downgrade flow.
+ *
+ * Deletion is revocation: unlike access-granting events — which retry while a
+ * canonical row or price config is missing, because a retry may still confer
+ * paid access — a failing deletion only leaves stale state and burns Stripe's
+ * retry window, so this handler resolves what it can and acknowledges
+ * permanently once there is genuinely nothing left to revoke.
+ */
 async function handleCustomerSubscriptionDeleted(subscription: Stripe.Subscription) {
     // Calculate grace period expiry deadline
     const expiryDate = new Date()
     expiryDate.setDate(expiryDate.getDate() + SUBSCRIPTION_GRACE_PERIOD_DAYS)
 
-    const context = await syncCanonicalSubscription(subscription)
-    if (!context) return
+    const local = await prisma.subscription.findUnique({
+        where: { providerSubscriptionId: subscription.id },
+        select: {
+            userId: true,
+            organizationId: true,
+            product: true,
+            tier: true,
+            user: { select: { id: true, email: true } },
+        },
+    })
+
+    let context: CanonicalSubscriptionContext
+    if (local) {
+        // Sync the canonical row to canceled. If the price is no longer
+        // configured (legacy plan predating a repricing) or the ownership is
+        // invalid, the full upsert cannot run — fall back to a targeted
+        // cancellation so revocation is never blocked on price configuration.
+        let upserted = false
+        try {
+            upserted = await upsertStripeSubscription(local.userId, subscription)
+        } catch (error) {
+            if (!(error instanceof InvalidSubscriptionOwnershipError)) throw error
+            logger.warn("Subscription deleted with invalid ownership; canceling canonical row", {
+                subscriptionId: subscription.id,
+                reason: error.message,
+            })
+        }
+        if (!upserted) {
+            await markSubscriptionCanceledLocally(subscription.id)
+        }
+        context = local
+    } else {
+        // No canonical row: a legacy subscription that predates the
+        // Subscription table, or a checkout we never persisted. Try to resolve
+        // the owner so the downgrade side effects still run.
+        const owner = await resolveUnlinkedSubscriptionOwner(subscription)
+        if (!owner) {
+            // Nobody to revoke — acknowledge permanently instead of returning
+            // 500 until Stripe gives up retrying.
+            logger.warn("Subscription deleted without a local row or resolvable owner; acknowledging", {
+                subscriptionId: subscription.id,
+                customerId: typeof subscription.customer === "string"
+                    ? subscription.customer
+                    : subscription.customer?.id,
+            })
+            throw new PermanentWebhookError(
+                `Stripe subscription ${subscription.id} has no local row and no resolvable owner`,
+            )
+        }
+        context = { userId: owner.id, organizationId: null, product: null, tier: null, user: owner }
+    }
 
     // Revenue instrumentation: subscription ended. cancel_reason "payment_failed"
     // = involuntary churn; "cancellation_requested" = voluntary.
@@ -548,6 +788,19 @@ async function handleCustomerSubscriptionDeleted(subscription: Stripe.Subscripti
     }
 
     if (context.user) {
+        // Deleting one subscription must not downgrade a user who retains
+        // another active personal subscription (e.g. mid-migration between
+        // plans): the expiry stamped below is enforced by drop cleanup
+        // regardless of current entitlements, so it would eventually delete
+        // files the user is still entitled to keep.
+        if (await hasOtherActivePersonalSubscription(context.user.id)) {
+            logger.info("Skipping personal downgrade side effects; user retains another active subscription", {
+                userId: context.user.id,
+                subscriptionId: subscription.id,
+            })
+            return
+        }
+
         // Set grace period expiry on all unlimited drops (Pro feature)
         await prisma.drop.updateMany({
             where: {

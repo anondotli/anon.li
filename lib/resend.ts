@@ -794,3 +794,47 @@ export async function sendCryptoRenewalReminderEmail(
         return { success: false, error }
     }
 }
+
+/**
+ * Abandoned-checkout recovery email (WS2). Sent once per user (throttled at the
+ * webhook) when a Stripe Checkout Session expires unpaid ~24 h after creation.
+ * Growth email → carries the RFC 8058 one-click unsubscribe headers and the
+ * footer unsubscribe link; `idempotencyKey` (per checkout session) keeps
+ * webhook replays from double-sending at the provider level too.
+ */
+export async function sendCheckoutRecoveryEmail(
+    email: string,
+    userId: string,
+    details: { product: string | null; tier: string | null },
+    idempotencyKey: string,
+) {
+    try {
+        const resend = getResendClient()
+        const { CheckoutRecoveryEmail } = await import("@/components/email/checkout-recovery")
+
+        const unsub = buildUnsubscribeUrl(userId)
+        const { data, error } = await resend.emails.send({
+            from: "anon.li <hi@anon.li>",
+            to: email,
+            subject: "Everything OK? Your anon.li checkout expired",
+            react: React.createElement(CheckoutRecoveryEmail, {
+                product: details.product,
+                tier: details.tier,
+                unsubscribeUrl: unsub,
+            }),
+            headers: unsubscribeHeaders(userId),
+        }, {
+            idempotencyKey,
+        })
+
+        if (error) {
+            logger.error("Failed to send checkout recovery email", error)
+            return { success: false, error }
+        }
+
+        return { success: true, data }
+    } catch (error) {
+        logger.error("Failed to send checkout recovery email", error)
+        return { success: false, error }
+    }
+}

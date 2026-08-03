@@ -40,6 +40,13 @@ A new subscription became active — **the purchase event**. Fires from `checkou
 - Properties: `provider` ("stripe"|"crypto"), `product`, `tier`, `frequency`, `amount`, `currency`, `price_id` (stripe), `billing_reason` ("new")
 - Not emitted on renewals (`invoice.payment_succeeded`) — renewal health is tracked via `purchase_failed` + the daily `business_snapshot` MRR.
 
+### `checkout_expired`
+
+A Stripe Checkout Session expired unpaid (~24 h after creation) — the funnel's loss event, and the trigger for the abandoned-checkout recovery email (WS2). Emitted **before** the email gating (already-subscribed check, per-user 7-day throttle), so it counts every abandonment even when no email is sent. `is_org_checkout` marks team checkouts; the recovery email itself is deduped by a `checkout-recovery/{session_id}` Resend idempotency key.
+
+- Site: `app/api/webhooks/stripe/route.ts` (`handleCheckoutSessionExpired`)
+- Properties: `provider` ("stripe"), `product`, `tier`, `frequency`, `price_id`, `is_org_checkout`, `session_id`
+
 ### `purchase_failed`
 
 A payment attempt failed. For Stripe this fires per attempt (each retry is a distinct event — `invoice_id` dedupes); `billing_reason: "subscription_cycle"` failures are the involuntary-churn (dunning) signal, `"subscription_create"` failures are abandoned first purchases.
@@ -124,7 +131,7 @@ PostHog dashboard "CEO Friday Review" — the weekly review artifact (Fridays, 3
 1. Signups/wk — trends on `user_signed_up`
 2. Activation % — funnel `user_signed_up` → (`alias_created` OR `drop_upload_completed`) within 24h
 3. W1/W2 retention — retention insight, start `user_signed_up`, return = any event
-4. Revenue funnel — `$pageview` `/pricing` → `checkout_started` → `subscription_activated`
+4. Revenue funnel — `$pageview` `/pricing` → `checkout_started` → `subscription_activated` (loss branch: `checkout_expired`, split by whether the recovery email was sent)
 5. MRR — latest-value trend on `business_snapshot.mrr_usd`
 6. Alias-active users — latest-value trend on `business_snapshot.alias_active_users_30d`
 7. Dunning monitor — `purchase_failed` by provider/billing_reason

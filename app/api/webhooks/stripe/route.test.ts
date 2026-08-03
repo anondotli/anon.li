@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest'
 import { stripe } from '@/lib/stripe'
 import { prisma } from '@/lib/prisma'
+import { trackServerEvent } from '@/lib/posthog.server'
 import { POST } from './route'
 
 // Mock modules BEFORE imports that use them
@@ -44,6 +45,8 @@ vi.mock('@/lib/prisma', () => ({
                 user: { id: 'user_123', email: 'test@example.com' },
             }),
             findFirst: vi.fn().mockResolvedValue(null),
+            count: vi.fn().mockResolvedValue(0),
+            updateMany: vi.fn().mockResolvedValue({ count: 1 }),
         },
         alias: {
             count: vi.fn().mockResolvedValue(0),
@@ -85,12 +88,23 @@ vi.mock('@upstash/redis', () => ({
 // `getPlanFromPriceId` which is resolved at module load against env vars that
 // aren't in scope for this test file. Mocking it lets us assert call shape
 // directly while keeping the webhook's control flow intact.
-const { mockUpsertStripeSubscription } = vi.hoisted(() => ({
+const { mockUpsertStripeSubscription, mockMarkSubscriptionCanceledLocally } = vi.hoisted(() => ({
     mockUpsertStripeSubscription: vi.fn().mockResolvedValue(true),
+    mockMarkSubscriptionCanceledLocally: vi.fn().mockResolvedValue(undefined),
 }))
-vi.mock('@/lib/services/subscription-sync', () => ({
-    upsertStripeSubscription: mockUpsertStripeSubscription,
-}))
+vi.mock('@/lib/services/subscription-sync', () => {
+    class InvalidSubscriptionOwnershipError extends Error {
+        constructor(message: string) {
+            super(message)
+            this.name = 'InvalidSubscriptionOwnershipError'
+        }
+    }
+    return {
+        upsertStripeSubscription: mockUpsertStripeSubscription,
+        markSubscriptionCanceledLocally: mockMarkSubscriptionCanceledLocally,
+        InvalidSubscriptionOwnershipError,
+    }
+})
 
 const { mockHandleOrgSubscriptionLoss } = vi.hoisted(() => ({
     mockHandleOrgSubscriptionLoss: vi.fn().mockResolvedValue(undefined),
@@ -110,6 +124,7 @@ vi.mock('@/lib/data/organization', () => ({
 const mockSendSubscriptionCanceledEmail = vi.fn().mockResolvedValue({ success: true })
 const mockSendPaymentActionRequiredEmail = vi.fn().mockResolvedValue({ success: true })
 const mockSendDowngradeWarningEmail = vi.fn().mockResolvedValue({ success: true })
+const mockSendCheckoutRecoveryEmail = vi.fn().mockResolvedValue({ success: true })
 
 vi.mock('@/lib/resend', () => ({
     getResendClient: vi.fn(),
@@ -129,6 +144,7 @@ vi.mock('@/lib/resend', () => ({
     sendResourcesDeletedEmail: vi.fn().mockResolvedValue({ success: true }),
     sendCryptoPaymentConfirmationEmail: vi.fn().mockResolvedValue({ success: true }),
     sendCryptoRenewalReminderEmail: vi.fn().mockResolvedValue({ success: true }),
+    sendCheckoutRecoveryEmail: mockSendCheckoutRecoveryEmail,
 }))
 
 // Mock BillingDowngradeService to isolate webhook tests
@@ -158,10 +174,18 @@ vi.mock('next/headers', () => ({
 // Type-safe mock references
 const mockConstructEvent = stripe.webhooks.constructEvent as Mock
 const mockSubscriptionsRetrieve = stripe.subscriptions.retrieve as Mock
+const mockCustomersRetrieve = stripe.customers.retrieve as Mock
 const mockUserFindUnique = prisma.user.findUnique as Mock
 const mockUserUpdate = prisma.user.update as Mock
 const mockDropUpdateMany = prisma.drop.updateMany as Mock
 const mockSubscriptionFindUnique = prisma.subscription.findUnique as Mock
+const mockSubscriptionCount = prisma.subscription.count as Mock
+const mockTrackServerEvent = trackServerEvent as Mock
+
+// config/plans.ts resolves price IDs at module load (before beforeEach overrides
+// env), so checkout-expired fixtures must use the value it captured at import
+// time for getPlanFromPriceId to resolve the abandoned plan.
+const CONFIGURED_BUNDLE_PLUS_PRICE_ID = process.env.STRIPE_BUNDLE_PLUS_MONTHLY_PRICE_ID
 
 describe('Stripe Webhook Handler', () => {
     beforeEach(() => {
@@ -580,6 +604,294 @@ describe('Stripe Webhook Handler', () => {
                     'https://stripe.example/invoice',
                 )
             })
+        })
+    })
+
+    describe('customer.subscription.deleted robustness', () => {
+        function postDeleted(id: string, subscription: Record<string, unknown>) {
+            mockConstructEvent.mockReturnValue({
+                id,
+                type: 'customer.subscription.deleted',
+                data: { object: subscription },
+            } as never)
+
+            return POST(new Request('http://localhost/api/webhooks/stripe', {
+                method: 'POST',
+                body: JSON.stringify({}),
+            }))
+        }
+
+        const baseSubscription = {
+            status: 'canceled',
+            customer: 'cus_legacy',
+            cancellation_details: { reason: 'cancellation_requested' },
+            items: { data: [{ price: { id: 'price_legacy_unknown' } }] },
+        }
+
+        it('acknowledges permanently when there is no local row and no resolvable owner', async () => {
+            mockSubscriptionFindUnique.mockResolvedValueOnce(null)
+            mockCustomersRetrieve.mockResolvedValueOnce({ id: 'cus_legacy', deleted: true, email: null })
+
+            const response = await postDeleted('evt_deleted_unresolvable', { ...baseSubscription, id: 'sub_legacy_1' })
+
+            expect(response.status).toBe(200)
+            // Marked done (no Stripe retry) and nothing revoked.
+            expect(mockRedisSet).toHaveBeenCalledWith(
+                'stripe:event:evt_deleted_unresolvable',
+                'done',
+                { ex: 86400 * 7 },
+            )
+            expect(mockRedisDel).not.toHaveBeenCalled()
+            expect(mockUpsertStripeSubscription).not.toHaveBeenCalled()
+            expect(mockDropUpdateMany).not.toHaveBeenCalled()
+            expect(mockRecordDowngrade).not.toHaveBeenCalled()
+            expect(mockSendSubscriptionCanceledEmail).not.toHaveBeenCalled()
+        })
+
+        it('retries when the Stripe customer lookup fails transiently', async () => {
+            mockSubscriptionFindUnique.mockResolvedValueOnce(null)
+            mockCustomersRetrieve.mockRejectedValueOnce(new Error('Stripe API down'))
+
+            const response = await postDeleted('evt_deleted_transient', { ...baseSubscription, id: 'sub_legacy_2' })
+
+            expect(response.status).toBe(500)
+            expect(mockRedisDel).toHaveBeenCalledWith('stripe:event:evt_deleted_transient')
+            expect(mockDropUpdateMany).not.toHaveBeenCalled()
+        })
+
+        it('resolves an unlinked owner by customer email and applies the downgrade flow', async () => {
+            mockSubscriptionFindUnique.mockResolvedValueOnce(null)
+            mockCustomersRetrieve.mockResolvedValueOnce({
+                id: 'cus_legacy',
+                deleted: false,
+                email: 'legacy@example.com',
+            })
+            mockUserFindUnique.mockResolvedValue({ id: 'user_legacy', email: 'legacy@example.com' })
+            mockSubscriptionCount.mockResolvedValueOnce(0)
+
+            const response = await postDeleted('evt_deleted_email_resolved', { ...baseSubscription, id: 'sub_legacy_3' })
+
+            expect(response.status).toBe(200)
+            expect(mockUpsertStripeSubscription).not.toHaveBeenCalled()
+            expect(mockDropUpdateMany).toHaveBeenCalledWith(expect.objectContaining({
+                where: expect.objectContaining({ userId: 'user_legacy' }),
+                data: expect.objectContaining({ expiresAt: expect.any(Date) }),
+            }))
+            expect(mockRecordDowngrade).toHaveBeenCalledWith('user_legacy')
+            expect(mockSendSubscriptionCanceledEmail).toHaveBeenCalledWith(
+                'legacy@example.com',
+                expect.any(Date),
+            )
+        })
+
+        it('skips personal downgrade side effects when the user retains another active subscription', async () => {
+            mockSubscriptionFindUnique.mockResolvedValueOnce(null)
+            mockCustomersRetrieve.mockResolvedValueOnce({
+                id: 'cus_legacy',
+                deleted: false,
+                email: 'legacy@example.com',
+            })
+            mockUserFindUnique.mockResolvedValue({ id: 'user_legacy', email: 'legacy@example.com' })
+            mockSubscriptionCount.mockResolvedValueOnce(1)
+
+            const response = await postDeleted('evt_deleted_retained', { ...baseSubscription, id: 'sub_legacy_4' })
+
+            expect(response.status).toBe(200)
+            expect(mockDropUpdateMany).not.toHaveBeenCalled()
+            expect(mockRecordDowngrade).not.toHaveBeenCalled()
+            expect(mockSendSubscriptionCanceledEmail).not.toHaveBeenCalled()
+        })
+
+        it('cancels the canonical row when the price is no longer configured', async () => {
+            mockUpsertStripeSubscription.mockResolvedValueOnce(false)
+            mockSubscriptionCount.mockResolvedValueOnce(0)
+
+            const response = await postDeleted('evt_deleted_unknown_price', { ...baseSubscription, id: 'sub_123' })
+
+            expect(response.status).toBe(200)
+            expect(mockMarkSubscriptionCanceledLocally).toHaveBeenCalledWith('sub_123')
+            expect(mockDropUpdateMany).toHaveBeenCalled()
+            expect(mockRecordDowngrade).toHaveBeenCalledWith('user_123')
+        })
+
+        it('cancels the canonical row when the ownership is invalid', async () => {
+            const { InvalidSubscriptionOwnershipError } = await import('@/lib/services/subscription-sync')
+            mockUpsertStripeSubscription.mockRejectedValueOnce(
+                new InvalidSubscriptionOwnershipError('business subscriptions require organization ownership'),
+            )
+            mockSubscriptionCount.mockResolvedValueOnce(0)
+
+            const response = await postDeleted('evt_deleted_bad_ownership', { ...baseSubscription, id: 'sub_123' })
+
+            expect(response.status).toBe(200)
+            expect(mockMarkSubscriptionCanceledLocally).toHaveBeenCalledWith('sub_123')
+            expect(mockDropUpdateMany).toHaveBeenCalled()
+            expect(mockRecordDowngrade).toHaveBeenCalledWith('user_123')
+        })
+    })
+
+    describe('checkout.session.expired (abandoned-checkout recovery)', () => {
+        function postExpired(id: string, session: Record<string, unknown>) {
+            mockConstructEvent.mockReturnValue({
+                id,
+                type: 'checkout.session.expired',
+                data: { object: session },
+            } as never)
+
+            return POST(new Request('http://localhost/api/webhooks/stripe', {
+                method: 'POST',
+                body: JSON.stringify({}),
+            }))
+        }
+
+        const baseSession = {
+            id: 'cs_abandoned_1',
+            status: 'expired',
+            metadata: { userId: 'user_123' },
+            client_reference_id: 'user_123',
+            line_items: {
+                data: [{
+                    price: {
+                        id: CONFIGURED_BUNDLE_PLUS_PRICE_ID,
+                        recurring: { interval: 'month' },
+                    },
+                }],
+            },
+        }
+
+        it('sends a recovery email and tracks checkout_expired when a checkout expires unpaid', async () => {
+            mockUserFindUnique.mockResolvedValue({ email: 'test@example.com' })
+
+            const response = await postExpired('evt_expired_1', { ...baseSession })
+
+            expect(response.status).toBe(200)
+            expect(mockSendCheckoutRecoveryEmail).toHaveBeenCalledWith(
+                'test@example.com',
+                'user_123',
+                { product: 'bundle', tier: 'plus' },
+                'checkout-recovery/cs_abandoned_1',
+            )
+            expect(mockTrackServerEvent).toHaveBeenCalledWith(
+                'user_123',
+                'checkout_expired',
+                expect.objectContaining({
+                    provider: 'stripe',
+                    product: 'bundle',
+                    tier: 'plus',
+                    frequency: 'month',
+                    is_org_checkout: false,
+                    session_id: 'cs_abandoned_1',
+                }),
+            )
+            // Throttle claimed for the configured window.
+            expect(mockRedisSet).toHaveBeenCalledWith(
+                'checkout:recovery:user_123',
+                'sent',
+                { nx: true, ex: 7 * 86400 },
+            )
+        })
+
+        it('tracks checkout_expired but skips the email when the user already subscribed', async () => {
+            mockUserFindUnique.mockResolvedValue({ email: 'test@example.com' })
+            mockSubscriptionCount.mockResolvedValueOnce(1)
+
+            const response = await postExpired('evt_expired_converted', { ...baseSession, id: 'cs_abandoned_2' })
+
+            expect(response.status).toBe(200)
+            expect(mockTrackServerEvent).toHaveBeenCalledWith(
+                'user_123',
+                'checkout_expired',
+                expect.objectContaining({ product: 'bundle' }),
+            )
+            expect(mockSendCheckoutRecoveryEmail).not.toHaveBeenCalled()
+        })
+
+        it('skips the email when a recovery email was sent within the throttle window', async () => {
+            mockUserFindUnique.mockResolvedValue({ email: 'test@example.com' })
+            // Event claim succeeds, throttle SET NX finds an existing key.
+            mockRedisSet.mockResolvedValueOnce('OK').mockResolvedValueOnce(null)
+
+            const response = await postExpired('evt_expired_throttled', { ...baseSession, id: 'cs_abandoned_3' })
+
+            expect(response.status).toBe(200)
+            expect(mockSendCheckoutRecoveryEmail).not.toHaveBeenCalled()
+            expect(mockTrackServerEvent).toHaveBeenCalledWith(
+                'user_123',
+                'checkout_expired',
+                expect.anything(),
+            )
+        })
+
+        it('acknowledges permanently when no owner is resolvable', async () => {
+            const response = await postExpired('evt_expired_orphan', {
+                id: 'cs_abandoned_orphan',
+                status: 'expired',
+            })
+
+            expect(response.status).toBe(200)
+            expect(mockRedisSet).toHaveBeenCalledWith(
+                'stripe:event:evt_expired_orphan',
+                'done',
+                { ex: 86400 * 7 },
+            )
+            expect(mockRedisDel).not.toHaveBeenCalled()
+            expect(mockSendCheckoutRecoveryEmail).not.toHaveBeenCalled()
+            expect(mockTrackServerEvent).not.toHaveBeenCalled()
+        })
+
+        it('resolves the owner by checkout email when metadata is missing', async () => {
+            // First lookup: getUserIdByEmail → { id }; second: email for sending.
+            mockUserFindUnique
+                .mockResolvedValueOnce({ id: 'user_by_email' })
+                .mockResolvedValueOnce({ email: 'fallback@example.com' })
+
+            const response = await postExpired('evt_expired_fallback', {
+                ...baseSession,
+                id: 'cs_abandoned_fallback',
+                metadata: {},
+                client_reference_id: null,
+                customer_email: 'fallback@example.com',
+            })
+
+            expect(response.status).toBe(200)
+            expect(mockSendCheckoutRecoveryEmail).toHaveBeenCalledWith(
+                'fallback@example.com',
+                'user_by_email',
+                { product: 'bundle', tier: 'plus' },
+                'checkout-recovery/cs_abandoned_fallback',
+            )
+        })
+
+        it('releases the throttle when the email send fails so a later expiry can retry', async () => {
+            mockUserFindUnique.mockResolvedValue({ email: 'test@example.com' })
+            mockSendCheckoutRecoveryEmail.mockResolvedValueOnce({ success: false })
+
+            const response = await postExpired('evt_expired_send_failed', { ...baseSession, id: 'cs_abandoned_5' })
+
+            expect(response.status).toBe(200)
+            expect(mockRedisDel).toHaveBeenCalledWith('checkout:recovery:user_123')
+        })
+
+        it('checks the org subscriptions for an expired team checkout', async () => {
+            mockUserFindUnique.mockResolvedValue({ email: 'test@example.com' })
+            mockSubscriptionCount.mockResolvedValueOnce(1)
+
+            const response = await postExpired('evt_expired_org_converted', {
+                ...baseSession,
+                id: 'cs_abandoned_org',
+                metadata: { userId: 'user_123', organizationId: 'org_123' },
+            })
+
+            expect(response.status).toBe(200)
+            expect(mockSubscriptionCount).toHaveBeenCalledWith({
+                where: { organizationId: 'org_123', status: { in: ['active', 'trialing'] } },
+            })
+            expect(mockSendCheckoutRecoveryEmail).not.toHaveBeenCalled()
+            expect(mockTrackServerEvent).toHaveBeenCalledWith(
+                'user_123',
+                'checkout_expired',
+                expect.objectContaining({ is_org_checkout: true }),
+            )
         })
     })
 })
