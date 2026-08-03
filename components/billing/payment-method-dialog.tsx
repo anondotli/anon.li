@@ -20,6 +20,8 @@ interface PaymentMethodDialogProps {
     product: string
     tier: string
     promoCode?: string
+    /** Billing interval being purchased. Crypto supports both; defaults to yearly. */
+    interval?: "monthly" | "yearly"
 }
 
 export function PaymentMethodDialog({
@@ -28,6 +30,7 @@ export function PaymentMethodDialog({
     product,
     tier,
     promoCode,
+    interval = "yearly",
 }: PaymentMethodDialogProps) {
     const [isCardPending, startCardTransition] = useTransition()
     const [isCryptoPending, startCryptoTransition] = useTransition()
@@ -38,7 +41,7 @@ export function PaymentMethodDialog({
                 const result = await createCheckoutSession({
                     product: product as "bundle" | "alias" | "drop" | "form",
                     tier: tier as "plus" | "pro",
-                    frequency: "yearly",
+                    frequency: interval,
                     promoCode,
                 })
                 if (result?.error) {
@@ -56,6 +59,7 @@ export function PaymentMethodDialog({
                 const result = await createCryptoCheckout({
                     product: product as "bundle" | "alias" | "drop" | "form",
                     tier: tier as "plus" | "pro",
+                    interval,
                 })
                 if (result?.error) {
                     toast.error(result.error)
@@ -74,7 +78,7 @@ export function PaymentMethodDialog({
                 <DialogHeader>
                     <DialogTitle>Choose payment method</DialogTitle>
                     <DialogDescription>
-                        Select how you&apos;d like to pay for your yearly plan.
+                        Select how you&apos;d like to pay for your {interval} plan.
                     </DialogDescription>
                 </DialogHeader>
                 <div className="grid gap-3 pt-2">

@@ -11,7 +11,10 @@ const logger = createLogger("CronCryptoRecovery");
 
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
-const REMINDER_THRESHOLD_HOURS = 24;
+// Crypto payments that are going to happen usually happen within the first
+// couple of hours; a same-day reminder recovers invoices while the intent is
+// still fresh. (Plan WS2: remind on `waiting` > 2 h; the cron runs hourly.)
+const REMINDER_THRESHOLD_HOURS = 2;
 const EXPIRY_THRESHOLD_DAYS = 7;
 const MAX_PER_RUN = 100;
 

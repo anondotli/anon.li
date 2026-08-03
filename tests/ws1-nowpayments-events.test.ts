@@ -56,6 +56,10 @@ vi.mock("@/lib/crypto-prices", () => ({
     isValidCryptoProduct: () => true,
     isValidCryptoTier: () => true,
     getCryptoPrice: () => ({ usdAmount: 39.49, stripePriceId: "price_bundle_plus_yearly", label: "Bundle Plus" }),
+    getCryptoIntervalForStripePriceId: (priceId: string) =>
+        priceId === "price_bundle_plus_monthly" ? "monthly" as const
+            : priceId === "price_bundle_plus_yearly" ? "yearly" as const
+                : null,
 }))
 vi.mock("@/lib/services/subscription-sync", () => ({
     createCryptoSubscription,
@@ -76,6 +80,7 @@ const payment = {
     userId: "user-1",
     product: "bundle",
     tier: "plus",
+    planPriceId: "price_bundle_plus_yearly",
     priceAmount: 39.49,
     priceCurrency: "usd",
     payCurrency: "btc",
@@ -204,7 +209,35 @@ describe("nowpayments webhook revenue events", () => {
             distinctId: "user-1",
             properties: expect.objectContaining({
                 provider: "crypto",
+                frequency: "yearly",
                 billing_reason: "new",
+                order_id: "crypto_ord_1",
+            }),
+        })])
+    })
+
+    it("emits subscription_activated with frequency monthly for a monthly invoice", async () => {
+        cryptoPaymentFindUnique.mockResolvedValue({
+            ...payment,
+            planPriceId: "price_bundle_plus_monthly",
+            priceAmount: 6.99,
+        })
+
+        const res = await deliver({
+            payment_id: "p6",
+            payment_status: "finished",
+            order_id: "crypto_ord_1",
+            price_amount: 6.99,
+            actually_paid: "0.001",
+            pay_amount: "0.001",
+        })
+
+        expect(res.status).toBe(200)
+        expect(captured("subscription_activated")).toEqual([expect.objectContaining({
+            distinctId: "user-1",
+            properties: expect.objectContaining({
+                provider: "crypto",
+                frequency: "monthly",
                 order_id: "crypto_ord_1",
             }),
         })])

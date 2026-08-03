@@ -2,7 +2,6 @@
 
 import { useState, useTransition } from "react"
 import { Button } from "@/components/ui/button"
-import { createCheckoutSession } from "@/actions/create-checkout-session"
 import { createSubscriptionChangeSession } from "@/actions/create-portal-session"
 import { toast } from "sonner"
 import { User } from "@/types/auth"
@@ -104,29 +103,9 @@ export function PricingAction({ user, planId, isYearly, className, promoCode, cu
 
         const handleUpgrade = () => {
             analytics.upgradeClicked(product, tier)
-
-            // Yearly plans: show payment method dialog (card or crypto)
-            if (isYearly) {
-                setShowPaymentDialog(true)
-                return
-            }
-
-            // Monthly plans: go directly to Stripe
-            startTransition(async () => {
-                try {
-                    const result = await createCheckoutSession({
-                        product: product as "bundle" | "alias" | "drop" | "form",
-                        tier: tier as "plus" | "pro",
-                        frequency: "monthly",
-                        promoCode: promoCode
-                    })
-                    if (result?.error) {
-                        toast.error(result.error)
-                    }
-                } catch {
-                    // Error handled by createCheckoutSession
-                }
-            })
+            // Both intervals offer the payment-method choice: crypto supports
+            // monthly and yearly alike (WS2: crypto was yearly-only before).
+            setShowPaymentDialog(true)
         }
 
         return (
@@ -145,6 +124,7 @@ export function PricingAction({ user, planId, isYearly, className, promoCode, cu
                     product={product}
                     tier={tier}
                     promoCode={promoCode}
+                    interval={isYearly ? "yearly" : "monthly"}
                 />
             </>
         )

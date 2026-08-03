@@ -89,6 +89,11 @@ vi.mock('@/lib/crypto-prices', () => ({
     getCryptoPrice: vi.fn().mockReturnValue({ usdAmount: 39.49, stripePriceId: 'price_test_yearly', label: 'Bundle Plus (Yearly)' }),
     isValidCryptoProduct: vi.fn().mockReturnValue(true),
     isValidCryptoTier: vi.fn().mockReturnValue(true),
+    getCryptoIntervalForStripePriceId: vi.fn((priceId: string) =>
+        priceId === 'price_test_monthly' ? 'monthly' as const
+            : priceId === 'price_test_yearly' ? 'yearly' as const
+                : null
+    ),
 }))
 
 vi.mock('@/lib/nowpayments', () => ({
@@ -396,6 +401,79 @@ describe('NOWPayments IPN Webhook', () => {
 
         // Should cancel any downgrade (side effect)
         expect(mockCancelDowngrade).toHaveBeenCalledWith('user_2')
+
+        // Yearly invoice: the granted period is one year, and the Stripe price
+        // id is stored on the canonical subscription row.
+        const subCall = (createCryptoSubscription as unknown as ReturnType<typeof vi.fn>).mock.calls.at(-1)!
+        const [txArg, userIdArg, productArg, tierArg, periodStart, periodEnd, orderIdArg, planPriceIdArg] = subCall as unknown[]
+        expect(userIdArg).toBe('user_2')
+        expect(productArg).toBe('bundle')
+        expect(tierArg).toBe('plus')
+        expect(orderIdArg).toBe('crypto_finish')
+        expect(planPriceIdArg).toBe('price_test_yearly')
+        const days = ((periodEnd as Date).getTime() - (periodStart as Date).getTime()) / (24 * 60 * 60 * 1000)
+        expect(days).toBeGreaterThan(363)
+        expect(days).toBeLessThan(368)
+        expect(txArg).toBeDefined()
+    })
+
+    it('should grant a one-month period for a monthly crypto invoice', async () => {
+        const orderId = 'crypto_monthly_finish'
+        ;(prisma.cryptoPayment.findUnique as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
+            makeCryptoPayment({
+                id: 'cp_monthly',
+                nowPaymentId: 'payment_monthly',
+                orderId,
+                priceAmount: 6.99,
+                planPriceId: 'price_test_monthly',
+                status: 'confirming',
+            })
+        )
+
+        const res = await POST(makeRequest({
+            payment_id: 'payment_monthly',
+            payment_status: 'finished',
+            order_id: orderId,
+            price_amount: 6.99,
+        }))
+
+        expect(res.status).toBe(200)
+        expect(createCryptoSubscription).toHaveBeenCalledTimes(1)
+        const subCall = (createCryptoSubscription as unknown as ReturnType<typeof vi.fn>).mock.calls.at(-1)!
+        const [, , , , periodStart, periodEnd, , planPriceIdArg] = subCall as unknown[]
+        expect(planPriceIdArg).toBe('price_test_monthly')
+        const days = ((periodEnd as Date).getTime() - (periodStart as Date).getTime()) / (24 * 60 * 60 * 1000)
+        expect(days).toBeGreaterThan(27)
+        expect(days).toBeLessThan(32)
+    })
+
+    it('should fall back to a yearly period for an unrecognized price id', async () => {
+        const orderId = 'crypto_unknown_price'
+        ;(prisma.cryptoPayment.findUnique as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
+            makeCryptoPayment({
+                id: 'cp_unknown_price',
+                nowPaymentId: 'payment_unknown_price',
+                orderId,
+                planPriceId: 'price_never_seen',
+                status: 'confirming',
+            })
+        )
+
+        const res = await POST(makeRequest({
+            payment_id: 'payment_unknown_price',
+            payment_status: 'finished',
+            order_id: orderId,
+        }))
+
+        // Fail open on entitlement: a paid invoice activates (yearly, the
+        // pre-monthly-support default) instead of being blocked.
+        expect(res.status).toBe(200)
+        expect(createCryptoSubscription).toHaveBeenCalledTimes(1)
+        const subCall = (createCryptoSubscription as unknown as ReturnType<typeof vi.fn>).mock.calls.at(-1)!
+        const [, , , , periodStart, periodEnd] = subCall as unknown[]
+        const days = ((periodEnd as Date).getTime() - (periodStart as Date).getTime()) / (24 * 60 * 60 * 1000)
+        expect(days).toBeGreaterThan(363)
+        expect(days).toBeLessThan(368)
     })
 
     it('should atomically revoke the canonical entitlement when a finished payment is refunded', async () => {

@@ -5,6 +5,7 @@ import { BillingToast } from "./billing-toast"
 import { BillingContent } from "./billing-content"
 import { getUserSubscriptionPlan } from "@/lib/subscription"
 import { getReferralStats, REFERRAL_REWARD_DAYS } from "@/lib/services/referral"
+import { getCryptoIntervalForStripePriceId } from "@/lib/crypto-prices"
 
 export default async function BillingPage() {
     const session = await auth()
@@ -34,6 +35,15 @@ export default async function BillingPage() {
 
     const referral = await getReferralStats(session.user.id)
 
+    // Crypto has no recurring billing: renewal is a fresh checkout. Offer the
+    // same interval the subscriber last paid for instead of silently switching
+    // them to yearly. Unknown/absent price ids fall back to yearly (every
+    // pre-interval-support crypto subscription was yearly).
+    const renewalInterval =
+        user.paymentMethod === "crypto" && subscriptionPlan.providerPriceId
+            ? (getCryptoIntervalForStripePriceId(subscriptionPlan.providerPriceId) ?? "yearly")
+            : "yearly"
+
     return (
         <>
             <BillingToast />
@@ -43,6 +53,7 @@ export default async function BillingPage() {
                 currentPeriodEnd={currentPeriodEnd}
                 paymentMethod={user.paymentMethod}
                 product={subscriptionPlan.product}
+                renewalInterval={renewalInterval}
                 referral={{
                     successfulReferrals: referral.successfulReferrals,
                     plusUntil: referral.plusUntil ? referral.plusUntil.toISOString() : null,

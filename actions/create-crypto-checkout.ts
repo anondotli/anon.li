@@ -7,8 +7,10 @@ import { nanoid } from "nanoid"
 import { getNOWPaymentsClient } from "@/lib/nowpayments"
 import {
     getCryptoPrice,
+    isValidCryptoInterval,
     isValidCryptoProduct,
     isValidCryptoTier,
+    type CryptoInterval,
     type CryptoProduct,
     type CryptoTier,
 } from "@/lib/crypto-prices"
@@ -18,17 +20,22 @@ import { trackServerEvent } from "@/lib/posthog.server"
 interface CryptoCheckoutParams {
     product: CryptoProduct
     tier: CryptoTier
+    interval: CryptoInterval
 }
 
 export async function createCryptoCheckout(params: CryptoCheckoutParams) {
     const result = await runSecureAction<void, string>(
         { rateLimitKey: "stripeOps" },
         async (_data, userId) => {
-            if (!isValidCryptoProduct(params.product) || !isValidCryptoTier(params.tier)) {
+            if (
+                !isValidCryptoProduct(params.product)
+                || !isValidCryptoTier(params.tier)
+                || !isValidCryptoInterval(params.interval)
+            ) {
                 throw new Error("Invalid plan selection")
             }
 
-            const price = getCryptoPrice(params.product, params.tier)
+            const price = getCryptoPrice(params.product, params.tier, params.interval)
             if (!price) {
                 throw new Error("Invalid price configuration")
             }
@@ -81,6 +88,7 @@ export async function createCryptoCheckout(params: CryptoCheckoutParams) {
             trackServerEvent(userId, "crypto_invoice_created", {
                 product: params.product,
                 tier: params.tier,
+                interval: params.interval,
                 amount: price.usdAmount,
                 order_id: orderId,
             })

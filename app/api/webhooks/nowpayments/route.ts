@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma"
 import { NOWPaymentsClient } from "@/lib/nowpayments"
 import { Redis } from "@upstash/redis"
 import { createLogger } from "@/lib/logger"
-import { isValidCryptoProduct, isValidCryptoTier } from "@/lib/crypto-prices"
+import { getCryptoIntervalForStripePriceId, isValidCryptoProduct, isValidCryptoTier, type CryptoInterval } from "@/lib/crypto-prices"
 import { createCryptoSubscription } from "@/lib/services/subscription-sync"
 import { captureServerEvent, flushPostHog, trackServerEvent } from "@/lib/posthog.server"
 import { Prisma } from "@prisma/client"
@@ -83,6 +83,7 @@ async function postActivationSideEffects(
     payment: { id: string; userId: string; product: string; tier: string; planPriceId: string; priceAmount: number },
     periodEnd: Date,
     orderId: string,
+    interval: CryptoInterval,
 ): Promise<void> {
     // Cancel any active downgrade
     try {
@@ -112,7 +113,7 @@ async function postActivationSideEffects(
         provider: "crypto",
         product: payment.product,
         tier: payment.tier,
-        frequency: "yearly",
+        frequency: interval,
         amount: payment.priceAmount,
         billing_reason: "new",
         order_id: orderId,
@@ -344,9 +345,27 @@ export async function POST(req: Request) {
 
         // Update payment record with IPN data + activate subscription atomically
         if (!isRefund && shouldActivate) {
+            // The billing interval is encoded in the Stripe price id stored at
+            // checkout. Crypto has no recurring billing, so this is the only
+            // durable record of which period length was purchased. Unknown ids
+            // fall back to yearly: every pre-interval-support invoice was
+            // yearly, and over-granting beats blocking a paid activation.
+            let interval = getCryptoIntervalForStripePriceId(payment.planPriceId)
+            if (!interval) {
+                logger.error("Unrecognized crypto planPriceId — defaulting to yearly period", undefined, {
+                    paymentId: payment.id,
+                    planPriceId: payment.planPriceId,
+                })
+                interval = "yearly"
+            }
+
             const now = new Date()
             const periodEnd = new Date(now)
-            periodEnd.setFullYear(periodEnd.getFullYear() + 1)
+            if (interval === "monthly") {
+                periodEnd.setMonth(periodEnd.getMonth() + 1)
+            } else {
+                periodEnd.setFullYear(periodEnd.getFullYear() + 1)
+            }
 
             // Single Serializable transaction across CryptoPayment, User, and the
             // canonical Subscription row. Serializable isolation is required so
@@ -382,13 +401,13 @@ export async function POST(req: Request) {
                         paymentMethod: "crypto",
                     },
                 })
-                await createCryptoSubscription(tx, payment.userId, payment.product, payment.tier, now, periodEnd, orderId)
+                await createCryptoSubscription(tx, payment.userId, payment.product, payment.tier, now, periodEnd, orderId, payment.planPriceId)
                 return true
             }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
 
             // Non-critical side effects outside transaction
             if (didActivate) {
-                await postActivationSideEffects(payment, periodEnd, orderId)
+                await postActivationSideEffects(payment, periodEnd, orderId, interval)
             }
         } else if (!isRefund) {
             // Non-activation status update

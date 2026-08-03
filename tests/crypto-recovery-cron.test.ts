@@ -109,4 +109,57 @@ describe("crypto recovery cron", () => {
         }));
         expect(postHogFlush).toHaveBeenCalled();
     });
+
+    it("reminds a waiting invoice and reports its pending hours", async () => {
+        const waitingInvoice = {
+            ...expiredInvoice,
+            id: "invoice-waiting",
+            status: "waiting" as const,
+            createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000),
+        };
+        getInvoices.mockResolvedValue([waitingInvoice]);
+
+        const result = await handleCryptoRecoveryCron();
+
+        expect(sendReminderEmail).toHaveBeenCalledWith(
+            waitingInvoice.user.email,
+            expect.objectContaining({
+                product: waitingInvoice.product,
+                tier: waitingInvoice.tier,
+                hoursPending: 3,
+            }),
+            `crypto-invoice-reminder/${waitingInvoice.id}`,
+        );
+        expect(sendExpiredEmail).not.toHaveBeenCalled();
+        expect(result).toMatchObject({ remindersSent: 1, expired: 0, errors: 0 });
+    });
+
+    it("queries for invoices pending longer than the 2-hour reminder threshold", async () => {
+        getInvoices.mockResolvedValue([]);
+
+        await handleCryptoRecoveryCron();
+
+        expect(getInvoices).toHaveBeenCalledTimes(1);
+        const opts = getInvoices.mock.calls[0]![0] as { createdBefore: Date };
+        const ageMs = Date.now() - opts.createdBefore.getTime();
+        // 2 h threshold, with tolerance for run time.
+        expect(ageMs).toBeGreaterThanOrEqual(2 * 60 * 60 * 1000 - 5_000);
+        expect(ageMs).toBeLessThan(2 * 60 * 60 * 1000 + 60_000);
+    });
+
+    it("sends only one reminder per invoice via the dedupe key", async () => {
+        const waitingInvoice = {
+            ...expiredInvoice,
+            id: "invoice-duped",
+            status: "waiting" as const,
+            createdAt: new Date(Date.now() - 5 * 60 * 60 * 1000),
+        };
+        getInvoices.mockResolvedValue([waitingInvoice]);
+        redisGet.mockResolvedValue("1");
+
+        const result = await handleCryptoRecoveryCron();
+
+        expect(sendReminderEmail).not.toHaveBeenCalled();
+        expect(result).toMatchObject({ remindersSent: 0, errors: 0 });
+    });
 });

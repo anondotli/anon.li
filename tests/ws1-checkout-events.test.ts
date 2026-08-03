@@ -77,6 +77,7 @@ vi.mock("@/lib/data/crypto-payment", () => ({
 import { createCheckoutSession } from "@/actions/create-checkout-session"
 import { createTeamCheckoutSession } from "@/actions/create-team-checkout"
 import { createCryptoCheckout } from "@/actions/create-crypto-checkout"
+import { BUNDLE_PLANS } from "@/config/plans"
 
 function capturedEvents() {
     return postHog.capture.mock.calls.map((call) => call[0] as {
@@ -133,7 +134,7 @@ describe("checkout funnel events", () => {
     })
 
     it("emits crypto_invoice_created when a NOWPayments invoice is created", async () => {
-        await createCryptoCheckout({ product: "bundle", tier: "plus" })
+        await createCryptoCheckout({ product: "bundle", tier: "plus", interval: "yearly" })
 
         const events = capturedEvents()
         expect(events).toContainEqual(expect.objectContaining({
@@ -142,6 +143,7 @@ describe("checkout funnel events", () => {
             properties: expect.objectContaining({
                 product: "bundle",
                 tier: "plus",
+                interval: "yearly",
                 amount: expect.any(Number),
             }),
         }))
@@ -149,6 +151,37 @@ describe("checkout funnel events", () => {
         expect(createCryptoPayment).toHaveBeenCalled()
         const captureOrder = postHog.capture.mock.invocationCallOrder[0]!
         expect(createCryptoPayment.mock.invocationCallOrder[0]!).toBeLessThan(captureOrder)
+    })
+
+    it("creates monthly crypto invoices at the monthly price", async () => {
+        await createCryptoCheckout({ product: "bundle", tier: "plus", interval: "monthly" })
+
+        expect(capturedEvents()).toContainEqual(expect.objectContaining({
+            event: "crypto_invoice_created",
+            properties: expect.objectContaining({
+                interval: "monthly",
+                amount: BUNDLE_PLANS.plus.price.monthly,
+            }),
+        }))
+        // The stored checkout contract uses the monthly Stripe price id, from
+        // which the webhook later derives the one-month entitlement period.
+        expect(createCryptoPayment).toHaveBeenCalledWith(expect.objectContaining({
+            priceAmount: BUNDLE_PLANS.plus.price.monthly,
+            planPriceId: BUNDLE_PLANS.plus.priceIds!.monthly,
+        }))
+    })
+
+    it("rejects an invalid crypto billing interval", async () => {
+        const result = await createCryptoCheckout({
+            product: "bundle",
+            tier: "plus",
+            // @ts-expect-error — deliberately invalid at runtime
+            interval: "weekly",
+        })
+
+        expect(result).toMatchObject({ error: expect.any(String) })
+        expect(createInvoice).not.toHaveBeenCalled()
+        expect(capturedEvents()).toHaveLength(0)
     })
 
     it("emits nothing when no checkout session could be created", async () => {

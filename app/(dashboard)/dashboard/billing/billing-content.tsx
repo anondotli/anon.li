@@ -27,6 +27,8 @@ interface BillingContentProps {
     paymentMethod?: string
     product?: string
     referral?: ReferralSummary
+    /** Interval to preselect when a crypto subscriber renews (crypto has no auto-renew). */
+    renewalInterval?: "monthly" | "yearly"
 }
 
 export function BillingContent({
@@ -35,7 +37,8 @@ export function BillingContent({
     currentPeriodEnd,
     paymentMethod,
     product,
-    referral
+    referral,
+    renewalInterval
 }: BillingContentProps) {
     const referralPlusActive = referral?.plusActive ?? false
     const referralPlusLabel = referral?.plusUntil
@@ -57,6 +60,7 @@ export function BillingContent({
                     currentPeriodEnd={currentPeriodEnd}
                     paymentMethod={paymentMethod}
                     product={product}
+                    interval={renewalInterval}
                 />
             </div>
 

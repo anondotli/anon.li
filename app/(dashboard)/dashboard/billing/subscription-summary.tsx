@@ -15,6 +15,8 @@ interface SubscriptionSummaryProps {
     currentPeriodEnd?: Date
     paymentMethod?: string
     product?: string
+    /** Interval to preselect in the crypto renewal dialog. */
+    interval?: "monthly" | "yearly"
 }
 
 function getPricingHref(product?: string) {
@@ -23,7 +25,7 @@ function getPricingHref(product?: string) {
     return "/pricing"
 }
 
-export function SubscriptionSummary({ planId, status, currentPeriodEnd, paymentMethod, product }: SubscriptionSummaryProps) {
+export function SubscriptionSummary({ planId, status, currentPeriodEnd, paymentMethod, product, interval }: SubscriptionSummaryProps) {
     const [showRenewDialog, setShowRenewDialog] = useState(false)
     const isPro = planId === "pro"
     const isPlus = planId === "plus"
@@ -121,6 +123,7 @@ export function SubscriptionSummary({ planId, status, currentPeriodEnd, paymentM
                 onOpenChange={setShowRenewDialog}
                 product={product ?? "bundle"}
                 tier={planId}
+                interval={interval}
             />
         </>
     )

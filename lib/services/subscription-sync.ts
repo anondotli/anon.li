@@ -460,6 +460,7 @@ export async function createCryptoSubscription(
     periodStart: Date,
     periodEnd: Date,
     orderId: string,
+    planPriceId: string,
 ): Promise<void> {
     const syntheticSubId = `crypto_${orderId}`
 
@@ -483,6 +484,7 @@ export async function createCryptoSubscription(
             userId,
             provider: "crypto",
             providerSubscriptionId: syntheticSubId,
+            providerPriceId: planPriceId,
             product,
             tier,
             status: "active",
@@ -490,6 +492,7 @@ export async function createCryptoSubscription(
             currentPeriodEnd: periodEnd,
         },
         update: {
+            providerPriceId: planPriceId,
             product,
             tier,
             status: "active",

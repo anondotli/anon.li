@@ -30,6 +30,7 @@ export async function getUserSubscriptionPlan(user: { id: string }) {
                 isCanceled: subscription.cancelAtPeriodEnd,
                 isExpired: false,
                 stripeCurrentPeriodEnd: subscription.currentPeriodEnd.getTime(),
+                providerPriceId: subscription.providerPriceId as string | null,
             }
         }
     }
@@ -42,5 +43,6 @@ export async function getUserSubscriptionPlan(user: { id: string }) {
         isCanceled: false,
         isExpired: false,
         stripeCurrentPeriodEnd: null,
+        providerPriceId: null as string | null,
     }
 }

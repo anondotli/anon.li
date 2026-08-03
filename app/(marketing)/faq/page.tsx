@@ -213,7 +213,7 @@ export default function FAQPage() {
                         Yes. Dashboard settings provides a machine-readable summary of your personal-workspace profile and product metadata. Credential secrets, encrypted form responses, file contents, and team-owned resources are excluded; contact privacy@anon.li for a formal access request. We also support full account deletion, which immediately removes your live personal account data.
                     </FAQItem>
                     <FAQItem value="anonymous-payments" question="Can I pay anonymously?">
-                        We support cryptocurrency checkout through NOWPayments. The exact coins and networks available depend on NOWPayments at checkout, and crypto purchases activate 1 year of access per payment with no recurring billing.
+                        We support cryptocurrency checkout through NOWPayments for both monthly and yearly plans. The exact coins and networks available depend on NOWPayments at checkout, and each crypto payment activates one billing period of access with no recurring billing — renew by paying again when your period ends.
                     </FAQItem>
                 </Accordion>
             </section>

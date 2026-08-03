@@ -66,7 +66,7 @@ A subscription ended. `cancel_reason: "payment_failed"` = involuntary churn; `"c
 ### `crypto_invoice_created`
 
 - Site: `actions/create-crypto-checkout.ts`
-- Properties: `product`, `tier`, `amount`, `order_id`
+- Properties: `product`, `tier`, `interval` ("monthly"|"yearly"), `amount`, `order_id`
 
 ### `crypto_invoice_paid`
 

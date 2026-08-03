@@ -60,7 +60,7 @@ const FAQ_CATEGORIES: FAQCategory[] = [
             },
             {
                 question: "What payment methods do you accept?",
-                answer: "All major cards via Stripe, plus Apple Pay, Google Pay, and Link. We also support cryptocurrency checkout through NOWPayments. Available coins and networks depend on NOWPayments at checkout, and crypto purchases give you 1 year of access per payment with no recurring billing."
+                answer: "All major cards via Stripe, plus Apple Pay, Google Pay, and Link. We also support cryptocurrency checkout through NOWPayments on both monthly and yearly plans. Available coins and networks depend on NOWPayments at checkout, and each crypto payment covers one billing period with no recurring billing."
             },
             {
                 question: "Do you offer refunds?",

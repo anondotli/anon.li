@@ -10,6 +10,18 @@ interface CryptoInvoiceReminderEmailProps {
     hoursPending: number;
 }
 
+/** "about 3 hours ago" / "about 2 days ago" — empty for under an hour. */
+function timeAgoLabel(hoursPending: number): string {
+    if (hoursPending >= 24) {
+        const days = Math.floor(hoursPending / 24)
+        return ` about ${days} day${days === 1 ? "" : "s"} ago`
+    }
+    if (hoursPending >= 1) {
+        return ` about ${hoursPending} hour${hoursPending === 1 ? "" : "s"} ago`
+    }
+    return ""
+}
+
 export function CryptoInvoiceReminderEmail({
     product,
     tier,
@@ -33,7 +45,7 @@ export function CryptoInvoiceReminderEmail({
             <ContentRow padding="0 48px 24px">
                 <p style={{ margin: 0, fontSize: "15px", lineHeight: 1.7, color: emailColors.textMuted, textAlign: "center" }}>
                     You started a <strong style={{ color: emailColors.text }}>{planName}</strong> checkout
-                    {hoursPending >= 24 ? ` about ${Math.floor(hoursPending / 24)} day${Math.floor(hoursPending / 24) === 1 ? "" : "s"} ago` : ""}
+                    {timeAgoLabel(hoursPending)}
                     {" "}
                     for <strong style={{ color: emailColors.text }}>${priceUsd.toFixed(2)}</strong>, but we haven&apos;t seen the {currencyLabel} transaction on-chain yet.
                 </p>
