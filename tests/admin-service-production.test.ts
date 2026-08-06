@@ -60,8 +60,8 @@ describe("AdminService production operations", () => {
         expect(result).toEqual({ success: true, requestId: "dr_1" })
     })
 
-    it("retries non-completed deletion requests and completes them immediately", async () => {
-        prismaMock.deletionRequest.findUnique.mockResolvedValue({ id: "dr_1", status: "pending" })
+    it("retries a pending deletion request and completes it immediately", async () => {
+        prismaMock.deletionRequest.findUnique.mockResolvedValue({ id: "dr_1" })
         processDeletion.mockResolvedValue(undefined)
         completeDeletion.mockResolvedValue(undefined)
 
@@ -69,6 +69,27 @@ describe("AdminService production operations", () => {
 
         expect(processDeletion).toHaveBeenCalledWith("dr_1")
         expect(completeDeletion).toHaveBeenCalledWith("dr_1")
+    })
+
+    it("retries a request stranded at active_systems_deleted", async () => {
+        // completeDeletion deletes the row, so a surviving row is always
+        // retryable — there is no terminal status to reject on.
+        prismaMock.deletionRequest.findUnique.mockResolvedValue({ id: "dr_2" })
+        processDeletion.mockResolvedValue(undefined)
+        completeDeletion.mockResolvedValue(undefined)
+
+        await expect(AdminService.processDeletionRequest("dr_2")).resolves.toEqual({ success: true })
+
+        expect(completeDeletion).toHaveBeenCalledWith("dr_2")
+    })
+
+    it("rejects a deletion request that no longer exists", async () => {
+        prismaMock.deletionRequest.findUnique.mockResolvedValue(null)
+
+        await expect(AdminService.processDeletionRequest("dr_gone")).rejects.toThrow(
+            "Deletion request not found",
+        )
+        expect(processDeletion).not.toHaveBeenCalled()
     })
 
     it("delegates orphaned storage cleanup to the existing cleanup pipeline", async () => {

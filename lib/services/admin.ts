@@ -124,14 +124,18 @@ export class AdminService {
             throw new NotFoundError("Form not found")
         }
 
+        // `takenDown` alone closes the form everywhere: assertFormOpen, the
+        // atomic submission guard in FormService, getPublicForm (410), and the
+        // form-upload token check all test it. Deliberately do NOT touch
+        // `disabledByUser`/`active` — those record the OWNER's intent, and
+        // overwriting them here loses the value restoreForm would need to put
+        // back (there is nowhere else it is preserved).
         await prisma.form.update({
             where: { id: formId },
             data: {
                 takenDown: true,
                 takedownReason: reason,
-                takenDownAt: new Date(),
-                disabledByUser: true,
-                active: false
+                takenDownAt: new Date()
             }
         })
 
@@ -182,22 +186,28 @@ export class AdminService {
         }
 
         await prisma.$transaction(async (tx) => {
+            // Reverse only the takedown. `disabledByUser`/`active` belong to the
+            // owner and are no longer clobbered by takedownForm, so leaving them
+            // alone preserves a form the owner had deliberately closed.
             await tx.form.update({
                 where: { id: formId },
                 data: {
                     takenDown: false,
                     takedownReason: null,
-                    takenDownAt: null,
-                    disabledByUser: false,
-                    active: true
+                    takenDownAt: null
                 }
             })
 
-            await tx.$executeRaw`
-                UPDATE "users"
-                SET "tosViolations" = GREATEST("tosViolations" - 1, 0)
-                WHERE "id" = ${form.userId}
-            `
+            // form.userId is null for an org-owned form whose creating user was
+            // deleted (userId SetNull) — no individual to un-strike, and an
+            // unguarded `WHERE "id" = NULL` would silently match zero rows.
+            if (form.userId) {
+                await tx.$executeRaw`
+                    UPDATE "users"
+                    SET "tosViolations" = GREATEST("tosViolations" - 1, 0)
+                    WHERE "id" = ${form.userId}
+                `
+            }
         })
 
         return { success: true }
@@ -583,17 +593,16 @@ export class AdminService {
     static async processDeletionRequest(requestId: string) {
         const request = await prisma.deletionRequest.findUnique({
             where: { id: requestId },
-            select: { id: true, status: true }
+            select: { id: true }
         })
 
         if (!request) {
             throw new NotFoundError("Deletion request not found")
         }
 
-        if (request.status === "completed") {
-            throw new ValidationError("Deletion request is already completed")
-        }
-
+        // No "already completed" rejection: a finished request has its row deleted
+        // by completeDeletion, so the only rows that exist here are retryable
+        // ("pending" or "active_systems_deleted"). Both are safe to re-run.
         const { DeletionService } = await import("@/lib/services/deletion")
         await DeletionService.processDeletion(requestId)
         await DeletionService.completeDeletion(requestId)

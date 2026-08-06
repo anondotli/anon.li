@@ -95,4 +95,24 @@ describe("FormService.getPublicForm password gate", () => {
             allowFileUploads: false,
         })
     })
+
+    it("404s instead of leaking a SyntaxError when schemaJson is unparseable", async () => {
+        // Only reachable via DB corruption or a manual edit — schemaJson is always
+        // written through JSON.stringify after validation. Unguarded, JSON.parse
+        // throws before Zod ever runs, on an unauthenticated page.
+        formFindUnique.mockResolvedValue({ ...formRow(false), schemaJson: "{not json" })
+
+        await expect(FormService.getPublicForm("form-1"))
+            .rejects.toMatchObject({ name: "NotFoundError" })
+    })
+
+    it("404s when schemaJson parses but fails schema validation", async () => {
+        formFindUnique.mockResolvedValue({
+            ...formRow(false),
+            schemaJson: JSON.stringify({ version: 99, fields: "not-an-array" }),
+        })
+
+        await expect(FormService.getPublicForm("form-1"))
+            .rejects.toMatchObject({ name: "NotFoundError" })
+    })
 })

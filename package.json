@@ -36,8 +36,8 @@
     "db:migrate:deploy": "bunx --no-install prisma migrate deploy"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.1104.0",
-    "@aws-sdk/s3-request-presigner": "^3.1104.0",
+    "@aws-sdk/client-s3": "^3.1105.0",
+    "@aws-sdk/s3-request-presigner": "^3.1105.0",
     "@better-auth/core": "^1.6.26",
     "@better-auth/utils": "0.4.2",
     "@modelcontextprotocol/sdk": "^1.30.0",

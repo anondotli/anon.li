@@ -99,7 +99,11 @@ export class DeletionService {
             return
         }
 
-        if (request.status === "completed") return
+        // No terminal-status short-circuit: a fully-processed request rests at
+        // "active_systems_deleted" (completeDeletion removes the row outright, so
+        // no row ever reaches a "completed" state). Re-processing that request is
+        // exactly what the admin retry does, and is safe — every step is guarded
+        // by its own flag and the unflagged tail is all idempotent deleteMany.
 
         const userId = request.userId
 
@@ -221,19 +225,5 @@ export class DeletionService {
         ])
 
         logger.info("Deletion completed", { userId, requestId })
-    }
-
-    /**
-     * Find pending deletion requests that need processing (retries).
-     */
-    static async findPending(): Promise<string[]> {
-        const requests = await prisma.deletionRequest.findMany({
-            where: { status: "pending" },
-            select: { id: true },
-            // Bound the scan; any remainder is retried on the next run.
-            take: 500,
-        })
-
-        return requests.map((r) => r.id)
     }
 }

@@ -582,7 +582,7 @@ function CanvasIntro({
                     placeholder="Write a short intro for respondents (optional)…"
                     disabled={disabled}
                     rows={2}
-                    className="resize-none border-transparent bg-transparent px-0 text-base font-light leading-relaxed text-muted-foreground shadow-none transition-colors hover:text-foreground focus-visible:border-transparent focus-visible:text-foreground focus-visible:ring-0"
+                    className="resize-y border-transparent bg-transparent px-0 text-base font-light leading-relaxed text-muted-foreground shadow-none transition-colors hover:text-foreground focus-visible:border-transparent focus-visible:text-foreground focus-visible:ring-0"
                     maxLength={2000}
                 />
             </div>

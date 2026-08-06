@@ -475,7 +475,18 @@ export class FormService {
             throw err
         }
 
-        const parsedSchema = FormSchemaDoc.parse(JSON.parse(form.schemaJson))
+        // schemaJson is always written via JSON.stringify after validation, so a
+        // parse failure means DB corruption or a manual edit — not user input.
+        // Unguarded, that surfaces a raw SyntaxError on an unauthenticated page;
+        // 404 with the formId logged is the honest response for a form whose
+        // schema can no longer be read.
+        let parsedSchema: FormSchemaDocType
+        try {
+            parsedSchema = FormSchemaDoc.parse(JSON.parse(form.schemaJson))
+        } catch (error) {
+            logger.error("Form has an unreadable schema", error, { formId: form.id })
+            throw new NotFoundError("Form not found")
+        }
         if (options.customKeyProof) assertCustomKeyProof(form, options.customKeyProof)
         const schema = form.customKey && !options.customKeyProof ? null : parsedSchema
 
