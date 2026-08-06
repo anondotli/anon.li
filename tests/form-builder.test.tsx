@@ -79,6 +79,7 @@ vi.mock("@/components/upgrade/upgrade-required-dialog", () => ({
 const schema: FormSchemaDoc = {
     version: 1,
     title: "Test form",
+    notifyOnSubmission: true,
     displayMode: "classic",
     submitButtonText: "Send",
     thankYouMessage: "Received.",
@@ -155,6 +156,7 @@ describe("FormBuilderPage", () => {
             schema: {
                 version: 1,
                 title: "Test form",
+                notifyOnSubmission: true,
                 displayMode: "classic",
                 submitButtonText: "Submit",
                 fields: [
@@ -329,6 +331,7 @@ describe("FormBuilderPage", () => {
             schema: {
                 version: 1,
                 title: "Test form",
+                notifyOnSubmission: true,
                 displayMode: "classic",
                 submitButtonText: "Submit",
                 fields: [
@@ -357,5 +360,17 @@ describe("FormBuilderPage", () => {
         })
 
         expect(result).toEqual({ error: "Max submissions must be a positive whole number" })
+    })
+
+    it("lets a new form leave the JSON tab while the title is still blank", async () => {
+        const { FormBuilderPage } = await import("@/components/form/dashboard/builder-page")
+        render(<FormBuilderPage mode="create" />)
+
+        // Jump into the JSON editor and straight back out before typing a title.
+        fireEvent.click(screen.getByRole("tab", { name: /json/i }))
+        fireEvent.click(screen.getByRole("tab", { name: /build/i }))
+
+        // The schema's required `title` must not block navigation on a fresh form.
+        expect(screen.queryByText(/Too small|at least 1 character/i)).toBeNull()
     })
 })

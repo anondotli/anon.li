@@ -111,6 +111,7 @@ export function FormBuilderPage({
             withFormMeta(initialSchema, {
                 title: initialForm?.title ?? "",
                 description: initialForm?.description ?? "",
+                notifyOnSubmission: initialForm?.notifyOnSubmission ?? true,
             }),
         ),
     )
@@ -155,19 +156,43 @@ export function FormBuilderPage({
         setHasChanges(true)
     }, [])
 
+    // Parses the raw JSON editor text into a valid FormSchemaDoc. The schema
+    // requires a non-empty `title`, but on a brand-new form the title may still
+    // be blank while the user works in the JSON tab — and it's really form
+    // metadata, not a field. A benign placeholder is substituted purely to pass
+    // validation; the canonical title is the intro state and is re-applied by
+    // buildFormInput/withFormMeta on save, so the placeholder never reaches the
+    // database. `suppliedTitle` reports whether the user provided one, so callers
+    // can decide whether to update the visible title input.
+    const parseJsonDraft = useCallback(
+        (raw: string): { parsed: FormSchemaDocType; suppliedTitle: string } | null => {
+            try {
+                const obj = JSON.parse(raw) as Record<string, unknown>
+                const suppliedTitle = typeof obj.title === "string" ? obj.title.trim() : ""
+                const parsed = FormSchemaDoc.parse({
+                    ...obj,
+                    title: suppliedTitle || "Untitled form",
+                })
+                return { parsed, suppliedTitle }
+            } catch (err) {
+                setJsonError(err instanceof Error ? err.message : "Invalid JSON")
+                return null
+            }
+        },
+        [],
+    )
+
     const patchSchema = useCallback(
         (patch: Partial<FormSchemaDocType>) => {
             let base = schema
             if (editorMode === "json") {
-                try {
-                    base = FormSchemaDoc.parse(JSON.parse(rawJson))
-                    setTitle(base.title)
-                    setDescription(base.description ?? "")
-                    setJsonError(null)
-                } catch (err) {
-                    setJsonError(err instanceof Error ? err.message : "Invalid JSON")
-                    return
-                }
+                const draft = parseJsonDraft(rawJson)
+                if (!draft) return
+                base = draft.parsed
+                if (draft.suppliedTitle) setTitle(draft.suppliedTitle)
+                setDescription(base.description ?? "")
+                setNotifyOnSubmission(base.notifyOnSubmission)
+                setJsonError(null)
             }
             const next = { ...base, ...patch }
             updateSchema(next)
@@ -175,27 +200,25 @@ export function FormBuilderPage({
                 setRawJson(serializeSchema(next))
             }
         },
-        [editorMode, rawJson, schema, updateSchema],
+        [editorMode, rawJson, schema, updateSchema, parseJsonDraft],
     )
 
     const commitJsonDraft = useCallback(() => {
-        try {
-            const parsed = FormSchemaDoc.parse(JSON.parse(rawJson))
-            setSchema(parsed)
-            setTitle(parsed.title)
-            setDescription(parsed.description ?? "")
-            setJsonError(null)
-            return parsed
-        } catch (err) {
-            setJsonError(err instanceof Error ? err.message : "Invalid JSON")
-            return null
-        }
-    }, [rawJson])
+        const draft = parseJsonDraft(rawJson)
+        if (!draft) return null
+        const { parsed, suppliedTitle } = draft
+        setSchema(parsed)
+        if (suppliedTitle) setTitle(suppliedTitle)
+        setDescription(parsed.description ?? "")
+        setNotifyOnSubmission(parsed.notifyOnSubmission)
+        setJsonError(null)
+        return parsed
+    }, [rawJson, parseJsonDraft])
 
     const handleEditorModeChange = (next: string) => {
         const nextMode = next as EditorMode
         if (nextMode === "json") {
-            setRawJson(serializeSchema(withFormMeta(schema, { title, description })))
+            setRawJson(serializeSchema(withFormMeta(schema, { title, description, notifyOnSubmission })))
             setJsonError(null)
             setEditorMode("json")
             return

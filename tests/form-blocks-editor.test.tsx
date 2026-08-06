@@ -17,6 +17,7 @@ describe("FormBlocksEditor", () => {
         const schema: FormSchemaDoc = {
             version: 1,
             title: "Test form",
+            notifyOnSubmission: true,
             displayMode: "classic",
             submitButtonText: "Submit",
             fields: [
@@ -44,6 +45,7 @@ describe("FormBlocksEditor", () => {
         const schema: FormSchemaDoc = {
             version: 1,
             title: "Test form",
+            notifyOnSubmission: true,
             displayMode: "classic",
             submitButtonText: "Submit",
             fields: [
@@ -72,6 +74,7 @@ describe("FormBlocksEditor", () => {
         const schema: FormSchemaDoc = {
             version: 1,
             title: "Test form",
+            notifyOnSubmission: true,
             displayMode: "classic",
             submitButtonText: "Submit",
             fields: [],
@@ -97,6 +100,7 @@ describe("FormBlocksEditor", () => {
         const initial: FormSchemaDoc = {
             version: 1,
             title: "Test form",
+            notifyOnSubmission: true,
             displayMode: "classic",
             submitButtonText: "Submit",
             fields: [
@@ -128,6 +132,7 @@ describe("FormBlocksEditor", () => {
         const initial: FormSchemaDoc = {
             version: 1,
             title: "Test form",
+            notifyOnSubmission: true,
             displayMode: "classic",
             submitButtonText: "Submit",
             fields: [
@@ -155,6 +160,7 @@ describe("FormBlocksEditor", () => {
         const initial: FormSchemaDoc = {
             version: 1,
             title: "Test form",
+            notifyOnSubmission: true,
             displayMode: "classic",
             submitButtonText: "Submit",
             fields: [

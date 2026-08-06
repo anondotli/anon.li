@@ -90,7 +90,7 @@ export function buildFormInput({
         data: {
             title: trimmedTitle,
             description: description.trim() || null,
-            schema: withFormMeta(parsedSchema.data, { title: trimmedTitle, description }),
+            schema: withFormMeta(parsedSchema.data, { title: trimmedTitle, description, notifyOnSubmission }),
             allowFileUploads,
             maxSubmissions: parsedMaxSubmissions.value,
             closesAt: parsedClosesAt.value,

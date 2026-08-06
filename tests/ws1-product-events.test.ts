@@ -101,6 +101,7 @@ describe("form_created", () => {
         schema: {
             version: 1 as const,
             title: "Intake",
+            notifyOnSubmission: true,
             displayMode: "classic" as const,
             submitButtonText: "Send",
             thankYouMessage: "Received.",

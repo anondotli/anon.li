@@ -181,7 +181,7 @@ export type FormFieldVisibility = z.infer<typeof VisibleWhen>
 export type FormFieldVisibilityOp = FormFieldVisibility["op"]
 
 export const FormSchemaDoc = z.object({
-    version: z.literal(1),
+version: z.literal(1),
     // Title and description are persisted both as top-level Form columns and
     // embedded in the schema JSON so the builder/API JSON is self-contained.
     // The server reconciles the two via `withFormMeta` on every write.
@@ -191,6 +191,9 @@ export const FormSchemaDoc = z.object({
     fields: z.array(FormFieldSchema).max(50),
     submitButtonText: z.string().min(1).max(60).default("Submit"),
     thankYouMessage: z.string().max(2000).optional(),
+    // Submission alerts — mirrors Form.notifyEmailFallback; reconciled by the
+    // server alongside title/description so the embedded JSON stays in sync.
+    notifyOnSubmission: z.boolean().default(true),
 }).refine(
     (doc) => new Set(doc.fields.map((f) => f.id)).size === doc.fields.length,
     { message: "field ids must be unique", path: ["fields"] },
@@ -241,17 +244,18 @@ export const EMPTY_FORM_SCHEMA: FormSchemaDoc = {
     displayMode: "one_question",
     fields: [],
     submitButtonText: "Submit",
+    notifyOnSubmission: true,
 }
 
 /**
  * Merges the canonical Form columns back into a schema document, ensuring the
- * persisted/returned JSON always mirrors title and description regardless of
- * what was submitted. The description key is dropped when blank/null so the
- * optional field stays absent rather than `null`.
+ * persisted/returned JSON always mirrors title, description, and the submission
+ * alerts setting regardless of what was submitted. The description key is
+ * dropped when blank/null so the optional field stays absent rather than `null`.
  */
 export function withFormMeta(
     schema: FormSchemaDoc,
-    meta: { title: string; description?: string | null },
+    meta: { title: string; description?: string | null; notifyOnSubmission?: boolean },
 ): FormSchemaDoc {
     const trimmedTitle = meta.title.trim()
     const trimmedDescription = meta.description?.trim()
@@ -259,6 +263,9 @@ export function withFormMeta(
         ...schema,
         title: trimmedTitle,
         ...(trimmedDescription ? { description: trimmedDescription } : {}),
+        ...(meta.notifyOnSubmission !== undefined
+            ? { notifyOnSubmission: meta.notifyOnSubmission }
+            : {}),
     }
 }
 

@@ -352,14 +352,27 @@ describe("title & description in the schema JSON", () => {
         expect(() => docWith({ id: "a", label: "A", type: "short_text" })).not.toThrow()
         const parsed = FormSchemaDoc.parse({ version: 1, title: "My form", fields: [] })
         expect(parsed.title).toBe("My form")
+        expect(parsed.notifyOnSubmission).toBe(true)
     })
 
-    it("serializes title and description as top-level JSON keys", () => {
+    it("serializes title, description, and notifyOnSubmission as top-level JSON keys", () => {
         const doc = docWith({ id: "a", label: "A", type: "short_text" })
-        const withMeta = withFormMeta(doc, { title: "  Intake  ", description: "  Confidential  " })
+        const withMeta = withFormMeta(doc, {
+            title: "  Intake  ",
+            description: "  Confidential  ",
+            notifyOnSubmission: false,
+        })
         const json = serializeSchema(withMeta)
         expect(json).toContain('"title": "Intake"')
         expect(json).toContain('"description": "Confidential"')
+        expect(json).toContain('"notifyOnSubmission": false')
+    })
+
+    it("withFormMeta defaults the submission-alert toggle to the provided value", () => {
+        const doc = docWith({ id: "a", label: "A", type: "short_text" })
+        expect(withFormMeta(doc, { title: "T", notifyOnSubmission: false }).notifyOnSubmission).toBe(false)
+        // Omitting it leaves the schema's own value intact.
+        expect(withFormMeta(doc, { title: "T" }).notifyOnSubmission).toBe(true)
     })
 
     it("withFormMeta drops a blank/null description instead of storing null", () => {

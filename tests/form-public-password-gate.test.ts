@@ -20,6 +20,7 @@ const schema = {
     displayMode: "classic" as const,
     fields: [{ id: "secret", type: "short_text" as const, label: "Secret question", required: true }],
     submitButtonText: "Send",
+    notifyOnSubmission: true,
 }
 
 function formRow(customKey: boolean, proof = "password-witness") {

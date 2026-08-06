@@ -259,6 +259,7 @@ export class FormService {
         const schema = withFormMeta(FormSchemaDoc.parse(input.schema), {
             title: input.title,
             description: input.description,
+            notifyOnSubmission: input.notifyOnSubmission ?? true,
         })
         const schemaHasFileUploads = schema.fields.some((field) => field.type === "file")
 
@@ -560,6 +561,9 @@ export class FormService {
             {
                 title: input.title ?? form.title,
                 description: input.description !== undefined ? input.description : form.description,
+                notifyOnSubmission: input.notifyOnSubmission !== undefined
+                    ? input.notifyOnSubmission
+                    : form.notifyEmailFallback,
             },
         )
         const schemaHasFileUploads = nextSchema.fields.some((field) => field.type === "file")
@@ -591,7 +595,7 @@ export class FormService {
             data: {
                 ...(input.title !== undefined && { title: input.title }),
                 ...(input.description !== undefined && { description: input.description }),
-                ...(input.schema !== undefined || input.title !== undefined || input.description !== undefined) && { schemaJson: JSON.stringify(nextSchema) },
+                ...((input.schema !== undefined || input.title !== undefined || input.description !== undefined || input.notifyOnSubmission !== undefined) && { schemaJson: JSON.stringify(nextSchema) }),
                 ...(input.active !== undefined && { active: input.active }),
                 ...(input.disabledByUser !== undefined && { disabledByUser: input.disabledByUser }),
                 allowFileUploads: schemaHasFileUploads,

@@ -65,11 +65,12 @@ Forms are defined by a versioned JSON schema. The schema is self-contained: in a
     }
   ],
   "submitButtonText": "Submit report",
-  "thankYouMessage": "Thanks. Your report has been encrypted for the intake team."
+  "thankYouMessage": "Thanks. Your report has been encrypted for the intake team.",
+  "notifyOnSubmission": true
 }
 ```
 
-The top-level `title` (required, 1–300 chars) and `description` (optional, ≤ 2000 chars) mirror the form's top-level metadata and are kept in sync server-side. `title` and `description` may also be passed separately when creating/updating a form; the stored schema is always reconciled to match.
+The top-level `title` (required, 1–300 chars), `description` (optional, ≤ 2000 chars), and `notifyOnSubmission` (alert the owner on each response) mirror the form's top-level metadata and are kept in sync server-side. They may also be passed separately when creating/updating a form; the stored schema is always reconciled to match.
 
 ### Top-level Keys
 
@@ -82,6 +83,7 @@ The top-level `title` (required, 1–300 chars) and `description` (optional, ≤
 | `fields` | array | ≤ 50 questions; IDs must be unique |
 | `submitButtonText` | string | Submit label, default `Submit`, ≤ 60 chars |
 | `thankYouMessage` | string | Optional, shown after submission, ≤ 2000 chars |
+| `notifyOnSubmission` | boolean | Email the account owner on each submission, default `true` |
 
 ### Supported Field Types
 
@@ -198,7 +200,8 @@ Returns public metadata needed to render the form and encrypt a submission. No a
       "title": "Whistleblower intake",
       "description": "A discreet intake form.",
       "displayMode": "classic",
-      "fields": [ /* ... */ ]
+      "fields": [ /* ... */ ],
+      "notifyOnSubmission": true
     },
     "field_count": 4,
     "public_key": "<base64url>",

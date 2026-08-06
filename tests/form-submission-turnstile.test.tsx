@@ -50,6 +50,7 @@ describe("FormSubmissionPage Turnstile", () => {
             schema: {
                 version: 1,
                 title: "Test form",
+                notifyOnSubmission: true,
                 displayMode: "classic",
                 fields: [
                     {
