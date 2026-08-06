@@ -16,6 +16,7 @@ import { FormService } from "@/lib/services/form"
 
 const schema = {
     version: 1 as const,
+    title: "Protected form",
     displayMode: "classic" as const,
     fields: [{ id: "secret", type: "short_text" as const, label: "Secret question", required: true }],
     submitButtonText: "Send",

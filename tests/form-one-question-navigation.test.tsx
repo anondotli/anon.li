@@ -10,6 +10,7 @@ describe("one-question optional navigation", () => {
     it("lets a submitter skip an optional auto-advance choice", () => {
         const schema = FormSchemaDoc.parse({
             version: 1,
+            title: "Test form",
             displayMode: "one_question",
             submitButtonText: "Send",
             fields: [{

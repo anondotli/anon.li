@@ -20,7 +20,7 @@
   },
   "scripts": {
     "dev": "next dev",
-    "build": "bunx --no-install prisma generate && next build --webpack",
+    "build": "bunx --no-install prisma generate && next build",
     "start": "next start",
     "audit": "bun audit",
     "check": "bun run lint && bun run typecheck && bun run deadcode && bun run test && bun run build",

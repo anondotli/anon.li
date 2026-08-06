@@ -36,6 +36,12 @@ const db = prisma as unknown as {
     $transaction: Mock
 }
 
+function firstFormUpdateData(): Record<string, unknown> {
+    const call = db.form.update.mock.calls[0]
+    if (!call) throw new Error("prisma.form.update was never called")
+    return call[0].data
+}
+
 beforeEach(() => {
     vi.clearAllMocks()
     db.$queryRaw.mockResolvedValue([{ tosViolations: 1, banned: false }])
@@ -54,7 +60,7 @@ describe("AdminService — form takedown / restore", () => {
 
         // `takenDown` is the enforcement flag. Writing disabledByUser/active here
         // would destroy the owner's own setting with nowhere to restore it from.
-        const data = db.form.update.mock.calls[0][0].data
+        const data = firstFormUpdateData()
         expect(data).toMatchObject({ takenDown: true, takedownReason: "Phishing" })
         expect(data).not.toHaveProperty("disabledByUser")
         expect(data).not.toHaveProperty("active")
@@ -69,7 +75,7 @@ describe("AdminService — form takedown / restore", () => {
 
         await AdminService.restoreForm("form_1")
 
-        const data = db.form.update.mock.calls[0][0].data
+        const data = firstFormUpdateData()
         expect(data).toEqual({ takenDown: false, takedownReason: null, takenDownAt: null })
     })
 

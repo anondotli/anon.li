@@ -10,6 +10,7 @@ import {
     missingRequiredAddressParts,
     getAddressParts,
     minifyAddressParts,
+    withFormMeta,
     type FormField,
     type AddressPartsConfig,
 } from "@/lib/form-schema"
@@ -24,6 +25,7 @@ function addressParts(overrides: Partial<AddressPartsConfig>): AddressPartsConfi
 function docWith(field: Record<string, unknown>): FormSchemaDoc {
     return FormSchemaDoc.parse({
         version: 1,
+        title: "Test form",
         displayMode: "classic",
         fields: [field],
         submitButtonText: "Submit",
@@ -99,6 +101,7 @@ describe("schema and text/date validation", () => {
         expect(() => FormSchemaDoc.parse({
             version: 1,
             displayMode: "classic",
+            title: "Test form",
             submitButtonText: "Submit",
             fields: [
                 {
@@ -340,5 +343,29 @@ describe("createField defaults for new types", () => {
 
         const address = createField("address", [])
         expect(address).toMatchObject({ type: "address" })
+    })
+})
+
+describe("title & description in the schema JSON", () => {
+    it("requires a non-empty title and rejects one without it", () => {
+        expect(FormSchemaDoc.safeParse({ version: 1, fields: [] }).success).toBe(false)
+        expect(() => docWith({ id: "a", label: "A", type: "short_text" })).not.toThrow()
+        const parsed = FormSchemaDoc.parse({ version: 1, title: "My form", fields: [] })
+        expect(parsed.title).toBe("My form")
+    })
+
+    it("serializes title and description as top-level JSON keys", () => {
+        const doc = docWith({ id: "a", label: "A", type: "short_text" })
+        const withMeta = withFormMeta(doc, { title: "  Intake  ", description: "  Confidential  " })
+        const json = serializeSchema(withMeta)
+        expect(json).toContain('"title": "Intake"')
+        expect(json).toContain('"description": "Confidential"')
+    })
+
+    it("withFormMeta drops a blank/null description instead of storing null", () => {
+        const doc = docWith({ id: "a", label: "A", type: "short_text" })
+        expect(withFormMeta(doc, { title: "T", description: null })).not.toHaveProperty("description")
+        expect(withFormMeta(doc, { title: "T", description: "   " })).not.toHaveProperty("description")
+        expect(withFormMeta(doc, { title: "T", description: "Hello" }).description).toBe("Hello")
     })
 })

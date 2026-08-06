@@ -16,6 +16,7 @@ describe("FormBlocksEditor", () => {
         const { FormBlocksEditor } = await import("@/components/form/dashboard/blocks-editor")
         const schema: FormSchemaDoc = {
             version: 1,
+            title: "Test form",
             displayMode: "classic",
             submitButtonText: "Submit",
             fields: [
@@ -42,6 +43,7 @@ describe("FormBlocksEditor", () => {
         const { FormBlocksEditor } = await import("@/components/form/dashboard/blocks-editor")
         const schema: FormSchemaDoc = {
             version: 1,
+            title: "Test form",
             displayMode: "classic",
             submitButtonText: "Submit",
             fields: [
@@ -69,6 +71,7 @@ describe("FormBlocksEditor", () => {
         const { FormBlocksEditor } = await import("@/components/form/dashboard/blocks-editor")
         const schema: FormSchemaDoc = {
             version: 1,
+            title: "Test form",
             displayMode: "classic",
             submitButtonText: "Submit",
             fields: [],
@@ -93,6 +96,7 @@ describe("FormBlocksEditor", () => {
         const { FormBlocksEditor } = await import("@/components/form/dashboard/blocks-editor")
         const initial: FormSchemaDoc = {
             version: 1,
+            title: "Test form",
             displayMode: "classic",
             submitButtonText: "Submit",
             fields: [
@@ -123,6 +127,7 @@ describe("FormBlocksEditor", () => {
         const { FormBlocksEditor } = await import("@/components/form/dashboard/blocks-editor")
         const initial: FormSchemaDoc = {
             version: 1,
+            title: "Test form",
             displayMode: "classic",
             submitButtonText: "Submit",
             fields: [
@@ -149,6 +154,7 @@ describe("FormBlocksEditor", () => {
         const { FormBlocksEditor } = await import("@/components/form/dashboard/blocks-editor")
         const initial: FormSchemaDoc = {
             version: 1,
+            title: "Test form",
             displayMode: "classic",
             submitButtonText: "Submit",
             fields: [

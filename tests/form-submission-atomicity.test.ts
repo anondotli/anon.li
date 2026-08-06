@@ -37,6 +37,7 @@ import { FormService } from "@/lib/services/form"
 
 const schemaJson = JSON.stringify({
     version: 1,
+    title: "Form",
     displayMode: "classic",
     submitButtonText: "Send",
     fields: [{ id: "message", type: "short_text", label: "Message", required: false }],

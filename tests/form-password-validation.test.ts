@@ -14,6 +14,7 @@ const baseInput = {
     title: "Protected form",
     schema: {
         version: 1,
+        title: "Protected form",
         displayMode: "classic",
         submitButtonText: "Send",
         thankYouMessage: "Received.",

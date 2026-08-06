@@ -39,7 +39,7 @@ import { UpgradeRequiredDialog } from "@/components/upgrade/upgrade-required-dia
 import { generateKeypair } from "@/lib/crypto/asymmetric"
 import { wrapVaultPayload, base64UrlToArrayBuffer } from "@/lib/vault/crypto"
 import { authClient } from "@/lib/auth-client"
-import { FormSchemaDoc, EMPTY_FORM_SCHEMA, serializeSchema } from "@/lib/form-schema"
+import { FormSchemaDoc, EMPTY_FORM_SCHEMA, serializeSchema, withFormMeta } from "@/lib/form-schema"
 import type {
     FormSchemaDoc as FormSchemaDocType,
 } from "@/lib/form-schema"
@@ -106,7 +106,14 @@ export function FormBuilderPage({
     const [title, setTitle] = useState(initialForm?.title ?? "")
     const [description, setDescription] = useState(initialForm?.description ?? "")
     const [schema, setSchema] = useState<FormSchemaDocType>(initialSchema)
-    const [rawJson, setRawJson] = useState(() => serializeSchema(initialSchema))
+    const [rawJson, setRawJson] = useState(() =>
+        serializeSchema(
+            withFormMeta(initialSchema, {
+                title: initialForm?.title ?? "",
+                description: initialForm?.description ?? "",
+            }),
+        ),
+    )
     const [jsonError, setJsonError] = useState<string | null>(null)
     const [editorMode, setEditorMode] = useState<EditorMode>("build")
     const [hideBranding, setHideBranding] = useState(
@@ -154,6 +161,8 @@ export function FormBuilderPage({
             if (editorMode === "json") {
                 try {
                     base = FormSchemaDoc.parse(JSON.parse(rawJson))
+                    setTitle(base.title)
+                    setDescription(base.description ?? "")
                     setJsonError(null)
                 } catch (err) {
                     setJsonError(err instanceof Error ? err.message : "Invalid JSON")
@@ -173,6 +182,8 @@ export function FormBuilderPage({
         try {
             const parsed = FormSchemaDoc.parse(JSON.parse(rawJson))
             setSchema(parsed)
+            setTitle(parsed.title)
+            setDescription(parsed.description ?? "")
             setJsonError(null)
             return parsed
         } catch (err) {
@@ -184,7 +195,7 @@ export function FormBuilderPage({
     const handleEditorModeChange = (next: string) => {
         const nextMode = next as EditorMode
         if (nextMode === "json") {
-            setRawJson(serializeSchema(schema))
+            setRawJson(serializeSchema(withFormMeta(schema, { title, description })))
             setJsonError(null)
             setEditorMode("json")
             return

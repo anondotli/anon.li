@@ -1,4 +1,4 @@
-import { FormSchemaDoc, type FormField, type FormSchemaDoc as FormSchemaDocType } from "@/lib/form-schema"
+import { FormSchemaDoc, withFormMeta, type FormField, type FormSchemaDoc as FormSchemaDocType } from "@/lib/form-schema"
 import type { PasswordPayload } from "./form-password-dialog"
 
 export type NormalizedFormInput = {
@@ -90,7 +90,7 @@ export function buildFormInput({
         data: {
             title: trimmedTitle,
             description: description.trim() || null,
-            schema: parsedSchema.data,
+            schema: withFormMeta(parsedSchema.data, { title: trimmedTitle, description }),
             allowFileUploads,
             maxSubmissions: parsedMaxSubmissions.value,
             closesAt: parsedClosesAt.value,

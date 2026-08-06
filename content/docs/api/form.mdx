@@ -44,39 +44,67 @@ Form metadata (title, description, field schema) is stored in plaintext. An unpr
 
 ## Form Schema
 
-Forms are defined by a versioned JSON schema. Field IDs must be unique within a form.
+Forms are defined by a versioned JSON schema. The schema is self-contained: in addition to the fields, it carries the form's `title` and `description`. Field IDs must be unique within a form, and `displayMode` controls whether questions render all on one page (`classic`) or one at a time (`one_question`).
 
 ```json
 {
   "version": 1,
+  "title": "Whistleblower intake",
+  "description": "A discreet intake form. Submissions are encrypted end to end.",
+  "displayMode": "classic",
   "fields": [
     { "id": "name", "type": "short_text", "label": "Name", "required": true },
     { "id": "email", "type": "email", "label": "Email" },
     { "id": "report", "type": "long_text", "label": "What happened?", "required": true, "maxLength": 50000 },
-    { "id": "urgency", "type": "single_select", "label": "Urgency", "options": ["Low", "Medium", "High"] }
+    { "id": "urgency", "type": "single_select", "label": "Urgency", "options": ["Low", "Medium", "High"] },
+    {
+      "id": "phone",
+      "type": "phone",
+      "label": "Preferred number",
+      "visibleWhen": { "fieldId": "urgency", "op": "equals", "value": "High" }
+    }
   ],
   "submitButtonText": "Submit report",
   "thankYouMessage": "Thanks. Your report has been encrypted for the intake team."
 }
 ```
 
+The top-level `title` (required, 1–300 chars) and `description` (optional, ≤ 2000 chars) mirror the form's top-level metadata and are kept in sync server-side. `title` and `description` may also be passed separately when creating/updating a form; the stored schema is always reconciled to match.
+
+### Top-level Keys
+
+| Key | Type | Description |
+| :--- | :--- | :--- |
+| `version` | integer | Always `1` |
+| `title` | string | Required, 1–300 chars |
+| `description` | string | Optional, ≤ 2000 chars |
+| `displayMode` | string | `classic` (default) or `one_question` |
+| `fields` | array | ≤ 50 questions; IDs must be unique |
+| `submitButtonText` | string | Submit label, default `Submit`, ≤ 60 chars |
+| `thankYouMessage` | string | Optional, shown after submission, ≤ 2000 chars |
+
 ### Supported Field Types
+
+Every field shares the common properties `id` (unique, alphanumeric), `label`, `required`, `helpText`, and `visibleWhen`.
 
 | Type | Options |
 | :--- | :--- |
-| `short_text` | `maxLength` (≤ 500) |
-| `long_text` | `maxLength` (≤ 50000) |
-| `email` | — |
+| `short_text` | `placeholder`, `maxLength` (≤ 500) |
+| `long_text` | `placeholder`, `maxLength` (≤ 50,000) |
+| `email` | `placeholder` |
 | `number` | `min`, `max`, `step` |
-| `phone` | — |
+| `phone` | `placeholder` |
 | `single_select` | `options[]` (1–50) |
 | `multi_select` | `options[]` (1–50) |
 | `dropdown` | `options[]` (1–100) |
-| `rating` | `max` (3–10) |
-| `date` | `min`, `max` (ISO-8601) |
-| `file` | `maxFiles` (1–20), `acceptedMimeTypes[]` |
+| `rating` | `max` (3–10, default 5) |
+| `date` | `min`, `max` (ISO-8601 `YYYY-MM-DD`) |
+| `file` | `maxFiles` (1–20, default 1), `maxFileSize` (bytes), `acceptedMimeTypes[]` |
+| `linear_scale` | `min` (0–1, default 1), `max` (2–11, default 5), `minLabel`, `maxLabel` |
+| `ranking` | `options[]` (2–20) |
+| `address` | `parts` — per-part `{ enabled, required }` for `line1`, `line2`, `city`, `state`, `postalCode`, `country` |
 
-Every field accepts `label`, `required`, and `helpText`.
+`visibleWhen` gates a question on an earlier field's answer and accepts `fieldId`, `op` (`equals`, `notEquals`, `contains`, `gt`, `lt`, `isEmpty`, `isNotEmpty`), and `value`. Visibility rules must reference an earlier question. An `address` question must collect at least one part. Option lists must be unique, and select/dropdown/ranking options are trimmed and de-duplicated on save.
 
 ---
 
@@ -116,7 +144,7 @@ Creating a form requires a vault-unlocked caller. Clients using API-key authenti
 | :--- | :--- | :--- | :--- |
 | `title` | string | Yes | Human-readable title (1–300 chars) |
 | `description` | string | No | Shown above the form (≤ 2000 chars) |
-| `schema` | object | Yes | `FormSchemaDoc` JSON (see above) |
+| `schema` | object | Yes | `FormSchemaDoc` JSON (see above); its embedded `title`/`description` are reconciled with the top-level fields |
 | `publicKey` | string | Yes | Base64url-encoded raw P-256 public key (87 chars) |
 | `wrappedPrivateKey` | string | Yes | Vault-wrapped P-256 private key (PKCS#8 inside AES-GCM) |
 | `vaultId` | string | Yes | Caller's current vault identity |
@@ -165,7 +193,13 @@ Returns public metadata needed to render the form and encrypt a submission. No a
     "id": "aB3x0Yz9Qw8t",
     "title": "Whistleblower intake",
     "description": null,
-    "schema": { "version": 1, "fields": [ /* ... */ ] },
+    "schema": {
+      "version": 1,
+      "title": "Whistleblower intake",
+      "description": "A discreet intake form.",
+      "displayMode": "classic",
+      "fields": [ /* ... */ ]
+    },
     "field_count": 4,
     "public_key": "<base64url>",
     "allowFileUploads": false,

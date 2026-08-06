@@ -67,7 +67,7 @@ function createRequest(overrides: Record<string, unknown> = {}) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
             title: "Secure intake",
-            schema: { version: 1, fields: [] },
+            schema: { version: 1, title: "Secure intake", fields: [] },
             publicKey: "A".repeat(87),
             wrappedPrivateKey: "A".repeat(32),
             vaultGeneration: 4,

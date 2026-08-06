@@ -29,7 +29,7 @@ import { getFormLimitsAsync } from "@/lib/limits"
 import { PLAN_ENTITLEMENTS } from "@/config/plans"
 import { DAY_MS } from "@/lib/constants"
 import { plaintextSizeFromEncrypted } from "@/lib/drop-size"
-import { FormSchemaDoc, type FormSchemaDoc as FormSchemaDocType } from "@/lib/form-schema"
+import { FormSchemaDoc, withFormMeta, type FormSchemaDoc as FormSchemaDocType } from "@/lib/form-schema"
 import { hashUploadToken } from "@/lib/services/drop-upload-token"
 import {
     effectiveFormFileCap,
@@ -256,7 +256,10 @@ function startOfCurrentUtcMonth(now = new Date()): Date {
 
 export class FormService {
     static async createForm(scope: OwnerScope, input: CreateFormInput) {
-        const schema = FormSchemaDoc.parse(input.schema)
+        const schema = withFormMeta(FormSchemaDoc.parse(input.schema), {
+            title: input.title,
+            description: input.description,
+        })
         const schemaHasFileUploads = schema.fields.some((field) => field.type === "file")
 
         // Org forms derive limits/tier from the org plan; personal from the user.
@@ -552,7 +555,13 @@ export class FormService {
         if (input.customKey === true && !hasCustomKeyMaterial(input)) {
             throw new ValidationError("customKey forms require password material")
         }
-        const nextSchema = input.schema ? FormSchemaDoc.parse(input.schema) : FormSchemaDoc.parse(JSON.parse(form.schemaJson))
+        const nextSchema = withFormMeta(
+            input.schema ? FormSchemaDoc.parse(input.schema) : FormSchemaDoc.parse(JSON.parse(form.schemaJson)),
+            {
+                title: input.title ?? form.title,
+                description: input.description !== undefined ? input.description : form.description,
+            },
+        )
         const schemaHasFileUploads = nextSchema.fields.some((field) => field.type === "file")
 
         if (schemaHasFileUploads && limits.maxSubmissionFileSize === 0) {
@@ -582,7 +591,7 @@ export class FormService {
             data: {
                 ...(input.title !== undefined && { title: input.title }),
                 ...(input.description !== undefined && { description: input.description }),
-                ...(input.schema !== undefined && { schemaJson: JSON.stringify(nextSchema) }),
+                ...(input.schema !== undefined || input.title !== undefined || input.description !== undefined) && { schemaJson: JSON.stringify(nextSchema) },
                 ...(input.active !== undefined && { active: input.active }),
                 ...(input.disabledByUser !== undefined && { disabledByUser: input.disabledByUser }),
                 allowFileUploads: schemaHasFileUploads,

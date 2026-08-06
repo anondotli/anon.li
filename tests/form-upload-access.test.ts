@@ -187,6 +187,7 @@ describe("form upload token access", () => {
             userId: "owner-1",
             schemaJson: JSON.stringify({
                 version: 1,
+                title: "Form",
                 submitButtonText: "Submit",
                 fields: [
                     {
@@ -213,6 +214,7 @@ describe("form upload token access", () => {
             userId: "owner-1",
             schemaJson: JSON.stringify({
                 version: 1,
+                title: "Form",
                 submitButtonText: "Submit",
                 fields: [
                     {

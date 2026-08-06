@@ -46,6 +46,7 @@ describe("public form answer validation", () => {
     it("validates only currently visible questions", () => {
         const schema = FormSchemaDoc.parse({
             version: 1,
+            title: "Test form",
             fields: [
                 { id: "show", type: "single_select", label: "Show?", required: true, options: ["yes", "no"] },
                 {

@@ -182,6 +182,11 @@ export type FormFieldVisibilityOp = FormFieldVisibility["op"]
 
 export const FormSchemaDoc = z.object({
     version: z.literal(1),
+    // Title and description are persisted both as top-level Form columns and
+    // embedded in the schema JSON so the builder/API JSON is self-contained.
+    // The server reconciles the two via `withFormMeta` on every write.
+    title: z.string().min(1).max(300),
+    description: z.string().max(2000).optional(),
     displayMode: z.enum(["classic", "one_question"]).default("classic"),
     fields: z.array(FormFieldSchema).max(50),
     submitButtonText: z.string().min(1).max(60).default("Submit"),
@@ -232,9 +237,29 @@ export type FormSchemaDoc = z.infer<typeof FormSchemaDoc>
 
 export const EMPTY_FORM_SCHEMA: FormSchemaDoc = {
     version: 1,
+    title: "",
     displayMode: "one_question",
     fields: [],
     submitButtonText: "Submit",
+}
+
+/**
+ * Merges the canonical Form columns back into a schema document, ensuring the
+ * persisted/returned JSON always mirrors title and description regardless of
+ * what was submitted. The description key is dropped when blank/null so the
+ * optional field stays absent rather than `null`.
+ */
+export function withFormMeta(
+    schema: FormSchemaDoc,
+    meta: { title: string; description?: string | null },
+): FormSchemaDoc {
+    const trimmedTitle = meta.title.trim()
+    const trimmedDescription = meta.description?.trim()
+    return {
+        ...schema,
+        title: trimmedTitle,
+        ...(trimmedDescription ? { description: trimmedDescription } : {}),
+    }
 }
 
 function isEmptyAnswer(value: unknown): boolean {

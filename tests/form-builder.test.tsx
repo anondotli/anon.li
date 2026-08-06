@@ -78,6 +78,7 @@ vi.mock("@/components/upgrade/upgrade-required-dialog", () => ({
 
 const schema: FormSchemaDoc = {
     version: 1,
+    title: "Test form",
     displayMode: "classic",
     submitButtonText: "Send",
     thankYouMessage: "Received.",
@@ -135,7 +136,7 @@ describe("FormBuilderPage", () => {
                 "abc123def456",
                 expect.objectContaining({
                     title: "Edited form",
-                    schema,
+                    schema: expect.objectContaining({ ...schema, title: "Edited form" }),
                     notifyOnSubmission: true,
                 }),
             )
@@ -153,6 +154,7 @@ describe("FormBuilderPage", () => {
             description: "",
             schema: {
                 version: 1,
+                title: "Test form",
                 displayMode: "classic",
                 submitButtonText: "Submit",
                 fields: [
@@ -326,6 +328,7 @@ describe("FormBuilderPage", () => {
             description: "",
             schema: {
                 version: 1,
+                title: "Test form",
                 displayMode: "classic",
                 submitButtonText: "Submit",
                 fields: [
