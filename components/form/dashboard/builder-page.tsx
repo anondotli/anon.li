@@ -234,14 +234,22 @@ export function FormBuilderPage({
     const canSave = !disabled && title.trim().length > 0
 
     const handleSave = async () => {
+        // In JSON mode the draft holds the authoritative `notifyOnSubmission`
+        // (and title) value, and setNotifyOnSubmission hasn't landed by the time
+        // we read the closure below. Take it straight from the committed doc so
+        // the saved schema isn't reverted to the stale toggle value.
+        const committedSchema = editorMode === "json" ? commitJsonDraft() : schema
+
         const input = buildFormInput({
             title,
             description,
-            schema: editorMode === "json" ? commitJsonDraft() : schema,
+            schema: committedSchema,
             hideBranding,
             maxSubmissions,
             closesAt,
-            notifyOnSubmission,
+            notifyOnSubmission: editorMode === "json"
+                ? (committedSchema?.notifyOnSubmission ?? notifyOnSubmission)
+                : notifyOnSubmission,
             disabledByUser: !formActive,
             passwordEnabled,
             passwordPayload,
@@ -265,6 +273,7 @@ export function FormBuilderPage({
                 toast.success("Form saved")
                 setSchema(input.data.schema)
                 setRawJson(serializeSchema(input.data.schema))
+                setNotifyOnSubmission(input.data.notifyOnSubmission)
                 setHasChanges(false)
                 setPasswordChanged(false)
                 router.refresh()

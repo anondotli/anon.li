@@ -373,4 +373,55 @@ describe("FormBuilderPage", () => {
         // The schema's required `title` must not block navigation on a fresh form.
         expect(screen.queryByText(/Too small|at least 1 character/i)).toBeNull()
     })
+
+    it("persists notifyOnSubmission when it is edited to false in the JSON", async () => {
+        actionMocks.updateFormAction.mockResolvedValue({ success: true, data: { id: "abc123def456" } })
+        const { FormBuilderPage } = await import("@/components/form/dashboard/builder-page")
+
+        render(
+            <FormBuilderPage
+                mode="edit"
+                limits={{ removeBranding: true, customKey: true, maxSubmissionFileSize: 10_000_000 }}
+                initialForm={{
+                    id: "abc123def456",
+                    title: "Original title",
+                    description: null,
+                    schema,
+                    allowFileUploads: false,
+                    maxSubmissions: null,
+                    closesAt: null,
+                    hideBranding: false,
+                    submissionsCount: 0,
+                    notifyOnSubmission: true,
+                    customKey: false,
+                    disabledByUser: false,
+                }}
+            />,
+        )
+
+        fireEvent.mouseDown(screen.getByRole("tab", { name: /json/i }), { button: 0 })
+        await new Promise(r => setTimeout(r, 50))
+
+        const jsonTextarea = await waitFor(() => {
+            const found = Array.from(document.querySelectorAll("textarea"))
+                .find((box) => (box as HTMLTextAreaElement).value.includes('"notifyOnSubmission"'))
+            expect(found).toBeTruthy()
+            return found as HTMLTextAreaElement
+        })
+
+        fireEvent.change(jsonTextarea, {
+            target: { value: jsonTextarea.value.replace('"notifyOnSubmission": true', '"notifyOnSubmission": false') },
+        })
+        fireEvent.click(screen.getByRole("button", { name: "Save changes" }))
+
+        await waitFor(() => {
+            expect(actionMocks.updateFormAction).toHaveBeenCalledWith(
+                "abc123def456",
+                expect.objectContaining({
+                    notifyOnSubmission: false,
+                    schema: expect.objectContaining({ notifyOnSubmission: false }),
+                }),
+            )
+        })
+    })
 })
