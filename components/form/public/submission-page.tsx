@@ -498,7 +498,7 @@ function FocusedFooter({
             <p className={cn("inline-flex items-center gap-1.5 text-xs text-muted-foreground")}>
                 <Shield className="h-3 w-3" />
                 Encrypted in your browser before it leaves your device.
-                {showBranding ? <> Powered by <Link href="/form" target="_blank" rel="noopener noreferrer">anon.li Form</Link>.</> : null}
+                {showBranding ? <> Powered by <Link href="/form" target="_blank" rel="noopener noreferrer">anon.li Form.</Link></> : null}
             </p>
         </div>
     )
@@ -580,7 +580,7 @@ function ClassicFooter({
             <p className="inline-flex w-full items-center justify-center gap-1.5 text-center text-xs text-muted-foreground">
                 <Shield className="h-3 w-3" />
                 Encrypted in your browser before it leaves your device.
-                {showBranding ? <> Powered by <Link href="/form" target="_blank" rel="noopener noreferrer">anon.li Form</Link>.</> : null}
+                {showBranding ? <> Powered by <Link href="/form" target="_blank" rel="noopener noreferrer">anon.li Form.</Link></> : null}
             </p>
         </div>
     )

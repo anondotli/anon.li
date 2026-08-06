@@ -126,24 +126,6 @@ export function FormBuilderPage({
     const [hasChanges, setHasChanges] = useState(false)
     const [submitting, setSubmitting] = useState(false)
     const [upgradeDetails, setUpgradeDetails] = useState<UpgradeRequiredDetails | null>(null)
-    // Each field block expands/collapses independently. Default: all collapsed.
-    const [expandedFieldIds, setExpandedFieldIds] = useState<Set<string>>(() => new Set())
-    const toggleFieldExpansion = useCallback((id: string) => {
-        setExpandedFieldIds((current) => {
-            const next = new Set(current)
-            if (next.has(id)) next.delete(id)
-            else next.add(id)
-            return next
-        })
-    }, [])
-    const expandField = useCallback((id: string) => {
-        setExpandedFieldIds((current) => {
-            if (current.has(id)) return current
-            const next = new Set(current)
-            next.add(id)
-            return next
-        })
-    }, [])
     const [previewStep, setPreviewStep] = useState(0)
 
     const hasSubmissions = (initialForm?.submissionsCount ?? 0) > 0
@@ -489,9 +471,6 @@ export function FormBuilderPage({
                                             ? limits.maxSubmissionFileSize
                                             : undefined
                                     }
-                                    expandedIds={expandedFieldIds}
-                                    onToggleExpansion={toggleFieldExpansion}
-                                    onExpand={expandField}
                                 />
                             </TabsContent>
 

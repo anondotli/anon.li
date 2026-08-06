@@ -197,7 +197,7 @@ async function lockFormOwner(tx: Prisma.TransactionClient, owner: FormOwnerIdent
     // the shared mutex for owner-wide form and submission caps across all of
     // them, without blocking unrelated user/org updates.
     await tx.$queryRaw`
-        SELECT pg_advisory_xact_lock(hashtextextended(${ownerLockKey(owner)}, 0))
+        SELECT pg_advisory_xact_lock(hashtextextended(${ownerLockKey(owner)}, 0))::text
     `
 }
 

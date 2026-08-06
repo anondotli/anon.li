@@ -106,12 +106,38 @@ interface Props {
     onChange: (next: FormSchemaDoc) => void
     disabled?: boolean
     maxFileSizeLimit?: number
-    /** Controlled set of field ids whose editors are expanded. */
-    expandedIds?: Set<string>
-    /** Toggle a single field's expanded state. */
-    onToggleExpansion?: (id: string) => void
-    /** Force-expand a field (used when adding/duplicating so the new field opens for editing). */
-    onExpand?: (id: string) => void
+}
+
+// Expanded blocks are tracked by field *position*, not field id: ids are
+// editable in the Field ID input, so keying expansion (or the React key) by
+// them would collapse and remount the block on every keystroke. These
+// helpers keep the position set in sync when fields are inserted, removed,
+// or moved.
+function expandAt(current: Set<number>, at: number): Set<number> {
+    const next = new Set<number>()
+    for (const index of current) next.add(index >= at ? index + 1 : index)
+    next.add(at)
+    return next
+}
+
+function collapseRemoved(current: Set<number>, at: number): Set<number> {
+    const next = new Set<number>()
+    for (const index of current) {
+        if (index === at) continue
+        next.add(index > at ? index - 1 : index)
+    }
+    return next
+}
+
+function remapMoved(current: Set<number>, from: number, to: number): Set<number> {
+    const next = new Set<number>()
+    for (const index of current) {
+        if (index === from) next.add(to)
+        else if (from < to && index > from && index <= to) next.add(index - 1)
+        else if (from > to && index >= to && index < from) next.add(index + 1)
+        else next.add(index)
+    }
+    return next
 }
 
 export function FormBlocksEditor({
@@ -119,32 +145,18 @@ export function FormBlocksEditor({
     onChange,
     disabled,
     maxFileSizeLimit,
-    expandedIds: expandedIdsProp,
-    onToggleExpansion: onToggleExpansionProp,
-    onExpand: onExpandProp,
 }: Props) {
     const [reorderIndex, setReorderIndex] = useState<number | null>(null)
     const [dropTarget, setDropTarget] = useState<number | null>(null)
-    const [internalExpandedIds, setInternalExpandedIds] = useState<Set<string>>(() => new Set())
-    const expandedIds = expandedIdsProp ?? internalExpandedIds
-    const internalToggleExpansion = useCallback((id: string) => {
-        setInternalExpandedIds((current) => {
+    const [expandedIndices, setExpandedIndices] = useState<Set<number>>(() => new Set())
+    const toggleExpansion = useCallback((index: number) => {
+        setExpandedIndices((current) => {
             const next = new Set(current)
-            if (next.has(id)) next.delete(id)
-            else next.add(id)
+            if (next.has(index)) next.delete(index)
+            else next.add(index)
             return next
         })
     }, [])
-    const internalExpand = useCallback((id: string) => {
-        setInternalExpandedIds((current) => {
-            if (current.has(id)) return current
-            const next = new Set(current)
-            next.add(id)
-            return next
-        })
-    }, [])
-    const toggleExpansion = onToggleExpansionProp ?? internalToggleExpansion
-    const expand = onExpandProp ?? internalExpand
 
     const update = useCallback(
         (next: Partial<FormSchemaDoc>) => onChange({ ...schema, ...next }),
@@ -154,7 +166,24 @@ export function FormBlocksEditor({
     const updateField = useCallback(
         (index: number, patch: Partial<FormField>) => {
             const next = schema.fields.slice()
-            next[index] = { ...(next[index] as FormField), ...patch } as FormField
+            const current = next[index] as FormField
+            next[index] = { ...current, ...patch } as FormField
+            // Visibility rules reference fields by id; follow renames so
+            // editing the Field ID doesn't silently break other fields' logic
+            // (and trip the "must reference an earlier question" validation).
+            if (patch.id !== undefined && patch.id !== current.id) {
+                for (let i = 0; i < next.length; i++) {
+                    if (i === index) continue
+                    const other = next[i] as FormField
+                    const rule = other.visibleWhen
+                    if (rule && rule.fieldId === current.id) {
+                        next[i] = {
+                            ...other,
+                            visibleWhen: { ...rule, fieldId: patch.id },
+                        } as FormField
+                    }
+                }
+            }
             update({ fields: next })
         },
         [schema.fields, update],
@@ -173,21 +202,19 @@ export function FormBlocksEditor({
         (type: FormFieldType, atIndex?: number) => {
             const newField = createField(type, schema.fields, maxFileSizeLimit)
             const next = schema.fields.slice()
-            if (atIndex === undefined || atIndex >= next.length) {
-                next.push(newField)
-            } else {
-                next.splice(atIndex, 0, newField)
-            }
+            const at = atIndex === undefined || atIndex >= next.length ? next.length : atIndex
+            next.splice(at, 0, newField)
             update({ fields: next })
-            expand(newField.id)
+            setExpandedIndices((current) => expandAt(current, at))
         },
-        [schema.fields, update, maxFileSizeLimit, expand],
+        [schema.fields, update, maxFileSizeLimit],
     )
 
     const removeField = (index: number) => {
         const next = schema.fields.slice()
         next.splice(index, 1)
         update({ fields: next })
+        setExpandedIndices((current) => collapseRemoved(current, index))
     }
 
     const moveField = (from: number, to: number) => {
@@ -197,6 +224,7 @@ export function FormBlocksEditor({
         if (!field) return
         next.splice(to, 0, field)
         update({ fields: next })
+        setExpandedIndices((current) => remapMoved(current, from, to))
     }
 
     const duplicateField = (index: number) => {
@@ -209,7 +237,7 @@ export function FormBlocksEditor({
         const next = schema.fields.slice()
         next.splice(index + 1, 0, copy)
         update({ fields: next })
-        expand(copy.id)
+        setExpandedIndices((current) => expandAt(current, index + 1))
     }
 
     if (schema.fields.length === 0) {
@@ -232,11 +260,13 @@ export function FormBlocksEditor({
     return (
         <div className="space-y-2">
             {schema.fields.map((field, index) => {
-                const isSelected = expandedIds.has(field.id)
+                const isSelected = expandedIndices.has(index)
                 const isDragging = reorderIndex === index
                 const isDropTarget = dropTarget === index && reorderIndex !== null && reorderIndex !== index
                 return (
-                    <div key={field.id}>
+                    // Keyed by position (see expandAt comment): field ids are
+                    // editable, so they are not a stable React key.
+                    <div key={index}>
                         {index > 0 ? (
                             <BetweenInsert
                                 onAdd={(type) => insertField(type, index)}
@@ -271,7 +301,7 @@ export function FormBlocksEditor({
                                 total={schema.fields.length}
                                 selected={isSelected}
                                 disabled={disabled}
-                                onClick={() => toggleExpansion(field.id)}
+                                onClick={() => toggleExpansion(index)}
                                 onDragStart={(event) => {
                                     if (disabled) return
                                     setReorderIndex(index)
@@ -912,8 +942,10 @@ function VisibleWhenEditor({
                                 <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                                {eligible.map((f) => (
-                                    <SelectItem key={f.id} value={f.id}>
+                                {eligible.map((f, i) => (
+                                    // Keyed by index: field ids are editable and
+                                    // can collide while the user is typing.
+                                    <SelectItem key={`${i}:${f.id}`} value={f.id}>
                                         <span className="truncate">{f.label || f.id}</span>
                                     </SelectItem>
                                 ))}
