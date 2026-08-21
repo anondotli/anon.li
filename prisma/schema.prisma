@@ -600,7 +600,7 @@ model UploadChunk {
 // ECDH+AES-GCM; only the creator can decrypt. Title/description/schemaJson are
 // intentionally plaintext — they are the questions the public needs to see.
 model Form {
-  id String @id // 12-char alphanumeric public id
+  id String @id // 8-char alphanumeric public id (12 for legacy forms)
 
   // Nullable + SetNull so deleting the creating user keeps an org-owned form
   // (owned by organizationId) instead of cascade-deleting it and its submissions.

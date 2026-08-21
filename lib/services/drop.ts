@@ -32,7 +32,10 @@ import {
     deleteObjects,
     getObjectMetadata,
 } from "@/lib/storage";
-import type { Drop, Prisma } from "@prisma/client";
+// `Prisma` is a value import (not `import type`) because the drop-id collision
+// retry in createDrop needs `Prisma.PrismaClientKnownRequestError` at runtime.
+import { Prisma } from "@prisma/client";
+import type { Drop } from "@prisma/client";
 import {
     ValidationError,
     NotFoundError,
@@ -53,9 +56,14 @@ import {
 import { pMapLimit } from "@/lib/async-utils";
 import { encryptedStorageLimit, plaintextSizeFromEncrypted } from "@/lib/drop-size";
 
-// ID generator: lowercase alphanumeric, 16 chars = ~83 bits of entropy
-const generateDropId = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", 16);
+// ID generator: lowercase alphanumeric, 8 chars = ~41 bits of entropy.
+// Legacy drops use 16-char ids; both lengths coexist because the column is TEXT
+// and nothing validates drop-id length, so old share links keep resolving.
+const generateDropId = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", 8);
 const generateFileId = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", 10);
+
+/** Regeneration attempts before a drop-id collision is surfaced as an error. */
+const DROP_ID_ATTEMPTS = 5;
 
 const logger = createLogger("DropService");
 
@@ -609,28 +617,47 @@ export class DropService {
         );
 
         const expiresAt = calculateExpiry(input.expiry, maxExpiry, effectiveTier);
-        const dropId = generateDropId();
 
-        await prisma.drop.create({
-            data: {
-                id: dropId,
-                iv: input.iv,
-                encryptedTitle: input.encryptedTitle || null,
-                encryptedMessage: input.encryptedMessage || null,
-                expiresAt,
-                maxDownloads: input.maxDownloads || null,
-                maxFileCount,
-                customKey: features.customKey,
-                salt: features.customKey ? input.salt : null,
-                customKeyData: features.customKey ? input.customKeyData : null,
-                customKeyIv: features.customKey ? input.customKeyIv : null,
-                hideBranding: features.hideBranding,
-                notifyOnDownload: features.notifyOnDownload,
-                uploadComplete: false,
-                userId: scope?.userId ?? null,
-                organizationId: scope?.organizationId ?? null,
-            },
-        });
+        // Drop's only unique constraint is its primary key, so a P2002 here can
+        // only mean the random id collided — regenerate and retry.
+        let dropId: string | undefined;
+        for (let attempt = 1; attempt <= DROP_ID_ATTEMPTS; attempt++) {
+            const candidateId = generateDropId();
+            try {
+                await prisma.drop.create({
+                    data: {
+                        id: candidateId,
+                        iv: input.iv,
+                        encryptedTitle: input.encryptedTitle || null,
+                        encryptedMessage: input.encryptedMessage || null,
+                        expiresAt,
+                        maxDownloads: input.maxDownloads || null,
+                        maxFileCount,
+                        customKey: features.customKey,
+                        salt: features.customKey ? input.salt : null,
+                        customKeyData: features.customKey ? input.customKeyData : null,
+                        customKeyIv: features.customKey ? input.customKeyIv : null,
+                        hideBranding: features.hideBranding,
+                        notifyOnDownload: features.notifyOnDownload,
+                        uploadComplete: false,
+                        userId: scope?.userId ?? null,
+                        organizationId: scope?.organizationId ?? null,
+                    },
+                });
+                dropId = candidateId;
+                break;
+            } catch (error) {
+                const collided =
+                    error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
+                if (!collided || attempt === DROP_ID_ATTEMPTS) throw error;
+                logger.warn("Drop id collision, regenerating", { attempt });
+            }
+        }
+
+        if (!dropId) {
+            // Unreachable: the loop either assigns dropId or rethrows.
+            throw new ServiceUnavailableError("Could not allocate a drop id, please retry");
+        }
 
         return {
             dropId,

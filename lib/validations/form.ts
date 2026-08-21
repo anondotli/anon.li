@@ -1,7 +1,9 @@
 import { z } from "zod"
 import { FormSchemaDoc } from "@/lib/form-schema"
 
-export const FormId = z.string().regex(/^[a-z0-9]{12}$/, "invalid form id")
+// 8 chars for new forms; 12-char legacy ids must keep resolving. Only these two
+// formats were ever minted, so match them exactly rather than allowing a range.
+export const FormId = z.string().regex(/^([a-z0-9]{8}|[a-z0-9]{12})$/, "invalid form id")
 export const SubmissionId = z.string().regex(/^[a-z0-9]{14}$/, "invalid submission id")
 const PublicKey = z.string().regex(/^[A-Za-z0-9_-]{87}$/, "invalid public key")
 const Base64Url = z.string().regex(/^[A-Za-z0-9_-]+$/, "invalid base64url")

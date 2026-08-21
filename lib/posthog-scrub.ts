@@ -62,8 +62,20 @@ function matchesPrivatePrefix(pathname: string): boolean {
     return PRIVATE_PATH_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`))
 }
 
-// Heuristic: random-looking IDs (uuid, or >=12-char base62-ish with a digit) are
-// masked; human-readable slugs (blog/docs, all letters/hyphens, no digits) survive.
+// Path segments that are always immediately followed by a resource id. Masking
+// positionally is independent of id length and charset, so it survives an id
+// format change (e.g. Drop/Form ids shortening to 8 chars, which falls under
+// looksLikeId's >=12 floor) and also covers an id that happens to be all-letters
+// or all-digits and would evade the heuristic below.
+//
+// Deliberately errs toward masking: a static sub-route sitting under one of these
+// (only `/api/v1/form/submission/*`, which is never a page view) also becomes
+// `[id]`. Losing that label costs nothing; under-masking would leak a form id.
+const ID_BEARING_PARENTS = new Set(["form", "forms", "drop", "drops", "submission"])
+
+// Heuristic fallback: random-looking IDs (uuid, or >=12-char base62-ish with a
+// digit) are masked; human-readable slugs (blog/docs, all letters/hyphens, no
+// digits) survive.
 function looksLikeId(segment: string): boolean {
     if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(segment)) return true
     return (
@@ -75,7 +87,14 @@ function looksLikeId(segment: string): boolean {
 }
 
 function maskIds(pathname: string): string {
-    return pathname.split("/").map((seg) => (looksLikeId(seg) ? "[id]" : seg)).join("/")
+    const parts = pathname.split("/")
+    return parts
+        .map((seg, i) => {
+            const parent = parts[i - 1]
+            if (seg && parent && ID_BEARING_PARENTS.has(parent)) return "[id]"
+            return looksLikeId(seg) ? "[id]" : seg
+        })
+        .join("/")
 }
 
 function sanitizeUrl(raw: string): string {

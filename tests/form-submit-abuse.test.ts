@@ -72,3 +72,53 @@ describe("public Form submission abuse gates", () => {
         expect(recordSubmission).not.toHaveBeenCalled()
     })
 })
+
+/**
+ * Form ids shortened from 12 to 8 chars. Links minted before that change are
+ * still in inboxes, so the route must accept both lengths and reach the service.
+ * The id gate runs before Turnstile, so a rejected id is distinguishable by
+ * message from a rejected captcha.
+ */
+describe("Form id length compatibility at the route boundary", () => {
+    function submitWith(id: string) {
+        return POST(
+            new Request(`https://anon.li/api/v1/form/${id}/submit`, {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                    ephemeralPubKey: "A".repeat(87),
+                    iv: "I".repeat(16),
+                    encryptedPayload: "ciphertext",
+                    turnstileToken: "captcha-token",
+                }),
+            }),
+            { params: Promise.resolve({ id }) },
+        )
+    }
+
+    beforeEach(() => {
+        validateTurnstileToken.mockResolvedValue(true)
+        recordSubmission.mockResolvedValue({ id: "s".repeat(14), createdAt: new Date() })
+    })
+
+    it.each([
+        ["a legacy 12-char id", "abcdefghijkl"],
+        ["a new 8-char id", "a1b2c3d4"],
+    ])("accepts %s and forwards it to the service", async (_label, id) => {
+        const response = await submitWith(id)
+
+        expect(response.status).toBe(200)
+        expect(recordSubmission).toHaveBeenCalledWith(id, expect.anything(), expect.anything())
+    })
+
+    it("still rejects a malformed id before any captcha or service work", async () => {
+        const response = await submitWith("SHORT")
+
+        expect(response.status).toBe(400)
+        await expect(response.json()).resolves.toMatchObject({
+            error: expect.objectContaining({ message: "Invalid form ID" }),
+        })
+        expect(validateTurnstileToken).not.toHaveBeenCalled()
+        expect(recordSubmission).not.toHaveBeenCalled()
+    })
+})

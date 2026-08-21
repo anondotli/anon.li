@@ -24,6 +24,7 @@ import {
     NotFoundError,
     ForbiddenError,
     UpgradeRequiredError,
+    ServiceUnavailableError,
 } from "@/lib/api-error-utils"
 import { getFormLimitsAsync } from "@/lib/limits"
 import { PLAN_ENTITLEMENTS } from "@/config/plans"
@@ -38,10 +39,40 @@ import {
 import { persistOwnedFormKey, type OwnerKeyOrgBinding } from "@/lib/vault/form-owner-keys"
 import { getFormOwnerEntitlements } from "@/lib/services/form-entitlements"
 
-const generateFormId = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", 12)
+// 8 chars for new forms; legacy forms use 12. Both are accepted by the shared
+// FormId validator in lib/validations/form.ts.
+const generateFormId = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", 8)
+
+/** Regeneration attempts before a form-id collision is surfaced as an error. */
+const FORM_ID_ATTEMPTS = 5
 const generateSubmissionId = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", 14)
 
 const logger = createLogger("FormService")
+
+/**
+ * Pick a form id that is not already taken.
+ *
+ * Probed up front rather than retried on P2002, because createForm generates the
+ * id outside a transaction that also writes FormOwnerKey (whose `formId` is
+ * itself @unique) — a P2002 escaping that transaction is ambiguous. A form-id
+ * collision is also more than a failed insert: `Drop.formStagingId` holds a form
+ * id as a bare string and is compared by equality as an authorization gate
+ * (lib/services/form-upload.ts), so two forms must never share an id.
+ *
+ * A genuine concurrent race still falls through to the DB's unique constraint.
+ */
+async function allocateFormId(): Promise<string> {
+    for (let attempt = 1; attempt <= FORM_ID_ATTEMPTS; attempt++) {
+        const candidate = generateFormId()
+        const taken = await prisma.form.findUnique({
+            where: { id: candidate },
+            select: { id: true },
+        })
+        if (!taken) return candidate
+        logger.warn("Form id collision, regenerating", { attempt })
+    }
+    throw new ServiceUnavailableError("Could not allocate a form id, please retry")
+}
 
 type FormTier = "free" | "plus" | "pro"
 
@@ -319,7 +350,7 @@ export class FormService {
             })
         }
 
-        const formId = generateFormId()
+        const formId = await allocateFormId()
 
         const form = await prisma.$transaction(async (tx) => {
             let orgBinding: OwnerKeyOrgBinding | undefined

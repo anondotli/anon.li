@@ -16,6 +16,8 @@ const userFindUnique = vi.hoisted(() => vi.fn())
 const domainCount = vi.hoisted(() => vi.fn())
 const prismaTransaction = vi.hoisted(() => vi.fn())
 const getFormOwnerEntitlements = vi.hoisted(() => vi.fn())
+// createForm probes for a free form id before opening its transaction.
+const formFindUnique = vi.hoisted(() => vi.fn())
 
 vi.mock("posthog-node", () => ({
     PostHog: class MockPostHog {
@@ -29,6 +31,7 @@ vi.mock("@/lib/prisma", () => ({
     prisma: {
         user: { findUnique: userFindUnique },
         domain: { count: domainCount },
+        form: { findUnique: formFindUnique },
         $transaction: prismaTransaction,
     },
 }))
@@ -115,6 +118,7 @@ describe("form_created", () => {
     beforeEach(() => {
         vi.clearAllMocks()
         process.env.NEXT_PUBLIC_POSTHOG_KEY = "phc_test"
+        formFindUnique.mockResolvedValue(null) // generated id is free
         getFormOwnerEntitlements.mockResolvedValue({
             limits: { forms: 3, removeBranding: false, customKey: false, maxSubmissionFileSize: 0 },
             tiers: { form: "free" },

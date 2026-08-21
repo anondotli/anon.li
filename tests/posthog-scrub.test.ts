@@ -85,6 +85,34 @@ describe("scrubPostHogEvent", () => {
         expect(out!.properties!.$current_url).toContain("/dashboard/form/[id]")
     })
 
+    // Ids are 8 chars and fall well under looksLikeId's >=12 floor, so they are
+    // masked by the positional rule instead. /dashboard/* is not a private
+    // prefix, so without that rule these ids would reach PostHog in the clear.
+    it.each([
+        ["an 8-char id (current format)", "a1b2c3d4"],
+        ["a 12-char legacy id", "abc123def456"],
+        ["an all-letters id the digit+letter heuristic would miss", "abcdefgh"],
+    ])("masks %s in /dashboard/form", (_label, id) => {
+        const out = scrubPostHogEvent({
+            event: "$pageview",
+            properties: {
+                $current_url: `https://anon.li/dashboard/form/${id}`,
+                $pathname: `/dashboard/form/${id}`,
+            },
+        })
+        expect(out!.properties!.$pathname).toBe("/dashboard/form/[id]")
+        expect(out!.properties!.$current_url).toContain("/dashboard/form/[id]")
+        expect(out!.properties!.$current_url).not.toContain(id)
+    })
+
+    it("masks the id in the /dashboard/form/[id]/edit sub-route", () => {
+        const out = scrubPostHogEvent({
+            event: "$pageview",
+            properties: { $pathname: "/dashboard/form/a1b2c3d4/edit" },
+        })
+        expect(out!.properties!.$pathname).toBe("/dashboard/form/[id]/edit")
+    })
+
     it("preserves human-readable slugs (blog/docs)", () => {
         const out = scrubPostHogEvent({
             event: "$pageview",
@@ -92,6 +120,26 @@ describe("scrubPostHogEvent", () => {
         })
         expect(out!.properties!.$pathname).toBe("/blog/introducing-anon-li")
     })
+
+    // Guards against "just lower the floor to 10" — this slug is 11 chars and
+    // contains both a digit and a letter, so a lowered threshold would mask it.
+    it("preserves a short slug containing digits", () => {
+        const out = scrubPostHogEvent({
+            event: "$pageview",
+            properties: { $pathname: "/blog/top-10-tips" },
+        })
+        expect(out!.properties!.$pathname).toBe("/blog/top-10-tips")
+    })
+
+    // The positional rule keys off the parent segment, so a docs page whose last
+    // segment is literally "drop"/"form" must not be mistaken for an id.
+    it.each(["/docs/api/drop", "/docs/cli/drop", "/docs/api/form"])(
+        "preserves the docs path %s",
+        (pathname) => {
+            const out = scrubPostHogEvent({ event: "$pageview", properties: { $pathname: pathname } })
+            expect(out!.properties!.$pathname).toBe(pathname)
+        },
+    )
 
     it("drops known third-party noise rejections (Outlook SafeLink / antivirus)", () => {
         const event: PostHogEventLike = {
