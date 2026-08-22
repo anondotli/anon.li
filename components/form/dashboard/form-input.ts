@@ -49,7 +49,15 @@ export function buildFormInput({
     if (!trimmedTitle) return { error: "Please add a title" }
     if (!schema) return { error: "Fix the JSON before saving" }
 
-    const normalized = normalizeSchemaForSave(schema)
+    // The schema requires a non-empty embedded title, but a brand-new form's
+    // schema state still has a blank one (EMPTY_FORM_SCHEMA) — the canonical
+    // title lives in the intro input. Reconcile before validating so a fresh
+    // form parses cleanly; the JSON tab applies the same workaround on commit.
+    const normalized = withFormMeta(normalizeSchemaForSave(schema), {
+        title: trimmedTitle,
+        description,
+        notifyOnSubmission,
+    })
     const parsedSchema = FormSchemaDoc.safeParse(normalized)
     if (!parsedSchema.success) {
         return { error: friendlyZodError(parsedSchema.error.issues, normalized) }
@@ -90,7 +98,7 @@ export function buildFormInput({
         data: {
             title: trimmedTitle,
             description: description.trim() || null,
-            schema: withFormMeta(parsedSchema.data, { title: trimmedTitle, description, notifyOnSubmission }),
+            schema: parsedSchema.data,
             allowFileUploads,
             maxSubmissions: parsedMaxSubmissions.value,
             closesAt: parsedClosesAt.value,

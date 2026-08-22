@@ -374,6 +374,28 @@ describe("FormBuilderPage", () => {
         expect(screen.queryByText(/Too small|at least 1 character/i)).toBeNull()
     })
 
+    it("creates a form whose schema still has a blank embedded title", async () => {
+        const { buildFormInput } = await import("@/components/form/dashboard/form-input")
+        const { EMPTY_FORM_SCHEMA } = await import("@/lib/form-schema")
+
+        // A brand-new form on the Build tab: the intro title is filled in, but the
+        // schema state is still EMPTY_FORM_SCHEMA with title "".
+        const result = buildFormInput({
+            title: "Fresh form",
+            description: "",
+            schema: EMPTY_FORM_SCHEMA,
+            hideBranding: false,
+            maxSubmissions: "",
+            closesAt: "",
+        })
+
+        expect("data" in result).toBe(true)
+        if ("data" in result) {
+            expect(result.data.title).toBe("Fresh form")
+            expect(result.data.schema.title).toBe("Fresh form")
+        }
+    })
+
     it("persists notifyOnSubmission when it is edited to false in the JSON", async () => {
         actionMocks.updateFormAction.mockResolvedValue({ success: true, data: { id: "abc123def456" } })
         const { FormBuilderPage } = await import("@/components/form/dashboard/builder-page")
