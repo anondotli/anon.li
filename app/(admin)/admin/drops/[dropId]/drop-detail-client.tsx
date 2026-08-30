@@ -144,11 +144,8 @@ export function DropDetailClient({ drop }: DropDetailClientProps) {
             <div className="flex items-start justify-between">
                 <div>
                     <h1 className="text-3xl font-bold tracking-tight font-mono">
-                        {drop.id.slice(0, 16)}...
+                        {drop.id}
                     </h1>
-                    <p className="text-muted-foreground">
-                        Full ID: {drop.id}
-                    </p>
                     <div className="flex gap-2 mt-2">
                         {drop.takenDown ? (
                             <Badge variant="destructive">Taken Down</Badge>

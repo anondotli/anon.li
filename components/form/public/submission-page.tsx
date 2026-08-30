@@ -20,7 +20,6 @@ import {
     type SelectedFormFile,
     type UploadedFormFile,
 } from "@/lib/form-file-upload.client"
-import { cn } from "@/lib/utils"
 import { FormShell } from "./form-shell"
 import { WelcomeScreen } from "./welcome-screen"
 import { ThankYouScreen } from "./thank-you-screen"
@@ -495,8 +494,8 @@ function FocusedFooter({
                     onExpire={onTurnstileExpire}
                 />
             ) : null}
-            <p className={cn("inline-flex items-center gap-1.5 text-xs text-muted-foreground")}>
-                <Shield className="h-3 w-3" />
+            <p className="text-xs text-muted-foreground">
+                <Shield className="mr-1.5 inline-block h-3 w-3 align-[-0.125em]" />
                 Encrypted in your browser before it leaves your device.
                 {showBranding ? <> Powered by <Link href="/form" target="_blank" rel="noopener noreferrer">anon.li Form.</Link></> : null}
             </p>
@@ -577,8 +576,8 @@ function ClassicFooter({
                     schema.submitButtonText
                 )}
             </Button>
-            <p className="inline-flex w-full items-center justify-center gap-1.5 text-center text-xs text-muted-foreground">
-                <Shield className="h-3 w-3" />
+            <p className="w-full text-center text-xs text-muted-foreground">
+                <Shield className="mr-1.5 inline-block h-3 w-3 align-[-0.125em]" />
                 Encrypted in your browser before it leaves your device.
                 {showBranding ? <> Powered by <Link href="/form" target="_blank" rel="noopener noreferrer">anon.li Form.</Link></> : null}
             </p>
@@ -640,7 +639,7 @@ function PasswordGate({
     const inputRef = useRef<HTMLInputElement>(null)
     const ready = Boolean(salt && customKeyData && customKeyIv)
 
-    const onSubmit = async (event: React.FormEvent) => {
+    const onSubmit = async (event: React.SubmitEvent<HTMLFormElement>) => {
         event.preventDefault()
         if (submitting) return
         if (!password || !salt || !customKeyData || !customKeyIv) return

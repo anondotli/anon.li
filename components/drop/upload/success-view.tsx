@@ -72,9 +72,9 @@ export function SuccessView({
           <Download className="w-4 h-4 text-muted-foreground shrink-0" />
           <span className="text-muted-foreground">
             {maxDownloads ? (
-              <>{maxDownloads} download{maxDownloads > 1 ? 's' : ''}</>
+              <><span className="hidden sm:inline">{maxDownloads} download{maxDownloads > 1 ? 's' : ''}</span><span className="sm:hidden">{maxDownloads}</span></>
             ) : (
-              <span className="inline-flex items-center gap-1"><Infinity className="w-4 h-4" /> downloads</span>
+              <span className="inline-flex items-center gap-1"><Infinity className="w-4 h-4" /><span className="hidden sm:inline">downloads</span></span>
             )}
           </span>
         </div>
