@@ -2,11 +2,17 @@ import { Metadata } from "next"
 import Link from "next/link"
 import { Shield, Calendar, FileCheck, AlertTriangle, ShieldAlert } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { buildOpenGraph } from "@/config/open-graph"
 import { loadCanaryData } from "@/lib/canary"
 
 export const metadata: Metadata = {
     title: "Warrant Canary",
     description: "anon.li's warrant canary - transparency about government requests and legal orders.",
+    openGraph: buildOpenGraph({
+        title: "Warrant Canary",
+        description: "anon.li's warrant canary - transparency about government requests and legal orders.",
+        url: "https://anon.li/warrant-canary",
+    }),
 }
 
 export default function WarrantCanaryPage() {

@@ -34,7 +34,8 @@ export default async function DropPage({ params }: PageProps) {
 // Drops are zero-knowledge, so the share preview is generic and branded — no
 // per-drop data. The opengraph-image.tsx / twitter-image.tsx files in this
 // segment supply the image; metadataBase (root layout) makes the URL absolute.
-export function generateMetadata(): Metadata {
+export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
+  const { id } = await params;
   // Plain string so the parent "%s | anon.li" template appends cleanly.
   const ogTitle = "Someone shared encrypted files with you";
   const ogDescription =
@@ -47,6 +48,7 @@ export function generateMetadata(): Metadata {
       siteName: siteConfig.default.name,
       title: ogTitle,
       description: ogDescription,
+      url: `${siteConfig.default.url}/d/${id}`,
     },
     twitter: {
       card: "summary_large_image",

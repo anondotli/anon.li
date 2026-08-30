@@ -1,10 +1,16 @@
 import { getAllFilesFrontMatter, FrontMatter } from "@/lib/mdx"
 import { BlogCard } from "@/components/marketing/blog"
 import { Newspaper } from "lucide-react"
+import { buildOpenGraph } from "@/config/open-graph"
 
 export const metadata = {
-    title: "Blog - Anon.li",
-    description: "Latest news, updates, and insights from the Anon.li team.",
+    title: "Blog",
+    description: "Latest news, updates, and insights from the anon.li team.",
+    openGraph: buildOpenGraph({
+        title: "Blog",
+        description: "Latest news, updates, and insights from the anon.li team.",
+        url: "https://anon.li/blog",
+    }),
 }
 
 interface BlogPost extends FrontMatter {

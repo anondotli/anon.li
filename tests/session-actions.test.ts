@@ -42,7 +42,7 @@ describe("requestPasswordResetAction", () => {
             headers: expect.any(Headers),
             body: {
                 email: "user@example.com",
-                redirectTo: "http://localhost:3000/reset",
+                redirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/reset`,
             },
         })
         expect(result.success).toBe(true)

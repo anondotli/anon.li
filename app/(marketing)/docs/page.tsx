@@ -3,10 +3,16 @@ import { DocsCard } from "@/components/marketing/docs"
 import { docsConfig, getDocsContentSlugCandidatesFromHref } from "@/config/docs"
 import { BookOpen, Code2, Scale, Rocket, Terminal } from "lucide-react"
 import Link from "next/link"
+import { buildOpenGraph } from "@/config/open-graph"
 
 export const metadata = {
-    title: "Documentation - Anon.li",
-    description: "Learn how to use Anon.li's privacy tools and API.",
+    title: "Documentation",
+    description: "Learn how to use anon.li's privacy tools and API.",
+    openGraph: buildOpenGraph({
+        title: "Documentation",
+        description: "Learn how to use anon.li's privacy tools and API.",
+        url: "https://anon.li/docs",
+    }),
 }
 
 interface DocPost extends FrontMatter {
@@ -44,7 +50,7 @@ export default async function DocsPage() {
                     </div>
 
                     <h1 className="font-serif text-4xl md:text-5xl lg:text-6xl font-medium tracking-tight mb-6">
-                        Learn Anon.li
+                        Learn anon.li
                     </h1>
 
                     <p className="text-xl text-muted-foreground font-light max-w-2xl leading-relaxed">

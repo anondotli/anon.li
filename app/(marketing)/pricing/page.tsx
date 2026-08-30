@@ -6,11 +6,17 @@ import { PricingSummary } from "./pricing-summary"
 
 import { Metadata } from "next"
 import { siteConfig } from "@/config/site"
+import { buildOpenGraph } from "@/config/open-graph"
 import { getPricingJsonLd } from "@/lib/public-pricing"
 
 export const metadata: Metadata = {
     title: siteConfig.pricing.metadata?.title,
     description: siteConfig.pricing.metadata?.description,
+    openGraph: buildOpenGraph({
+        title: siteConfig.pricing.metadata?.title as string,
+        description: siteConfig.pricing.metadata?.description as string,
+        url: siteConfig.pricing.url,
+    }),
     alternates: {
         canonical: siteConfig.pricing.url,
     }

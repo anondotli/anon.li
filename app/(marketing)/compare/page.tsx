@@ -2,10 +2,16 @@ import { Metadata } from "next"
 import Link from "next/link"
 import { ArrowRight, Shield, Zap, DollarSign } from "lucide-react"
 import { comparisons } from "@/config/comparisons"
+import { buildOpenGraph } from "@/config/open-graph"
 
 export const metadata: Metadata = {
     title: "Compare anon.li to Alternatives | Privacy Tools Comparison",
     description: "Compare anon.li with email alias, encrypted file transfer, and cloud storage alternatives. Fact-checked competitor comparison pages for privacy-focused buyers.",
+    openGraph: buildOpenGraph({
+        title: "Compare anon.li to Alternatives | Privacy Tools Comparison",
+        description: "Compare anon.li with email alias, encrypted file transfer, and cloud storage alternatives. Fact-checked competitor comparison pages for privacy-focused buyers.",
+        url: "https://anon.li/compare",
+    }),
     alternates: {
         canonical: "https://anon.li/compare",
     },

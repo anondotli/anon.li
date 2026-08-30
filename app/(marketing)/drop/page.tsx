@@ -12,15 +12,16 @@ import { TrustIndicatorBar } from "@/components/marketing/trust-indicator-bar"
 import { DROP_PRO_LIMIT_LABELS } from "@/config/features"
 
 import { siteConfig } from "@/config/site"
+import { buildOpenGraph } from "@/config/open-graph"
 
 export const metadata: Metadata = {
     title: siteConfig.drop.metadata?.title,
     description: siteConfig.drop.description,
-    openGraph: {
+    openGraph: buildOpenGraph({
         title: siteConfig.drop.metadata?.title as string,
         description: siteConfig.drop.description,
         url: siteConfig.drop.url,
-    },
+    }),
     alternates: {
         canonical: siteConfig.drop.url,
     }

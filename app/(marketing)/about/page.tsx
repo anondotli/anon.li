@@ -1,6 +1,7 @@
 import type { Metadata } from "next"
 import Link from "next/link"
 import { siteConfig } from "@/config/site"
+import { buildOpenGraph } from "@/config/open-graph"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Shield, Heart, Users, Globe, Lock, Code, ArrowRight, ClipboardList } from "lucide-react"
@@ -8,12 +9,11 @@ import { Shield, Heart, Users, Globe, Lock, Code, ArrowRight, ClipboardList } fr
 export const metadata: Metadata = {
     title: siteConfig.about.metadata?.title,
     description: siteConfig.about.metadata?.description,
-    openGraph: {
+    openGraph: buildOpenGraph({
         title: siteConfig.about.metadata?.title as string,
-        description: siteConfig.about.metadata?.description,
+        description: siteConfig.about.metadata?.description as string,
         url: siteConfig.about.url,
-        type: "website",
-    },
+    }),
     alternates: {
         canonical: siteConfig.about.url,
     }

@@ -12,15 +12,16 @@ import { CtaBanner } from "@/components/marketing/cta-banner"
 import { TrustIndicatorBar } from "@/components/marketing/trust-indicator-bar"
 
 import { siteConfig } from "@/config/site"
+import { buildOpenGraph } from "@/config/open-graph"
 
 export const metadata: Metadata = {
     title: siteConfig.alias.metadata?.title,
     description: siteConfig.alias.description,
-    openGraph: {
+    openGraph: buildOpenGraph({
         title: siteConfig.alias.metadata?.title as string,
         description: siteConfig.alias.description,
         url: siteConfig.alias.url,
-    },
+    }),
     alternates: {
         canonical: siteConfig.alias.url,
     }
@@ -201,7 +202,7 @@ export default async function AliasLandingPage() {
                     __html: JSON.stringify({
                         "@context": "https://schema.org",
                         "@type": "SoftwareApplication",
-                        "name": "Anon.li Email Aliases",
+                        "name": "anon.li Email Aliases",
                         "applicationCategory": "PrivacySecurityApplication",
                         "operatingSystem": "Web",
                         "offers": {

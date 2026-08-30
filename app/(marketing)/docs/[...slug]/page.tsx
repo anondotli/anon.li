@@ -2,6 +2,7 @@ import { getFile, getFiles } from "@/lib/mdx"
 import { MDXContent } from "@/components/shared/mdx-content"
 import { notFound } from "next/navigation"
 import { docsConfig } from "@/config/docs"
+import { buildOpenGraph } from "@/config/open-graph"
 import { DocsSidebar, DocsTableOfContents, DocsPagination, DocsBreadcrumb } from "@/components/marketing/docs"
 
 export async function generateStaticParams() {
@@ -16,8 +17,13 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
     const file = await getFile("docs", slug)
     if (!file) return {}
     return {
-        title: `${file.metadata.title as string} - Anon.li Docs`,
+        title: `${file.metadata.title as string} - Docs`,
         description: file.metadata.summary as string,
+        openGraph: buildOpenGraph({
+            title: file.metadata.title as string,
+            description: (file.metadata.summary as string) ?? "anon.li documentation.",
+            url: `https://anon.li/docs/${slug.join("/")}`,
+        }),
     }
 }
 

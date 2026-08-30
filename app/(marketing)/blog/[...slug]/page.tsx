@@ -4,6 +4,7 @@ import { notFound } from "next/navigation"
 import Link from "next/link"
 import { ArrowLeft } from "lucide-react"
 import { BlogHeader } from "@/components/marketing/blog"
+import { buildOpenGraph } from "@/config/open-graph"
 
 export async function generateStaticParams() {
     const files = await getFiles("blog")
@@ -17,8 +18,14 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
     const file = await getFile("blog", slug)
     if (!file) return {}
     return {
-        title: `${file.metadata.title as string} - Anon.li Blog`,
+        title: `${file.metadata.title as string} - Blog`,
         description: file.metadata.summary as string,
+        openGraph: buildOpenGraph({
+            title: file.metadata.title as string,
+            description: (file.metadata.summary as string) ?? "Latest news from the anon.li team.",
+            url: `https://anon.li/blog/${slug.join("/")}`,
+            type: "article",
+        }),
     }
 }
 

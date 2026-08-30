@@ -1,14 +1,15 @@
 import type { Metadata } from "next";
 import { ReportAbuseFormClient } from "@/components/shared/report-abuse-form-client";
+import { buildOpenGraph } from "@/config/open-graph";
 
 export const metadata: Metadata = {
     title: "Report Abuse",
     description: "Report abusive content or misuse of anon.li services. Help us keep the platform safe.",
-    openGraph: {
+    openGraph: buildOpenGraph({
         title: "Report Abuse",
         description: "Report abusive content or misuse of anon.li services.",
-        type: "website",
-    },
+        url: "https://anon.li/report",
+    }),
 };
 
 export default function ReportAbusePage() {

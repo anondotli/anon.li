@@ -56,9 +56,9 @@ export const siteConfig: Record<ProductContext | "pricing" | "about" | "security
         "SimpleLogin alternative",
         "Google Forms alternative",
       ],
-      authors: [{ name: "Anon.li Team" }],
-      creator: "Anon.li",
-      publisher: "Anon.li",
+      authors: [{ name: "anon.li Team" }],
+      creator: "anon.li",
+      publisher: "anon.li",
       twitter: {
         card: "summary_large_image",
         creator: "@anonli",

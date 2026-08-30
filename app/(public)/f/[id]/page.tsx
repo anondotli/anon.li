@@ -50,6 +50,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
                 siteName: siteConfig.default.name,
                 title: form.title,
                 description,
+                url: `${siteConfig.default.url}/f/${id}`,
             },
             twitter: {
                 card: "summary_large_image",

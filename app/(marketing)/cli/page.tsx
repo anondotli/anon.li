@@ -9,15 +9,16 @@ import { MarketingBadge } from "@/components/marketing/marketing-badge"
 import { CtaBanner } from "@/components/marketing/cta-banner"
 import { HeroTrustBar } from "@/components/marketing/hero-trust-bar"
 import { InstallCommands } from "./install-commands"
+import { buildOpenGraph } from "@/config/open-graph"
 
 export const metadata: Metadata = {
     title: "CLI",
     description: "Manage private email aliases and encrypted file drops from your terminal. Cross-platform, open source, end-to-end encrypted.",
-    openGraph: {
+    openGraph: buildOpenGraph({
         title: "anon.li CLI - Command-Line Privacy Tools",
         description: "Manage private email aliases and encrypted file drops from your terminal. Cross-platform, open source, end-to-end encrypted.",
         url: "https://anon.li/cli",
-    },
+    }),
     alternates: {
         canonical: "https://anon.li/cli",
     },

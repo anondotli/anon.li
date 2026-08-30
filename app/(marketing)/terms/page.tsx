@@ -3,11 +3,17 @@ import { notFound } from "next/navigation"
 
 import { LegalDocumentPage } from "@/components/marketing/legal-document-page"
 import { getClaimsByIds } from "@/config/claims"
+import { buildOpenGraph } from "@/config/open-graph"
 import { getFile } from "@/lib/mdx"
 
 export const metadata: Metadata = {
     title: "Terms of Service",
     description: "Terms and conditions for using anon.li services",
+    openGraph: buildOpenGraph({
+        title: "Terms of Service",
+        description: "Terms and conditions for using anon.li services",
+        url: "https://anon.li/terms",
+    }),
 }
 
 const termsClaimIds = [

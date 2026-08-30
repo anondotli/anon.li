@@ -25,8 +25,8 @@ function ogTitle(meta: { openGraph?: unknown }): unknown {
 }
 
 describe("Drop generateMetadata", () => {
-  it("sets generic openGraph/twitter and noindex", () => {
-    const meta = dropMetadata();
+  it("sets generic openGraph/twitter and noindex", async () => {
+    const meta = await dropMetadata({ params: Promise.resolve({ id: "abc" }) });
     expect(ogTitle(meta)).toBe("Someone shared encrypted files with you");
     expect((meta.twitter as { card?: string }).card).toBe("summary_large_image");
     expect(robotsIndex(meta)).toBe(false);

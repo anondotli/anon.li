@@ -36,6 +36,7 @@ import {
 } from "@/config/plans"
 import { formatBytes } from "@/lib/format"
 import { siteConfig } from "@/config/site"
+import { buildOpenGraph } from "@/config/open-graph"
 
 const PAGE_URL = `${siteConfig.default.url}/drop/upload`
 const FILE_SIZE_LABEL = formatBytes(GUEST_MAX_DROP_BYTES)
@@ -59,13 +60,11 @@ export const metadata: Metadata = {
     alternates: {
         canonical: PAGE_URL,
     },
-    openGraph: {
+    openGraph: buildOpenGraph({
         title: "Send Files Anonymously - Free Encrypted File Transfer",
         description: `End-to-end encrypted. No account. Up to ${FILE_SIZE_LABEL}, auto-deleted in ${EXPIRY_DAYS} days.`,
         url: PAGE_URL,
-        type: "website",
-        siteName: siteConfig.default.name,
-    },
+    }),
     twitter: {
         card: "summary_large_image",
         title: "Send Files Anonymously - End-to-End Encrypted",

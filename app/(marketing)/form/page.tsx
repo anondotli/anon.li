@@ -20,15 +20,16 @@ import { MarketingBadge } from "@/components/marketing/marketing-badge"
 import { CtaBanner } from "@/components/marketing/cta-banner"
 import { HeroTrustBar } from "@/components/marketing/hero-trust-bar"
 import { siteConfig } from "@/config/site"
+import { buildOpenGraph } from "@/config/open-graph"
 
 export const metadata: Metadata = {
     title: siteConfig.form.metadata?.title,
     description: siteConfig.form.description,
-    openGraph: {
+    openGraph: buildOpenGraph({
         title: siteConfig.form.metadata?.title as string,
         description: siteConfig.form.description,
         url: siteConfig.form.url,
-    },
+    }),
     alternates: {
         canonical: siteConfig.form.url,
     },

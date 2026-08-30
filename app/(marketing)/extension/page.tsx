@@ -8,15 +8,16 @@ import { PageHero } from "@/components/marketing/page-hero"
 import { MarketingBadge } from "@/components/marketing/marketing-badge"
 import { CtaBanner } from "@/components/marketing/cta-banner"
 import { BrowserBadges } from "./browser-badges"
+import { buildOpenGraph } from "@/config/open-graph"
 
 export const metadata: Metadata = {
     title: "Browser Extension",
     description: "Manage private email aliases and encrypted drops directly from your browser. One-click alias generation, drop management, QR sharing, and keyboard shortcuts.",
-    openGraph: {
+    openGraph: buildOpenGraph({
         title: "anon.li Browser Extension - Privacy in Your Browser",
         description: "Manage private email aliases and encrypted drops directly from your browser. One-click alias generation, drop management, QR sharing, and keyboard shortcuts.",
         url: "https://anon.li/extension",
-    },
+    }),
     alternates: {
         canonical: "https://anon.li/extension",
     },

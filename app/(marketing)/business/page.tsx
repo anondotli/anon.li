@@ -16,6 +16,7 @@ import {
     Sparkles,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { buildOpenGraph } from "@/config/open-graph"
 import { FeatureCard } from "@/components/marketing/feature-card"
 import { StepCard } from "@/components/marketing/step-card"
 import { PageHero } from "@/components/marketing/page-hero"
@@ -38,7 +39,7 @@ const URL = "https://anon.li/business"
 export const metadata: Metadata = {
     title: TITLE,
     description: DESCRIPTION,
-    openGraph: { title: TITLE, description: DESCRIPTION, url: URL },
+    openGraph: buildOpenGraph({ title: TITLE, description: DESCRIPTION, url: URL }),
     alternates: { canonical: URL },
 }
 

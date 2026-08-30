@@ -1,6 +1,7 @@
 import type { Metadata } from "next"
 import Link from "next/link"
 import { ShieldCheck, Lock, ArrowRight } from "lucide-react"
+import { buildOpenGraph } from "@/config/open-graph"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -23,7 +24,7 @@ const LAST_UPDATED = "June 11, 2026"
 export const metadata: Metadata = {
     title: TITLE,
     description: DESCRIPTION,
-    openGraph: { title: TITLE, description: DESCRIPTION, url: URL, type: "website" },
+    openGraph: buildOpenGraph({ title: TITLE, description: DESCRIPTION, url: URL }),
     alternates: { canonical: URL },
 }
 

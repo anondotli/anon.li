@@ -18,17 +18,18 @@ import { PageHero } from "@/components/marketing/page-hero"
 import { MarketingBadge } from "@/components/marketing/marketing-badge"
 import { CtaBanner } from "@/components/marketing/cta-banner"
 import { HeroTrustBar } from "@/components/marketing/hero-trust-bar"
+import { buildOpenGraph } from "@/config/open-graph"
 
 export const metadata: Metadata = {
     title: "MCP Server",
     description:
         "Connect Claude, Cursor, and other MCP-compatible AI agents to anon.li with OAuth. Manage aliases, recipients, and drop metadata without exposing encrypted content.",
-    openGraph: {
+    openGraph: buildOpenGraph({
         title: "anon.li MCP Server - Private AI Agent Access",
         description:
             "Connect AI agents to anon.li with OAuth and safely manage aliases, recipients, and encrypted drop metadata.",
         url: "https://anon.li/mcp",
-    },
+    }),
     alternates: {
         canonical: "https://anon.li/mcp",
     },

@@ -53,7 +53,7 @@ describe("markdown negotiation", () => {
             new Response(`<!doctype html>
                 <html>
                     <head>
-                        <title>Developer API - Anon.li</title>
+                        <title>Developer API - anon.li</title>
                         <meta name="description" content="Integrate with the anon.li API.">
                     </head>
                     <body>
@@ -94,7 +94,7 @@ describe("markdown negotiation", () => {
         expect(response.headers.get("vary")).toContain("Accept")
 
         const body = await response.text()
-        expect(body).toContain("title: \"Developer API - Anon.li\"")
+        expect(body).toContain("title: \"Developer API - anon.li\"")
         expect(body).toContain("# Developer API")
         expect(body).toContain("[Alias API](http://localhost/docs/api/alias)")
         expect(body).toContain("```")

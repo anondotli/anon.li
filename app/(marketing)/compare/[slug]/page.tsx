@@ -4,6 +4,7 @@ import { notFound } from "next/navigation"
 import { Check, X, ArrowRight, ArrowLeft, ExternalLink } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { comparisons, getComparison, type ComparisonEntry } from "@/config/comparisons"
+import { buildOpenGraph } from "@/config/open-graph"
 
 interface PageProps {
     params: Promise<{
@@ -27,12 +28,12 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
         alternates: {
             canonical: `https://anon.li/compare/${comparison.slug}`,
         },
-        openGraph: {
+        openGraph: buildOpenGraph({
             title: comparison.title,
             description: comparison.description,
             url: `https://anon.li/compare/${comparison.slug}`,
             type: "article",
-        },
+        }),
     }
 }
 

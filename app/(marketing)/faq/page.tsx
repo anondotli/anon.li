@@ -1,6 +1,7 @@
 import type { Metadata } from "next"
 import Link from "next/link"
 import { siteConfig } from "@/config/site"
+import { buildOpenGraph } from "@/config/open-graph"
 import { Button } from "@/components/ui/button"
 import {
     Accordion,
@@ -13,12 +14,11 @@ import { Mail, FileUp, Shield, HelpCircle, ArrowRight, Terminal, ClipboardList }
 export const metadata: Metadata = {
     title: siteConfig.faq.metadata?.title,
     description: siteConfig.faq.metadata?.description,
-    openGraph: {
+    openGraph: buildOpenGraph({
         title: siteConfig.faq.metadata?.title as string,
-        description: siteConfig.faq.metadata?.description,
+        description: siteConfig.faq.metadata?.description as string,
         url: siteConfig.faq.url,
-        type: "website",
-    },
+    }),
     alternates: {
         canonical: siteConfig.faq.url,
     }

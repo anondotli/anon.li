@@ -3,11 +3,17 @@ import { notFound } from "next/navigation"
 
 import { LegalDocumentPage } from "@/components/marketing/legal-document-page"
 import { getClaimsByIds } from "@/config/claims"
+import { buildOpenGraph } from "@/config/open-graph"
 import { getFile } from "@/lib/mdx"
 
 export const metadata: Metadata = {
     title: "Privacy Policy",
     description: "How we protect your privacy and handle your data at anon.li",
+    openGraph: buildOpenGraph({
+        title: "Privacy Policy",
+        description: "How we protect your privacy and handle your data at anon.li",
+        url: "https://anon.li/privacy",
+    }),
 }
 
 const privacyClaimIds = [

@@ -1,6 +1,7 @@
 import type { Metadata } from "next"
 import Link from "next/link"
 import { siteConfig } from "@/config/site"
+import { buildOpenGraph } from "@/config/open-graph"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Shield, Lock, Key, Eye, FileCode, ArrowRight, CheckCircle2, AlertTriangle, Code, DatabaseBackup, Info } from "lucide-react"
@@ -10,12 +11,11 @@ import { getClaimsByClass, getClaimsByIds } from "@/config/claims"
 export const metadata: Metadata = {
     title: siteConfig.security.metadata?.title,
     description: siteConfig.security.metadata?.description,
-    openGraph: {
+    openGraph: buildOpenGraph({
         title: siteConfig.security.metadata?.title as string,
-        description: siteConfig.security.metadata?.description,
+        description: siteConfig.security.metadata?.description as string,
         url: siteConfig.security.url,
-        type: "website",
-    },
+    }),
     alternates: {
         canonical: siteConfig.security.url,
     }
