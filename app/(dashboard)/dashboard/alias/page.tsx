@@ -3,7 +3,7 @@ import { scopeFromSession } from "@/lib/auth-session"
 import { getOrgLimitContext, isOrgSubscribed } from "@/lib/data/auth"
 import { getUserById } from "@/lib/data/user"
 import { TeamWorkspaceLocked } from "@/components/dashboard/team/team-workspace-locked"
-import { ownerWhere } from "@/lib/ownership"
+import { meetsMinRole, ownerWhere } from "@/lib/ownership"
 import { countAliasesByFormat } from "@/lib/data/alias"
 import { getDomains } from "@/lib/data/domain"
 import { prisma } from "@/lib/prisma"
@@ -16,6 +16,7 @@ import { Progress } from "@/components/ui/progress"
 import { RecipientService } from "@/lib/services/recipient"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
+import { DOWNGRADE_DELETION_DELAY_DAYS, DOWNGRADE_SCHEDULING_DELAY_DAYS } from "@/lib/constants"
 import { FeaturePromptGrid } from "@/components/dashboard"
 import { DASHBOARD_FEATURE_PROMPTS } from "@/config/features"
 import { InviteBanner } from "@/components/referral/invite-banner"
@@ -59,6 +60,8 @@ export default async function DashboardPage() {
     // call for server-side pagination + search; unreachable at current volume.)
     const ALIAS_RENDER_CAP = 1000
     const [aliases, aliasCounts] = await Promise.all([
+        // `include` returns every scalar, so takenDownAt (admin takedown
+        // marker) reaches AliasItem, which shows it and locks re-enabling.
         prisma.alias.findMany({
             where: ownerWhere(scope),
             orderBy: { createdAt: "desc" },
@@ -69,6 +72,21 @@ export default async function DashboardPage() {
                         id: true,
                         email: true,
                         pgpPublicKey: true,
+                    }
+                },
+                // Full forwarding list so the UI shows/edits every recipient,
+                // not just the legacy primary.
+                aliasRecipients: {
+                    orderBy: { ordinal: "asc" },
+                    select: {
+                        isPrimary: true,
+                        recipient: {
+                            select: {
+                                id: true,
+                                email: true,
+                                pgpPublicKey: true,
+                            }
+                        }
                     }
                 }
             }
@@ -107,6 +125,10 @@ export default async function DashboardPage() {
     ]
 
     const allDomains = [...sharedDomains, ...domains]
+
+    // Re-routing shared team aliases is admin+ (AliasService.updateAlias);
+    // hide those controls from plain members instead of letting them 403.
+    const canManageAliases = !scope.organizationId || meetsMinRole(scope.role, "admin")
 
     // Referral stats double as code provisioning: getReferralStats lazily creates
     // and persists the user's code, so simply landing here mints a shareable link.
@@ -168,8 +190,8 @@ export default async function DashboardPage() {
                     <div>
                         <p className="font-medium">Your account has been downgraded to the free tier.</p>
                         <p className="text-destructive/80 mt-1">
-                            Excess resources will be scheduled for removal 30 days after downgrade
-                            and permanently deleted 14 days later.{" "}
+                            Excess resources will be scheduled for removal {DOWNGRADE_SCHEDULING_DELAY_DAYS} days after downgrade
+                            and permanently deleted {DOWNGRADE_DELETION_DELAY_DAYS} days later.{" "}
                             <Link href="/dashboard/billing" className="underline font-medium text-destructive">
                                 Renew your subscription
                             </Link>{" "}
@@ -222,7 +244,7 @@ export default async function DashboardPage() {
                     </div>
                 </div>
             ) : (
-                <AliasList aliases={aliases} recipients={recipients} />
+                <AliasList aliases={aliases} recipients={recipients} canManage={canManageAliases} />
             )}
         </div>
     )

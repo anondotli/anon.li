@@ -69,7 +69,15 @@ export async function handleBusinessSnapshotCron(): Promise<{
 }> {
     const [activeSubs, aliasActiveGroups, totalRegisteredUsers] = await Promise.all([
         prisma.subscription.findMany({
-            where: { status: { in: ["active", "trialing"] } },
+            where: {
+                status: { in: ["active", "trialing"] },
+                // A prepaid crypto period that lapsed (past the one-day access
+                // grace) is not revenue even before the billing cron expires it.
+                OR: [
+                    { currentPeriodEnd: null },
+                    { currentPeriodEnd: { gt: new Date(Date.now() - DAY_MS) } },
+                ],
+            },
             select: { product: true, tier: true, seats: true, providerPriceId: true },
         }),
         // Distinct owners of aliases that received mail in the last 30 days.

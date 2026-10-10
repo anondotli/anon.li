@@ -33,8 +33,13 @@ export async function POST(request: Request) {
         const session = await getVaultSession({ require2FA: true, fresh: true })
 
         if (!session) {
+            // Tell "signed in, but too long ago" apart from "not signed in" so the
+            // client can offer a re-sign-in instead of a generic failure.
+            const staleSession = await getVaultSession({ require2FA: true })
             logVaultWarn(ROUTE_NAME, "Vault password change requires a fresh session", { requestId })
-            return withNoStore(apiError("A fresh authenticated session is required", ErrorCodes.UNAUTHORIZED, requestId, 401))
+            return withNoStore(staleSession
+                ? apiError("Please sign in again to change your password", ErrorCodes.SESSION_NOT_FRESH, requestId, 401)
+                : apiError("Unauthorized", ErrorCodes.UNAUTHORIZED, requestId, 401))
         }
 
         const blocked = await enforceVaultRequestGuards({

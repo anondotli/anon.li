@@ -2,6 +2,7 @@ import { Metadata } from "next"
 import { redirect } from "next/navigation"
 import { cookies } from "next/headers"
 import { auth } from "@/auth"
+import { sanitizeAuthCallbackUrl } from "@/lib/safe-callback-url"
 import { TwoFactorVerifyForm } from "./verify-form"
 import { LogoutButton } from "./logout-button"
 
@@ -17,12 +18,25 @@ async function hasPendingTwoFactorCookie() {
     return TWO_FACTOR_COOKIE_NAMES.some((name) => Boolean(cookieStore.get(name)?.value))
 }
 
-export default async function Verify2FAPage() {
+interface Verify2FAPageProps {
+    searchParams: Promise<{ callbackUrl?: string | string[] }>
+}
+
+export default async function Verify2FAPage({ searchParams }: Verify2FAPageProps) {
+    const { callbackUrl: rawCallbackUrl } = await searchParams
+    // Only a same-origin allowlisted path survives; anything else is dropped so
+    // the action falls back to its default destination.
+    const callbackUrl = typeof rawCallbackUrl === "string" && rawCallbackUrl
+        ? sanitizeAuthCallbackUrl(rawCallbackUrl)
+        : undefined
+
     const session = await auth()
     const pendingTwoFactor = await hasPendingTwoFactorCookie()
-    if (!session && !pendingTwoFactor) redirect("/login")
+    if (!session && !pendingTwoFactor) {
+        redirect(callbackUrl ? `/login?callbackUrl=${encodeURIComponent(callbackUrl)}` : "/login")
+    }
     if (session && (!session.user.twoFactorEnabled || session.twoFactorVerified)) {
-        redirect("/dashboard/alias")
+        redirect(callbackUrl ?? "/dashboard/alias")
     }
 
     return (
@@ -38,7 +52,7 @@ export default async function Verify2FAPage() {
                             Enter the 6-digit code from your authenticator app
                         </p>
                     </div>
-                    <TwoFactorVerifyForm />
+                    <TwoFactorVerifyForm callbackUrl={callbackUrl} />
                 </div>
             </div>
         </div>

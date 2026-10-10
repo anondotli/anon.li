@@ -205,7 +205,8 @@ describe("vault routes", () => {
 
         const payload = await readJson(response)
         expect(response.status).toBe(401)
-        expect(payload.error?.code).toBe(ErrorCodes.UNAUTHORIZED)
+        // Signed in (the non-fresh lookup succeeds) but stale → distinct code.
+        expect(payload.error?.code).toBe(ErrorCodes.SESSION_NOT_FRESH)
         expect(getVaultSession).toHaveBeenCalledWith({ require2FA: false, fresh: true })
         expect(hashCredentialSecret).not.toHaveBeenCalled()
         expect(prisma.$transaction).not.toHaveBeenCalled()
@@ -446,7 +447,7 @@ describe("vault routes", () => {
     })
 
     it("rejects change-password without a session", async () => {
-        getVaultSession.mockResolvedValueOnce(null)
+        getVaultSession.mockResolvedValue(null)
         const { POST } = await import("@/app/api/vault/change-password/route")
 
         const response = await POST(new Request("http://localhost/api/vault/change-password", { method: "POST" }))
@@ -454,6 +455,21 @@ describe("vault routes", () => {
         const payload = await readJson(response)
         expect(response.status).toBe(401)
         expect(payload.error?.code).toBe(ErrorCodes.UNAUTHORIZED)
+    })
+
+    it("rejects change-password from a stale session with SESSION_NOT_FRESH", async () => {
+        // Fresh lookup fails, plain lookup succeeds → signed in but too old.
+        getVaultSession.mockResolvedValueOnce(null)
+        const { POST } = await import("@/app/api/vault/change-password/route")
+
+        const response = await POST(new Request("http://localhost/api/vault/change-password", { method: "POST" }))
+
+        const payload = await readJson(response)
+        expect(response.status).toBe(401)
+        expect(payload.error?.code).toBe(ErrorCodes.SESSION_NOT_FRESH)
+        expect(getVaultSession).toHaveBeenNthCalledWith(1, { require2FA: true, fresh: true })
+        expect(getVaultSession).toHaveBeenNthCalledWith(2, { require2FA: true })
+        expect(verifyCredentialSecret).not.toHaveBeenCalled()
     })
 
     it("changes the vault password and rotates vault generation", async () => {

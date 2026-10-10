@@ -1,16 +1,23 @@
 "use server"
 
 import { revalidatePath } from "next/cache"
+import { z } from "zod"
 import { AliasService } from "@/lib/services/alias"
 import { runScopedAction, type ActionState } from "@/lib/safe-action"
 import { createAliasSchema, updateAliasEncryptedMetadataSchema, updateAliasSchema } from "@/lib/validations/alias"
+
+// Dashboard edits can set the full forwarding list (primary first), matching
+// the v1 API's recipient_ids, so extra recipients are never silently dropped.
+const updateAliasRoutingSchema = updateAliasSchema.extend({
+  recipientIds: z.array(z.string().min(1).max(50)).min(1).max(10).optional(),
+})
 
 export async function createAliasAction(data: {
   localPart?: string | null
   domain: string
   format?: "RANDOM" | "CUSTOM"
   recipientId?: string
-}): Promise<ActionState<{ alias: { id: string; email: string } }>> {
+}): Promise<ActionState<{ alias: { id: string; email: string; organizationId: string | null } }>> {
   return runScopedAction({
     schema: createAliasSchema,
     data,
@@ -23,7 +30,7 @@ export async function createAliasAction(data: {
       recipientId: validated.recipientId,
     })
     revalidatePath("/dashboard/alias")
-    return { alias: { id: alias.id, email: alias.email } }
+    return { alias: { id: alias.id, email: alias.email, organizationId: alias.organizationId } }
   })
 }
 
@@ -43,10 +50,10 @@ export async function deleteAliasAction(id: string): Promise<ActionState> {
 
 export async function updateAliasAction(
   id: string,
-  data: { recipientId?: string }
+  data: { recipientId?: string; recipientIds?: string[] }
 ): Promise<ActionState> {
   return runScopedAction({
-    schema: updateAliasSchema,
+    schema: updateAliasRoutingSchema,
     data,
     rateLimitKey: "recipientOps",
   }, async (validated, scope) => {
@@ -55,6 +62,11 @@ export async function updateAliasAction(
   })
 }
 
+// Org-scope ciphertext must name the team key generation it was encrypted with.
+const updateAliasMetadataWithGenerationSchema = updateAliasEncryptedMetadataSchema.extend({
+  orgKeyGeneration: z.number().int().positive().optional(),
+})
+
 export async function updateAliasEncryptedMetadataAction(
   id: string,
   data: {
@@ -62,10 +74,13 @@ export async function updateAliasEncryptedMetadataAction(
     encryptedNote?: string | null
     clearLegacyLabel?: boolean
     clearLegacyNote?: boolean
+    orgKeyGeneration?: number
   }
 ): Promise<ActionState> {
+  // ApiError codes (e.g. ORG_KEY_GENERATION_MISMATCH) pass through
+  // runScopedAction, so the client can drop its cached team key and retry.
   return runScopedAction({
-    schema: updateAliasEncryptedMetadataSchema,
+    schema: updateAliasMetadataWithGenerationSchema,
     data,
     rateLimitKey: "recipientOps",
   }, async (validated, scope) => {

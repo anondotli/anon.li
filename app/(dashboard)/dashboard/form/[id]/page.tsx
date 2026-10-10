@@ -66,6 +66,7 @@ export default async function FormDetailPage({ params }: PageProps) {
                 createdAt: s.createdAt.toISOString(),
                 readAt: s.readAt?.toISOString() ?? null,
                 hasAttachedDrop: s.hasAttachedDrop,
+                attachedDropId: s.attachedDropId,
             }))}
             stats={stats}
         />

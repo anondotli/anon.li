@@ -149,9 +149,19 @@ export const ErrorCodes = {
     VALIDATION_ERROR: "VALIDATION_ERROR",
     INVALID_REQUEST: "INVALID_REQUEST",
     UNAUTHORIZED: "UNAUTHORIZED",
+    // 401: signed in, but the session is too old for a sensitive operation
+    // (vault setup / password change) — the client should prompt a re-sign-in.
+    SESSION_NOT_FRESH: "SESSION_NOT_FRESH",
     FORBIDDEN: "FORBIDDEN",
     NOT_FOUND: "NOT_FOUND",
     CONFLICT: "CONFLICT",
+    // 409 variants the vault client branches on (mirrored in lib/vault/error-codes.ts):
+    // rotation data changed since it was prepared (retry the rotation)…
+    ROTATION_DATA_CHANGED: "ROTATION_DATA_CHANGED",
+    // …a write used a stale org vault key generation (refresh key, retry)…
+    ORG_KEY_GENERATION_MISMATCH: "ORG_KEY_GENERATION_MISMATCH",
+    // …or releasing a grant would leave no holder of the current org key.
+    ORG_KEY_LAST_HOLDER: "ORG_KEY_LAST_HOLDER",
     GONE: "GONE",
     RATE_LIMITED: "RATE_LIMITED",
     PLAN_LIMIT_EXCEEDED: "PLAN_LIMIT_EXCEEDED",

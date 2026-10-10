@@ -4,7 +4,7 @@ import { apiError, apiSuccess, ErrorCodes, generateRequestId, withNoStore } from
 import { logVaultError, logVaultWarn } from "@/lib/vault/api"
 import { getVaultSession } from "@/lib/vault/server"
 import { enforceVaultRequestGuards } from "@/lib/vault/http"
-import { isOrgManager } from "@/lib/vault/org-access"
+import { assertOrgVaultAccess, isOrgManager } from "@/lib/vault/org-access"
 import { audit } from "@/lib/services/audit"
 
 /**
@@ -66,6 +66,9 @@ export async function GET(request: Request) {
             return withNoStore(apiError("Not a member of this organization", ErrorCodes.FORBIDDEN, requestId, 403))
         }
 
+        const policyBlocked = await assertOrgVaultAccess({ user: session.user, organizationId, requestId })
+        if (policyBlocked) return policyBlocked
+
         // `currentGeneration` is the org's authoritative org-vault-key generation
         // (0 = unseeded). The client compares it to `memberKey.orgKeyGeneration` to
         // detect a stale grant (e.g. after a rotation the member missed). null
@@ -104,6 +107,9 @@ export async function POST(request: Request) {
         if (!(await isOrgManager(session.user.id, organizationId))) {
             return withNoStore(apiError("Insufficient organization role", ErrorCodes.FORBIDDEN, requestId, 403))
         }
+
+        const policyBlocked = await assertOrgVaultAccess({ user: session.user, organizationId, requestId, write: true })
+        if (policyBlocked) return policyBlocked
 
         // The grantee must already be a member of the org.
         const grantee = await prisma.member.findUnique({

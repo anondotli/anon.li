@@ -1,6 +1,7 @@
 "use client"
 
 import { readVaultApiData } from "@/lib/vault/client"
+import { observeOrgKeyGeneration } from "@/lib/vault/org-vault-client"
 import { parseVaultData, WrappedDropKeyRecordSchema } from "@/lib/vault/client-schemas"
 
 interface WrappedDropKeyRecord {
@@ -54,6 +55,9 @@ export async function fetchWrappedDropKeys(): Promise<WrappedDropKeyRecord[]> {
             parseVaultData(WrappedDropKeyRecordSchema.array()),
         )
         const records = await wrappedDropKeysInflight
+        // A newer org key generation here means the team key was rotated
+        // elsewhere: drop any stale cached org key handle.
+        for (const record of records) observeOrgKeyGeneration(record.organizationId, record.orgKeyGeneration)
         cacheWrappedDropKeys(records)
         return records
     } catch {

@@ -2,6 +2,10 @@
  * POST /api/v1/form/[id]/upload-token
  * Issues a Drop + upload token scoped to a form submission.
  *
+ * DELETE /api/v1/form/[id]/upload-token (X-Upload-Token header)
+ * Revokes an abandoned upload so it stops counting against the form's live
+ * staging cap, and deletes its staging drop.
+ *
  * The staging drop inherits the form's tenant. Anonymous submitters are
  * allowed, but the token can only mutate this one form-bound drop.
  */
@@ -15,12 +19,13 @@ import { DropService } from "@/lib/services/drop"
 import { orgScope, personalScope, type OwnerScope } from "@/lib/ownership"
 import { isOrgRole } from "@/lib/auth-permissions"
 import { FORM_UPLOAD_TOKEN_TTL_MS, issueUploadToken } from "@/lib/services/drop-upload-token"
-import { validateFormUploadManifest } from "@/lib/services/form-upload"
+import { revokeFormStagingUpload, validateFormUploadManifest } from "@/lib/services/form-upload"
 import { prisma } from "@/lib/prisma"
 import { NotFoundError, ForbiddenError, UpgradeRequiredError, ValidationError } from "@/lib/api-error-utils"
 import { getClientIp, rateLimit } from "@/lib/rate-limit"
 import { validateTurnstileToken } from "@/lib/turnstile"
 import { FormId } from "@/lib/validations/form"
+import { MAX_FORM_SUBMISSION_FILES } from "@/lib/form-schema"
 
 const MAX_LIVE_FORM_STAGING_DROPS = 10
 
@@ -34,8 +39,8 @@ const bodySchema = z.object({
         fieldId: z.string().min(1).max(64),
         size: z.number().int().positive(),
         mimeType: z.string().min(1).max(200),
-    }).strict()).min(1).max(20),
-    fileCount: z.number().int().min(1).max(20).optional(),
+    }).strict()).min(1).max(MAX_FORM_SUBMISSION_FILES),
+    fileCount: z.number().int().min(1).max(MAX_FORM_SUBMISSION_FILES).optional(),
     expiry: z.number().int().min(1).max(30).optional(),
     turnstileToken: z.string().min(1).max(2048).optional(),
     customKeyProof: z.string().regex(/^[A-Za-z0-9_-]+$/).min(1).max(512).optional(),
@@ -193,5 +198,31 @@ export const POST = withPolicy<RouteParams>(
             }
             throw error
         }
+    },
+)
+
+export const DELETE = withPolicy<RouteParams>(
+    {
+        // The upload token itself is the capability; no session is involved.
+        auth: "none",
+        rateLimit: "dropAbortUpload",
+        rateLimitIdentifier: async () => getClientIp(),
+    },
+    async (ctx, routeContext) => {
+        const { id: rawId } = await routeContext.params
+        const parsedId = FormId.safeParse(rawId)
+        if (!parsedId.success) {
+            return apiError("Invalid form ID", ErrorCodes.VALIDATION_ERROR, ctx.requestId, 400)
+        }
+        const rawToken = ctx.request.headers.get("x-upload-token")
+        if (!rawToken) {
+            return apiError("Upload token required", ErrorCodes.VALIDATION_ERROR, ctx.requestId, 400)
+        }
+
+        const revoked = await revokeFormStagingUpload(parsedId.data, rawToken)
+        if (!revoked) {
+            return apiError("Upload not found", ErrorCodes.NOT_FOUND, ctx.requestId, 404)
+        }
+        return withNoStore(apiSuccess({ revoked: true }, ctx.requestId))
     },
 )

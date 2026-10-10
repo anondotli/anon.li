@@ -227,7 +227,13 @@ describe("Billing Edge Cases", () => {
                 id: "evt_transient",
                 type: "invoice.payment_succeeded",
                 data: {
-                    object: { id: "in_1", subscription: "sub_1" },
+                    object: {
+                        id: "in_1",
+                        parent: {
+                            type: "subscription_details",
+                            subscription_details: { subscription: "sub_1" },
+                        },
+                    },
                 },
             } as never)
 
@@ -236,6 +242,7 @@ describe("Billing Edge Cases", () => {
 
             const response = await stripeWebhook(makeStripeRequest())
             expect(response.status).toBe(500)
+            expect(mockSubscriptionsRetrieve).toHaveBeenCalledWith("sub_1")
 
             // Should release claim (DEL) so Stripe retry can re-process
             expect(mockRedisDel).toHaveBeenCalledWith("stripe:event:evt_transient")

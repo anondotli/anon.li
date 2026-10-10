@@ -36,8 +36,12 @@ export async function POST(request: Request) {
         const session = await getVaultSession({ require2FA: false, fresh: true })
 
         if (!session) {
+            // Distinguish a stale-but-valid session so the client can prompt a re-sign-in.
+            const staleSession = await getVaultSession({ require2FA: false })
             logVaultWarn(ROUTE_NAME, "Vault setup requires a fresh session", { requestId })
-            return withNoStore(apiError("A fresh authenticated session is required", ErrorCodes.UNAUTHORIZED, requestId, 401))
+            return withNoStore(staleSession
+                ? apiError("Please sign in again to finish setting up your vault", ErrorCodes.SESSION_NOT_FRESH, requestId, 401)
+                : apiError("Unauthorized", ErrorCodes.UNAUTHORIZED, requestId, 401))
         }
 
         // If the user has 2FA enabled, they must have verified it before setting up the vault

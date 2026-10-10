@@ -115,4 +115,92 @@ describe('AliasItem', () => {
     const optionsButtons = screen.getAllByLabelText('Alias options')
     expect(optionsButtons.length).toBeGreaterThan(0)
   })
+
+  it('has a details toggle that opens and closes the panel', async () => {
+    const { render, screen, fireEvent, cleanup } = await import('@testing-library/react')
+    const { AliasItem } = await import('@/components/alias')
+    cleanup()
+
+    render(<AliasItem alias={mockAlias} metadata={mockMetadata} />)
+
+    const expand = screen.getByRole('button', { name: 'Expand alias details' })
+    expect(expand.getAttribute('aria-expanded')).toBe('false')
+    fireEvent.click(expand)
+
+    const collapse = screen.getByRole('button', { name: 'Collapse alias details' })
+    expect(collapse.getAttribute('aria-expanded')).toBe('true')
+    expect(screen.getByText('Forwarding to')).toBeDefined()
+    fireEvent.click(collapse)
+    expect(screen.getByRole('button', { name: 'Expand alias details' })).toBeDefined()
+  })
+
+  it('shows the taken-down state and locks the toggle', async () => {
+    const { render, screen, cleanup } = await import('@testing-library/react')
+    const { AliasItem } = await import('@/components/alias')
+    cleanup()
+
+    render(<AliasItem alias={{ ...mockAlias, active: false, takenDownAt: new Date() }} metadata={mockMetadata} />)
+
+    expect(screen.getByText('Disabled by anon.li')).toBeDefined()
+    expect(screen.getByText(/violating our terms of service/)).toBeDefined()
+    for (const toggle of screen.getAllByLabelText('Activate alias')) {
+      expect(toggle.hasAttribute('disabled')).toBe(true)
+    }
+  })
+
+  it('hides forwarding controls from team members who cannot change them', async () => {
+    const { render, screen, fireEvent, cleanup } = await import('@testing-library/react')
+    const { AliasItem } = await import('@/components/alias')
+    cleanup()
+
+    const recipients = [
+      { id: 'recipient_123', email: 'user@example.com', verified: true, isDefault: true, pgpPublicKey: null },
+      { id: 'recipient_456', email: 'second@example.com', verified: true, isDefault: false, pgpPublicKey: null },
+    ]
+    render(<AliasItem alias={mockAlias} metadata={mockMetadata} recipients={recipients} canManage={false} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand alias details' }))
+    expect(screen.queryByRole('button', { name: 'Change' })).toBeNull()
+    expect(screen.getByText('Only team admins can change where this alias forwards.')).toBeDefined()
+  })
+
+  it('shows every forwarding recipient and preserves them when editing', async () => {
+    const { render, screen, fireEvent, waitFor, cleanup } = await import('@testing-library/react')
+    const { AliasItem } = await import('@/components/alias')
+    cleanup()
+    const { updateAliasAction } = await import('@/actions/alias')
+    ;(updateAliasAction as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ success: true })
+
+    const recipients = [
+      { id: 'recipient_123', email: 'user@example.com', verified: true, isDefault: true, pgpPublicKey: null },
+      { id: 'recipient_456', email: 'second@example.com', verified: true, isDefault: false, pgpPublicKey: null },
+      { id: 'recipient_789', email: 'third@example.com', verified: true, isDefault: false, pgpPublicKey: null },
+    ]
+    const alias = {
+      ...mockAlias,
+      aliasRecipients: [
+        { isPrimary: true, recipient: { id: 'recipient_123', email: 'user@example.com', pgpPublicKey: null } },
+        { isPrimary: false, recipient: { id: 'recipient_456', email: 'second@example.com', pgpPublicKey: null } },
+      ],
+    }
+
+    render(<AliasItem alias={alias} metadata={mockMetadata} recipients={recipients} />)
+
+    // Main row indicates the extra recipient.
+    expect(screen.getByText('+1')).toBeDefined()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand alias details' }))
+    expect(screen.getAllByText('second@example.com').length).toBeGreaterThan(0)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Change' }))
+    const third = screen.getByRole('checkbox', { name: /third@example.com/ })
+    fireEvent.click(third)
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => {
+      expect(updateAliasAction).toHaveBeenCalledWith('alias_123', {
+        recipientIds: ['recipient_123', 'recipient_456', 'recipient_789'],
+      })
+    })
+  })
 })

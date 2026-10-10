@@ -1307,6 +1307,14 @@ const OPTION_BULLET: Record<OptionFieldType, LucideIcon> = {
     ranking: ListOrdered,
 }
 
+// Mirrors the schema minimums (ranking needs two items to order).
+const OPTION_MIN: Record<OptionFieldType, number> = {
+    single_select: 1,
+    multi_select: 1,
+    dropdown: 1,
+    ranking: 2,
+}
+
 const OPTION_LIMIT: Record<OptionFieldType, number> = {
     single_select: 50,
     multi_select: 50,
@@ -1327,7 +1335,9 @@ function OptionEditor({
 }) {
     const Bullet = OPTION_BULLET[fieldType]
     const limit = OPTION_LIMIT[fieldType]
+    const minOptions = OPTION_MIN[fieldType]
     const canAdd = !disabled && options.length < limit
+    const canRemove = options.length > minOptions
     const inputsRef = useRef<(HTMLInputElement | null)[]>([])
     const pendingFocus = useRef<{ index: number; caret: number } | null>(null)
 
@@ -1350,7 +1360,7 @@ function OptionEditor({
     }
 
     const removeAt = (index: number, focusPrev = false) => {
-        if (options.length <= 1) return
+        if (!canRemove) return
         if (focusPrev && index > 0) {
             const prevLength = options[index - 1]?.length ?? 0
             pendingFocus.current = { index: index - 1, caret: prevLength }
@@ -1373,8 +1383,13 @@ function OptionEditor({
     const appendDefault = () => {
         if (!canAdd) return
         const nextIndex = options.length
+        // Pick the first free "Option N" so removing a middle choice and
+        // adding another never creates a duplicate (options must be unique).
+        const taken = new Set(options.map((option) => option.trim()))
+        let n = options.length + 1
+        while (taken.has(`Option ${n}`)) n += 1
         pendingFocus.current = { index: nextIndex, caret: 0 }
-        onChange([...options, `Option ${options.length + 1}`])
+        onChange([...options, `Option ${n}`])
     }
 
     return (
@@ -1412,7 +1427,7 @@ function OptionEditor({
                                 } else if (
                                     event.key === "Backspace" &&
                                     option === "" &&
-                                    options.length > 1
+                                    canRemove
                                 ) {
                                     event.preventDefault()
                                     removeAt(index, true)
@@ -1428,7 +1443,7 @@ function OptionEditor({
                             size="icon"
                             className="h-7 w-7 text-muted-foreground/60 transition-opacity hover:text-destructive focus-visible:opacity-100 group-hover/option:opacity-100 sm:opacity-0"
                             onClick={() => removeAt(index)}
-                            disabled={disabled || options.length <= 1}
+                            disabled={disabled || !canRemove}
                             aria-label={`Remove option ${index + 1}`}
                         >
                             <Trash2 className="h-3.5 w-3.5" />

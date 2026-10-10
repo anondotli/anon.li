@@ -21,6 +21,12 @@ const mocks = vi.hoisted(() => ({
     apiKeyDeleteMany: vi.fn(),
     recipientDeleteMany: vi.fn(),
     subscriptionDeleteMany: vi.fn(),
+    subscriptionFindMany: vi.fn(),
+    subscriptionUpdate: vi.fn(),
+    formOwnerKeyDeleteMany: vi.fn(),
+    organizationMemberKeyDeleteMany: vi.fn(),
+    stripeCancel: vi.fn(),
+    stripeRetrieve: vi.fn(),
     transaction: vi.fn(),
     eraseUserDrops: vi.fn(),
 }))
@@ -48,8 +54,23 @@ vi.mock("@/lib/prisma", () => ({
         userSecurity: { deleteMany: mocks.userSecurityDeleteMany },
         apiKey: { deleteMany: mocks.apiKeyDeleteMany },
         recipient: { deleteMany: mocks.recipientDeleteMany },
-        subscription: { deleteMany: mocks.subscriptionDeleteMany },
+        subscription: {
+            deleteMany: mocks.subscriptionDeleteMany,
+            findMany: mocks.subscriptionFindMany,
+            update: mocks.subscriptionUpdate,
+        },
+        formOwnerKey: { deleteMany: mocks.formOwnerKeyDeleteMany },
+        organizationMemberKey: { deleteMany: mocks.organizationMemberKeyDeleteMany },
         $transaction: mocks.transaction,
+    },
+}))
+
+vi.mock("@/lib/stripe", () => ({
+    stripe: {
+        subscriptions: {
+            cancel: mocks.stripeCancel,
+            retrieve: mocks.stripeRetrieve,
+        },
     },
 }))
 
@@ -84,6 +105,12 @@ describe("DeletionService", () => {
         mocks.apiKeyDeleteMany.mockResolvedValue({ count: 0 })
         mocks.recipientDeleteMany.mockResolvedValue({ count: 0 })
         mocks.subscriptionDeleteMany.mockResolvedValue({ count: 0 })
+        mocks.subscriptionFindMany.mockResolvedValue([])
+        mocks.subscriptionUpdate.mockResolvedValue({})
+        mocks.formOwnerKeyDeleteMany.mockResolvedValue({ count: 0 })
+        mocks.organizationMemberKeyDeleteMany.mockResolvedValue({ count: 0 })
+        mocks.stripeCancel.mockResolvedValue({ status: "canceled" })
+        mocks.stripeRetrieve.mockResolvedValue({ status: "active" })
         mocks.transaction.mockImplementation(async (operations: Promise<unknown>[]) => Promise.all(operations))
     })
 
@@ -151,5 +178,71 @@ describe("DeletionService", () => {
         })
         expect(mocks.deletionRequestDelete).toHaveBeenCalledWith({ where: { id: "dr_123" } })
         expect(mocks.userDelete).toHaveBeenCalledWith({ where: { id: "user_123" } })
+    })
+    describe("personal Stripe subscriptions", () => {
+        const pendingRequest = {
+            id: "dr_123",
+            userId: "user_123",
+            status: "pending",
+            aliasesDeleted: false,
+            domainsDeleted: false,
+            formsDeleted: false,
+            storageDeleted: false,
+            dropsDeleted: false,
+            sessionsDeleted: true,
+        }
+
+        it("cancels billable personal Stripe subscriptions before revoking sessions", async () => {
+            mocks.deletionRequestFindUnique.mockResolvedValue(pendingRequest)
+            mocks.subscriptionFindMany.mockResolvedValueOnce([{ id: "sub_local_1", providerSubscriptionId: "sub_stripe_1" }])
+
+            await DeletionService.requestDeletion("user_123")
+
+            expect(mocks.subscriptionFindMany).toHaveBeenCalledWith(expect.objectContaining({
+                where: expect.objectContaining({ userId: "user_123", organizationId: null, provider: "stripe" }),
+            }))
+            expect(mocks.stripeCancel).toHaveBeenCalledWith("sub_stripe_1")
+            expect(mocks.stripeCancel.mock.invocationCallOrder[0]).toBeLessThan(
+                mocks.sessionDeleteMany.mock.invocationCallOrder[0]!,
+            )
+            expect(mocks.subscriptionUpdate).toHaveBeenCalledWith({
+                where: { id: "sub_local_1" },
+                data: { status: "canceled", cancelAtPeriodEnd: false },
+            })
+        })
+
+        it("treats an already-canceled Stripe subscription as done", async () => {
+            mocks.subscriptionFindMany.mockResolvedValueOnce([{ id: "sub_local_1", providerSubscriptionId: "sub_stripe_1" }])
+            mocks.stripeCancel.mockRejectedValueOnce(Object.assign(new Error("already canceled"), { code: "subscription_canceled" }))
+            mocks.stripeRetrieve.mockResolvedValueOnce({ status: "canceled" })
+
+            await expect(DeletionService.cancelPersonalStripeSubscriptions("user_123")).resolves.toBeUndefined()
+            expect(mocks.subscriptionUpdate).toHaveBeenCalled()
+        })
+
+        it("treats a subscription missing on Stripe as done", async () => {
+            mocks.subscriptionFindMany.mockResolvedValueOnce([{ id: "sub_local_1", providerSubscriptionId: "sub_stripe_1" }])
+            mocks.stripeCancel.mockRejectedValueOnce(Object.assign(new Error("No such subscription"), { code: "resource_missing" }))
+
+            await expect(DeletionService.cancelPersonalStripeSubscriptions("user_123")).resolves.toBeUndefined()
+            expect(mocks.stripeRetrieve).not.toHaveBeenCalled()
+        })
+
+        it("aborts deletion without revoking sessions or erasing data when cancellation fails", async () => {
+            mocks.subscriptionFindMany.mockResolvedValueOnce([{ id: "sub_local_1", providerSubscriptionId: "sub_stripe_1" }])
+            mocks.stripeCancel.mockRejectedValueOnce(new Error("Stripe is down"))
+            mocks.stripeRetrieve.mockRejectedValueOnce(new Error("Stripe is down"))
+
+            await expect(DeletionService.requestDeletion("user_123")).rejects.toThrow(/couldn't cancel/)
+            expect(mocks.sessionDeleteMany).not.toHaveBeenCalled()
+            expect(mocks.deletionRequestUpsert).not.toHaveBeenCalled()
+            expect(mocks.aliasDeleteMany).not.toHaveBeenCalled()
+            expect(mocks.userDelete).not.toHaveBeenCalled()
+        })
+
+        it("does not touch Stripe when there is no billable personal subscription", async () => {
+            await DeletionService.cancelPersonalStripeSubscriptions("user_123")
+            expect(mocks.stripeCancel).not.toHaveBeenCalled()
+        })
     })
 })

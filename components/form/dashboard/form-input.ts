@@ -132,13 +132,48 @@ function normalizeSchemaForSave(schema: FormSchemaDocType): FormSchemaDocType {
                     .filter((opt: string) => opt.length > 0)
                 return { ...base, options: cleaned.length > 0 ? cleaned : ["Option 1"] }
             }
+            if (base.type === "ranking") {
+                // No filler here: ranking needs two real options, and the
+                // validation message below tells the builder what's missing.
+                const cleaned = base.options
+                    .map((opt: string) => opt.trim())
+                    .filter((opt: string) => opt.length > 0)
+                return { ...base, options: cleaned }
+            }
             return base
         }),
     }
 }
 
+type SchemaIssue = {
+    path: PropertyKey[]
+    message: string
+    code?: string
+    minimum?: number | bigint
+    maximum?: number | bigint
+}
+
+function friendlyOptionsError(issue: SchemaIssue, label: string): string {
+    // path: ["fields", i, "options"] for the list, [..., "options", j] for one choice.
+    const choiceIndex = issue.path[3]
+    if (typeof choiceIndex === "number") {
+        if (issue.code === "too_small") return `Choice ${choiceIndex + 1} of "${label}" can't be empty`
+        if (issue.code === "too_big") {
+            return `Choice ${choiceIndex + 1} of "${label}" is too long (max ${String(issue.maximum)} characters)`
+        }
+        return `Fix choice ${choiceIndex + 1} of "${label}": ${issue.message}`
+    }
+    if (issue.code === "too_small") {
+        const min = Number(issue.minimum ?? 1)
+        return `"${label}" needs at least ${min} ${min === 1 ? "choice" : "choices"}`
+    }
+    if (issue.code === "too_big") return `"${label}" has too many choices (max ${String(issue.maximum)})`
+    if (issue.message === "options must be unique") return `"${label}" has duplicate choices`
+    return `Fix the choices of "${label}": ${issue.message}`
+}
+
 function friendlyZodError(
-    issues: readonly { path: PropertyKey[]; message: string }[],
+    issues: readonly SchemaIssue[],
     schema: FormSchemaDocType,
 ): string {
     const issue = issues[0]
@@ -150,7 +185,7 @@ function friendlyZodError(
         const labelOrIndex = field?.label?.trim() || `Question ${fieldIndex + 1}`
         const segment = path[2]
         if (segment === "label") return `Add a label to "${labelOrIndex}"`
-        if (segment === "options") return `"${labelOrIndex}" needs at least one choice`
+        if (segment === "options") return friendlyOptionsError(issue, labelOrIndex)
         if (segment === "id") return `"${labelOrIndex}" needs a valid field ID`
         return `Fix "${labelOrIndex}": ${issue.message}`
     }

@@ -25,6 +25,10 @@ interface DropDownloadViewProps {
   downloadFile: (fileId: string) => void;
   downloadAll: () => void;
   canDownloadAsZip: boolean;
+  /** Limited drop too large to ZIP: save every file under one authorization. */
+  canDownloadAllSeparately?: boolean;
+  /** Each individual file download spends this drop's download allowance. */
+  isLimitedDrop?: boolean;
   formatBytes: (size: number) => string;
 }
 
@@ -40,6 +44,8 @@ export function DropDownloadView({
   downloadFile,
   downloadAll,
   canDownloadAsZip,
+  canDownloadAllSeparately = false,
+  isLimitedDrop = false,
   formatBytes,
 }: DropDownloadViewProps) {
   const [showAllFiles, setShowAllFiles] = useState(false);
@@ -112,7 +118,7 @@ export function DropDownloadView({
           </h1>
 
           {drop.message && (
-            <p className="text-muted-foreground mt-2 px-4">{drop.message}</p>
+            <p className="text-muted-foreground mt-2 px-4 whitespace-pre-wrap break-words">{drop.message}</p>
           )}
 
           <p className="text-muted-foreground mt-1">
@@ -177,6 +183,20 @@ export function DropDownloadView({
                     ? <>Download <span className="truncate max-w-[180px]">{firstFile?.decryptedName}</span></>
                     : "Download All as ZIP"}
                 </Button>
+              ) : canDownloadAllSeparately ? (
+                <div className="space-y-2">
+                  <Button
+                    className="w-full h-14 text-base rounded-full shadow-lg shadow-primary/10 hover:shadow-xl hover:shadow-primary/15 transition-all hover:scale-[1.02]"
+                    size="lg"
+                    onClick={downloadAll}
+                  >
+                    <Download className="w-5 h-5 mr-2" />
+                    Download All Files
+                  </Button>
+                  <p className="text-xs text-muted-foreground text-center">
+                    This drop is too large for a ZIP, so each file is saved separately. Counts as one download.
+                  </p>
+                </div>
               ) : (
                 <div className="rounded-xl border border-border/60 bg-secondary/30 p-4 text-center">
                   <p className="text-sm font-medium">Download files individually</p>
@@ -191,6 +211,11 @@ export function DropDownloadView({
               {!isSingleFile && (
                 <div className="space-y-2">
                   <p className="text-sm text-muted-foreground">Or download individually:</p>
+                  {isLimitedDrop && (
+                    <p className="text-xs text-amber-600 dark:text-amber-500">
+                      Each individual file download counts toward this link&apos;s download limit.
+                    </p>
+                  )}
 
                   <div className="border rounded-lg divide-y">
                     {displayFiles.map((file) => {

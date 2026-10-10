@@ -11,6 +11,8 @@ import { orgScope, personalScope, type OwnerScope } from "@/lib/ownership"
 import { PLAN_ENTITLEMENTS } from "@/config/plans"
 import { DOWNGRADE_DELETION_DELAY_DAYS, DOWNGRADE_SCHEDULING_DELAY_DAYS } from "@/lib/constants"
 import { getFormOwnerEntitlements } from "@/lib/services/form-entitlements"
+import { markAttachmentDropForReaping } from "@/lib/services/form-attachment-drop"
+import { isDunningSubscription, isWithinDunningWindow } from "@/lib/services/billing-dunning"
 import type { Prisma } from "@prisma/client"
 
 const logger = createLogger("FormCleanupService")
@@ -44,6 +46,27 @@ function cleanupScope(owner: CleanupFormOwner): OwnerScope | null {
         return orgScope(owner.userId ?? "form-cleanup", owner.organizationId, "owner")
     }
     return owner.userId ? personalScope(owner.userId) : null
+}
+
+/**
+ * Paid retention a personal owner keeps while Stripe is still retrying a
+ * failed payment (dunning, bounded by MAX_DUNNING_DAYS from the downgrade
+ * marker): the subscription may recover, so responses must not be purged under
+ * free retention in the meantime. Null when the owner is not in dunning.
+ */
+function dunningRetentionDays(user: {
+    downgradedAt: Date | null
+    subscriptions: { status: string; provider: string; tier: string; lossNotifiedAt: Date | null }[]
+} | null): number | null {
+    if (!user || !isWithinDunningWindow(user.downgradedAt)) return null
+    let best: number | null = null
+    for (const subscription of user.subscriptions) {
+        if (!isDunningSubscription(subscription)) continue
+        if (subscription.tier !== "plus" && subscription.tier !== "pro") continue
+        const days = PLAN_ENTITLEMENTS.form[subscription.tier].retentionDays
+        best = best === null ? days : Math.max(best, days)
+    }
+    return best
 }
 
 export class FormCleanupService {
@@ -145,9 +168,16 @@ export class FormCleanupService {
                                 where: {
                                     organizationId: null,
                                     product: { in: ["form", "bundle", "business"] },
-                                    status: { in: ["active", "trialing"] },
+                                    // past_due: a payment Stripe may still recover.
+                                    status: { in: ["active", "trialing", "past_due"] },
                                 },
-                                select: { currentPeriodEnd: true },
+                                select: {
+                                    currentPeriodEnd: true,
+                                    status: true,
+                                    provider: true,
+                                    tier: true,
+                                    lossNotifiedAt: true,
+                                },
                             },
                         },
                     },
@@ -188,7 +218,10 @@ export class FormCleanupService {
                         })
                         continue
                     }
-                    retentionByOwner.set(key, limits.retentionDays)
+                    // Personal owners in dunning keep their paid retention; an
+                    // org form never inherits its creator's personal billing.
+                    const dunningDays = form.organizationId ? null : dunningRetentionDays(form.user)
+                    retentionByOwner.set(key, Math.max(limits.retentionDays, dunningDays ?? 0))
                 } catch (e) {
                     logger.warn("Failed to resolve retention for form owner", { ownerKey: key, error: e })
                 }
@@ -213,7 +246,8 @@ export class FormCleanupService {
                     !form.organizationId
                     && !form.user?.downgradedAt
                     && form.user?.subscriptions?.some((subscription) => (
-                        subscription.currentPeriodEnd
+                        (subscription.status === "active" || subscription.status === "trialing")
+                        && subscription.currentPeriodEnd
                         && subscription.currentPeriodEnd.getTime() + DAY_MS <= now
                     ))
                 ) {
@@ -250,7 +284,8 @@ export class FormCleanupService {
                     if (sub.attachedDropId) {
                         const ownerScope = cleanupScope(owner)
                         try {
-                            if (ownerScope) await DropService.deleteDrop(sub.attachedDropId, ownerScope)
+                            if (!ownerScope) throw new Error("Form owner scope unavailable")
+                            await DropService.deleteDrop(sub.attachedDropId, ownerScope)
                         } catch (e) {
                             // Compatibility with pre-tenant-inheritance org attachments.
                             if (owner.organizationId && owner.userId) {
@@ -258,9 +293,12 @@ export class FormCleanupService {
                                     await DropService.deleteDrop(sub.attachedDropId, personalScope(owner.userId))
                                 } catch {
                                     logger.warn("Failed to delete attached drop during submission cleanup", { submissionId: sub.id, dropId: sub.attachedDropId, error: e })
+                                    await markAttachmentDropForReaping(sub.attachedDropId)
                                 }
                             } else {
                                 logger.warn("Failed to delete attached drop during submission cleanup", { submissionId: sub.id, dropId: sub.attachedDropId, error: e })
+                                // Deleting the submission unlinks the drop; soft-delete so cleanup reaps it.
+                                await markAttachmentDropForReaping(sub.attachedDropId)
                             }
                         }
                     }
@@ -339,16 +377,20 @@ export class FormCleanupService {
                     for (const sub of form.submissions) {
                         if (sub.attachedDropId) {
                             try {
-                                if (ownerScope) await DropService.deleteDrop(sub.attachedDropId, ownerScope)
+                                if (!ownerScope) throw new Error("Form owner scope unavailable")
+                                await DropService.deleteDrop(sub.attachedDropId, ownerScope)
                             } catch (e) {
                                 if (form.organizationId && form.userId) {
                                     try {
                                         await DropService.deleteDrop(sub.attachedDropId, personalScope(form.userId))
                                     } catch {
                                         logger.warn("Failed to delete attached drop during form cleanup", { formId: form.id, dropId: sub.attachedDropId, error: e })
+                                        await markAttachmentDropForReaping(sub.attachedDropId)
                                     }
                                 } else {
                                     logger.warn("Failed to delete attached drop during form cleanup", { formId: form.id, dropId: sub.attachedDropId, error: e })
+                                    // The form delete unlinks the drop; soft-delete so cleanup reaps it.
+                                    await markAttachmentDropForReaping(sub.attachedDropId)
                                 }
                             }
                         }

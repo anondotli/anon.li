@@ -4,7 +4,7 @@ import { apiError, apiSuccess, ErrorCodes, generateRequestId, withNoStore } from
 import { logVaultError, logVaultWarn } from "@/lib/vault/api"
 import { getVaultSession } from "@/lib/vault/server"
 import { enforceVaultRequestGuards } from "@/lib/vault/http"
-import { isOrgManager } from "@/lib/vault/org-access"
+import { assertOrgVaultAccess, isOrgManager } from "@/lib/vault/org-access"
 
 /**
  * All members of an org who have published an identity public key, WITH their
@@ -36,6 +36,9 @@ export async function GET(request: Request) {
         if (!(await isOrgManager(session.user.id, organizationId))) {
             return withNoStore(apiError("Insufficient organization role", ErrorCodes.FORBIDDEN, requestId, 403))
         }
+
+        const policyBlocked = await assertOrgVaultAccess({ user: session.user, organizationId, requestId })
+        if (policyBlocked) return policyBlocked
 
         const members = await prisma.member.findMany({
             where: {

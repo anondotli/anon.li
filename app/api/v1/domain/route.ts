@@ -22,7 +22,7 @@ import { DomainService } from "@/lib/services/domain"
 export const dynamic = "force-dynamic"
 
 const createDomainSchema = z.object({
-    domain: z.string().min(1).regex(/^[a-z0-9.-]+\.[a-z]{2,}$/, "Invalid domain format"),
+    domain: z.string().trim().toLowerCase().min(1).regex(/^[a-z0-9.-]+\.[a-z]{2,}$/, "Invalid domain format"),
 })
 
 function toApiFormat(domain: {
@@ -98,7 +98,7 @@ export const POST = withPolicy(
             )
         }
 
-        const domain = await DomainService.createDomain(scopeFromContext(ctx), validation.data.domain.toLowerCase())
+        const domain = await DomainService.createDomain(scopeFromContext(ctx), validation.data.domain)
         return apiSuccessWithStatus(toApiFormat(domain), ctx.requestId, 201)
     },
 )

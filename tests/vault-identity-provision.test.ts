@@ -7,13 +7,14 @@
  */
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-const { readVaultApiData, provisionIdentityKeypair } = vi.hoisted(() => ({
+const { readVaultApiData, provisionIdentityKeypair, recoverIdentityPrivateKey } = vi.hoisted(() => ({
     readVaultApiData: vi.fn(),
     provisionIdentityKeypair: vi.fn(),
+    recoverIdentityPrivateKey: vi.fn(),
 }))
 
 vi.mock("@/lib/vault/client", () => ({ readVaultApiData }))
-vi.mock("@/lib/vault/identity-keypair", () => ({ provisionIdentityKeypair }))
+vi.mock("@/lib/vault/identity-keypair", () => ({ provisionIdentityKeypair, recoverIdentityPrivateKey }))
 
 import { ensureIdentityKeypair } from "@/lib/vault/identity-keys-client"
 
@@ -62,7 +63,29 @@ describe("ensureIdentityKeypair", () => {
         })
     })
 
-    it("re-provisions when the stored keypair is stale (different generation)", async () => {
+    it("re-publishes the SAME keypair when only the generation moved (vault password change)", async () => {
+        readVaultApiData
+            .mockResolvedValueOnce({ identityPublicKey: "KEPT_PUB", wrappedIdentityPrivateKey: "KEPT_WRAPPED", identityKeyGeneration: 2 })
+            .mockResolvedValueOnce({ identityPublicKey: "KEPT_PUB" })
+        recoverIdentityPrivateKey.mockResolvedValue("private-key")
+
+        const result = await ensureIdentityKeypair(vaultKey, 3, "vault-1")
+
+        // Generating a new pair would orphan the org member keys sealed to KEPT_PUB.
+        expect(recoverIdentityPrivateKey).toHaveBeenCalledWith("KEPT_WRAPPED", vaultKey)
+        expect(provisionIdentityKeypair).not.toHaveBeenCalled()
+        expect(result).toBe("KEPT_PUB")
+        const [, postInit] = readVaultApiData.mock.calls[1]!
+        expect(JSON.parse(postInit.body)).toEqual({
+            identityPublicKey: "KEPT_PUB",
+            wrappedIdentityPrivateKey: "KEPT_WRAPPED",
+            vaultId: "vault-1",
+            vaultGeneration: 3,
+        })
+    })
+
+    it("re-provisions when the stored keypair no longer unwraps under the vault key", async () => {
+        recoverIdentityPrivateKey.mockRejectedValue(new Error("OperationError"))
         readVaultApiData
             .mockResolvedValueOnce({ identityPublicKey: "OLD_PUB", wrappedIdentityPrivateKey: "old", identityKeyGeneration: 2 })
             .mockResolvedValueOnce({ identityPublicKey: "ROTATED_PUB" })
@@ -73,6 +96,7 @@ describe("ensureIdentityKeypair", () => {
 
         const result = await ensureIdentityKeypair(vaultKey, 3, "vault-1") // current gen 3, stored gen 2
 
+        expect(recoverIdentityPrivateKey).toHaveBeenCalledWith("old", vaultKey)
         expect(provisionIdentityKeypair).toHaveBeenCalledOnce()
         expect(result).toBe("ROTATED_PUB")
         expect(readVaultApiData).toHaveBeenCalledTimes(2) // GET + POST

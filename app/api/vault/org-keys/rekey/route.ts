@@ -5,8 +5,10 @@ import { apiError, apiSuccess, ErrorCodes, generateRequestId, withNoStore } from
 import { logVaultError, logVaultWarn } from "@/lib/vault/api"
 import { getVaultSession } from "@/lib/vault/server"
 import { enforceVaultRequestGuards } from "@/lib/vault/http"
-import { isOrgManager } from "@/lib/vault/org-access"
+import { assertOrgVaultAccess, isOrgManager } from "@/lib/vault/org-access"
 import { audit } from "@/lib/services/audit"
+import { encryptedAliasMetadataSchema } from "@/lib/validations/alias"
+import { CIPHERTEXT_HASH_PATTERN, hashNullableCiphertext } from "@/lib/vault/ciphertext-hash"
 
 /**
  * Bulk re-key of org-owned owner keys for a team key ROTATION (ORG-E2EE §6).
@@ -16,6 +18,15 @@ import { audit } from "@/lib/services/audit"
  * the new key. POST stores the re-wrapped keys at the new generation. Both are
  * owner/admin only; every query is scoped to organizationId (tenant boundary).
  * The server only ever moves opaque ciphertext.
+ *
+ * Org alias labels/notes are encrypted directly with the org vault key, so the
+ * GET also lists them (`aliasMetadata`) and the POST re-encrypted envelopes are
+ * applied in the same rotation transaction. The client echoes EVERY listed
+ * alias with hashes of the ciphertext it saw; the POST requires that exact set
+ * and those exact ciphertexts, so a label edited (or first written) between GET
+ * and POST fails the rotation with a retryable ROTATION_DATA_CHANGED instead of
+ * being reverted or stranded under the old key. A field with no new value (a
+ * legacy label still under its author's personal key) is left as-is.
  */
 
 const ROUTE_NAME = "vault-org-keys-rekey"
@@ -24,6 +35,18 @@ const MAX_REKEY_BODY_BYTES = 16 * 1024 * 1024
 
 const rekeyItem = z.object({ id: z.string().min(1).max(64), wrappedKey: z.string().min(1).max(4096) })
 const memberGrant = z.object({ userId: idSchema, wrappedOrgVaultKey: z.string().min(1).max(4096) })
+const ciphertextHash = z.string().regex(CIPHERTEXT_HASH_PATTERN)
+const aliasMetadataUpdate = z.object({
+    id: idSchema,
+    // SHA-256 of the ciphertext the client saw at GET (null = field was empty).
+    previousLabelHash: ciphertextHash.nullable(),
+    previousNoteHash: ciphertextHash.nullable(),
+    encryptedLabel: encryptedAliasMetadataSchema.optional(),
+    encryptedNote: encryptedAliasMetadataSchema.optional(),
+}).strict()
+    // Only an existing field can be re-encrypted.
+    .refine((item) => item.encryptedLabel === undefined || item.previousLabelHash !== null)
+    .refine((item) => item.encryptedNote === undefined || item.previousNoteHash !== null)
 const rekeySchema = z.object({
     organizationId: idSchema,
     orgKeyGeneration: z.number().int().positive(),
@@ -33,6 +56,8 @@ const rekeySchema = z.object({
     memberGrants: z.array(memberGrant),
     dropKeys: z.array(rekeyItem),
     formKeys: z.array(rekeyItem),
+    // Optional for clients that predate org-key alias metadata.
+    aliasMetadata: z.array(aliasMetadataUpdate).default([]),
 })
 
 class StaleGenerationError extends Error {}
@@ -110,7 +135,10 @@ export async function GET(request: Request) {
             return withNoStore(apiError("Insufficient organization role", ErrorCodes.FORBIDDEN, requestId, 403))
         }
 
-        const [dropKeys, formKeys] = await Promise.all([
+        const policyBlocked = await assertOrgVaultAccess({ user: session.user, organizationId, requestId })
+        if (policyBlocked) return policyBlocked
+
+        const [dropKeys, formKeys, aliasMetadata] = await Promise.all([
             prisma.dropOwnerKey.findMany({
                 where: { organizationId: organizationId },
                 select: { dropId: true, wrappedKey: true },
@@ -119,11 +147,19 @@ export async function GET(request: Request) {
                 where: { organizationId: organizationId },
                 select: { formId: true, wrappedKey: true },
             }),
+            prisma.alias.findMany({
+                where: {
+                    organizationId,
+                    OR: [{ encryptedLabel: { not: null } }, { encryptedNote: { not: null } }],
+                },
+                select: { id: true, encryptedLabel: true, encryptedNote: true },
+            }),
         ])
 
         return withNoStore(apiSuccess({
             dropKeys: dropKeys.map((k) => ({ id: k.dropId, wrappedKey: k.wrappedKey })),
             formKeys: formKeys.map((k) => ({ id: k.formId, wrappedKey: k.wrappedKey })),
+            aliasMetadata,
         }, requestId))
     } catch (error) {
         logVaultError(ROUTE_NAME, "Rekey listing failed", error, { requestId })
@@ -161,11 +197,17 @@ export async function POST(request: Request) {
         if (!validation.success) {
             return withNoStore(apiError("Invalid request body", ErrorCodes.VALIDATION_ERROR, requestId, 400))
         }
-        const { organizationId, orgKeyGeneration, memberGrants, dropKeys, formKeys } = validation.data
+        const { organizationId, orgKeyGeneration, memberGrants, dropKeys, formKeys, aliasMetadata } = validation.data
+        if (new Set(aliasMetadata.map((a) => a.id)).size !== aliasMetadata.length) {
+            return withNoStore(apiError("Invalid request body", ErrorCodes.VALIDATION_ERROR, requestId, 400))
+        }
 
         if (!(await isOrgManager(session.user.id, organizationId))) {
             return withNoStore(apiError("Insufficient organization role", ErrorCodes.FORBIDDEN, requestId, 403))
         }
+
+        const policyBlocked = await assertOrgVaultAccess({ user: session.user, organizationId, requestId, write: true })
+        if (policyBlocked) return policyBlocked
 
         // ATOMIC ROTATION (ORG-E2EE §6): bump the org generation, re-grant the new
         // key to every current member, and re-wrap every org-owned owner key — all
@@ -242,6 +284,49 @@ export async function POST(request: Request) {
                         throw new RotationPayloadMismatchError()
                     }
                 }
+                // Org alias labels/notes: the payload must cover exactly the org's
+                // aliases that carry metadata NOW, each with the ciphertext the
+                // client saw. A label edited or first written since the GET would
+                // otherwise be reverted or left on the old key.
+                const currentAliases = await tx.alias.findMany({
+                    where: {
+                        organizationId,
+                        OR: [{ encryptedLabel: { not: null } }, { encryptedNote: { not: null } }],
+                    },
+                    select: { id: true, encryptedLabel: true, encryptedNote: true },
+                })
+                assertExactIds(currentAliases.map((a) => a.id), aliasMetadata.map((a) => a.id))
+                const currentById = new Map(currentAliases.map((a) => [a.id, a]))
+
+                for (const a of aliasMetadata) {
+                    const currentAlias = currentById.get(a.id)!
+                    if (
+                        (await hashNullableCiphertext(currentAlias.encryptedLabel)) !== a.previousLabelHash
+                        || (await hashNullableCiphertext(currentAlias.encryptedNote)) !== a.previousNoteHash
+                    ) {
+                        throw new RotationPayloadMismatchError()
+                    }
+                    if (a.encryptedLabel === undefined && a.encryptedNote === undefined) continue
+
+                    // Compare-and-swap on the verified ciphertext, scoped to this
+                    // org so a forged id can never touch another org's or a
+                    // personal alias.
+                    const updated = await tx.alias.updateMany({
+                        where: {
+                            id: a.id,
+                            organizationId,
+                            encryptedLabel: currentAlias.encryptedLabel,
+                            encryptedNote: currentAlias.encryptedNote,
+                        },
+                        data: {
+                            ...(a.encryptedLabel !== undefined ? { encryptedLabel: a.encryptedLabel } : {}),
+                            ...(a.encryptedNote !== undefined ? { encryptedNote: a.encryptedNote } : {}),
+                        },
+                    })
+                    if (updated.count !== 1) {
+                        throw new RotationPayloadMismatchError()
+                    }
+                }
             }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
         } catch (error) {
             if (
@@ -251,7 +336,8 @@ export async function POST(request: Request) {
                 return withNoStore(apiError("Concurrent rotation; refresh and retry", ErrorCodes.CONFLICT, requestId, 409))
             }
             if (error instanceof RotationPayloadMismatchError) {
-                return withNoStore(apiError("Rotation data changed; refresh and retry", ErrorCodes.CONFLICT, requestId, 409))
+                // Retryable: nothing was committed; re-prepare from fresh data.
+                return withNoStore(apiError("Rotation data changed; refresh and retry", ErrorCodes.ROTATION_DATA_CHANGED, requestId, 409))
             }
             throw error
         }
@@ -260,10 +346,22 @@ export async function POST(request: Request) {
             action: "org.vault.rotate",
             actorId: session.user.id,
             organizationId,
-            metadata: { orgKeyGeneration, members: memberGrants.length, dropKeys: dropKeys.length, formKeys: formKeys.length },
+            metadata: {
+                orgKeyGeneration,
+                members: memberGrants.length,
+                dropKeys: dropKeys.length,
+                formKeys: formKeys.length,
+                aliasMetadata: aliasMetadata.length,
+            },
         })
 
-        return withNoStore(apiSuccess({ organizationId, orgKeyGeneration, members: memberGrants.length, rekeyed: dropKeys.length + formKeys.length }, requestId))
+        return withNoStore(apiSuccess({
+            organizationId,
+            orgKeyGeneration,
+            members: memberGrants.length,
+            rekeyed: dropKeys.length + formKeys.length,
+            aliasMetadata: aliasMetadata.length,
+        }, requestId))
     } catch (error) {
         logVaultError(ROUTE_NAME, "Rekey store failed", error, { requestId })
         return withNoStore(apiError("Internal server error", ErrorCodes.INTERNAL_ERROR, requestId, 500))

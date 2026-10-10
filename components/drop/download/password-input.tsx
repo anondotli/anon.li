@@ -40,11 +40,18 @@ export function PasswordInputView({
             onChange={(e) => setPasswordInput(e.target.value)}
             onKeyDown={(e) => !isLoading && e.key === "Enter" && handlePasswordSubmit()}
             placeholder="Enter password..."
+            aria-label="Drop password"
+            aria-invalid={Boolean(passwordError)}
+            aria-describedby={passwordError ? "drop-password-error" : undefined}
             className="h-12 text-center font-mono text-sm"
             autoFocus
             disabled={isLoading}
           />
-          {passwordError && <p className="text-sm text-destructive text-center">{passwordError}</p>}
+          {passwordError && (
+            <p id="drop-password-error" role="alert" className="text-sm text-destructive text-center">
+              {passwordError}
+            </p>
+          )}
           <Button
             className="w-full h-12 rounded-full"
             onClick={handlePasswordSubmit}

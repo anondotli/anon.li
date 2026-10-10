@@ -19,7 +19,7 @@ export default async function OauthAppDetailPage({
 
     if (!app) notFound()
 
-    const redirectUrls = app.redirectUrls.split(/[\s,]+/).filter(Boolean)
+    const redirectUrls = app.redirectUris.filter(Boolean)
 
     return (
         <div className="space-y-8">
@@ -44,7 +44,7 @@ export default async function OauthAppDetailPage({
             </div>
 
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                <StatCard title="Access Tokens" value={app.usage.tokens} icon={KeyRound} />
+                <StatCard title="Active Refresh Tokens" value={app.usage.tokens} icon={KeyRound} />
                 <StatCard title="Consents" value={app.usage.consents} icon={ShieldCheck} />
                 <StatCard title="Created" value={formatDate(app.createdAt)} icon={KeyRound} />
             </div>

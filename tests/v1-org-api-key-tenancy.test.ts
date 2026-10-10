@@ -302,16 +302,24 @@ describe("personal-only v1 endpoints", () => {
             where: {
                 userId: "user-1",
                 organizationId: null,
-                status: { in: ["active", "trialing"] },
-                currentPeriodEnd: { gt: expect.any(Date) },
+                // A subscription in dunning is still live at Stripe.
+                OR: [
+                    { status: { in: ["active", "trialing"] }, currentPeriodEnd: { gt: expect.any(Date) } },
+                    {
+                        provider: "stripe",
+                        status: "past_due",
+                        lossNotifiedAt: null,
+                        updatedAt: { gt: expect.any(Date) },
+                    },
+                ],
             },
-            select: { id: true },
+            select: { id: true, status: true },
         })
         expect(createCheckoutSession).toHaveBeenCalledOnce()
     })
 
     it("does not create a second personal subscription", async () => {
-        prisma.subscription.findFirst.mockResolvedValueOnce({ id: "sub-1" })
+        prisma.subscription.findFirst.mockResolvedValueOnce({ id: "sub-1", status: "active" })
         const { POST } = await import("@/app/api/v1/checkout/route")
 
         const response = await POST(new Request("https://anon.li/api/v1/checkout", {

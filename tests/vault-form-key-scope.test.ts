@@ -30,6 +30,7 @@ vi.mock("@/lib/vault/form-owner-keys", () => ({
 }))
 
 vi.mock("@/lib/vault/org-access", () => ({
+    assertOrgVaultAccess: vi.fn(async () => null),
     getMemberOrgIds: vi.fn(),
     isOrgMember: vi.fn(),
 }))

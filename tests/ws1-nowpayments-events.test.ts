@@ -43,11 +43,15 @@ vi.mock("@upstash/redis", () => ({
 vi.mock("@/lib/prisma", () => ({
     prisma: {
         cryptoPayment: { findUnique: cryptoPaymentFindUnique, updateMany: cryptoPaymentUpdateMany, update: vi.fn() },
-        subscription: { updateMany: subscriptionUpdateMany },
+        subscription: { updateMany: subscriptionUpdateMany, findFirst: vi.fn().mockResolvedValue(null) },
         user: { update: userUpdate },
         $transaction: vi.fn(async (cb: (tx: unknown) => Promise<unknown>) => cb({
             cryptoPayment: { updateMany: cryptoPaymentUpdateMany, update: vi.fn().mockResolvedValue({}) },
-            subscription: { updateMany: subscriptionUpdateMany },
+            subscription: {
+                updateMany: subscriptionUpdateMany,
+                count: vi.fn().mockResolvedValue(0),
+                findFirst: vi.fn().mockResolvedValue(null),
+            },
             user: { update: userUpdate },
         })),
     },
@@ -63,6 +67,7 @@ vi.mock("@/lib/crypto-prices", () => ({
 }))
 vi.mock("@/lib/services/subscription-sync", () => ({
     createCryptoSubscription,
+    findConflictingStripeSubscription: vi.fn().mockResolvedValue(null),
 }))
 vi.mock("@/lib/services/billing-downgrade", () => ({
     BillingDowngradeService: { cancelDowngrade: vi.fn().mockResolvedValue(undefined) },

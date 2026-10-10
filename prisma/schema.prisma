@@ -17,19 +17,22 @@ model User {
   sessions      Session[]
 
   // Resource Ownership
-  aliases           Alias[]
-  domains           Domain[]
-  apiKeys           ApiKey[]
-  recipients        Recipient[]
-  drops             Drop[]
-  security          UserSecurity?
-  dropOwnerKeys     DropOwnerKey[]
-  forms             Form[]             @relation("UserForms")
-  formOwnerKeys     FormOwnerKey[]
-  formSubmissions   FormSubmission[]   @relation("SubmitterFormSubmissions")
-  subscriptions     Subscription[]
-  deletionRequest   DeletionRequest?
-  oauthApplications OauthApplication[]
+  aliases            Alias[]
+  domains            Domain[]
+  apiKeys            ApiKey[]
+  recipients         Recipient[]
+  drops              Drop[]
+  security           UserSecurity?
+  dropOwnerKeys      DropOwnerKey[]
+  forms              Form[]              @relation("UserForms")
+  formOwnerKeys      FormOwnerKey[]
+  formSubmissions    FormSubmission[]    @relation("SubmitterFormSubmissions")
+  subscriptions      Subscription[]
+  deletionRequest    DeletionRequest?
+  oauthClients       OauthClient[]
+  oauthRefreshTokens OauthRefreshToken[]
+  oauthAccessTokens  OauthAccessToken[]
+  oauthConsents      OauthConsent[]
 
   // Organizations (B2B multi-tenancy)
   memberships            Member[]
@@ -156,7 +159,7 @@ model Alias {
   // org-owned alias (owned by organizationId). A null userId on an org row means
   // "creator account was deleted"; the org still owns it.
   userId String?
-  user   User?  @relation(fields: [userId], references: [id], onDelete: SetNull)
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   organizationId String?
   organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -172,6 +175,10 @@ model Alias {
   formsNotified Form[] @relation("FormNotifyAlias")
 
   scheduledForRemovalAt DateTime? @map("scheduled_for_removal_at")
+
+  // Set by an admin abuse takedown. Idempotency marker so a repeated takedown
+  // never applies a second ToS strike (independent of the owner's `active`).
+  takenDownAt DateTime? @map("taken_down_at")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -204,7 +211,7 @@ model Recipient {
   // Nullable + SetNull so deleting the creating user keeps an org-owned recipient
   // (owned by organizationId) instead of cascade-deleting it.
   userId String?
-  user   User?  @relation(fields: [userId], references: [id], onDelete: SetNull)
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   organizationId String?
   organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -284,10 +291,21 @@ model Domain {
 
   scheduledForRemovalAt DateTime? @map("scheduled_for_removal_at")
 
+  // When a previously-verified domain lost verification (cron re-check, a failed
+  // manual re-check, or another owner proving control). Null while verified and
+  // for never-verified claims. Drives the stale-domain cleanup grace period so a
+  // revoked domain is not hard-deleted the day after its owner is warned.
+  unverifiedAt DateTime? @map("unverified_at")
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([domain])
+  // Uniqueness is enforced only among VERIFIED rows by the partial unique index
+  // "domains_domain_verified_key" ON domains(domain) WHERE verified (created in
+  // migration 20261010000300_domain_partial_unique; Prisma can't express partial
+  // indexes). Unverified claims may coexist so a squatter can't block the real
+  // owner. Never use findUnique on `domain` — filter with findFirst instead.
+  @@index([domain])
   @@index([userId])
   @@index([scheduledForRemovalAt])
   @@index([organizationId])
@@ -317,19 +335,20 @@ model ApiKey {
 }
 
 model Account {
-  id                   String    @id @default(cuid())
-  userId               String
-  accountId            String
-  providerId           String
-  accessToken          String?
-  refreshToken         String?
-  accessTokenExpiresAt DateTime?
-  idToken              String?
-  scope                String?
-  password             String?
-  createdAt            DateTime  @default(now())
-  updatedAt            DateTime  @updatedAt
-  user                 User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                    String    @id @default(cuid())
+  userId                String
+  accountId             String
+  providerId            String
+  accessToken           String?
+  refreshToken          String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  idToken               String?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([providerId, accountId])
   @@index([userId])
@@ -348,6 +367,10 @@ model Session {
   twoFactorVerified Boolean  @default(false)
   user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  // OAuth tokens minted from this browser session (@better-auth/oauth-provider)
+  oauthRefreshTokens OauthRefreshToken[]
+  oauthAccessTokens  OauthAccessToken[]
+
   // Active organization context (managed by the better-auth organization plugin)
   activeOrganizationId String?
 
@@ -363,6 +386,7 @@ model Verification {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
+  @@index([identifier])
   @@map("verifications")
 }
 
@@ -411,15 +435,15 @@ model Drop {
   customKeyIv   String?
 
   // Access Controls
-  expiresAt    DateTime?
-  maxDownloads Int?
-  maxFileCount Int? // Maximum files allowed in this drop
-  downloads    Int       @default(0)
-  disabled     Boolean   @default(false)
-  disabledAt   DateTime?
+  expiresAt            DateTime?
+  maxDownloads         Int?
+  maxFileCount         Int? // Maximum files allowed in this drop
+  downloads            Int       @default(0)
+  disabled             Boolean   @default(false)
+  disabledAt           DateTime?
   // When true, only a holder of a valid per-recipient access token may download —
   // the bare anonymous link is rejected. Default false preserves legacy link sharing.
-  restrictToRecipients Boolean @default(false)
+  restrictToRecipients Boolean   @default(false)
 
   // Customization
   hideBranding Boolean @default(false)
@@ -428,6 +452,11 @@ model Drop {
   notifyOnDownload  Boolean   @default(false)
   notificationsSent Int       @default(0)
   expiryNotifiedAt  DateTime?
+
+  // Set (to the stamped expiresAt) when a billing loss gave a previously
+  // unlimited drop a grace-period expiry. Recovery un-stamps only drops whose
+  // expiresAt still equals this marker, restoring them to unlimited.
+  billingGraceExpiresAt DateTime? @map("billing_grace_expires_at")
 
   // Status tracking
   uploadComplete Boolean   @default(false)
@@ -450,14 +479,14 @@ model Drop {
   files          DropFile[]
   uploadTokens   UploadToken[]
   ownerKey       DropOwnerKey?
-  formSubmission FormSubmission? @relation("FormSubmissionDrop")
+  formSubmission FormSubmission?   @relation("FormSubmissionDrop")
   recipients     DropRecipient[]
   accessEvents   DropAccessEvent[]
   userId         String?
   // SetNull (not Cascade) so deleting the creating user keeps an org-owned drop
   // (owned by organizationId). Personal drops have organizationId null and are
   // reaped by the explicit, org-scoped deletion in lib/services/deletion.ts.
-  user           User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
+  user           User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   organizationId String?
   organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -605,7 +634,7 @@ model Form {
   // Nullable + SetNull so deleting the creating user keeps an org-owned form
   // (owned by organizationId) instead of cascade-deleting it and its submissions.
   userId String?
-  user   User?  @relation("UserForms", fields: [userId], references: [id], onDelete: SetNull)
+  user   User?   @relation("UserForms", fields: [userId], references: [id], onDelete: SetNull)
 
   organizationId String?
   organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -731,12 +760,15 @@ model FormUsageEvent {
 }
 
 model TwoFactor {
-  id          String  @id @default(cuid())
-  userId      String  @unique
-  secret      String
-  backupCodes String
-  verified    Boolean @default(false)
-  user        User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                      String    @id @default(cuid())
+  userId                  String    @unique
+  secret                  String
+  backupCodes             String
+  verified                Boolean   @default(false)
+  // better-auth 1.7 sign-in lockout counters
+  failedVerificationCount Int?      @default(0)
+  lockedUntil             DateTime?
+  user                    User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("two_factors")
 }
@@ -834,6 +866,11 @@ model Subscription {
   currentPeriodStart DateTime? @map("current_period_start")
   currentPeriodEnd   DateTime? @map("current_period_end")
   cancelAtPeriodEnd  Boolean   @default(false) @map("cancel_at_period_end")
+
+  // Set when the loss of this subscription was announced to its owner(s);
+  // cleared when it becomes entitling again. Dedupes repeated loss signals
+  // (dunning retries, updated + deleted events) into one notification.
+  lossNotifiedAt DateTime? @map("loss_notified_at")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1016,53 +1053,191 @@ model Invitation {
   @@map("invitations")
 }
 
-// OAuth 2.0 / OIDC tables consumed by better-auth's MCP plugin.
-// Field names are dictated by the plugin schema; do not rename.
-model OauthApplication {
-  id           String   @id @default(cuid())
-  clientId     String   @unique
-  clientSecret String?
-  type         String // "public" | "web" | "native" | "user-agent-based"
-  name         String
-  icon         String?
-  metadata     String?  @db.Text
-  redirectUrls String   @db.Text
-  disabled     Boolean  @default(false)
-  userId       String?
-  user         User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+// ─── OAuth 2.1 provider (better-auth 1.7 @better-auth/oauth-provider via @better-auth/mcp) ───
+// Field names are dictated by the plugin schema (camelCase columns, like the
+// other better-auth tables); tables follow the repo's snake_case @@map rule.
+// Arrays are Postgres text[]; `metadata`/`customClaims`/`confirmation` are jsonb.
 
-  @@index([userId])
-  @@map("oauth_applications")
+/// JWT plugin signing keys (private key encrypted with AUTH_SECRET by default).
+model Jwks {
+  id         String    @id @default(cuid())
+  publicKey  String
+  privateKey String
+  createdAt  DateTime  @default(now())
+  expiresAt  DateTime?
+  alg        String?
+  crv        String?
+
+  @@map("jwks")
 }
 
-model OauthAccessToken {
-  id                    String   @id @default(cuid())
-  accessToken           String   @unique
-  refreshToken          String   @unique
-  accessTokenExpiresAt  DateTime
-  refreshTokenExpiresAt DateTime
-  clientId              String
-  userId                String
-  scopes                String
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
+model OauthClient {
+  id                               String                @id @default(cuid())
+  clientId                         String                @unique
+  clientSecret                     String?
+  clientDiscoveryId                String?
+  disabled                         Boolean?              @default(false)
+  skipConsent                      Boolean?
+  enableEndSession                 Boolean?
+  subjectType                      String?
+  scopes                           String[]
+  clientCredentialsScopes          String[]              @default([])
+  userId                           String?
+  user                             User?                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt                        DateTime?             @default(now())
+  updatedAt                        DateTime?             @updatedAt
+  name                             String?
+  uri                              String?
+  icon                             String?
+  contacts                         String[]
+  tos                              String?
+  policy                           String?
+  softwareId                       String?
+  softwareVersion                  String?
+  softwareStatement                String?
+  redirectUris                     String[]
+  postLogoutRedirectUris           String[]
+  backchannelLogoutUri             String?
+  backchannelLogoutSessionRequired Boolean?
+  tokenEndpointAuthMethod          String?
+  applicationType                  String?
+  jwks                             String?
+  jwksUri                          String?
+  grantTypes                       String[]
+  responseTypes                    String[]
+  requirePKCE                      Boolean?
+  dpopBoundAccessTokens            Boolean?              @default(false)
+  referenceId                      String?
+  metadata                         Json?
+  resources                        OauthClientResource[]
+  refreshTokens                    OauthRefreshToken[]
+  accessTokens                     OauthAccessToken[]
+  consents                         OauthConsent[]
+
+  @@index([userId])
+  @@map("oauth_clients")
+}
+
+model OauthResource {
+  id                            String                @id @default(cuid())
+  identifier                    String                @unique
+  name                          String
+  accessTokenTtl                Int?
+  refreshTokenTtl               Int?
+  signingAlgorithm              String?
+  signingKeyId                  String?
+  allowedScopes                 String[]
+  customClaims                  Json?
+  dpopBoundAccessTokensRequired Boolean?              @default(false)
+  disabled                      Boolean?              @default(false)
+  createdAt                     DateTime?             @default(now())
+  updatedAt                     DateTime?             @updatedAt
+  policyVersion                 Int?                  @default(1)
+  metadata                      Json?
+  clients                       OauthClientResource[]
+
+  @@map("oauth_resources")
+}
+
+model OauthClientResource {
+  id         String        @id @default(cuid())
+  clientId   String
+  client     OauthClient   @relation(fields: [clientId], references: [clientId], onDelete: Cascade)
+  resourceId String
+  resource   OauthResource @relation(fields: [resourceId], references: [identifier], onDelete: Cascade)
+  metadata   Json?
+  createdAt  DateTime?     @default(now())
+
+  @@unique([clientId, resourceId])
+  @@index([clientId])
+  @@index([resourceId])
+  @@map("oauth_client_resources")
+}
+
+model OauthRefreshToken {
+  id                      String             @id @default(cuid())
+  token                   String             @unique
+  clientId                String
+  client                  OauthClient        @relation(fields: [clientId], references: [clientId], onDelete: Cascade)
+  sessionId               String?
+  session                 Session?           @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  userId                  String
+  user                    User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  referenceId             String?
+  authorizationCodeId     String?
+  resources               String[]
+  requestedUserInfoClaims String[]
+  expiresAt               DateTime
+  createdAt               DateTime           @default(now())
+  revoked                 DateTime?
+  rotatedAt               DateTime?
+  rotationReplayResponse  String?
+  rotationReplayExpiresAt DateTime?
+  authTime                DateTime?
+  confirmation            Json?
+  scopes                  String[]
+  accessTokens            OauthAccessToken[]
 
   @@index([clientId])
+  @@index([sessionId])
   @@index([userId])
+  @@index([authorizationCodeId])
+  @@map("oauth_refresh_tokens")
+}
+
+/// Only opaque access tokens are stored here; JWT access tokens (the MCP
+/// resource) are verified statelessly against /api/auth/jwks.
+model OauthAccessToken {
+  id                      String             @id @default(cuid())
+  token                   String             @unique
+  clientId                String
+  client                  OauthClient        @relation(fields: [clientId], references: [clientId], onDelete: Cascade)
+  sessionId               String?
+  session                 Session?           @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  userId                  String?
+  user                    User?              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  referenceId             String?
+  authorizationCodeId     String?
+  resources               String[]
+  requestedUserInfoClaims String[]
+  refreshId               String?
+  refreshToken            OauthRefreshToken? @relation(fields: [refreshId], references: [id], onDelete: Cascade)
+  expiresAt               DateTime
+  createdAt               DateTime           @default(now())
+  revoked                 DateTime?
+  confirmation            Json?
+  scopes                  String[]
+
+  @@index([clientId])
+  @@index([sessionId])
+  @@index([userId])
+  @@index([authorizationCodeId])
+  @@index([refreshId])
   @@map("oauth_access_tokens")
 }
 
 model OauthConsent {
-  id           String   @id @default(cuid())
-  clientId     String
-  userId       String
-  scopes       String
-  consentGiven Boolean  @default(false)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id                      String      @id @default(cuid())
+  clientId                String
+  client                  OauthClient @relation(fields: [clientId], references: [clientId], onDelete: Cascade)
+  userId                  String?
+  user                    User?       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  referenceId             String?
+  resources               String[]
+  requestedUserInfoClaims String[]
+  scopes                  String[]
+  createdAt               DateTime    @default(now())
+  updatedAt               DateTime    @updatedAt
 
-  @@unique([clientId, userId])
+  @@index([clientId])
+  @@index([userId])
   @@map("oauth_consents")
+}
+
+/// Replay ledger for private_key_jwt client assertions (jti → expiry).
+model OauthClientAssertion {
+  id        String   @id
+  expiresAt DateTime
+
+  @@map("oauth_client_assertions")
 }

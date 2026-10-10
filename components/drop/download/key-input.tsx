@@ -53,13 +53,20 @@ export function KeyInputView({
             onPaste={handlePaste}
             onKeyDown={(e) => !isLoading && e.key === "Enter" && handleManualKeySubmit()}
             placeholder="https://anon.li/d/...#key or key"
+            aria-label="Share link or decryption key"
+            aria-invalid={Boolean(manualKeyError)}
+            aria-describedby={manualKeyError ? "drop-key-error" : undefined}
             className="h-12 text-center font-mono text-sm"
             disabled={isLoading}
           />
           <p className="text-xs text-muted-foreground text-center leading-relaxed">
             Passwords only work on password-protected drops. For link-only drops, use the full URL or the 43-character key after <span className="font-mono">#</span>.
           </p>
-          {manualKeyError && <p className="text-sm text-destructive text-center">{manualKeyError}</p>}
+          {manualKeyError && (
+            <p id="drop-key-error" role="alert" className="text-sm text-destructive text-center">
+              {manualKeyError}
+            </p>
+          )}
           <Button
             className="w-full h-12 rounded-full"
             onClick={handleManualKeySubmit}

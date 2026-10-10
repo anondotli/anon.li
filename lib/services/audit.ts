@@ -36,6 +36,7 @@ type AuditAction =
     | "deletion.process"
     | "deletion.complete"
     | "storage.orphaned_cleanup"
+    | "billing.crypto_payment.activate"
     | "auth.failed"
     // Org-scoped events — always pass organizationId so they appear in the org trail.
     | "org.member.add"

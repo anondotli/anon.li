@@ -23,6 +23,7 @@
  */
 
 import type { SealedBox } from "@/lib/crypto/asymmetric"
+import { rekeyAliasMetadata } from "@/components/alias/alias-metadata-key"
 import { readVaultApiData, VaultApiError } from "@/lib/vault/client"
 import {
     unwrapVaultManagedKey,
@@ -37,6 +38,12 @@ import {
     wrapOrgVaultKeyForMember,
 } from "@/lib/vault/org-vault-key"
 import { broadcastVaultMessage } from "@/lib/vault/sync"
+import { hashCiphertext, hashNullableCiphertext } from "@/lib/vault/ciphertext-hash"
+import {
+    ORG_KEY_GENERATION_MISMATCH_CODE,
+    ORG_KEY_LAST_HOLDER_CODE,
+    ROTATION_DATA_CHANGED_CODE,
+} from "@/lib/vault/error-codes"
 import {
     IdentityMaterialSchema,
     OwnMemberKeyResponseSchema,
@@ -80,15 +87,39 @@ export interface OrgVaultKeyHandle {
  * - `no-identity`: the caller hasn't provisioned their identity keypair (their
  *   vault may never have been unlocked since the feature shipped) — until they
  *   do, no admin can grant them.
+ * - `regrant-required`: the caller HAD a grant but it can't be opened with
+ *   their current identity key (e.g. sealed to a key replaced before the
+ *   identity-key fix). The unusable grant has been released so an admin's next
+ *   reconcile re-shares the team key.
+ * - `key-unrecoverable`: the caller's grant can't be opened AND nobody else
+ *   holds the current team key, so the server refused to release it (it might
+ *   still be the only copy). Needs support, not an admin re-grant.
  */
 export type OrgVaultKeyResult =
     | { status: "granted"; handle: OrgVaultKeyHandle }
     | { status: "awaiting-grant" }
     | { status: "no-identity" }
+    | { status: "regrant-required" }
+    | { status: "key-unrecoverable" }
+
+/** User-facing explanation for the `regrant-required` state. */
+export const ORG_KEY_REGRANT_REQUIRED_MESSAGE =
+    "Your team key needs to be re-shared by an admin. Ask a team owner or admin to open the team page so it's re-shared automatically."
+
+/** User-facing explanation for the `key-unrecoverable` state. */
+export const ORG_KEY_UNRECOVERABLE_MESSAGE =
+    "Your copy of the team key can't be opened, and no other member holds the current team key, so the team's encrypted data may be unrecoverable. Please contact support before changing anything."
 
 // Recovered org vault keys live only in memory for the life of the page,
 // mirroring the in-memory vault runtime key. Keyed by organizationId.
 const orgVaultKeyCache = new Map<string, OrgVaultKeyHandle>()
+
+// Orgs whose grant this page released as unopenable. After the release the
+// server just reports "no grant", so remember why to keep the message accurate
+// until a fresh grant arrives.
+const releasedGrantOrgIds = new Set<string>()
+// Orgs where the server refused the release because we're the last holder.
+const unrecoverableOrgIds = new Set<string>()
 
 /**
  * Drop cached org vault keys. With no argument clears all (call on vault lock /
@@ -98,6 +129,54 @@ const orgVaultKeyCache = new Map<string, OrgVaultKeyHandle>()
 export function clearOrgVaultKeyCache(organizationId?: string): void {
     if (organizationId) orgVaultKeyCache.delete(organizationId)
     else orgVaultKeyCache.clear()
+}
+
+/**
+ * Feed in an org key generation seen on any server response (org owner keys,
+ * member keys, …). A cached handle older than that generation is from before a
+ * rotation done on another device/tab that never reached us via broadcast —
+ * evict it so the next use fetches the current grant.
+ */
+export function observeOrgKeyGeneration(
+    organizationId: string | null | undefined,
+    generation: number | null | undefined,
+): void {
+    if (!organizationId || generation == null) return
+    const cached = orgVaultKeyCache.get(organizationId)
+    if (cached && cached.generation < generation) orgVaultKeyCache.delete(organizationId)
+}
+
+/** True for an error / action result carrying ORG_KEY_GENERATION_MISMATCH. */
+function isOrgKeyGenerationMismatch(value: unknown): boolean {
+    return typeof value === "object"
+        && value !== null
+        && (value as { code?: unknown }).code === ORG_KEY_GENERATION_MISMATCH_CODE
+}
+
+/**
+ * Run an org-key-encrypted write; if the server rejects it with
+ * ORG_KEY_GENERATION_MISMATCH (the team key was rotated elsewhere), drop the
+ * cached org key and run it ONCE more. `attempt` must fetch the org key itself
+ * (e.g. via getOrgVaultKeyHandle) on every call so the retry re-encrypts with
+ * the current key. Handles both thrown errors and returned `{ code }` results.
+ */
+export async function withOrgKeyGenerationRetry<T>(
+    organizationId: string,
+    attempt: () => Promise<T>,
+): Promise<T> {
+    try {
+        const result = await attempt()
+        if (!isOrgKeyGenerationMismatch(result)) return result
+    } catch (error) {
+        if (!isOrgKeyGenerationMismatch(error)) throw error
+    }
+    clearOrgVaultKeyCache(organizationId)
+    return attempt()
+}
+
+/** WebCrypto's "authentication failed" — the sealed box didn't open with this key. */
+function isCryptoOperationError(error: unknown): boolean {
+    return typeof error === "object" && error !== null && (error as { name?: unknown }).name === "OperationError"
 }
 
 function serializeSealedBox(box: SealedBox): string {
@@ -120,11 +199,27 @@ async function fetchIdentityMaterial(): Promise<IdentityMaterial> {
 }
 
 async function fetchOwnMemberKey(orgId: string): Promise<OwnMemberKeyResponse> {
-    return readVaultApiData(
+    const response = await readVaultApiData(
         `/api/vault/org-keys?organizationId=${encodeURIComponent(orgId)}`,
         undefined,
         parseVaultData(OwnMemberKeyResponseSchema),
     )
+    observeOrgKeyGeneration(orgId, response.currentGeneration)
+    return response
+}
+
+/**
+ * Release the caller's OWN member-key grant for an org so they show up as
+ * pending for re-grant. Compare-and-delete: names the exact grant (generation +
+ * hash) that failed to open, so a newer grant is never removed.
+ */
+async function releaseOwnMemberKey(orgId: string, memberKey: OwnMemberKey): Promise<void> {
+    const query = new URLSearchParams({
+        organizationId: orgId,
+        orgKeyGeneration: String(memberKey.orgKeyGeneration),
+        wrappedKeyHash: await hashCiphertext(memberKey.wrappedOrgVaultKey),
+    })
+    await readVaultApiData(`/api/vault/org-keys/own?${query.toString()}`, { method: "DELETE" })
 }
 
 async function grant(
@@ -150,7 +245,11 @@ async function grant(
  * invalidate it). On a cache miss it consults the authoritative generation: a
  * missing or stale-generation member key is NOT granted.
  */
-async function resolveOrgVaultKey(orgId: string, vaultKey: CryptoKey): Promise<OrgVaultKeyResult> {
+async function resolveOrgVaultKey(
+    orgId: string,
+    vaultKey: CryptoKey,
+    retryOnGrantChange = true,
+): Promise<OrgVaultKeyResult> {
     const cached = orgVaultKeyCache.get(orgId)
     if (cached) return { status: "granted", handle: cached }
 
@@ -159,14 +258,49 @@ async function resolveOrgVaultKey(orgId: string, vaultKey: CryptoKey): Promise<O
     // No usable grant: org unseeded, no key, or a key from before a rotation.
     if (!memberKey || currentGeneration === 0 || memberKey.orgKeyGeneration < currentGeneration) {
         const material = await fetchIdentityMaterial()
-        return material.identityPublicKey ? { status: "awaiting-grant" } : { status: "no-identity" }
+        if (!material.identityPublicKey) return { status: "no-identity" }
+        return releasedGrantOrgIds.has(orgId) ? { status: "regrant-required" } : { status: "awaiting-grant" }
     }
 
     const material = await fetchIdentityMaterial()
     if (!material.wrappedIdentityPrivateKey) return { status: "no-identity" }
 
     const identityPrivateKey = await recoverIdentityPrivateKey(material.wrappedIdentityPrivateKey, vaultKey)
-    const key = await unwrapOrgVaultKeyForMember(parseSealedBox(memberKey.wrappedOrgVaultKey), identityPrivateKey)
+
+    // Malformed/unparseable grant data is NOT evidence the grant is unusable
+    // (could be a client/schema mismatch) — surface it, never release on it.
+    const sealedBox = parseSealedBox(memberKey.wrappedOrgVaultKey)
+
+    // The identity private key opened with the vault key, so an AES-GCM
+    // authentication failure (OperationError) HERE is definitively the grant
+    // itself: sealed to a different identity key. Such a grant can never be
+    // opened, yet as long as it exists the server counts the member as granted
+    // and no admin will ever re-grant. Release it (self-heal).
+    let key: CryptoKey
+    try {
+        key = await unwrapOrgVaultKeyForMember(sealedBox, identityPrivateKey)
+    } catch (error) {
+        if (!isCryptoOperationError(error)) throw error
+        if (unrecoverableOrgIds.has(orgId)) return { status: "key-unrecoverable" }
+        try {
+            await releaseOwnMemberKey(orgId, memberKey)
+        } catch (releaseError) {
+            if (releaseError instanceof VaultApiError && releaseError.code === ORG_KEY_LAST_HOLDER_CODE) {
+                unrecoverableOrgIds.add(orgId)
+                return { status: "key-unrecoverable" }
+            }
+            // The grant changed under us (e.g. an admin just re-granted): look again.
+            if (isConflict(releaseError) && retryOnGrantChange) {
+                return resolveOrgVaultKey(orgId, vaultKey, false)
+            }
+            throw releaseError
+        }
+        releasedGrantOrgIds.add(orgId)
+        return { status: "regrant-required" }
+    }
+
+    releasedGrantOrgIds.delete(orgId)
+    unrecoverableOrgIds.delete(orgId)
     const handle: OrgVaultKeyHandle = { key, generation: memberKey.orgKeyGeneration }
     orgVaultKeyCache.set(orgId, handle)
     return { status: "granted", handle }
@@ -249,6 +383,7 @@ async function reconcileOrgGrants(orgId: string, vaultKey: CryptoKey): Promise<n
         }).strict()),
     )
 
+    observeOrgKeyGeneration(orgId, currentGeneration)
     // Our key must be the current generation to grant it to others; otherwise we
     // would seal a soon-to-be-stale key. A fresh read/rotation will repair us.
     if (handle.generation !== currentGeneration) return 0
@@ -275,8 +410,20 @@ export async function bootstrapOrgVault(opts: {
     orgId: string
     vaultKey: CryptoKey
     canManage: boolean
-}): Promise<{ status: "ready" | "pending" | "seeded" | "granted"; grantedCount: number }> {
+}): Promise<{
+    status: "ready" | "pending" | "seeded" | "granted" | "regrant-required" | "key-unrecoverable"
+    grantedCount: number
+}> {
     const handle = await getOrgVaultKey(opts.orgId, opts.vaultKey)
+
+    // Our own grant was unopenable and has just been released; another
+    // owner/admin has to re-share the key (UI: ORG_KEY_REGRANT_REQUIRED_MESSAGE).
+    if (!handle && releasedGrantOrgIds.has(opts.orgId)) {
+        return { status: "regrant-required", grantedCount: 0 }
+    }
+    if (!handle && unrecoverableOrgIds.has(opts.orgId)) {
+        return { status: "key-unrecoverable", grantedCount: 0 }
+    }
 
     if (handle) {
         if (opts.canManage) {
@@ -307,6 +454,14 @@ export async function bootstrapOrgVault(opts: {
     return { status: "pending", grantedCount: 0 }
 }
 
+interface AliasMetadataRotationItem {
+    id: string
+    previousLabelHash: string | null
+    previousNoteHash: string | null
+    encryptedLabel?: string
+    encryptedNote?: string
+}
+
 /**
  * Rotate the org vault key (owner/admin) — true revocation (ORG-E2EE-DESIGN §6).
  * Builds the new key, ALL member re-grants, and ALL re-wrapped Drop/Form owner
@@ -314,8 +469,24 @@ export async function bootstrapOrgVault(opts: {
  * server bumps the generation single-winner and applies grants + re-wraps in one
  * transaction). After this, a removed member's stale key can no longer open the
  * re-wrapped owner keys. Broadcasts so other tabs drop their cached key.
+ *
+ * If the server reports ROTATION_DATA_CHANGED (a member joined/left, a resource
+ * or an org alias label changed between preparing and committing), nothing was
+ * committed; the whole rotation is re-prepared from fresh data and retried once.
  */
 export async function rotateOrgVaultKey(
+    orgId: string,
+    vaultKey: CryptoKey,
+): Promise<{ generation: number; members: number; rekeyed: number }> {
+    try {
+        return await attemptOrgVaultKeyRotation(orgId, vaultKey)
+    } catch (error) {
+        if (!(error instanceof VaultApiError && error.code === ROTATION_DATA_CHANGED_CODE)) throw error
+        return attemptOrgVaultKeyRotation(orgId, vaultKey)
+    }
+}
+
+async function attemptOrgVaultKeyRotation(
     orgId: string,
     vaultKey: CryptoKey,
 ): Promise<{ generation: number; members: number; rekeyed: number }> {
@@ -344,12 +515,18 @@ export async function rotateOrgVaultKey(
         id: z.string().min(1).max(64),
         wrappedKey: z.string().min(16).max(2_048).regex(/^[A-Za-z0-9_-]+$/),
     }).strict()
-    const { dropKeys, formKeys } = await readVaultApiData(
+    const aliasEnvelope = z.string().min(1).max(2_048).nullable()
+    const { dropKeys, formKeys, aliasMetadata } = await readVaultApiData(
         `/api/vault/org-keys/rekey?organizationId=${encodeURIComponent(orgId)}`,
         undefined,
         parseVaultData(z.object({
             dropKeys: ownerKeyRecord.array(),
             formKeys: ownerKeyRecord.array(),
+            aliasMetadata: z.object({
+                id: z.string().min(1).max(64),
+                encryptedLabel: aliasEnvelope,
+                encryptedNote: aliasEnvelope,
+            }).strict().array().default([]),
         }).strict()),
     )
 
@@ -368,6 +545,35 @@ export async function rotateOrgVaultKey(
         reForm.push({ id: rec.id, wrappedKey: await wrapVaultPayload(new Uint8Array(bytes), newOrgVaultKey) })
     }
 
+    // Org alias labels/notes are encrypted directly with the org vault key.
+    // A field that doesn't open with the current org key is a legacy label still
+    // under its author's PERSONAL key — leave it untouched (no new value) rather
+    // than failing the whole rotation; it never depended on the org key anyway.
+    // EVERY listed alias is echoed back with hashes of the ciphertext we saw, so
+    // the server can refuse (ROTATION_DATA_CHANGED) if any label was edited or
+    // first written in between — instead of reverting it or stranding it on the
+    // old key.
+    const reAlias: AliasMetadataRotationItem[] = []
+    for (const rec of aliasMetadata) {
+        const update: AliasMetadataRotationItem = {
+            id: rec.id,
+            previousLabelHash: await hashNullableCiphertext(rec.encryptedLabel),
+            previousNoteHash: await hashNullableCiphertext(rec.encryptedNote),
+        }
+        for (const field of ["label", "note"] as const) {
+            const envelope = field === "label" ? rec.encryptedLabel : rec.encryptedNote
+            if (!envelope) continue
+            try {
+                const rekeyed = await rekeyAliasMetadata(envelope, current.key, newOrgVaultKey, { aliasId: rec.id, field })
+                if (field === "label") update.encryptedLabel = rekeyed
+                else update.encryptedNote = rekeyed
+            } catch {
+                // Not under the org key (legacy personal-key envelope): keep as-is.
+            }
+        }
+        reAlias.push(update)
+    }
+
     await readVaultApiData("/api/vault/org-keys/rekey", {
         method: "POST",
         body: JSON.stringify({
@@ -376,6 +582,7 @@ export async function rotateOrgVaultKey(
             memberGrants,
             dropKeys: reDrop,
             formKeys: reForm,
+            aliasMetadata: reAlias,
         }),
     })
 

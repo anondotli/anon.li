@@ -1,7 +1,8 @@
 "use client"
 
 import { useState, useTransition } from "react"
-import Image from "next/image"
+import Link from "next/link"
+import { Blocks } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { toast } from "sonner"
@@ -13,16 +14,18 @@ interface ConsentScope {
 }
 
 interface ConsentFormProps {
-    consentCode: string
+    /** The provider-signed authorization query, posted back as `oauth_query`. */
+    oauthQuery: string
     clientName: string
-    clientIcon: string | null
+    /** Host that published a Client ID Metadata Document, when the client uses one. */
+    publisher: string | null
     /** Origins the client is allowed to receive the authorization code at. */
     redirectOrigins: string[]
     scopes: ConsentScope[]
     userEmail: string
 }
 
-export function ConsentForm({ consentCode, clientName, clientIcon, redirectOrigins, scopes, userEmail }: ConsentFormProps) {
+export function ConsentForm({ oauthQuery, clientName, publisher, redirectOrigins, scopes, userEmail }: ConsentFormProps) {
     const [isPending, startTransition] = useTransition()
     const [decision, setDecision] = useState<"accept" | "deny" | null>(null)
 
@@ -34,7 +37,7 @@ export function ConsentForm({ consentCode, clientName, clientIcon, redirectOrigi
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     credentials: "include",
-                    body: JSON.stringify({ accept, consent_code: consentCode }),
+                    body: JSON.stringify({ accept, oauth_query: oauthQuery }),
                 })
                 const data: unknown = await res.json().catch(() => null)
                 if (!res.ok) {
@@ -48,9 +51,9 @@ export function ConsentForm({ consentCode, clientName, clientIcon, redirectOrigi
                     setDecision(null)
                     return
                 }
-                const redirectValue = data && typeof data === "object" && "redirectURI" in data
-                    ? (data as { redirectURI?: unknown }).redirectURI
-                    : null
+                // better-auth 1.7 answers fetch requests with { redirect: true, url }.
+                const result = data && typeof data === "object" ? data as Record<string, unknown> : null
+                const redirectValue = result?.url ?? result?.redirect_uri ?? null
                 const redirectUrl = parseHttpsOrLoopbackHttpUrl(redirectValue)
                 if (!redirectUrl) {
                     toast.error("Authorization succeeded, but the client returned an unsafe redirect URL.")
@@ -69,21 +72,18 @@ export function ConsentForm({ consentCode, clientName, clientIcon, redirectOrigi
         <div className="mx-auto flex min-h-[60vh] w-full max-w-lg items-center px-4 py-10">
             <Card className="w-full">
                 <CardHeader className="space-y-3 text-center">
-                    {clientIcon ? (
-                        <Image
-                            src={clientIcon}
-                            alt=""
-                            width={56}
-                            height={56}
-                            className="mx-auto rounded-lg"
-                            unoptimized
-                            referrerPolicy="no-referrer"
-                        />
-                    ) : null}
+                    {/* Client-supplied logos are never loaded: the strict CSP would block
+                        them, and an attacker-chosen logo is a consent-phishing aid. */}
+                    <Blocks className="mx-auto size-14 rounded-lg bg-muted p-3 text-muted-foreground" aria-hidden="true" />
                     <CardTitle>Authorize {clientName}</CardTitle>
                     <CardDescription>
                         {clientName} is requesting access to your anon.li account ({userEmail}).
                     </CardDescription>
+                    {publisher ? (
+                        <p className="text-xs text-muted-foreground">
+                            Client metadata published by <span className="font-mono">{publisher}</span>
+                        </p>
+                    ) : null}
                 </CardHeader>
                 <CardContent className="space-y-5">
                     {redirectOrigins.length > 0 ? (
@@ -118,8 +118,17 @@ export function ConsentForm({ consentCode, clientName, clientIcon, redirectOrigi
                     </div>
                     <p className="text-xs text-muted-foreground">
                         The app will use an API access token to act on your behalf. Requests count
-                        toward your monthly API quota. You can revoke access at any time from your
-                        account settings.
+                        toward your monthly API quota. You can revoke access at any time in{" "}
+                        <Link
+                            href="/dashboard/settings#connected-apps"
+                            // New tab: navigating away would abandon this authorization.
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="underline underline-offset-2 hover:text-foreground"
+                        >
+                            Settings → Connected apps
+                        </Link>
+                        .
                     </p>
                     <div className="flex gap-3">
                         <Button

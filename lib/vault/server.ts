@@ -4,9 +4,9 @@ import { hashPassword, verifyPassword } from "better-auth/crypto"
 import { auth as betterAuth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { TwoFactorService } from "@/lib/services/two-factor"
+import { isVaultSessionFresh } from "@/lib/vault/session-freshness"
 
 export const VAULT_KDF_VERSION = 1
-const DEFAULT_FRESH_SESSION_AGE_MS = 4 * 60 * 60 * 1000
 
 interface VaultSessionResult {
     session: {
@@ -54,11 +54,8 @@ export async function getVaultSession(options?: {
         return null
     }
 
-    if (options?.fresh) {
-        const createdAt = new Date(result.session.createdAt).getTime()
-        if (!Number.isFinite(createdAt) || Date.now() - createdAt >= DEFAULT_FRESH_SESSION_AGE_MS) {
-            return null
-        }
+    if (options?.fresh && !isVaultSessionFresh(result.session.createdAt)) {
+        return null
     }
 
     return {

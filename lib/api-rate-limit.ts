@@ -6,6 +6,9 @@ import { getEffectiveTier, type UserSub } from "@/lib/limits"
 import { ALIAS_LIMITS, DROP_LIMITS, FORM_LIMITS } from "@/config/plans"
 import { monthlyApiLimiters } from "@/lib/rate-limit"
 import type { Ratelimit } from "@upstash/ratelimit"
+import { createLogger } from "@/lib/logger"
+
+const logger = createLogger("ApiRateLimit")
 
 export interface RateLimitResult {
     success: boolean
@@ -67,7 +70,15 @@ async function checkTieredQuota(
     }
 
     const limiter = limiterMap[tier]
-    const result = await limiter.limit(userId)
+    let result: Awaited<ReturnType<Ratelimit["limit"]>>
+    try {
+        result = await limiter.limit(userId)
+    } catch (error) {
+        // Fail open like the per-request limiters (lib/rate-limit.ts): a Redis
+        // outage must not turn every API-key request into a 500.
+        logger.error("Monthly API quota check failed (Redis may be down)", { tier, error })
+        return { success: true, limit: -1, remaining: -1, reset: new Date() }
+    }
     return {
         success: result.success,
         limit: result.limit,
@@ -94,7 +105,13 @@ async function readTieredQuota(
     }
 
     const limiter = limiterMap[tier]
-    const result = await limiter.getRemaining(userId)
+    let result: Awaited<ReturnType<Ratelimit["getRemaining"]>>
+    try {
+        result = await limiter.getRemaining(userId)
+    } catch (error) {
+        logger.error("Monthly API quota read failed (Redis may be down)", { tier, error })
+        return { success: true, limit: -1, remaining: -1, reset: new Date() }
+    }
     return {
         success: result.remaining > 0,
         limit: result.limit,

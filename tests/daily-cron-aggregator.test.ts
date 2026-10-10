@@ -10,6 +10,13 @@ import { GET as runDaily } from "@/app/api/cron/daily/route";
 const originalSecret = process.env.CRON_SECRET;
 const originalAppUrl = process.env.NEXT_PUBLIC_APP_URL;
 const originalVercelUrl = process.env.VERCEL_URL;
+const originalVercelEnv = process.env.VERCEL_ENV;
+const originalProductionUrl = process.env.VERCEL_PROJECT_PRODUCTION_URL;
+
+function restoreEnv(key: string, value: string | undefined) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+}
 
 const DAILY_JOB_PATHS = [
     "https://example.com/api/cron/domains",
@@ -37,6 +44,8 @@ describe("daily cron aggregator", () => {
         process.env.CRON_SECRET = "test-cron-secret";
         process.env.NEXT_PUBLIC_APP_URL = "https://example.com";
         delete process.env.VERCEL_URL;
+        delete process.env.VERCEL_ENV;
+        delete process.env.VERCEL_PROJECT_PRODUCTION_URL;
     });
 
     afterEach(() => {
@@ -46,6 +55,8 @@ describe("daily cron aggregator", () => {
         else process.env.NEXT_PUBLIC_APP_URL = originalAppUrl;
         if (originalVercelUrl === undefined) delete process.env.VERCEL_URL;
         else process.env.VERCEL_URL = originalVercelUrl;
+        restoreEnv("VERCEL_ENV", originalVercelEnv);
+        restoreEnv("VERCEL_PROJECT_PRODUCTION_URL", originalProductionUrl);
         vi.unstubAllGlobals();
     });
 
@@ -75,6 +86,7 @@ describe("daily cron aggregator", () => {
         for (const [, init] of fetchMock.mock.calls) {
             expect(init.headers.authorization).toBe("Bearer test-cron-secret");
             expect(init.cache).toBe("no-store");
+            expect(init.signal).toBeInstanceOf(AbortSignal);
         }
     });
 
@@ -114,6 +126,76 @@ describe("daily cron aggregator", () => {
         expect(body.results.billing.ok).toBe(false);
         expect(body.results.drip.ok).toBe(false);
         expect(body.results["crypto-recovery"].ok).toBe(true);
+        expect(body.results["business-snapshot"].ok).toBe(true);
+    });
+
+    it("dispatches to the canonical URL in production, not the protected deployment URL", async () => {
+        process.env.VERCEL_ENV = "production";
+        process.env.VERCEL_URL = "anon-li-abc123.vercel.app";
+        const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { success: true }));
+        vi.stubGlobal("fetch", fetchMock);
+
+        const response = await runDaily(authorizedRequest() as never);
+
+        expect(response.status).toBe(200);
+        expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(DAILY_JOB_PATHS);
+    });
+
+    it("falls back to the production project URL when no app URL is configured", async () => {
+        process.env.VERCEL_ENV = "production";
+        process.env.VERCEL_URL = "anon-li-abc123.vercel.app";
+        process.env.VERCEL_PROJECT_PRODUCTION_URL = "anon.li";
+        delete process.env.NEXT_PUBLIC_APP_URL;
+        const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { success: true }));
+        vi.stubGlobal("fetch", fetchMock);
+
+        await runDaily(authorizedRequest() as never);
+
+        expect(fetchMock.mock.calls[0]![0]).toBe("https://anon.li/api/cron/domains");
+    });
+
+    it("keeps preview deployments self-contained on their own deployment URL", async () => {
+        process.env.VERCEL_ENV = "preview";
+        process.env.VERCEL_URL = "anon-li-preview.vercel.app";
+        const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { success: true }));
+        vi.stubGlobal("fetch", fetchMock);
+
+        await runDaily(authorizedRequest() as never);
+
+        expect(fetchMock.mock.calls[0]![0]).toBe("https://anon-li-preview.vercel.app/api/cron/domains");
+    });
+
+    it("dispatches all jobs concurrently so a slow job cannot starve later ones", async () => {
+        const pending: Array<(r: Response) => void> = [];
+        const fetchMock = vi.fn().mockImplementation(() => new Promise<Response>((resolve) => {
+            pending.push(resolve);
+        }));
+        vi.stubGlobal("fetch", fetchMock);
+
+        const run = runDaily(authorizedRequest() as never);
+        // Every job is in flight before any of them has completed.
+        await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(DAILY_JOB_PATHS.length));
+        for (const resolve of pending) resolve(jsonResponse(200, { success: true }));
+
+        const response = await run;
+        expect(response.status).toBe(200);
+    });
+
+    it("reports a timed-out job per job instead of failing the whole run", async () => {
+        const fetchMock = vi.fn().mockImplementation((url: string) => {
+            if (url.endsWith("/api/cron/cleanup")) {
+                return Promise.reject(new DOMException("The operation timed out.", "TimeoutError"));
+            }
+            return Promise.resolve(jsonResponse(200, { success: true }));
+        });
+        vi.stubGlobal("fetch", fetchMock);
+
+        const response = await runDaily(authorizedRequest() as never);
+        const body = await response.json();
+
+        expect(response.status).toBe(500);
+        expect(body.failed).toEqual(["cleanup"]);
+        expect(body.results.cleanup.error).toMatch(/timed out/);
         expect(body.results["business-snapshot"].ok).toBe(true);
     });
 });

@@ -5,6 +5,8 @@ import { FileDropProvider } from "@/components/drop/provider"
 import { VaultProvider } from "@/components/vault/vault-provider"
 import { VaultGate } from "@/components/vault/vault-gate"
 import { redirect } from "next/navigation"
+import { headers } from "next/headers"
+import { sanitizeAuthCallbackUrl } from "@/lib/safe-callback-url"
 import { prisma } from "@/lib/prisma"
 import { AlertTriangle } from "lucide-react"
 import { ReferralClaim } from "@/components/referral/referral-claim"
@@ -13,12 +15,9 @@ import { PostHogIdentify } from "@/components/shared/posthog-identify"
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
     const session = await auth()
 
-    if (!session?.user) {
-        redirect("/login")
-    }
-
-    if (session.user.twoFactorEnabled && !session.twoFactorVerified) {
-        redirect("/2fa")
+    if (!session?.user || (session.user.twoFactorEnabled && !session.twoFactorVerified)) {
+        const callbackUrl = encodeURIComponent(sanitizeAuthCallbackUrl((await headers()).get("x-pathname")))
+        redirect(session?.user ? `/2fa?callbackUrl=${callbackUrl}` : `/login?callbackUrl=${callbackUrl}`)
     }
 
     const user = await prisma.user.findUnique({

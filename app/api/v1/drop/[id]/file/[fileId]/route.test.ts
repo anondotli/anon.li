@@ -490,7 +490,10 @@ describe("DELETE /api/v1/drop/[id]/file/[fileId]", () => {
         ), { params: Promise.resolve({ id: "drop-123", fileId: "file-123" }) })
 
         expect(response.status).toBe(401)
-        await expect(response.json()).resolves.toEqual({ error: "Unauthorized" })
+        await expect(response.json()).resolves.toMatchObject({
+            error: { message: "Unauthorized", code: "UNAUTHORIZED" },
+            meta: { request_id: expect.any(String) },
+        })
         expect(deletePendingDropFileAndReleaseQuota).not.toHaveBeenCalled()
         expect(abortMultipartUpload).not.toHaveBeenCalled()
         expect(deleteObject).not.toHaveBeenCalled()

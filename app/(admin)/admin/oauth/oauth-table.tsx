@@ -12,6 +12,7 @@ interface OauthAppRow {
     clientId: string
     name: string
     type: string
+    discovered: boolean
     disabled: boolean
     createdAt: Date
     user: { id: string; email: string; name: string | null } | null
@@ -49,7 +50,7 @@ export function OauthAppsTable({ apps, total, page, totalPages, search, filter }
                     <StatusBadge tone="success" label="Active" icon={CheckCircle2} />
                 ),
         },
-        { header: "Tokens", accessor: (row) => row.usage.tokens },
+        { header: "Active grants", accessor: (row) => row.usage.tokens },
         { header: "Consents", accessor: (row) => row.usage.consents },
         { header: "Created", accessor: (row) => formatRelativeTime(row.createdAt) },
     ]

@@ -1,5 +1,5 @@
 import { z } from "zod"
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
+import type { McpServer } from "@modelcontextprotocol/server"
 import { AliasService } from "@/lib/services/alias"
 import { resolveAlias } from "@/app/api/v1/alias/_utils"
 import { invokeTool, toolError, toolResult } from "@/lib/mcp/invoke"
@@ -66,13 +66,13 @@ export function registerAliasTools(server: McpServer, session: McpSession) {
                 readOnlyHint: true,
                 openWorldHint: false,
             },
-            inputSchema: {
+            inputSchema: z.object({
                 limit: z.number().int().min(1).max(100).default(50)
                     .describe("Maximum number of aliases to return (1-100, default 50)"),
                 offset: z.number().int().min(0).default(0)
                     .describe("Number of aliases to skip, for pagination (default 0)"),
-            },
-            outputSchema: {
+            }),
+            outputSchema: z.object({
                 total: z.number(),
                 aliases: z.array(z.object({
                     ...aliasShape,
@@ -80,7 +80,7 @@ export function registerAliasTools(server: McpServer, session: McpSession) {
                     emails_blocked: z.number(),
                     last_email_at: z.string().nullable(),
                 })),
-            },
+            }),
         },
         async ({ limit, offset }) => invokeTool(session, { scope: "anon.li:aliases", quota: "alias", rateLimit: "api" }, async (user) => {
             const scope = personalScope(user.id)
@@ -113,7 +113,7 @@ export function registerAliasTools(server: McpServer, session: McpSession) {
                 idempotentHint: false,
                 openWorldHint: false,
             },
-            inputSchema: {
+            inputSchema: z.object({
                 domain: z.string().trim().toLowerCase().min(1).max(253).default("anon.li")
                     .describe("Domain for the alias: 'anon.li' (default) or one of the user's verified custom domains"),
                 format: z.enum(["random", "custom"]).default("random")
@@ -126,8 +126,8 @@ export function registerAliasTools(server: McpServer, session: McpSession) {
                     .describe("Recipient IDs to forward to. If omitted, uses the default recipient."),
                 recipient_email: z.string().trim().toLowerCase().email().max(254).optional()
                     .describe("Alternative to recipient_ids: an existing verified recipient email address."),
-            },
-            outputSchema: aliasShape,
+            }),
+            outputSchema: z.object(aliasShape),
         },
         async (args) => invokeTool(session, {
             scope: "anon.li:aliases",
@@ -161,14 +161,14 @@ export function registerAliasTools(server: McpServer, session: McpSession) {
                 idempotentHint: false,
                 openWorldHint: false,
             },
-            inputSchema: {
+            inputSchema: z.object({
                 id: aliasIdentifier,
-            },
-            outputSchema: {
+            }),
+            outputSchema: z.object({
                 id: z.string(),
                 email: z.string(),
                 active: z.boolean(),
-            },
+            }),
         },
         async ({ id }) => invokeTool(session, { scope: "anon.li:aliases", quota: "alias", rateLimit: "api" }, async (user) => {
             const existing = await resolveAlias(normalizeAliasIdentifier(id), personalScope(user.id))
@@ -196,14 +196,14 @@ export function registerAliasTools(server: McpServer, session: McpSession) {
                 idempotentHint: true,
                 openWorldHint: false,
             },
-            inputSchema: {
+            inputSchema: z.object({
                 id: aliasIdentifier,
-            },
-            outputSchema: {
+            }),
+            outputSchema: z.object({
                 deleted: z.boolean(),
                 id: z.string(),
                 email: z.string(),
-            },
+            }),
         },
         async ({ id }) => invokeTool(session, { scope: "anon.li:aliases", quota: "alias", rateLimit: "api" }, async (user) => {
             const existing = await resolveAlias(normalizeAliasIdentifier(id), personalScope(user.id))

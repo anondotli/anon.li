@@ -18,6 +18,10 @@ function getRedis(): Redis {
 export async function handleBillingCron() {
     const { BillingDowngradeService } = await import("@/lib/services/billing-downgrade");
 
+    // Expire lapsed crypto rows first so their owners enter the downgrade
+    // flow in this same run's bookkeeping rather than a day later.
+    const cryptoExpiry = await expireCryptoSubscriptions();
+    const heldCryptoPayments = await recheckHeldCryptoPayments();
     const scheduling = await BillingDowngradeService.processSchedulingBatch();
     const deletion = await BillingDowngradeService.processDeletionBatch();
     const cryptoReminders = await processCryptoRenewalReminders();
@@ -26,9 +30,45 @@ export async function handleBillingCron() {
     return {
         scheduling: { processed: scheduling.processed, errors: scheduling.errors },
         deletion: { processed: deletion.processed, errors: deletion.errors },
+        cryptoExpiry,
+        heldCryptoPayments,
         cryptoReminders,
         reconciliation,
     };
+}
+
+/**
+ * Paid crypto invoices held for review (a live Stripe subscription conflicted)
+ * get no further provider callbacks; activate them once the conflict is gone.
+ */
+async function recheckHeldCryptoPayments() {
+    try {
+        const { recheckHeldCryptoPayments: recheck } = await import("@/lib/services/crypto-activation");
+        const result = await recheck();
+        if (result.activated > 0) {
+            const { flushPostHog } = await import("@/lib/posthog.server");
+            await flushPostHog();
+        }
+        return result;
+    } catch (error) {
+        logger.error("Held crypto payment re-check failed", error);
+        return { error: "failed" as const };
+    }
+}
+
+/**
+ * Crypto subscriptions are prepaid with no provider-side lifecycle, so this is
+ * the only path that ends them. Errors are swallowed like reconciliation so the
+ * sibling results are never lost.
+ */
+async function expireCryptoSubscriptions() {
+    try {
+        const { expireLapsedCryptoSubscriptions } = await import("@/lib/services/crypto-subscription");
+        return await expireLapsedCryptoSubscriptions();
+    } catch (error) {
+        logger.error("Crypto subscription expiry failed", error);
+        return { error: "failed" as const };
+    }
 }
 
 /**
@@ -68,13 +108,12 @@ async function processCryptoRenewalReminders(): Promise<{ sent: number; errors: 
             (user.currentPeriodEnd.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)
         );
 
-        const reminderKey = daysRemaining <= 3
-            ? `crypto:renewal:3d:${user.id}`
-            : daysRemaining <= 14
-                ? `crypto:renewal:14d:${user.id}`
-                : null;
-
-        if (!reminderKey) continue;
+        // Scope dedupe to the paid period, so every period (e.g. each month of
+        // a monthly plan, or a renewal) gets its own 14-day and 3-day reminder.
+        const periodKey = user.currentPeriodEnd.toISOString().slice(0, 10);
+        const stage = daysRemaining <= 3 ? "3d" : daysRemaining <= 14 ? "14d" : null;
+        if (!stage) continue;
+        const reminderKey = `crypto:renewal:${stage}:${user.id}:${periodKey}`;
 
         let alreadySent: string | null = null;
         try {
@@ -94,7 +133,7 @@ async function processCryptoRenewalReminders(): Promise<{ sent: number; errors: 
                 daysRemaining,
                 product: user.product,
                 tier: user.tier,
-            }, `crypto-renewal-${daysRemaining <= 3 ? "3d" : "14d"}/${user.id}`);
+            }, `crypto-renewal-${stage}/${user.id}/${periodKey}`);
             if (!result.success) {
                 errors++;
                 continue;

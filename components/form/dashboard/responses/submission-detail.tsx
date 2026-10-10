@@ -186,16 +186,21 @@ export function SubmissionDetail({
                                             <Paperclip className="h-4 w-4 text-muted-foreground" />
                                             Attached files
                                         </p>
-                                        <Button variant="outline" size="sm" asChild>
-                                            <Link
-                                                href={`/d/${decoded.attachments.dropId}#${decoded.attachments.key}`}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                            >
-                                                <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
-                                                Open drop
-                                            </Link>
-                                        </Button>
+                                        {/* The decrypted dropId is respondent-controlled; only link
+                                            to the drop the server actually attached to this row. */}
+                                        {meta.attachedDropId
+                                        && meta.attachedDropId === decoded.attachments.dropId ? (
+                                            <Button variant="outline" size="sm" asChild>
+                                                <Link
+                                                    href={`/d/${encodeURIComponent(meta.attachedDropId)}#${decoded.attachments.key}`}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                >
+                                                    <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
+                                                    Open drop
+                                                </Link>
+                                            </Button>
+                                        ) : null}
                                     </div>
                                     <div className="space-y-1.5">
                                         {decoded.attachments.files.map((file) => (

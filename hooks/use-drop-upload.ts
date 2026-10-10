@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { cryptoService, CryptoConfig, calculateEncryptedSize } from "@/lib/crypto.client";
 import { pMapLimit } from "@/lib/async-utils";
@@ -86,6 +86,56 @@ interface PendingFinalization {
     } | null;
 }
 
+/**
+ * Best-effort cleanup for an upload attempt that will never be finalized.
+ * Authenticated drops are deleted outright — that aborts every multipart
+ * upload, releases the reserved quota, and keeps the empty drop from counting
+ * against the owner's incomplete-drop allowance. If that delete fails, and for
+ * guest drops (no delete endpoint), each file reservation is aborted instead
+ * (cron reaps the rest).
+ */
+async function discardUnfinalizedUpload({
+    guest,
+    dropId,
+    uploads,
+    uploadToken,
+}: {
+    guest: boolean;
+    dropId: string | null;
+    uploads: ActiveUpload[];
+    uploadToken: string | null;
+}): Promise<void> {
+    if (!guest && dropId) {
+        const res = await fetch(`/api/v1/drop/${dropId}`, {
+            method: "DELETE",
+            credentials: "include",
+        }).catch(() => null);
+        if (res?.ok) return;
+        // The drop delete can be refused (e.g. 403 for org members below
+        // admin, 429, 5xx). Fall through and abort each file reservation so
+        // its multipart upload and reserved quota are released now rather
+        // than when the cleanup cron runs.
+    }
+
+    await Promise.allSettled(
+        uploads.map((upload) => {
+            if (guest) {
+                return abortGuestFileUpload(upload.dropId, upload.fileId, upload.s3UploadId, uploadToken ?? "");
+            }
+            return fetch(`/api/v1/drop/${upload.dropId}/file/${upload.fileId}`, {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    s3UploadId: upload.s3UploadId,
+                }),
+                credentials: 'include',
+            }).catch(() => {
+                // Ignore errors - best effort cleanup
+            });
+        })
+    );
+}
+
 export function useDropUpload({
     userTier,
     remainingStorage,
@@ -102,12 +152,20 @@ export function useDropUpload({
     const [files, setFiles] = useState<File[]>([]);
     const [progress, setProgress] = useState<UploadProgress | null>(null);
     const [shareUrl, setShareUrl] = useState<string | null>(null);
-    const [dropMeta, setDropMeta] = useState<{ expiresAt?: string; maxDownloads?: number } | null>(null);
-    const [abortController, setAbortController] = useState<AbortController | null>(null);
+    const [dropMeta, setDropMeta] = useState<{
+        expiresAt?: string;
+        maxDownloads?: number;
+        /** Whether the created drop actually requires a password (key not in link). */
+        passwordProtected: boolean;
+    } | null>(null);
     const [hasPendingFinalization, setHasPendingFinalization] = useState(false);
 
+    const abortControllerRef = useRef<AbortController | null>(null);
+    const mountedRef = useRef(true);
     // Track active uploads for cleanup - use ref to avoid stale closures
     const activeUploadsRef = useRef<ActiveUpload[]>([]);
+    // Authenticated drop created by the current attempt but not yet finalized.
+    const activeDropIdRef = useRef<string | null>(null);
     // Guest upload token — kept only in memory for the duration of the session.
     const uploadTokenRef = useRef<string | null>(null);
     // Once every encrypted part is in R2, keep everything needed to retry only
@@ -115,6 +173,19 @@ export function useDropUpload({
     // would produce a new key/drop and could strand an already completed object.
     const pendingFinalizationRef = useRef<PendingFinalization | null>(null);
     const finalizationInFlightRef = useRef(false);
+
+    // Leaving the page mid-upload must not keep encrypting/uploading in the
+    // background (the share link would be lost and toasts would surface on an
+    // unrelated page). Aborting routes through upload()'s cancellation path,
+    // which discards the unfinalized drop.
+    useEffect(() => {
+        mountedRef.current = true;
+        return () => {
+            mountedRef.current = false;
+            abortControllerRef.current?.abort();
+            abortControllerRef.current = null;
+        };
+    }, []);
 
     const tier = guest
         ? "guest" as const
@@ -127,50 +198,36 @@ export function useDropUpload({
         setShareUrl(null);
         setDropMeta(null);
         activeUploadsRef.current = [];
+        activeDropIdRef.current = null;
         uploadTokenRef.current = null;
         pendingFinalizationRef.current = null;
         finalizationInFlightRef.current = false;
         setHasPendingFinalization(false);
-        abortController?.abort();
-        setAbortController(null);
-    }, [abortController]);
+        abortControllerRef.current?.abort();
+        abortControllerRef.current = null;
+    }, []);
 
     const cancel = useCallback(async () => {
-        abortController?.abort();
-        setAbortController(null);
+        abortControllerRef.current?.abort();
+        abortControllerRef.current = null;
 
-        // Cleanup any active multipart uploads
-        // This prevents orphaned uploads in S3
+        // Cleanup the drop and any active multipart uploads.
+        // This prevents orphaned uploads in S3 and stranded quota reservations.
         const uploads = activeUploadsRef.current;
         activeUploadsRef.current = [];
+        const dropId = activeDropIdRef.current;
+        activeDropIdRef.current = null;
         const token = uploadTokenRef.current;
         uploadTokenRef.current = null;
         pendingFinalizationRef.current = null;
         finalizationInFlightRef.current = false;
         setHasPendingFinalization(false);
 
-        // Parallel cleanup — don't block on sequential fetches
-        await Promise.allSettled(
-            uploads.map((upload) => {
-                if (guest) {
-                    return abortGuestFileUpload(upload.dropId, upload.fileId, upload.s3UploadId, token ?? "");
-                }
-                return fetch(`/api/v1/drop/${upload.dropId}/file/${upload.fileId}`, {
-                    method: 'DELETE',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        s3UploadId: upload.s3UploadId,
-                    }),
-                    credentials: 'include',
-                }).catch(() => {
-                    // Ignore errors - best effort cleanup
-                });
-            })
-        );
+        await discardUnfinalizedUpload({ guest, dropId, uploads, uploadToken: token });
 
         // Clear progress after cleanup completes so UI doesn't flash prematurely
         setProgress(null);
-    }, [abortController, guest]);
+    }, [guest]);
 
     const prepareRetry = useCallback(() => {
         // Keep the selected File objects/configuration, but leave the error
@@ -197,6 +254,7 @@ export function useDropUpload({
 
         pendingFinalizationRef.current = null;
         activeUploadsRef.current = [];
+        activeDropIdRef.current = null;
         uploadTokenRef.current = null;
         setHasPendingFinalization(false);
 
@@ -233,6 +291,10 @@ export function useDropUpload({
             // Analytics is non-critical after a committed upload.
         }
 
+        // The drop is committed (and listed in the dashboard for signed-in
+        // users), but don't surface success UI on whatever page we left for.
+        if (!mountedRef.current) return;
+
         toast.success(
             pending.files.length === 1
                 ? "File uploaded successfully!"
@@ -253,7 +315,7 @@ export function useDropUpload({
         const controller = new AbortController();
         const signal = controller.signal;
         finalizationInFlightRef.current = true;
-        setAbortController(controller);
+        abortControllerRef.current = controller;
         setProgress((current) => current ? {
             ...current,
             phase: "finalizing",
@@ -269,7 +331,7 @@ export function useDropUpload({
             toast.error(message);
         } finally {
             finalizationInFlightRef.current = false;
-            setAbortController((current) => current === controller ? null : current);
+            if (abortControllerRef.current === controller) abortControllerRef.current = null;
         }
     }, [finishPendingFinalization]);
 
@@ -292,7 +354,7 @@ export function useDropUpload({
         }
 
         const controller = new AbortController();
-        setAbortController(controller);
+        abortControllerRef.current = controller;
         const signal = controller.signal;
 
         const totalBytes = files.reduce((sum, f) => sum + f.size, 0);
@@ -388,11 +450,18 @@ export function useDropUpload({
                 }, signal);
                 dropId = authResult.dropId;
                 expiresAt = authResult.expiresAt;
+                activeDropIdRef.current = dropId;
             }
+
+            // Server actions don't observe the abort signal, so a cancel while
+            // createDrop was in flight still returns a drop. Bail out now; the
+            // cancellation branch below deletes it.
+            if (signal.aborted) throw new Error("Upload cancelled");
 
             setDropMeta({
                 expiresAt: expiresAt ?? undefined,
                 maxDownloads: options.maxDownloads,
+                passwordProtected: customKey,
             });
 
             let totalUploadedChunks = 0;
@@ -446,6 +515,9 @@ export function useDropUpload({
                     s3UploadId,
                     storageKey: '', // Not needed for abort
                 });
+                // Same as above: a cancel during addFile must not leave this
+                // file's quota reservation and multipart upload behind.
+                if (signal.aborted) throw new Error("Upload cancelled");
 
                 // Upload chunks (encrypt + PUT) with bounded concurrency so
                 // the pipeline fills the network without OOMing on huge files.
@@ -511,36 +583,34 @@ export function useDropUpload({
             await finishPendingFinalization(pendingFinalization, signal);
 
         } catch (error) {
-            if (signal.aborted || (error instanceof Error && error.message === "Upload cancelled")) {
-                toast.info("Upload cancelled");
-                setProgress(null);
-            } else {
-                // Before all chunks are uploaded, retain the existing best-effort
-                // cleanup. Once finalization starts, preserve the rows, token, key,
-                // and ETags: the server outcome may be ambiguous and is retryable.
-                if (!pendingFinalizationRef.current) {
-                    const uploads = activeUploadsRef.current;
-                    activeUploadsRef.current = [];
-                    const token = uploadTokenRef.current;
-                    uploadTokenRef.current = null;
-                    if (uploads.length > 0) {
-                        Promise.allSettled(
-                            uploads.map((upload) => {
-                                if (guest) {
-                                    return abortGuestFileUpload(upload.dropId, upload.fileId, upload.s3UploadId, token ?? "");
-                                }
-                                return fetch(`/api/v1/drop/${upload.dropId}/file/${upload.fileId}`, {
-                                    method: 'DELETE',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({
-                                        s3UploadId: upload.s3UploadId,
-                                    }),
-                                    credentials: 'include',
-                                }).catch(() => {});
-                            })
-                        );
-                    }
+            // Before all chunks are uploaded, discard the drop and its file
+            // reservations — including any that a cancelled createDrop/addFile
+            // returned after cancel() already ran. Once finalization starts,
+            // preserve the rows, token, key, and ETags: the server outcome may
+            // be ambiguous and is retryable.
+            if (!pendingFinalizationRef.current) {
+                const uploads = activeUploadsRef.current;
+                activeUploadsRef.current = [];
+                const abandonedDropId = activeDropIdRef.current;
+                activeDropIdRef.current = null;
+                const token = uploadTokenRef.current;
+                uploadTokenRef.current = null;
+                if (uploads.length > 0 || abandonedDropId) {
+                    void discardUnfinalizedUpload({
+                        guest,
+                        dropId: abandonedDropId,
+                        uploads,
+                        uploadToken: token,
+                    });
                 }
+            }
+
+            if (signal.aborted || (error instanceof Error && error.message === "Upload cancelled")) {
+                if (mountedRef.current) {
+                    toast.info("Upload cancelled");
+                    setProgress(null);
+                }
+            } else {
 
                 if (error instanceof UpgradeRequiredClientError && !pendingFinalizationRef.current) {
                     setProgress(null);
@@ -553,7 +623,7 @@ export function useDropUpload({
             }
         } finally {
             finalizationInFlightRef.current = false;
-            setAbortController(null);
+            if (abortControllerRef.current === controller) abortControllerRef.current = null;
         }
     }, [files, features, guest, onUpgradeRequired, vault, organizationId, finishPendingFinalization]);
 

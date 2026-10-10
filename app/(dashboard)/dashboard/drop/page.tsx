@@ -8,7 +8,11 @@ import { prisma } from "@/lib/prisma";
 import { scopeFromSession } from "@/lib/auth-session";
 import { getOrgLimitContext, isOrgSubscribed } from "@/lib/data/auth";
 import { getUserById } from "@/lib/data/user";
-import { ownerWhere } from "@/lib/ownership";
+import { standaloneDropWhere } from "@/lib/services/drop";
+import {
+  DOWNGRADE_DELETION_DELAY_DAYS,
+  DOWNGRADE_SCHEDULING_DELAY_DAYS,
+} from "@/lib/constants";
 import { TeamWorkspaceLocked } from "@/components/dashboard/team/team-workspace-locked";
 import type { DropData, StorageData } from "@/actions/drop";
 import { AlertTriangle } from "lucide-react";
@@ -54,10 +58,11 @@ export default async function DropDashboardPage() {
 
   // Fetch drops with files in a single query
   const drops = await prisma.drop.findMany({
+    // Same visibility rules as DropService.listDrops: form attachment and
+    // staging drops belong to their submission, not the drop dashboard.
     where: {
-      ...ownerWhere(scope),
+      ...standaloneDropWhere(scope),
       uploadComplete: true,
-      deletedAt: null,
     },
     orderBy: { createdAt: "desc" },
     include: {
@@ -140,8 +145,9 @@ export default async function DropDashboardPage() {
           <div>
             <p className="font-medium">Your account has been downgraded to the free tier.</p>
             <p className="text-destructive/80 mt-1">
-              Excess resources will be scheduled for removal 30 days after downgrade
-              and permanently deleted 14 days later.{" "}
+              Excess resources will be scheduled for removal{" "}
+              {DOWNGRADE_SCHEDULING_DELAY_DAYS} days after downgrade and permanently
+              deleted {DOWNGRADE_DELETION_DELAY_DAYS} days later.{" "}
               <Link href="/dashboard/billing" className="underline font-medium text-destructive">
                 Renew your subscription
               </Link>{" "}

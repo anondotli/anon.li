@@ -83,7 +83,8 @@ export function aliasPlaintextMetadataError(requestId: string) {
  */
 export async function resolveAlias(identifier: string, scope: OwnerScope) {
     if (identifier.includes("@")) {
-        const alias = await getAliasByEmail(identifier)
+        // Alias addresses are stored lowercase; email lookups are case-insensitive.
+        const alias = await getAliasByEmail(identifier.trim().toLowerCase())
         return alias && isWithinScope(alias, scope) ? alias : null
     }
     return getAliasById(identifier, scope)

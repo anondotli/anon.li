@@ -82,7 +82,10 @@ export class RecipientService {
         if (domain === "anon.li") {
             throw new ValidationError("Cannot use an alias domain as a recipient — this would create a forwarding loop")
         }
-        const customDomain = await prisma.domain.findFirst({ where: { domain } })
+        // Only verified domains receive mail through us, so only they can loop.
+        // (Matching unverified claims would let anyone block a provider's
+        // addresses as recipients just by adding e.g. gmail.com as a domain.)
+        const customDomain = await prisma.domain.findFirst({ where: { domain, verified: true } })
         if (customDomain) {
             throw new ValidationError("Cannot use an alias domain as a recipient — this would create a forwarding loop")
         }
@@ -234,6 +237,8 @@ export class RecipientService {
         if (!recipient) {
             throw new NotFoundError("Recipient not found")
         }
+        // The org default is where new team aliases forward by default → admin+.
+        assertCanManage(recipient, scope)
 
         if (!recipient.verified) {
             throw new ValidationError("Cannot set an unverified recipient as default")
@@ -250,6 +255,9 @@ export class RecipientService {
         if (!recipient) {
             throw new NotFoundError("Recipient not found")
         }
+        // Changing a shared org recipient's encryption key affects mail for the
+        // whole team (a wrong key makes forwarded mail unreadable) → admin+.
+        assertCanManage(recipient, scope)
 
         // Validate PGP key
         const result = pgpKeySchema.safeParse({ publicKey, name })
@@ -291,6 +299,8 @@ export class RecipientService {
         if (!recipient) {
             throw new NotFoundError("Recipient not found")
         }
+        // Removing it would silently downgrade the team's mail to plaintext → admin+.
+        assertCanManage(recipient, scope)
 
         await updateRecipientPgpKey(recipientId, scope, {
             pgpPublicKey: null,

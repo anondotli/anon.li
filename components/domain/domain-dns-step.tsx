@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
+import { useClipboard } from "@/hooks/use-clipboard"
 import { RecordRow } from "./record-row"
 
 interface DomainDnsStepProps {
@@ -29,9 +30,13 @@ export function DomainDnsStep({
     onGenerateDkim,
     generatingDkim
 }: DomainDnsStepProps) {
-    const copyToClipboard = (text: string, label: string) => {
-        navigator.clipboard.writeText(text)
-        toast.success(`Copied ${label} to clipboard`)
+    const { copy } = useClipboard()
+    const copyToClipboard = async (text: string, label: string) => {
+        if (await copy(text)) {
+            toast.success(`Copied ${label} to clipboard`)
+        } else {
+            toast.error("Failed to copy")
+        }
     }
 
     const dkimRecordName = `${dkimSelector || 'default'}._domainkey`

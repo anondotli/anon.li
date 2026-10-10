@@ -26,7 +26,7 @@ export function ExportMenu({
         setBusy(format)
         const toastId = toast.loading("Preparing export…")
         try {
-            const decrypted = await ensureAllDecrypted((done, total) => {
+            const { rows: decrypted, failed } = await ensureAllDecrypted((done, total) => {
                 toast.loading(`Decrypting ${done}/${total}…`, { id: toastId })
             })
 
@@ -57,9 +57,16 @@ export function ExportMenu({
                     "text/csv;charset=utf-8",
                 )
             }
-            toast.success(`Exported ${decrypted.length} submission${decrypted.length === 1 ? "" : "s"}`, {
-                id: toastId,
-            })
+            const exported = `Exported ${decrypted.length} submission${decrypted.length === 1 ? "" : "s"}`
+            if (failed > 0) {
+                // Never let undecryptable rows vanish from an export silently.
+                toast.warning(
+                    `${exported}. ${failed} submission${failed === 1 ? "" : "s"} could not be decrypted and ${failed === 1 ? "was" : "were"} left out.`,
+                    { id: toastId },
+                )
+            } else {
+                toast.success(exported, { id: toastId })
+            }
         } catch (err) {
             toast.error(err instanceof Error ? err.message : "Export failed", { id: toastId })
         } finally {

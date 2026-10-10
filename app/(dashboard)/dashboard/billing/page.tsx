@@ -13,7 +13,7 @@ export default async function BillingPage() {
 
     const user = await prisma.user.findUnique({
         where: { id: session.user.id },
-        select: { id: true, paymentMethod: true },
+        select: { id: true },
     })
 
     if (!user) redirect("/login")
@@ -35,12 +35,17 @@ export default async function BillingPage() {
 
     const referral = await getReferralStats(session.user.id)
 
+    // Derive the billing UI from the subscription actually in force, not the
+    // sticky user.paymentMethod: a former crypto payer who now pays by card
+    // must get the Stripe "Manage" flow, not crypto renewal.
+    const paymentMethod = subscriptionPlan.provider === "crypto" ? "crypto" : "card"
+
     // Crypto has no recurring billing: renewal is a fresh checkout. Offer the
     // same interval the subscriber last paid for instead of silently switching
     // them to yearly. Unknown/absent price ids fall back to yearly (every
     // pre-interval-support crypto subscription was yearly).
     const renewalInterval =
-        user.paymentMethod === "crypto" && subscriptionPlan.providerPriceId
+        paymentMethod === "crypto" && subscriptionPlan.providerPriceId
             ? (getCryptoIntervalForStripePriceId(subscriptionPlan.providerPriceId) ?? "yearly")
             : "yearly"
 
@@ -51,7 +56,7 @@ export default async function BillingPage() {
                 currentTier={currentTier}
                 subscriptionStatus={subscriptionStatus}
                 currentPeriodEnd={currentPeriodEnd}
-                paymentMethod={user.paymentMethod}
+                paymentMethod={paymentMethod}
                 product={subscriptionPlan.product}
                 renewalInterval={renewalInterval}
                 referral={{

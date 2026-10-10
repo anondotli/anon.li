@@ -235,6 +235,25 @@ export async function hardDeleteDrop(dropId: string) {
 }
 
 // ============================================================================
+// Billing Actions
+// ============================================================================
+
+export async function activateHeldCryptoPayment(paymentId: string) {
+    return runAdminAction({ schema: idOnlySchema, data: { id: paymentId } }, async (validated, adminId) => {
+        const result = await AdminService.activateHeldCryptoPayment(validated.id)
+        await audit({
+            action: "billing.crypto_payment.activate",
+            actorId: adminId,
+            targetId: validated.id,
+            metadata: { userId: result.userId, orderId: result.orderId, periodEnd: result.periodEnd.toISOString() },
+        })
+        logger.info("Held crypto payment activated", { adminId, paymentId: validated.id })
+        revalidatePath("/admin/billing")
+        return { success: true }
+    })
+}
+
+// ============================================================================
 // Form Actions
 // ============================================================================
 

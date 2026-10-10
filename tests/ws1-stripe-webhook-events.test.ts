@@ -52,6 +52,7 @@ vi.mock("@/lib/services/subscription-sync", () => ({
     InvalidSubscriptionOwnershipError: class InvalidSubscriptionOwnershipError extends Error {},
     upsertStripeSubscription,
     markSubscriptionCanceledLocally: vi.fn().mockResolvedValue(undefined),
+    claimSubscriptionLossNotification: vi.fn().mockResolvedValue(true),
 }))
 vi.mock("@/lib/prisma", () => ({
     prisma: {
@@ -66,7 +67,12 @@ vi.mock("@/lib/prisma", () => ({
     },
 }))
 vi.mock("@/lib/services/billing-downgrade", () => ({
-    BillingDowngradeService: { recordDowngrade, cancelDowngrade, calculateExcess },
+    BillingDowngradeService: {
+        recordDowngrade,
+        cancelDowngrade,
+        calculateExcess,
+        handlePersonalSubscriptionLoss: vi.fn().mockResolvedValue(new Date()),
+    },
 }))
 vi.mock("@/lib/data/user", () => ({
     getUserIdByEmail: vi.fn().mockResolvedValue(null),
@@ -142,7 +148,7 @@ describe("stripe webhook revenue events", () => {
             data: {
                 object: {
                     id: "in_1",
-                    subscription: "sub_1",
+                    parent: { subscription_details: { subscription: "sub_1" } },
                     billing_reason: "subscription_cycle",
                     amount_due: 699,
                     currency: "eur",
@@ -173,7 +179,7 @@ describe("stripe webhook revenue events", () => {
             data: {
                 object: {
                     id: "in_2",
-                    subscription: "sub_1",
+                    parent: { subscription_details: { subscription: "sub_1" } },
                     billing_reason: "subscription_create",
                     amount_due: 699,
                     currency: "eur",

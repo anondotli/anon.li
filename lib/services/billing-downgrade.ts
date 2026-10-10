@@ -13,15 +13,48 @@
  * personal downgrade must never count, schedule, or delete them.
  */
 
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { createLogger } from "@/lib/logger";
 import { getPlanLimits, getDropLimits, getRecipientLimit } from "@/lib/limits";
-import { ALIAS_LIMITS } from "@/config/plans";
-import { DAY_MS, DOWNGRADE_SCHEDULING_DELAY_DAYS, DOWNGRADE_DELETION_DELAY_DAYS } from "@/lib/constants";
+import {
+    DAY_MS,
+    DOWNGRADE_SCHEDULING_DELAY_DAYS,
+    DOWNGRADE_DELETION_DELAY_DAYS,
+    SUBSCRIPTION_GRACE_PERIOD_DAYS,
+} from "@/lib/constants";
 import { abortMultipartUpload, deleteObject } from "@/lib/storage";
 import { deleteDropFilesAndReleaseQuota } from "@/lib/services/drop-storage";
+import { restoreGraceStampedDrops } from "@/lib/services/drop-grace";
+import { dunningSubscriptionWhere, isWithinDunningWindow, MAX_DUNNING_DAYS } from "@/lib/services/billing-dunning";
 
 const logger = createLogger("BillingDowngrade");
+
+/**
+ * Everything getPlanLimits/getDropLimits need to resolve a user's CURRENT
+ * personal entitlement: entitling personal subscriptions plus complimentary
+ * referral Plus (which keeps Plus limits after a paid plan lapses).
+ */
+const personalEntitlementSelect = {
+    referralPlusUntil: true,
+    subscriptions: {
+        where: {
+            organizationId: null,
+            status: { in: ["active", "trialing"] },
+        },
+        select: {
+            id: true,
+            status: true,
+            product: true,
+            tier: true,
+            currentPeriodEnd: true,
+        },
+    },
+} satisfies Prisma.UserSelect;
+
+function hasActiveReferralPlus(user: { referralPlusUntil: Date | null }): boolean {
+    return Boolean(user.referralPlusUntil && user.referralPlusUntil.getTime() > Date.now());
+}
 
 /**
  * Fisher-Yates shuffle and return the first `count` items.
@@ -38,6 +71,71 @@ function shuffleAndTake<T>(arr: T[], count: number): T[] {
         }
     }
     return a.slice(0, count);
+}
+
+/**
+ * Keep aliases forwarding when recipients they route to are about to be
+ * deleted. Join rows to the deleted recipients cascade away with them, so an
+ * alias left with no other recipient gets the fallback as its primary; one that
+ * keeps other recipients but loses its primary promotes the next by ordinal.
+ * The legacy single-recipient pointer is repointed to the fallback.
+ */
+async function reassignAliasesFromRecipients(
+    tx: Prisma.TransactionClient,
+    recipientIds: string[],
+    fallbackRecipientId: string,
+): Promise<void> {
+    const affectedRows = await tx.aliasRecipient.findMany({
+        where: { recipientId: { in: recipientIds } },
+        select: { aliasId: true, isPrimary: true },
+    });
+    const affectedAliasIds = [...new Set(affectedRows.map((row) => row.aliasId))];
+
+    if (affectedAliasIds.length > 0) {
+        const remainingRows = await tx.aliasRecipient.findMany({
+            where: { aliasId: { in: affectedAliasIds }, recipientId: { notIn: recipientIds } },
+            select: { id: true, aliasId: true, isPrimary: true },
+            orderBy: { ordinal: "asc" },
+        });
+        const aliasesWithRemaining = new Set(remainingRows.map((row) => row.aliasId));
+        const aliasesWithRemainingPrimary = new Set(
+            remainingRows.filter((row) => row.isPrimary).map((row) => row.aliasId),
+        );
+
+        const orphanedAliasIds = affectedAliasIds.filter((id) => !aliasesWithRemaining.has(id));
+        if (orphanedAliasIds.length > 0) {
+            await tx.aliasRecipient.createMany({
+                data: orphanedAliasIds.map((aliasId) => ({
+                    aliasId,
+                    recipientId: fallbackRecipientId,
+                    ordinal: 0,
+                    isPrimary: true,
+                })),
+                skipDuplicates: true,
+            });
+        }
+
+        const lostPrimaryAliasIds = new Set(
+            affectedRows
+                .filter((row) => row.isPrimary && aliasesWithRemaining.has(row.aliasId))
+                .filter((row) => !aliasesWithRemainingPrimary.has(row.aliasId))
+                .map((row) => row.aliasId),
+        );
+        const promotedRowIds = [...lostPrimaryAliasIds]
+            .map((aliasId) => remainingRows.find((row) => row.aliasId === aliasId)?.id)
+            .filter((id): id is string => Boolean(id));
+        if (promotedRowIds.length > 0) {
+            await tx.aliasRecipient.updateMany({
+                where: { id: { in: promotedRowIds } },
+                data: { isPrimary: true },
+            });
+        }
+    }
+
+    await tx.alias.updateMany({
+        where: { recipientId: { in: recipientIds } },
+        data: { recipientId: fallbackRecipientId },
+    });
 }
 
 export class BillingDowngradeService {
@@ -63,7 +161,11 @@ export class BillingDowngradeService {
      * Clears downgradedAt and unsets scheduledForRemovalAt on all resources.
      */
     static async cancelDowngrade(userId: string): Promise<void> {
-        const [, aliases, domains, recipients] = await prisma.$transaction([
+        const entitlement = await prisma.user.findUnique({
+            where: { id: userId },
+            select: personalEntitlementSelect,
+        });
+        const [, aliases, domains, recipients, restoredDrops] = await prisma.$transaction([
             prisma.user.update({
                 where: { id: userId },
                 data: { downgradedAt: null },
@@ -80,21 +182,130 @@ export class BillingDowngradeService {
                 where: { userId, organizationId: null, scheduledForRemovalAt: { not: null } },
                 data: { scheduledForRemovalAt: null },
             }),
+            // Restore drops that were unlimited before the billing loss, as
+            // far as the plan now in force allows (see restoreGraceStampedDrops).
+            restoreGraceStampedDrops(
+                Prisma.sql`"userId" = ${userId} AND "organizationId" IS NULL`,
+                getDropLimits(entitlement).maxExpiry,
+            ),
         ]);
 
-        const total = aliases.count + domains.count + recipients.count;
+        const total = aliases.count + domains.count + recipients.count + restoredDrops;
         if (total > 0) {
             logger.info("Cancelled downgrade and unscheduled resources", {
                 userId,
                 unscheduled: { aliases: aliases.count, domains: domains.count, recipients: recipients.count },
+                restoredDrops,
             });
         }
+    }
+
+    /**
+     * Whether the user's personal Stripe subscription is still in dunning, and
+     * the downgrade marker is recent enough for that to hold back scheduling.
+     */
+    static async isInDunning(userId: string, downgradedAt: Date | null): Promise<boolean> {
+        if (!isWithinDunningWindow(downgradedAt)) return false;
+        const count = await prisma.subscription.count({
+            where: { userId, ...dunningSubscriptionWhere },
+        });
+        return count > 0;
+    }
+
+    /**
+     * Whether the user holds an entitling PERSONAL subscription (any provider)
+     * whose paid period has not lapsed past the one-day access grace.
+     */
+    static async hasActivePersonalSubscription(userId: string): Promise<boolean> {
+        const count = await prisma.subscription.count({
+            where: {
+                userId,
+                organizationId: null,
+                status: { in: ["active", "trialing"] },
+                OR: [
+                    { currentPeriodEnd: null },
+                    { currentPeriodEnd: { gt: new Date(Date.now() - DAY_MS) } },
+                ],
+            },
+        });
+        return count > 0;
+    }
+
+    /**
+     * Side effects of a user losing their last PERSONAL paid subscription
+     * (Stripe terminal state, crypto period lapse, or crypto refund):
+     * unlimited drops get a grace-period expiry (tracked so recovery can undo
+     * it), the downgrade clock starts, and — when `notify`, i.e. on the first
+     * terminal signal for this loss — the clock is restarted and the user told.
+     *
+     * Email failures are logged but never thrown, so a webhook retry cannot
+     * re-send it. Returns the drop grace expiry.
+     */
+    static async handlePersonalSubscriptionLoss(
+        userId: string,
+        email: string | null,
+        opts: { notify: boolean },
+    ): Promise<Date> {
+        const dropExpiryDate = new Date(Date.now() + SUBSCRIPTION_GRACE_PERIOD_DAYS * DAY_MS);
+
+        await prisma.drop.updateMany({
+            where: {
+                userId,
+                organizationId: null,
+                expiresAt: null, // Only drops with unlimited expiry
+                deletedAt: null,
+                // Form attachments are unlimited by design; their lifetime is
+                // owned by Form submission retention, not the Drop plan.
+                formSubmission: null,
+                formStagingId: null,
+                uploadTokens: { none: { formId: { not: null } } },
+            },
+            data: {
+                expiresAt: dropExpiryDate,
+                billingGraceExpiresAt: dropExpiryDate,
+            },
+        });
+
+        if (opts.notify) {
+            // First terminal signal for this loss: (re)start the 7+7-day clock
+            // now. A marker set earlier (e.g. Form retention grace during
+            // dunning) must not shorten the warning window promised below.
+            await prisma.user.updateMany({
+                where: { id: userId },
+                data: { downgradedAt: new Date() },
+            });
+        } else {
+            await this.recordDowngrade(userId);
+        }
+
+        if (!opts.notify || !email) return dropExpiryDate;
+
+        try {
+            const excess = await this.calculateExcess(userId);
+            const hasExcess = excess.excessRandom + excess.excessCustom + excess.excessDomains + excess.excessRecipients > 0;
+
+            if (hasExcess) {
+                const schedulingDate = new Date(Date.now() + DOWNGRADE_SCHEDULING_DELAY_DAYS * DAY_MS);
+                const deletionDate = new Date(Date.now() + (DOWNGRADE_SCHEDULING_DELAY_DAYS + DOWNGRADE_DELETION_DELAY_DAYS) * DAY_MS);
+
+                const { sendDowngradeWarningEmail } = await import("@/lib/resend");
+                await sendDowngradeWarningEmail(email, excess, schedulingDate, deletionDate);
+            } else {
+                const { sendSubscriptionCanceledEmail } = await import("@/lib/resend");
+                await sendSubscriptionCanceledEmail(email, dropExpiryDate);
+            }
+        } catch (error) {
+            logger.error("Failed to send downgrade notification email", error, { userId });
+        }
+
+        return dropExpiryDate;
     }
 
     // ─── Phase 1 helpers ───────────────────────────────────────
 
     /**
-     * Calculate how many excess resources a user has relative to free-tier limits.
+     * Calculate how many excess resources a user has relative to the limits
+     * they keep after the downgrade (free, or Plus while referral Plus lasts).
      */
     static async calculateExcess(userId: string): Promise<{
         excessRandom: number;
@@ -102,20 +313,22 @@ export class BillingDowngradeService {
         excessDomains: number;
         excessRecipients: number;
     }> {
-        const [randomCount, customCount, domainCount, recipientCount] = await Promise.all([
+        const [user, randomCount, customCount, domainCount, recipientCount] = await Promise.all([
+            prisma.user.findUnique({ where: { id: userId }, select: personalEntitlementSelect }),
             prisma.alias.count({ where: { userId, organizationId: null, format: "RANDOM" } }),
             prisma.alias.count({ where: { userId, organizationId: null, format: "CUSTOM" } }),
             prisma.domain.count({ where: { userId, organizationId: null } }),
             prisma.recipient.count({ where: { userId, organizationId: null } }),
         ]);
 
-        const freeLimits = ALIAS_LIMITS.free;
+        const limits = getPlanLimits(user);
+        const excessOf = (count: number, limit: number) => limit === -1 ? 0 : Math.max(0, count - limit);
 
         return {
-            excessRandom: Math.max(0, randomCount - freeLimits.random),
-            excessCustom: Math.max(0, customCount - freeLimits.custom),
-            excessDomains: Math.max(0, domainCount - freeLimits.domains),
-            excessRecipients: Math.max(0, recipientCount - freeLimits.recipients),
+            excessRandom: excessOf(randomCount, limits.random),
+            excessCustom: excessOf(customCount, limits.custom),
+            excessDomains: excessOf(domainCount, limits.domains),
+            excessRecipients: excessOf(recipientCount, limits.recipients),
         };
     }
 
@@ -133,13 +346,7 @@ export class BillingDowngradeService {
                 id: true,
                 email: true,
                 downgradedAt: true,
-                subscriptions: {
-                    where: {
-                        organizationId: null,
-                        status: { in: ["active", "trialing"] },
-                    },
-                    select: { id: true },
-                },
+                ...personalEntitlementSelect,
             },
         });
 
@@ -148,6 +355,21 @@ export class BillingDowngradeService {
         if (user.subscriptions.length > 0) {
             // User re-subscribed — cancel downgrade
             await this.cancelDowngrade(userId);
+            return;
+        }
+
+        // Stripe is still retrying a failed payment: the user may recover, so
+        // keep the marker and do not schedule anything yet.
+        if (await this.isInDunning(userId, user.downgradedAt)) {
+            logger.info("Skipping scheduling — subscription payment is still being retried", { userId });
+            return;
+        }
+
+        // Complimentary referral Plus still entitles the user. Keep the
+        // downgrade marker so scheduling runs against free limits once it
+        // lapses, instead of scheduling Plus-entitled resources now.
+        if (hasActiveReferralPlus(user)) {
+            logger.info("Skipping scheduling — referral Plus is active", { userId });
             return;
         }
 
@@ -164,7 +386,7 @@ export class BillingDowngradeService {
         }
 
         const now = new Date();
-        const freeLimits = ALIAS_LIMITS.free;
+        const limits = getPlanLimits(user);
 
         // --- Read phase (outside transaction) ---
         const randomAliases = await prisma.alias.findMany({
@@ -176,8 +398,8 @@ export class BillingDowngradeService {
             select: { id: true },
         });
 
-        const excessRandomCount = Math.max(0, randomAliases.length - freeLimits.random);
-        const excessCustomCount = Math.max(0, customAliases.length - freeLimits.custom);
+        const excessRandomCount = Math.max(0, randomAliases.length - limits.random);
+        const excessCustomCount = Math.max(0, customAliases.length - limits.custom);
 
         const randomToSchedule = shuffleAndTake(randomAliases, excessRandomCount);
         const customToSchedule = shuffleAndTake(customAliases, excessCustomCount);
@@ -191,7 +413,7 @@ export class BillingDowngradeService {
             select: { id: true, domain: true },
         });
 
-        const freeRecipientLimit = freeLimits.recipients;
+        const freeRecipientLimit = limits.recipients;
         const recipients = await prisma.recipient.findMany({
             where: { userId, organizationId: null },
             select: { id: true, email: true, isDefault: true, createdAt: true },
@@ -310,8 +532,21 @@ export class BillingDowngradeService {
                         status: { in: ["active", "trialing"] },
                     },
                 },
-                // Exclude users who already have resources scheduled
+                // Referral Plus holders are retried once it lapses; selecting
+                // them daily would only crowd out actionable users.
+                OR: [
+                    { referralPlusUntil: null },
+                    { referralPlusUntil: { lte: new Date() } },
+                ],
+                // Exclude users who already have resources scheduled, and
+                // users whose payment Stripe is still retrying (bounded).
                 AND: [
+                    {
+                        OR: [
+                            { downgradedAt: { lte: new Date(Date.now() - MAX_DUNNING_DAYS * DAY_MS) } },
+                            { subscriptions: { none: dunningSubscriptionWhere } },
+                        ],
+                    },
                     { aliases: { none: { scheduledForRemovalAt: { not: null }, organizationId: null } } },
                     { domains: { none: { scheduledForRemovalAt: { not: null }, organizationId: null } } },
                     { recipients: { none: { scheduledForRemovalAt: { not: null }, organizationId: null } } },
@@ -350,18 +585,7 @@ export class BillingDowngradeService {
             select: {
                 id: true,
                 email: true,
-                subscriptions: {
-                    where: {
-                        organizationId: null,
-                        status: { in: ["active", "trialing"] },
-                    },
-                    select: {
-                        status: true,
-                        product: true,
-                        tier: true,
-                        currentPeriodEnd: true,
-                    },
-                },
+                ...personalEntitlementSelect,
             },
         });
 
@@ -460,7 +684,7 @@ export class BillingDowngradeService {
 
         const scheduledDomains = await prisma.domain.findMany({
             where: { userId, organizationId: null, scheduledForRemovalAt: { not: null } },
-            select: { id: true },
+            select: { id: true, domain: true },
         });
 
         const domainsToDelete = scheduledDomains.slice(0, currentDomainExcess);
@@ -479,6 +703,13 @@ export class BillingDowngradeService {
 
         const recipientsToDelete = scheduledRecipients.slice(0, currentRecipientExcess);
         const recipientSparedIds = scheduledRecipients.slice(recipientsToDelete.length).map((r) => r.id);
+        const recipientIdsToDelete = recipientsToDelete.map((r) => r.id);
+
+        // Aliases routed to a deleted recipient are repointed here so they keep
+        // forwarding: the default recipient (never scheduled), else any survivor.
+        const survivingRecipients = allRecipients.filter((r) => !recipientIdsToDelete.includes(r.id));
+        const fallbackRecipientId =
+            (survivingRecipients.find((r) => r.isDefault) ?? survivingRecipients[0])?.id ?? null;
 
         // --- Write phase (atomic transaction) ---
         await prisma.$transaction(async (tx) => {
@@ -500,6 +731,15 @@ export class BillingDowngradeService {
             }
 
             if (domainsToDelete.length > 0) {
+                // Mirror DomainService.deleteDomain: a domain's aliases go with
+                // it, scoped to this user's personal resources.
+                await tx.alias.deleteMany({
+                    where: {
+                        userId,
+                        organizationId: null,
+                        domain: { in: domainsToDelete.map((d) => d.domain) },
+                    },
+                });
                 await tx.domain.deleteMany({
                     where: { id: { in: domainsToDelete.map((d) => d.id) } },
                 });
@@ -511,9 +751,12 @@ export class BillingDowngradeService {
                 });
             }
 
-            if (recipientsToDelete.length > 0) {
+            if (recipientIdsToDelete.length > 0) {
+                if (fallbackRecipientId) {
+                    await reassignAliasesFromRecipients(tx, recipientIdsToDelete, fallbackRecipientId);
+                }
                 await tx.recipient.deleteMany({
-                    where: { id: { in: recipientsToDelete.map((r) => r.id) } },
+                    where: { id: { in: recipientIdsToDelete } },
                 });
             }
             if (recipientSparedIds.length > 0) {

@@ -11,6 +11,7 @@ import { TeamWorkspaceLocked } from "@/components/dashboard/team/team-workspace-
 import { Progress } from "@/components/ui/progress"
 import { AlertTriangle, Globe } from "lucide-react"
 import Link from "next/link"
+import { DOWNGRADE_DELETION_DELAY_DAYS, DOWNGRADE_SCHEDULING_DELAY_DAYS } from "@/lib/constants"
 export default async function DomainsPage() {
     const session = await auth()
     if (!session?.user?.id) redirect("/login")
@@ -33,9 +34,25 @@ export default async function DomainsPage() {
             </div>
         )
     }
-    const domains = (await getDomains(scope)).sort(
-        (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
-    )
+    // Map to the fields DomainItem renders: the full row carries the (encrypted)
+    // DKIM private key, which must never be serialized to a client component.
+    const domains = (await getDomains(scope))
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+        .map((d) => ({
+            id: d.id,
+            domain: d.domain,
+            verified: d.verified,
+            ownershipVerified: d.ownershipVerified,
+            mxVerified: d.mxVerified,
+            spfVerified: d.spfVerified,
+            dnsVerified: d.dnsVerified,
+            verificationToken: d.verificationToken,
+            dkimPublicKey: d.dkimPublicKey,
+            dkimSelector: d.dkimSelector,
+            dkimVerified: d.dkimVerified,
+            scheduledForRemovalAt: d.scheduledForRemovalAt,
+            unverifiedAt: d.unverifiedAt,
+        }))
     const limitContext = scope.organizationId
         ? await getOrgLimitContext(scope.organizationId)
         : user
@@ -71,7 +88,8 @@ export default async function DomainsPage() {
                         <p className="font-medium">Your account has been downgraded to the free tier.</p>
                         <p className="text-destructive/80 mt-1">
                             Custom domains are not available on the free tier. Your domains will be scheduled
-                            for removal 30 days after downgrade and permanently deleted 14 days later.{" "}
+                            for removal {DOWNGRADE_SCHEDULING_DELAY_DAYS} days after downgrade and permanently
+                            deleted {DOWNGRADE_DELETION_DELAY_DAYS} days later.{" "}
                             <Link href="/dashboard/billing" className="underline font-medium text-destructive">
                                 Renew your subscription
                             </Link>{" "}

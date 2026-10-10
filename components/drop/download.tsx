@@ -36,6 +36,7 @@ export function DropDownloadPage({
     setPassword,
     passwordError,
     submitPassword,
+    submittingPassword,
     downloading,
     downloadProgress,
     currentFile,
@@ -44,6 +45,8 @@ export function DropDownloadPage({
     downloadFile,
     downloadAll,
     canDownloadAsZip,
+    canDownloadAllSeparately,
+    isLimitedDrop,
     formatBytes,
   } = useDropDownload({ dropId: fileId, initialDrop, initialError });
 
@@ -58,6 +61,7 @@ export function DropDownloadPage({
         setPasswordInput={setPassword}
         passwordError={passwordError}
         handlePasswordSubmit={submitPassword}
+        isLoading={submittingPassword}
       />
     );
   }
@@ -74,7 +78,8 @@ export function DropDownloadPage({
     );
   }
 
-  if (!drop) return null;
+  // Key/password accepted; metadata is still being decrypted.
+  if (!drop) return <LoadingView />;
 
   return (
     <DropDownloadView
@@ -89,6 +94,8 @@ export function DropDownloadPage({
       downloadFile={downloadFile}
       downloadAll={downloadAll}
       canDownloadAsZip={canDownloadAsZip}
+      canDownloadAllSeparately={canDownloadAllSeparately}
+      isLimitedDrop={isLimitedDrop}
       formatBytes={formatBytes}
     />
   );

@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  */
-import { LATEST_PROTOCOL_VERSION } from "@modelcontextprotocol/sdk/types.js"
+import { LATEST_PROTOCOL_VERSION } from "@modelcontextprotocol/server"
 import { describe, expect, it } from "vitest"
 
 import { API_CATALOG_PROFILE, HOMEPAGE_LINK_HEADER } from "@/config/agent-discovery"

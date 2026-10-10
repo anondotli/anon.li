@@ -82,4 +82,25 @@ describe("FileDropProvider", () => {
         expect(screen.getByText("empty")).toBeTruthy()
         expect(push).not.toHaveBeenCalled()
     })
+
+    it("clears the drag overlay even when a local drop zone already handled the drop", async () => {
+        render(
+            <FileDropProvider>
+                <DroppedFileProbe />
+            </FileDropProvider>,
+        )
+
+        fireEvent(window, new Event("dragover", { bubbles: true, cancelable: true }))
+        await waitFor(() => expect(screen.getByText("Drop to Encrypt & Share")).toBeTruthy())
+
+        const event = new Event("drop", { bubbles: true, cancelable: true })
+        Object.defineProperty(event, "dataTransfer", {
+            value: { files: [new File(["local"], "local.txt")] },
+        })
+        event.preventDefault()
+        fireEvent(window, event)
+
+        await waitFor(() => expect(screen.queryByText("Drop to Encrypt & Share")).toBeNull())
+        expect(screen.getByText("empty")).toBeTruthy()
+    })
 })

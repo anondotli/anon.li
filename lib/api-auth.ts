@@ -2,6 +2,7 @@ import { auth } from "@/auth"
 import { getAuthApiKeyRecord, getAuthUserState, touchApiKeyLastUsed } from "@/lib/data/auth"
 import { checkApiQuota, type ApiQuotaType, type RateLimitResult } from "@/lib/api-rate-limit"
 import { ApiKeyService } from "@/lib/services/api-key"
+import { prisma } from "@/lib/prisma"
 import type { SubscriptionLike, UserSub } from "@/lib/limits"
 
 /**
@@ -54,6 +55,19 @@ export async function validateApiKey(req: Request, quotaType?: ApiQuotaType): Pr
     // Banned users must not retain API access
     if (apiKey.user.banned) {
         return null
+    }
+
+    // Org-owned keys act for the org only while their creator is still a
+    // member. A user who leaves or is removed must not keep org access through
+    // a key minted while they belonged to it.
+    if (apiKey.organizationId) {
+        const membership = await prisma.member.findUnique({
+            where: { organizationId_userId: { organizationId: apiKey.organizationId, userId: apiKey.user.id } },
+            select: { id: true },
+        })
+        if (!membership) {
+            return null
+        }
     }
 
     // Org-owned keys pool their monthly quota by org and resolve tier from the

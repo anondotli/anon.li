@@ -15,6 +15,8 @@ const { getVaultSession, enforceVaultRequestGuards, prisma } = vi.hoisted(() => 
     prisma: {
         dropOwnerKey: { findUnique: vi.fn(), findMany: vi.fn() },
         member: { findUnique: vi.fn(), findMany: vi.fn() },
+        // Org vault policy lookup (enforce2FA / suspension) — no policy by default.
+        organization: { findUnique: vi.fn(async () => null) },
     },
 }))
 

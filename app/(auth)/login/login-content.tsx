@@ -15,7 +15,12 @@ export function LoginPageContent() {
     const [emailSent, setEmailSent] = useState(false)
     const searchParams = useSearchParams()
     const from = searchParams.get("from")
-    const callbackUrl = (from && PRODUCT_DASHBOARDS[from]) || undefined
+    // Pages that bounce signed-out users here (setup, OAuth consent, team
+    // invitations) pass `callbackUrl`; LoginForm sanitizes it to a same-origin
+    // allowlisted path before use.
+    const callbackUrl = searchParams.get("callbackUrl")
+        ?? searchParams.get("callbackURL")
+        ?? ((from && PRODUCT_DASHBOARDS[from]) || undefined)
 
     return (
         <div className="flex min-h-svh flex-col items-center justify-center px-4 py-24">

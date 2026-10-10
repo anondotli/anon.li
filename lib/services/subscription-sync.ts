@@ -6,9 +6,11 @@ import { getPlanFromPriceId } from "@/config/plans"
 import type { Prisma } from "@prisma/client"
 import { audit } from "@/lib/services/audit"
 import { DAY_MS, SUBSCRIPTION_GRACE_PERIOD_DAYS } from "@/lib/constants"
+import { recentDunningWhere } from "@/lib/services/billing-dunning"
 
 const logger = createLogger("SubscriptionSync")
 const FORM_ENTITLING_PRODUCTS = ["form", "bundle", "business"] as const
+const PAST_DUE_RECHECK_DAYS = 3
 
 export class InvalidSubscriptionOwnershipError extends Error {
     constructor(message: string) {
@@ -46,6 +48,39 @@ export function mapStripeStatus(stripeStatus: Stripe.Subscription.Status): strin
 
 function isEntitlingStatus(status: string): boolean {
     return status === "active" || status === "trialing"
+}
+
+/**
+ * Stripe moved the billing period onto subscription items (API 2025-03-31.basil).
+ * Read the item period, falling back to the legacy top-level field that older
+ * pinned payloads may still carry.
+ */
+function getSubscriptionPeriod(subscription: Stripe.Subscription): { start: Date | null; end: Date | null } {
+    const item = subscription.items.data[0]
+    const legacy = subscription as Stripe.Subscription & {
+        current_period_start?: number | null
+        current_period_end?: number | null
+    }
+    const start = item?.current_period_start ?? legacy.current_period_start ?? null
+    const end = item?.current_period_end ?? legacy.current_period_end ?? null
+    return {
+        start: start ? new Date(start * 1000) : null,
+        end: end ? new Date(end * 1000) : null,
+    }
+}
+
+/**
+ * Atomically claim the right to announce the loss of a subscription. Returns
+ * true for the first loss signal only; repeated signals (dunning retries, an
+ * `unpaid` update followed by deletion) return false until the subscription is
+ * entitling again (upsertStripeSubscription clears the marker).
+ */
+export async function claimSubscriptionLossNotification(providerSubscriptionId: string): Promise<boolean> {
+    const result = await prisma.subscription.updateMany({
+        where: { providerSubscriptionId, lossNotifiedAt: null },
+        data: { lossNotifiedAt: new Date() },
+    })
+    return result.count > 0
 }
 
 /**
@@ -142,12 +177,7 @@ export async function upsertStripeSubscription(
         : subscription.customer.id
 
     const item = subscription.items.data[0]
-    const periodStart = item?.current_period_start
-        ? new Date(item.current_period_start * 1000)
-        : null
-    const periodEnd = item?.current_period_end
-        ? new Date(item.current_period_end * 1000)
-        : (subscription.current_period_end ? new Date(subscription.current_period_end * 1000) : null)
+    const { start: periodStart, end: periodEnd } = getSubscriptionPeriod(subscription)
 
     // Resolve the owning org and seat count, preferring the canonical local row
     // over transient Stripe metadata (metadata can be missing on renewals or
@@ -211,6 +241,8 @@ export async function upsertStripeSubscription(
             currentPeriodStart: periodStart,
             currentPeriodEnd: periodEnd,
             cancelAtPeriodEnd: subscription.cancel_at_period_end,
+            // Recovered: a later loss must be announced again.
+            ...(isEntitlingStatus(status) ? { lossNotifiedAt: null } : {}),
         },
     })
 
@@ -265,6 +297,50 @@ export async function markSubscriptionCanceledLocally(providerSubscriptionId: st
     }
 }
 
+type PriorRowState = { status: string; lossNotifiedAt: Date | null }
+
+/**
+ * Apply loss / recovery side effects when a missed-webhook sync moves a row
+ * across the entitlement boundary — the same effects the webhook would have
+ * applied. A loss only counts from a state that could still be lost
+ * (entitling, or dunning with no recorded loss), so re-syncing a long-ended
+ * subscription never restarts a completed downgrade. Notification is deduped
+ * by lossNotifiedAt inside handleLostSubscription.
+ *
+ * Best-effort: the status write is already committed, so failures are logged
+ * and reported to the caller rather than thrown.
+ */
+async function applySyncedTransition(
+    providerSubscriptionId: string,
+    prior: PriorRowState,
+    stripeStatus: Stripe.Subscription.Status | "missing",
+    owner: { organizationId: string | null; userId: string | null },
+): Promise<boolean> {
+    try {
+        const { LOST_STRIPE_STATUSES, handleLostSubscription, handleRecoveredSubscription } =
+            await import("@/lib/services/subscription-loss")
+        const isLost = stripeStatus === "missing" || LOST_STRIPE_STATUSES.has(stripeStatus)
+        const couldBeLost = isEntitlingStatus(prior.status)
+            || (prior.status === "past_due" && !prior.lossNotifiedAt)
+
+        if (isLost && couldBeLost) {
+            const user = owner.userId
+                ? await prisma.user.findUnique({ where: { id: owner.userId }, select: { id: true, email: true } })
+                : null
+            await handleLostSubscription(providerSubscriptionId, { organizationId: owner.organizationId, user })
+        } else if (
+            !isEntitlingStatus(prior.status)
+            && (stripeStatus === "active" || stripeStatus === "trialing")
+        ) {
+            await handleRecoveredSubscription(owner)
+        }
+        return true
+    } catch (error) {
+        logger.error("Failed to apply synced subscription transition", error, { subscriptionId: providerSubscriptionId })
+        return false
+    }
+}
+
 /**
  * Sync subscription state from Stripe to database.
  * Use this when webhooks may have been missed or for on-demand verification.
@@ -281,7 +357,13 @@ export async function syncSubscriptionFromStripe(userId: string): Promise<{
             provider: "stripe",
             providerSubscriptionId: { not: null },
         },
-        select: { providerSubscriptionId: true, organizationId: true, product: true },
+        select: {
+            providerSubscriptionId: true,
+            organizationId: true,
+            product: true,
+            status: true,
+            lossNotifiedAt: true,
+        },
         orderBy: { createdAt: "desc" },
         take: SYNC_LIMIT,
     })
@@ -310,6 +392,10 @@ export async function syncSubscriptionFromStripe(userId: string): Promise<{
                 lastError = `Stripe subscription ${subscription.id} has an unconfigured price`
                 continue
             }
+            await applySyncedTransition(sub.providerSubscriptionId, sub, subscription.status, {
+                organizationId: sub.organizationId,
+                userId,
+            })
             synced++
         } catch (error) {
             logger.error("Failed to sync subscription from Stripe", error, { subscriptionId: sub.providerSubscriptionId })
@@ -325,6 +411,10 @@ export async function syncSubscriptionFromStripe(userId: string): Promise<{
                 } else {
                     await syncPersonalFormRetentionGrace(userId, "canceled", sub.product)
                 }
+                await applySyncedTransition(sub.providerSubscriptionId, sub, "missing", {
+                    organizationId: sub.organizationId,
+                    userId,
+                })
                 synced++
                 continue
             }
@@ -363,16 +453,41 @@ export async function reconcileStaleStripeSubscriptions(limit = 100): Promise<{
     // genuinely past their paid period, so a sub that renewed moments ago (webhook
     // still in flight) isn't needlessly re-fetched and flapped.
     const cutoff = new Date(Date.now() - DAY_MS)
+    // past_due rows (dunning, or unpaid/paused/ownership-parked) that have not
+    // been synced for a few days are re-fetched too, so a missed terminal or
+    // recovery webhook heals instead of leaving the row stuck in past_due.
+    const pastDueCutoff = new Date(Date.now() - PAST_DUE_RECHECK_DAYS * DAY_MS)
 
     const stale = await prisma.subscription.findMany({
         where: {
             provider: "stripe",
             providerSubscriptionId: { not: null },
-            status: { in: ["active", "trialing"] },
-            currentPeriodEnd: { lt: cutoff },
+            OR: [
+                { status: { in: ["active", "trialing"] }, currentPeriodEnd: { lt: cutoff } },
+                {
+                    status: "past_due",
+                    updatedAt: { lt: pastDueCutoff },
+                    // Rows parked as past_due for invalid ownership must stay
+                    // parked: this targeted status write skips the ownership
+                    // validation that upsertStripeSubscription enforces.
+                    NOT: {
+                        OR: [
+                            { product: "business", organizationId: null },
+                            { product: { not: "business" }, organizationId: { not: null } },
+                        ],
+                    },
+                },
+            ],
         },
-        select: { providerSubscriptionId: true, organizationId: true, userId: true, product: true },
-        orderBy: { currentPeriodEnd: "asc" },
+        select: {
+            providerSubscriptionId: true,
+            organizationId: true,
+            userId: true,
+            product: true,
+            status: true,
+            lossNotifiedAt: true,
+        },
+        orderBy: { updatedAt: "asc" },
         take: limit,
     })
 
@@ -388,10 +503,7 @@ export async function reconcileStaleStripeSubscriptions(limit = 100): Promise<{
 
         try {
             const subscription = await stripe.subscriptions.retrieve(subId)
-            const item = subscription.items.data[0]
-            const periodEnd = item?.current_period_end
-                ? new Date(item.current_period_end * 1000)
-                : (subscription.current_period_end ? new Date(subscription.current_period_end * 1000) : null)
+            const { end: periodEnd } = getSubscriptionPeriod(subscription)
             const status = mapStripeStatus(subscription.status)
 
             await prisma.subscription.updateMany({
@@ -400,6 +512,7 @@ export async function reconcileStaleStripeSubscriptions(limit = 100): Promise<{
                     status,
                     currentPeriodEnd: periodEnd,
                     cancelAtPeriodEnd: subscription.cancel_at_period_end,
+                    ...(isEntitlingStatus(status) ? { lossNotifiedAt: null } : {}),
                 },
             })
 
@@ -407,6 +520,11 @@ export async function reconcileStaleStripeSubscriptions(limit = 100): Promise<{
                 await syncOrganizationFormRetentionGrace(row.organizationId, status, row.product)
             } else if (row.userId) {
                 await syncPersonalFormRetentionGrace(row.userId, status, row.product)
+            }
+
+            // A missed payment_failed/deleted webhook: apply its loss effects.
+            if (!await applySyncedTransition(subId, row, subscription.status, row)) {
+                errors++
             }
 
             if (status === "active" || status === "trialing") {
@@ -426,6 +544,9 @@ export async function reconcileStaleStripeSubscriptions(limit = 100): Promise<{
                 } else if (row.userId) {
                     await syncPersonalFormRetentionGrace(row.userId, "canceled", row.product)
                 }
+                if (!await applySyncedTransition(subId, row, "missing", row)) {
+                    errors++
+                }
                 revoked++
                 continue
             }
@@ -443,9 +564,40 @@ export async function reconcileStaleStripeSubscriptions(limit = 100): Promise<{
 }
 
 /**
+ * A live personal Stripe subscription (still billing, or in dunning) that a
+ * crypto activation must not silently replace: expiring it locally would leave
+ * Stripe charging the card for a plan the user can no longer use. Callers
+ * route such payments to manual review instead of activating.
+ */
+export async function findConflictingStripeSubscription(
+    tx: Prisma.TransactionClient,
+    userId: string,
+): Promise<{ id: string; status: string } | null> {
+    return tx.subscription.findFirst({
+        where: {
+            userId,
+            organizationId: null,
+            provider: "stripe",
+            OR: [
+                {
+                    status: { in: ["active", "trialing"] },
+                    OR: [
+                        { currentPeriodEnd: null },
+                        { currentPeriodEnd: { gt: new Date(Date.now() - DAY_MS) } },
+                    ],
+                },
+                recentDunningWhere(),
+            ],
+        },
+        select: { id: true, status: true },
+    })
+}
+
+/**
  * Create or update a crypto subscription in the canonical Subscription table.
  * Uses a synthetic providerSubscriptionId (crypto_{orderId}) for idempotent upserts.
- * Deactivates any other active subscriptions for the user first.
+ * Supersedes the user's other active CRYPTO subscriptions (a renewal); other
+ * providers are never touched here — see findConflictingStripeSubscription.
  *
  * Must be invoked from inside a Serializable transaction so that the
  * read-then-write logic (expire-others / upsert-this) is conflict-checked by
@@ -464,13 +616,16 @@ export async function createCryptoSubscription(
 ): Promise<void> {
     const syntheticSubId = `crypto_${orderId}`
 
-    // Expire other active PERSONAL subscriptions (not this one). Scoped to
-    // organizationId: null so a user buying a personal crypto plan can't expire
-    // their org's Business subscription (which carries their userId as the buyer).
+    // Supersede other active PERSONAL crypto subscriptions (not this one).
+    // Scoped to organizationId: null so a personal crypto plan can't expire the
+    // org's Business subscription (which carries the buyer's userId), and to
+    // provider "crypto" so a still-billing Stripe subscription (or a manual
+    // grant) is never marked expired behind the provider's back.
     await tx.subscription.updateMany({
         where: {
             userId,
             organizationId: null,
+            provider: "crypto",
             status: "active",
             providerSubscriptionId: { not: syntheticSubId },
         },

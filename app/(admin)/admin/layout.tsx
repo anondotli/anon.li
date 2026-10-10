@@ -1,5 +1,5 @@
 import { auth } from "@/auth"
-import { notFound } from "next/navigation"
+import { notFound, redirect } from "next/navigation"
 import { AdminNav } from "@/components/admin/admin-nav"
 import { AdminHeader } from "@/components/admin/admin-header"
 import { AdminCommandPalette } from "@/components/admin/command-palette"
@@ -23,6 +23,12 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
     if (session.user.twoFactorEnabled && !session.twoFactorVerified) {
         notFound()
+    }
+
+    // Admin is 2FA-enforced: an admin without 2FA enrolled is sent to enable it
+    // (the user is already confirmed as an admin, so this leaks nothing).
+    if (!session.user.twoFactorEnabled) {
+        redirect("/dashboard/settings")
     }
 
     return (

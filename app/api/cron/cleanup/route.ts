@@ -127,18 +127,28 @@ async function runCleanup(): Promise<NextResponse> {
             () => cleanupExpiredSessions()
         );
 
-        const twentyFourHoursFromNow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
         const fortyEightHoursFromNow = new Date(now.getTime() + 48 * 60 * 60 * 1000);
+        const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
+        // Every not-yet-notified drop expiring within 48h, not a fixed 24–48h
+        // band: a send that fails is retried on the next daily run instead of
+        // the drop sliding out of the window. Drops created less than a day ago
+        // are skipped so a short-lived share isn't warned about right away.
         const expiringDrops = await prisma.drop.findMany({
             where: {
                 expiresAt: {
-                    gte: twentyFourHoursFromNow,
-                    lt: fortyEightHoursFromNow,
+                    gt: now,
+                    lte: fortyEightHoursFromNow,
                 },
+                createdAt: { lte: twentyFourHoursAgo },
                 deletedAt: null,
                 userId: { not: null },
                 expiryNotifiedAt: null,
+                // Form attachments are not user-facing Drops (mirrors
+                // DropService.listDrops): never mail their owners about them.
+                formSubmission: null,
+                formStagingId: null,
+                uploadTokens: { none: { formId: { not: null } } },
             },
             select: {
                 id: true,
@@ -154,18 +164,40 @@ async function runCleanup(): Promise<NextResponse> {
         const notificationErrors: string[] = [];
         for (const drop of expiringDrops) {
             if (drop.user?.email && drop.expiresAt) {
+                // Claim before sending so a drop is never emailed twice, even if
+                // two runs overlap; release the claim when the send fails so the
+                // next run retries.
+                const claim = await prisma.drop.updateMany({
+                    where: { id: drop.id, expiryNotifiedAt: null },
+                    data: { expiryNotifiedAt: now },
+                });
+                if (claim.count === 0) continue;
+
+                let sent = false;
                 try {
                     const { sendDropExpiringEmail } = await import("@/lib/resend");
                     const hoursRemaining = Math.ceil((drop.expiresAt.getTime() - now.getTime()) / (1000 * 60 * 60));
-                    await sendDropExpiringEmail(drop.user.email, hoursRemaining);
-                    await prisma.drop.update({
-                        where: { id: drop.id },
-                        data: { expiryNotifiedAt: now },
-                    });
-                    expiringNotificationsSent++;
+                    const result = await sendDropExpiringEmail(drop.user.email, hoursRemaining);
+                    sent = result.success;
+                    if (!sent) {
+                        logger.error("Expiry notification was not sent", undefined, { dropId: drop.id });
+                    }
                 } catch (e) {
                     logger.error("Failed to send expiry notification", e, { dropId: drop.id });
-                    notificationErrors.push(`expiryNotification:${drop.id}`);
+                }
+
+                if (sent) {
+                    expiringNotificationsSent++;
+                    continue;
+                }
+                notificationErrors.push(`expiryNotification:${drop.id}`);
+                try {
+                    await prisma.drop.updateMany({
+                        where: { id: drop.id, expiryNotifiedAt: now },
+                        data: { expiryNotifiedAt: null },
+                    });
+                } catch (e) {
+                    logger.error("Failed to release expiry notification claim", e, { dropId: drop.id });
                 }
             }
         }

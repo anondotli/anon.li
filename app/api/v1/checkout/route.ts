@@ -10,6 +10,7 @@ import { apiError, apiSuccess, ErrorCodes, withNoStore, zodErrorToDetails } from
 import { getUserBillingState } from "@/lib/data/user"
 import { isOrgScope } from "@/lib/ownership"
 import { prisma } from "@/lib/prisma"
+import { recentDunningWhere } from "@/lib/services/billing-dunning"
 import { scopeFromContext, withPolicy } from "@/lib/route-policy"
 import { stripe } from "@/lib/stripe"
 import { getStripePriceId } from "@/lib/stripe-prices"
@@ -56,15 +57,27 @@ export const POST = withPolicy(
             return apiError("Invalid price configuration", ErrorCodes.INVALID_REQUEST, ctx.requestId, 400)
         }
 
+        // A subscription in dunning (past_due/unpaid) is still live at Stripe;
+        // a second checkout would bill the user twice once it recovers.
         const existingSubscription = await prisma.subscription.findFirst({
             where: {
                 userId: ctx.userId,
                 organizationId: null,
-                status: { in: ["active", "trialing"] },
-                currentPeriodEnd: { gt: new Date() },
+                OR: [
+                    { status: { in: ["active", "trialing"] }, currentPeriodEnd: { gt: new Date() } },
+                    recentDunningWhere(),
+                ],
             },
-            select: { id: true },
+            select: { id: true, status: true },
         })
+        if (existingSubscription?.status === "past_due") {
+            return apiError(
+                "Your subscription has a failed payment. Update your payment method from the billing portal instead of starting a new subscription.",
+                ErrorCodes.CONFLICT,
+                ctx.requestId,
+                409,
+            )
+        }
         if (existingSubscription) {
             return apiError(
                 "You already have an active subscription. Manage it from your billing page.",
@@ -85,7 +98,7 @@ export const POST = withPolicy(
 
         const baseConfig = {
             mode: "subscription" as const,
-            payment_method_types: ["card" as const],
+            allowed_payment_method_types: ["card" as const],
             ...(user.stripeCustomerId
                 ? { customer: user.stripeCustomerId }
                 : { customer_email: user.email }),
@@ -93,7 +106,9 @@ export const POST = withPolicy(
             line_items: [{ price: priceId, quantity: 1 }],
             success_url: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard/billing?success=true`,
             cancel_url: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard/billing?canceled=true`,
-            metadata: { userId: ctx.userId },
+            // Webhook payloads never include line_items; the expired-checkout
+            // recovery flow reads the abandoned plan from here.
+            metadata: { userId: ctx.userId, priceId, product, tier, frequency },
         }
 
         let checkoutConfig: typeof baseConfig & {

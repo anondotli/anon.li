@@ -6,8 +6,11 @@ import { AliasItem } from "@/components/alias"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { useVault } from "@/components/vault/vault-provider"
-import { decryptVaultText, encryptVaultText } from "@/lib/vault/crypto"
-import { updateAliasEncryptedMetadataAction } from "@/actions/alias"
+import {
+    decryptAliasMetadata,
+    getAliasMetadataReadKeys,
+} from "@/components/alias/alias-metadata-key"
+import { saveAliasMetadata } from "@/components/alias/alias-metadata-write"
 import {
     Select,
     SelectContent,
@@ -37,6 +40,12 @@ interface Alias {
     createdAt: Date
     format: string
     domain: string
+    organizationId?: string | null
+    takenDownAt?: Date | null
+    aliasRecipients?: {
+        isPrimary: boolean
+        recipient: { id: string; email: string; pgpPublicKey: string | null }
+    }[]
 }
 
 interface Recipient {
@@ -50,6 +59,8 @@ interface Recipient {
 interface AliasListProps {
     aliases: Alias[]
     recipients?: Recipient[]
+    /** False for plain team members: forwarding changes are admin+. */
+    canManage?: boolean
 }
 
 type FilterStatus = "all" | "active" | "paused"
@@ -71,7 +82,7 @@ function emptyMetadata(): DecryptedAliasMetadata {
     }
 }
 
-export function AliasList({ aliases, recipients = [] }: AliasListProps) {
+export function AliasList({ aliases, recipients = [], canManage = true }: AliasListProps) {
     const router = useRouter()
     const vault = useVault()
     const [searchQuery, setSearchQuery] = useState("")
@@ -83,20 +94,32 @@ export function AliasList({ aliases, recipients = [] }: AliasListProps) {
 
     useEffect(() => {
         if (vault.status !== "unlocked") return
-
-        const vaultKey = vault.getVaultKey()
-        if (!vaultKey) return
-        const unlockedVaultKey: CryptoKey = vaultKey
+        if (!vault.getVaultKey()) return
 
         let cancelled = false
 
         async function decryptAll() {
+            // Org aliases decrypt with the team key (falling back to the personal
+            // key for labels written before team-key support); resolve the key
+            // list once per owning org rather than once per alias.
+            const keysByOrg = new Map<string, Promise<CryptoKey[]>>()
+            const readKeysFor = (organizationId: string | null | undefined) => {
+                const cacheKey = organizationId ?? ""
+                let keys = keysByOrg.get(cacheKey)
+                if (!keys) {
+                    keys = getAliasMetadataReadKeys(vault, organizationId)
+                    keysByOrg.set(cacheKey, keys)
+                }
+                return keys
+            }
+
             const entries = await Promise.all(aliases.map(async (alias) => {
                 const metadata = emptyMetadata()
+                const keys = await readKeysFor(alias.organizationId)
 
                 if (alias.encryptedLabel) {
                     try {
-                        metadata.label = await decryptVaultText(alias.encryptedLabel, unlockedVaultKey, {
+                        metadata.label = await decryptAliasMetadata(alias.encryptedLabel, keys, {
                             aliasId: alias.id,
                             field: "label",
                         })
@@ -111,7 +134,7 @@ export function AliasList({ aliases, recipients = [] }: AliasListProps) {
 
                 if (alias.encryptedNote) {
                     try {
-                        metadata.note = await decryptVaultText(alias.encryptedNote, unlockedVaultKey, {
+                        metadata.note = await decryptAliasMetadata(alias.encryptedNote, keys, {
                             aliasId: alias.id,
                             field: "note",
                         })
@@ -141,10 +164,7 @@ export function AliasList({ aliases, recipients = [] }: AliasListProps) {
 
     useEffect(() => {
         if (vault.status !== "unlocked") return
-
-        const vaultKey = vault.getVaultKey()
-        if (!vaultKey) return
-        const unlockedVaultKey: CryptoKey = vaultKey
+        if (!vault.getVaultKey()) return
 
         const aliasesToMigrate = aliases.filter((alias) =>
             ((alias.legacyLabel && !alias.encryptedLabel) || (alias.legacyNote && !alias.encryptedNote))
@@ -161,31 +181,25 @@ export function AliasList({ aliases, recipients = [] }: AliasListProps) {
             for (const alias of aliasesToMigrate) {
                 migrationAttemptsRef.current.add(alias.id)
 
-                const payload: {
-                    encryptedLabel?: string
-                    encryptedNote?: string
-                    clearLegacyLabel?: boolean
-                    clearLegacyNote?: boolean
-                } = {}
-
                 try {
-                    if (alias.legacyLabel && !alias.encryptedLabel) {
-                        payload.encryptedLabel = await encryptVaultText(alias.legacyLabel, unlockedVaultKey, {
-                            aliasId: alias.id,
-                            field: "label",
-                        })
-                        payload.clearLegacyLabel = true
-                    }
-
-                    if (alias.legacyNote && !alias.encryptedNote) {
-                        payload.encryptedNote = await encryptVaultText(alias.legacyNote, unlockedVaultKey, {
-                            aliasId: alias.id,
-                            field: "note",
-                        })
-                        payload.clearLegacyNote = true
-                    }
-
-                    const result = await updateAliasEncryptedMetadataAction(alias.id, payload)
+                    // Org aliases must be migrated to the TEAM key; if this
+                    // member can't get it yet, this throws and the alias is
+                    // retried on a later render instead of being sealed to a
+                    // personal key the rest of the team can't read.
+                    const migrateLabel = Boolean(alias.legacyLabel && !alias.encryptedLabel)
+                    const migrateNote = Boolean(alias.legacyNote && !alias.encryptedNote)
+                    const result = await saveAliasMetadata(
+                        vault,
+                        alias,
+                        {
+                            ...(migrateLabel && { label: alias.legacyLabel }),
+                            ...(migrateNote && { note: alias.legacyNote }),
+                        },
+                        {
+                            ...(migrateLabel && { clearLegacyLabel: true }),
+                            ...(migrateNote && { clearLegacyNote: true }),
+                        },
+                    )
                     if (result.success) {
                         migrated = true
                     }
@@ -381,6 +395,7 @@ export function AliasList({ aliases, recipients = [] }: AliasListProps) {
                             alias={alias}
                             metadata={metadataByAliasId[alias.id] ?? emptyMetadata()}
                             recipients={recipients}
+                            canManage={canManage}
                         />
                     ))}
                 </div>

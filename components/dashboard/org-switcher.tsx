@@ -128,6 +128,8 @@ export function OrgSwitcher() {
                         size="sm"
                         className="max-w-[200px] justify-between gap-2 px-2 font-normal text-muted-foreground hover:text-foreground"
                         disabled={busy}
+                        // The name label is hidden below `sm`, leaving an icon-only trigger.
+                        aria-label={`Switch workspace: ${activeOrg?.name ?? "Personal"}`}
                     >
                         <span className="flex min-w-0 items-center gap-2">
                             {isTeam ? <Building2 className="h-4 w-4 shrink-0" /> : <User className="h-4 w-4 shrink-0" />}

@@ -6,6 +6,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { DataTable, type Column } from "@/components/admin/data-table"
 import { EntityLink, UserLink } from "@/components/admin/entity-link"
 import { formatDateTime, formatRelativeTime } from "@/lib/format"
+import { CRYPTO_NEEDS_REVIEW_STATUS } from "@/lib/crypto-payment-status"
+import { HeldCryptoPaymentAction } from "./held-crypto-payment-action"
 
 interface SubscriptionRow {
     id: string
@@ -160,6 +162,7 @@ export function BillingTables({
                                 <TableHead>Amount</TableHead>
                                 <TableHead>Status</TableHead>
                                 <TableHead>Created</TableHead>
+                                <TableHead />
                             </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -175,11 +178,16 @@ export function BillingTables({
                                     </TableCell>
                                     <TableCell><Badge variant={statusVariant(payment.status)}>{payment.status}</Badge></TableCell>
                                     <TableCell>{formatRelativeTime(payment.createdAt)}</TableCell>
+                                    <TableCell>
+                                        {payment.status === CRYPTO_NEEDS_REVIEW_STATUS && (
+                                            <HeldCryptoPaymentAction paymentId={payment.id} />
+                                        )}
+                                    </TableCell>
                                 </TableRow>
                             ))}
                             {cryptoPayments.length === 0 && (
                                 <TableRow>
-                                    <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                                    <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
                                         No crypto payments found
                                     </TableCell>
                                 </TableRow>

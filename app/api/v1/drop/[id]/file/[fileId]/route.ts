@@ -10,6 +10,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { z } from "zod"
 
+import { apiError, ErrorCodes } from "@/lib/api-response"
 import { prisma } from "@/lib/prisma"
 import { isWithinScope, type OwnerScope } from "@/lib/ownership"
 import { scopeFromContext, withPolicy } from "@/lib/route-policy"
@@ -209,11 +210,11 @@ export const DELETE = withPolicy<RouteParams>(
         if (hasUploadToken) {
             const access = await resolveTokenUploadAccess(ctx.request, dropId)
             if (!access) {
-                return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+                return apiError("Unauthorized", ErrorCodes.UNAUTHORIZED, ctx.requestId, 401)
             }
             tokenScope = scopeForTokenUploadAccess(access)
         } else if (!ctx.userId) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+            return apiError("Unauthorized", ErrorCodes.UNAUTHORIZED, ctx.requestId, 401)
         } else {
             authenticatedScope = scopeFromContext(ctx)
         }
@@ -222,7 +223,7 @@ export const DELETE = withPolicy<RouteParams>(
         const validation = abortSchema.safeParse(body)
 
         if (!validation.success) {
-            return NextResponse.json({ error: "Invalid request body" }, { status: 400 })
+            return apiError("Invalid request body", ErrorCodes.VALIDATION_ERROR, ctx.requestId, 400)
         }
 
         const { s3UploadId } = validation.data
@@ -237,11 +238,11 @@ export const DELETE = withPolicy<RouteParams>(
         }
 
         if (file.drop.id !== dropId) {
-            return NextResponse.json({ error: "File not found" }, { status: 404 })
+            return apiError("File not found", ErrorCodes.NOT_FOUND, ctx.requestId, 404)
         }
 
         if (file.s3UploadId && s3UploadId !== file.s3UploadId) {
-            return NextResponse.json({ error: "Unauthorized upload ID" }, { status: 401 })
+            return apiError("Unauthorized upload ID", ErrorCodes.UNAUTHORIZED, ctx.requestId, 401)
         }
 
         if (hasUploadToken) {
@@ -252,13 +253,13 @@ export const DELETE = withPolicy<RouteParams>(
                 ? !isWithinScope(file.drop, tokenScope)
                 : file.drop.userId !== null || file.drop.organizationId !== null
             ) {
-                return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+                return apiError("Unauthorized", ErrorCodes.UNAUTHORIZED, ctx.requestId, 401)
             }
         } else if (!authenticatedScope || !isWithinScope(file.drop, authenticatedScope)) {
             // Session/API-key calls are scoped to the resolved tenant. This
             // prevents an active org context from reaching the actor's
             // personal drops while allowing any member to act on org drops.
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+            return apiError("Unauthorized", ErrorCodes.UNAUTHORIZED, ctx.requestId, 401)
         }
 
         // Claim the still-pending row before touching storage. A finalizer

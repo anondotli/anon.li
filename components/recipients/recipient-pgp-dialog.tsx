@@ -47,6 +47,17 @@ export function RecipientPgpDialog({ recipient, open, onOpenChange }: RecipientP
     const [publicKey, setPublicKey] = useState(recipient.pgpPublicKey || "")
     const [keyName, setKeyName] = useState(recipient.pgpKeyName || "")
 
+    // Re-sync the fields from the saved key each time the dialog opens, so
+    // edits discarded via Cancel/Escape don't reappear on the next open.
+    const [prevOpen, setPrevOpen] = useState(open)
+    if (open !== prevOpen) {
+        setPrevOpen(open)
+        if (open) {
+            setPublicKey(recipient.pgpPublicKey || "")
+            setKeyName(recipient.pgpKeyName || "")
+        }
+    }
+
     const hasExistingKey = !!recipient.pgpPublicKey
 
     const handleSave = async () => {

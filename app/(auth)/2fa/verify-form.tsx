@@ -19,7 +19,7 @@ import { useDelayedCallback } from "@/hooks/use-delayed-callback"
 type VerifyStatus = "idle" | "verifying" | "error" | "success"
 type InputMode = "totp" | "backup"
 
-export function TwoFactorVerifyForm() {
+export function TwoFactorVerifyForm({ callbackUrl }: { callbackUrl?: string }) {
     const [code, setCode] = useState("")
     const [backupCode, setBackupCode] = useState("")
     const [inputMode, setInputMode] = useState<InputMode>("totp")
@@ -55,7 +55,15 @@ export function TwoFactorVerifyForm() {
     const verifyCode = async (codeToVerify: string) => {
         setStatus("verifying")
 
-        const result = await verifyTwoFactorLogin(codeToVerify, inputMode)
+        let result: Awaited<ReturnType<typeof verifyTwoFactorLogin>>
+        try {
+            result = await verifyTwoFactorLogin(codeToVerify, inputMode, callbackUrl)
+        } catch {
+            // Network failure / server action crash: reset instead of leaving the
+            // form stuck on "Verifying...".
+            showError("Verification failed. Please try again.")
+            return
+        }
         if (result.error) {
             showError(result.error)
             return

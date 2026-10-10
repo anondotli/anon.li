@@ -30,7 +30,7 @@ vi.mock("next/server", () => ({ after: vi.fn() }))
 vi.mock("@/lib/prisma", () => ({
     prisma: {
         user: { findUnique: userFindUnique },
-        domain: { count: domainCount },
+        domain: { count: domainCount, findFirst: vi.fn().mockResolvedValue(null) },
         form: { findUnique: formFindUnique },
         $transaction: prismaTransaction,
     },
@@ -74,6 +74,7 @@ describe("domain_added", () => {
         prismaTransaction.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) => cb({
             domain: {
                 count: vi.fn().mockResolvedValue(0),
+                findFirst: vi.fn().mockResolvedValue(null),
                 create: vi.fn().mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
                     id: "dom_1", ...data,
                 })),

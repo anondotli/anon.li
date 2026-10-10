@@ -2,6 +2,7 @@ import "server-only"
 
 import { prisma } from "@/lib/prisma"
 import { meetsMinRole, type OrgRole } from "@/lib/ownership"
+import { apiError, ErrorCodes, withNoStore } from "@/lib/api-response"
 
 /**
  * Membership helpers for org shared-E2EE owner-key access. An org-owned owner
@@ -48,13 +49,67 @@ export async function isOrgManager(userId: string, organizationId: string): Prom
     return meetsMinRole(await getOrgRole(userId, organizationId), "admin")
 }
 
-/** Organization ids the user is a member of. */
-export async function getMemberOrgIds(userId: string): Promise<string[]> {
+/**
+ * Organization ids the user is a member of.
+ *
+ * Pass `twoFactorEnabled` when the result gates access to org key material:
+ * with `false`, orgs that enforce 2FA are excluded (the same policy
+ * `assertOrgVaultAccess` applies to single-org reads).
+ */
+export async function getMemberOrgIds(
+    userId: string,
+    options?: { twoFactorEnabled?: boolean | null },
+): Promise<string[]> {
+    const excludeEnforced2FA = options !== undefined && !options.twoFactorEnabled
     const memberships = await prisma.member.findMany({
-        where: { userId },
+        where: excludeEnforced2FA
+            ? { userId, organization: { enforce2FA: false } }
+            : { userId },
         select: { organizationId: true },
     })
     return memberships.map((m) => m.organizationId)
+}
+
+/**
+ * Org-level policy gate for org vault key material (member keys, org-owned
+ * owner keys, grant/seed/rotate). Membership/role is checked separately by the
+ * caller; this enforces what the org itself demands:
+ *
+ * - `enforce2FA`: a member who hasn't enrolled 2FA gets no org key material
+ *   (mirrors the org-scoped action/route policy in lib/access-policy.ts).
+ * - `suspendedAt`: a suspended org is frozen, so key-material WRITES are
+ *   rejected; reads stay available so members can still decrypt/export.
+ *
+ * Returns a ready-to-send 403 response when blocked, or null when allowed —
+ * same shape as `enforceVaultRequestGuards`.
+ */
+export async function assertOrgVaultAccess(params: {
+    user: { id: string; twoFactorEnabled?: boolean | null }
+    organizationId: string
+    requestId: string
+    write?: boolean
+}): Promise<Response | null> {
+    const organization = await prisma.organization.findUnique({
+        where: { id: params.organizationId },
+        select: { enforce2FA: true, suspendedAt: true },
+    })
+    // Missing org: let the caller's own membership/existence check answer.
+    if (!organization) return null
+
+    if (organization.enforce2FA && !params.user.twoFactorEnabled) {
+        return withNoStore(apiError(
+            "This team requires two-factor authentication. Enable 2FA to access team encryption keys.",
+            ErrorCodes.FORBIDDEN,
+            params.requestId,
+            403,
+        ))
+    }
+
+    if (params.write && organization.suspendedAt) {
+        return withNoStore(apiError("This team is suspended", ErrorCodes.FORBIDDEN, params.requestId, 403))
+    }
+
+    return null
 }
 
 /**

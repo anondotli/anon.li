@@ -194,7 +194,12 @@ export function validateInputLengths(input: {
 }
 
 /**
- * Enforce feature flags based on user plan (silently downgrade)
+ * Enforce feature flags based on user plan.
+ *
+ * Cosmetic/notification flags are silently downgraded. A disallowed customKey
+ * is rejected instead: the client has already wrapped the key with the
+ * password and will build a share link WITHOUT the key fragment, so silently
+ * storing a non-password drop would make it undecryptable.
  */
 export function enforceFeatureFlags(
     requested: {
@@ -206,12 +211,24 @@ export function enforceFeatureFlags(
         noBranding: boolean;
         downloadNotifications: boolean;
         customKey: boolean;
-    }
+    },
+    currentTier: DropTier = "free",
 ): {
     hideBranding: boolean;
     notifyOnDownload: boolean;
     customKey: boolean;
 } {
+    if (requested.customKey && !features.customKey) {
+        throw new UpgradeRequiredError(
+            "Password-protected drops are not available on your plan.",
+            {
+                scope: "drop_custom_key",
+                currentTier,
+                suggestedTier: nextDropTier(currentTier),
+            }
+        );
+    }
+
     return {
         hideBranding: (requested.hideBranding ?? false) && features.noBranding,
         notifyOnDownload: (requested.notifyOnDownload ?? false) && features.downloadNotifications,

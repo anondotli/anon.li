@@ -457,6 +457,87 @@ describe("DropService.addFile authenticated quota owner", () => {
     });
 });
 
+describe("DropService.addFile incomplete-drop guard", () => {
+    const input = {
+        dropId: "drop-current",
+        encryptedName: "encrypted",
+        iv: "1234567890123456",
+        size: 128,
+        mimeType: "application/octet-stream",
+        chunkCount: 1,
+        chunkSize: 128,
+    };
+
+    beforeEach(() => {
+        vi.clearAllMocks();
+        (prisma.drop.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+            id: "drop-current",
+            userId: "owner-1",
+            organizationId: null,
+            deletedAt: null,
+            uploadComplete: false,
+            maxFileCount: 10,
+            _count: { files: 0 },
+        });
+        (prisma.dropFile.count as ReturnType<typeof vi.fn>).mockResolvedValue(0);
+    });
+
+    it("counts only the caller's other standalone incomplete drops in the same scope", async () => {
+        (prisma.drop.count as ReturnType<typeof vi.fn>).mockResolvedValue(10);
+
+        await expect(DropService.addFile(personalScope("owner-1"), input)).rejects.toMatchObject({
+            name: "RateLimitError",
+        });
+
+        expect(prisma.drop.count).toHaveBeenCalledWith({
+            where: expect.objectContaining({
+                userId: "owner-1",
+                organizationId: null,
+                id: { not: "drop-current" },
+                uploadComplete: false,
+                deletedAt: null,
+                formSubmission: null,
+                formStagingId: null,
+                uploadTokens: { none: { formId: { not: null } } },
+            }),
+        });
+    });
+
+    it("scopes the org guard to the org drops the member created", async () => {
+        (prisma.drop.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+            id: "drop-current",
+            userId: "member-1",
+            organizationId: "org-1",
+            deletedAt: null,
+            uploadComplete: false,
+            maxFileCount: 10,
+            _count: { files: 0 },
+        });
+        (prisma.drop.count as ReturnType<typeof vi.fn>).mockResolvedValue(10);
+
+        await expect(
+            DropService.addFile(orgScope("member-1", "org-1", "member"), input),
+        ).rejects.toMatchObject({ name: "RateLimitError" });
+
+        expect(prisma.drop.count).toHaveBeenCalledWith({
+            where: expect.objectContaining({ userId: "member-1", organizationId: "org-1" }),
+        });
+    });
+
+    it("skips the owner's guard for Form-token uploads made by anonymous visitors", async () => {
+        (prisma.drop.count as ReturnType<typeof vi.fn>).mockResolvedValue(999);
+        (dropUtils.getUserAndLimits as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("past guard"));
+
+        await expect(DropService.addFile(
+            personalScope("owner-1"),
+            input,
+            { tokenAuthorized: true },
+        )).rejects.toThrow("past guard");
+
+        expect(prisma.drop.count).not.toHaveBeenCalled();
+    });
+});
+
 describe("DropService.finishDrop", () => {
     const storedDrop = (uploadComplete = false) => ({
         id: "drop-123",

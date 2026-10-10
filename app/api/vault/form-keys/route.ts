@@ -8,7 +8,7 @@ import {
 } from "@/lib/vault/form-owner-keys"
 import { getVaultSession } from "@/lib/vault/server"
 import { enforceVaultRequestGuards } from "@/lib/vault/http"
-import { getMemberOrgIds, isOrgMember } from "@/lib/vault/org-access"
+import { assertOrgVaultAccess, getMemberOrgIds, isOrgMember } from "@/lib/vault/org-access"
 import {
     vaultGenerationSchema,
     vaultIdSchema,
@@ -79,6 +79,15 @@ export async function GET(request: Request) {
                 return withNoStore(apiError("Form key not found", ErrorCodes.NOT_FOUND, requestId, 404))
             }
 
+            if (formKey.organizationId) {
+                const policyBlocked = await assertOrgVaultAccess({
+                    user: session.user,
+                    organizationId: formKey.organizationId,
+                    requestId,
+                })
+                if (policyBlocked) return policyBlocked
+            }
+
             return withNoStore(apiSuccess({
                 formId: formKey.formId,
                 wrappedKey: formKey.wrappedKey,
@@ -89,7 +98,8 @@ export async function GET(request: Request) {
         }
 
         // List: personal keys plus every org key for orgs the user belongs to.
-        const orgIds = await getMemberOrgIds(session.user.id)
+        // Orgs that enforce 2FA are left out for members without it.
+        const orgIds = await getMemberOrgIds(session.user.id, { twoFactorEnabled: session.user.twoFactorEnabled })
         const formKeys = await prisma.formOwnerKey.findMany({
             where: {
                 OR: [

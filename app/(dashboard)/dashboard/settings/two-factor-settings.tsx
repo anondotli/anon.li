@@ -38,6 +38,7 @@ import {
     disableTwoFactor,
     regenerateBackupCodes,
 } from "@/actions/two-factor"
+import { broadcastVaultMessage } from "@/lib/vault/sync"
 
 type SetupStep = "qr" | "backup" | "verify"
 
@@ -80,6 +81,7 @@ function StepIndicator({ current }: { current: SetupStep }) {
 export function TwoFactorSettings() {
     const [isPending, startTransition] = useTransition()
     const [isEnabled, setIsEnabled] = useState<boolean | null>(null)
+    const [statusError, setStatusError] = useState(false)
     const [showSetupDialog, setShowSetupDialog] = useState(false)
     const [showDisableDialog, setShowDisableDialog] = useState(false)
     const [showBackupCodesDialog, setShowBackupCodesDialog] = useState(false)
@@ -101,10 +103,16 @@ export function TwoFactorSettings() {
 
     const loadStatus = useCallback(() => {
         startTransition(async () => {
-            const result = await getTwoFactorStatus()
-            if (result.success) {
-                setIsEnabled(result.enabled ?? false)
+            try {
+                const result = await getTwoFactorStatus()
+                if (result.success) {
+                    setIsEnabled(result.enabled ?? false)
+                    return
+                }
+            } catch {
+                // Fall through to the error state below.
             }
+            setStatusError(true)
         })
     }, [])
 
@@ -159,10 +167,18 @@ export function TwoFactorSettings() {
             if (result.error) {
                 toast.error(result.error)
             } else if (result.success) {
-                toast.success("Two-factor authentication disabled")
+                // Disabling 2FA revokes every session (incl. this one), so send
+                // the user — and any other open tabs — back to sign in.
+                toast.success("Two-factor authentication disabled. Please sign in again.")
                 setShowDisableDialog(false)
                 setIsEnabled(false)
                 setDisableCode("")
+                try {
+                    broadcastVaultMessage({ type: "SIGN_OUT", timestamp: Date.now(), source: "two-factor-disable" })
+                } catch {
+                    // Cross-tab sync unavailable; other tabs find out on their next request.
+                }
+                window.location.replace("/login")
             }
         })
     }
@@ -219,9 +235,27 @@ export function TwoFactorSettings() {
                     </div>
                 </CardHeader>
                 <CardContent className="p-8 pt-0">
-                    <div className="flex items-center justify-center py-8">
-                        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                    </div>
+                    {statusError && !isPending ? (
+                        <div role="alert" className="flex flex-col items-center gap-3 py-6 text-center">
+                            <p className="text-sm text-muted-foreground">
+                                Couldn&apos;t load your two-factor status.
+                            </p>
+                            <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => {
+                                    setStatusError(false)
+                                    loadStatus()
+                                }}
+                            >
+                                Try again
+                            </Button>
+                        </div>
+                    ) : (
+                        <div className="flex items-center justify-center py-8">
+                            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                        </div>
+                    )}
                 </CardContent>
             </Card>
         )
@@ -318,7 +352,7 @@ export function TwoFactorSettings() {
                 if (!open) resetSetupState()
                 setShowSetupDialog(open)
             }}>
-                <DialogContent className="sm:max-w-[480px] gap-0 p-0 overflow-hidden">
+                <DialogContent className="sm:max-w-[480px] gap-0 p-0 max-h-[calc(100dvh-2rem)] overflow-y-auto">
                     {/* Header with step indicator */}
                     <div className="p-6 pb-0 space-y-5">
                         <DialogHeader className="space-y-1.5">
@@ -486,7 +520,10 @@ export function TwoFactorSettings() {
             </Dialog>
 
             {/* Disable Dialog */}
-            <Dialog open={showDisableDialog} onOpenChange={setShowDisableDialog}>
+            <Dialog open={showDisableDialog} onOpenChange={(open) => {
+                if (!open) setDisableCode("")
+                setShowDisableDialog(open)
+            }}>
                 <DialogContent className="sm:max-w-md">
                     <DialogHeader>
                         <DialogTitle className="flex items-center gap-2">
@@ -508,7 +545,10 @@ export function TwoFactorSettings() {
                         />
                     </div>
                     <div className="flex justify-end gap-2 pt-2">
-                        <Button variant="outline" onClick={() => setShowDisableDialog(false)}>
+                        <Button variant="outline" onClick={() => {
+                            setDisableCode("")
+                            setShowDisableDialog(false)
+                        }}>
                             Cancel
                         </Button>
                         <Button
@@ -524,7 +564,15 @@ export function TwoFactorSettings() {
             </Dialog>
 
             {/* Backup Codes Dialog */}
-            <Dialog open={showBackupCodesDialog} onOpenChange={setShowBackupCodesDialog}>
+            <Dialog open={showBackupCodesDialog} onOpenChange={(open) => {
+                // Don't keep freshly regenerated backup codes in memory/the DOM
+                // after the dialog is dismissed.
+                if (!open) {
+                    setBackupCodes([])
+                    setRegenerateCode("")
+                }
+                setShowBackupCodesDialog(open)
+            }}>
                 <DialogContent className="sm:max-w-md">
                     <DialogHeader>
                         <DialogTitle className="flex items-center gap-2">

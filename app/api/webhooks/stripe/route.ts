@@ -9,12 +9,13 @@ import { stripe } from "@/lib/stripe"
 import { NextResponse, after } from "next/server"
 import { Redis } from "@upstash/redis"
 import { createLogger } from "@/lib/logger"
-import { SUBSCRIPTION_GRACE_PERIOD_DAYS, DOWNGRADE_SCHEDULING_DELAY_DAYS, DOWNGRADE_DELETION_DELAY_DAYS, CHECKOUT_RECOVERY_THROTTLE_DAYS } from "@/lib/constants"
+import { CHECKOUT_RECOVERY_THROTTLE_DAYS } from "@/lib/constants"
 import {
     InvalidSubscriptionOwnershipError,
     markSubscriptionCanceledLocally,
     upsertStripeSubscription,
 } from "@/lib/services/subscription-sync"
+import { handleLostSubscription, LOST_STRIPE_STATUSES } from "@/lib/services/subscription-loss"
 import { captureServerEvent, flushPostHog, trackServerEvent } from "@/lib/posthog.server"
 import { getPlanFromPriceId } from "@/config/plans"
 
@@ -88,6 +89,18 @@ function getSubscriptionPriceId(subscription: Stripe.Subscription): string | nul
     return subscription.items?.data?.[0]?.price?.id ?? null
 }
 
+/**
+ * Resolve an invoice's subscription id. Since Stripe API 2025-03-31.basil the
+ * link lives at `parent.subscription_details.subscription`; the top-level
+ * `subscription` field is read only as a fallback for legacy-shaped payloads.
+ */
+function getInvoiceSubscriptionId(invoice: Stripe.Invoice): string | null {
+    const legacy = invoice as Stripe.Invoice & { subscription?: string | Stripe.Subscription | null }
+    const ref = invoice.parent?.subscription_details?.subscription ?? legacy.subscription ?? null
+    if (!ref) return null
+    return typeof ref === "string" ? ref : ref.id
+}
+
 async function upsertConfiguredSubscription(userId: string | null, subscription: Stripe.Subscription): Promise<void> {
     let upserted: boolean
     try {
@@ -147,41 +160,12 @@ async function syncCanonicalSubscription(
             where: { id: local.organizationId },
             data: { formRetentionGraceUntil: null },
         })
+        // Recovered: undo the drop grace expiry a loss may have stamped.
+        const { restoreOrgDropGrace } = await import("@/lib/services/org-billing")
+        await restoreOrgDropGrace(local.organizationId)
     }
 
     return local
-}
-
-/**
- * Handle downgrade notification after subscription loss.
- * Shared by handleInvoicePaymentFailed and handleCustomerSubscriptionDeleted.
- *
- * Email failures are logged but never thrown — otherwise Stripe retries the
- * whole webhook, re-running idempotent DB writes but also re-sending the email.
- */
-async function handleDowngradeNotification(userId: string, email: string, dropExpiryDate: Date): Promise<void> {
-    const { BillingDowngradeService } = await import("@/lib/services/billing-downgrade")
-    await BillingDowngradeService.recordDowngrade(userId)
-
-    const excess = await BillingDowngradeService.calculateExcess(userId)
-    const hasExcess = excess.excessRandom + excess.excessCustom + excess.excessDomains + excess.excessRecipients > 0
-
-    try {
-        if (hasExcess) {
-            const schedulingDate = new Date()
-            schedulingDate.setDate(schedulingDate.getDate() + DOWNGRADE_SCHEDULING_DELAY_DAYS)
-            const deletionDate = new Date()
-            deletionDate.setDate(deletionDate.getDate() + DOWNGRADE_SCHEDULING_DELAY_DAYS + DOWNGRADE_DELETION_DELAY_DAYS)
-
-            const { sendDowngradeWarningEmail } = await import("@/lib/resend")
-            await sendDowngradeWarningEmail(email, excess, schedulingDate, deletionDate)
-        } else {
-            const { sendSubscriptionCanceledEmail } = await import("@/lib/resend")
-            await sendSubscriptionCanceledEmail(email, dropExpiryDate)
-        }
-    } catch (error) {
-        logger.error("Failed to send downgrade notification email", error, { userId })
-    }
 }
 
 export async function POST(req: Request) {
@@ -407,19 +391,30 @@ async function handleCheckoutSessionExpired(event: Stripe.Event): Promise<void> 
 
     const organizationId = session.metadata?.organizationId || null
 
-    // Resolve the abandoned plan for the event + email copy. Best-effort:
-    // recovery must not depend on price configuration (a session for an
-    // archived price still deserves a recovery email).
+    // Resolve the abandoned plan for the event + email copy. Webhook payloads
+    // never include line_items, so the plan is read from the metadata stamped
+    // at session creation; line_items stays as a fallback for expanded
+    // payloads. Best-effort: recovery must not depend on price configuration
+    // (a session for an archived price still deserves a recovery email).
     const price = session.line_items?.data?.[0]?.price ?? null
-    const priceId = price?.id ?? null
-    const plan = priceId ? getPlanFromPriceId(priceId) : null
+    const priceId = session.metadata?.priceId || price?.id || null
+    const pricePlan = priceId ? getPlanFromPriceId(priceId) : null
+    const plan = session.metadata?.product && session.metadata?.tier
+        ? { product: session.metadata.product, tier: session.metadata.tier }
+        : pricePlan
+    const metadataFrequency = session.metadata?.frequency
+    const frequency = metadataFrequency === "monthly"
+        ? "month"
+        : metadataFrequency === "yearly"
+            ? "year"
+            : price?.recurring?.interval
 
     // Funnel loss event — emitted regardless of whether the email goes out.
     trackServerEvent(userId, "checkout_expired", {
         provider: "stripe",
         product: plan?.product,
         tier: plan?.tier,
-        frequency: price?.recurring?.interval,
+        frequency,
         price_id: priceId ?? undefined,
         is_org_checkout: Boolean(organizationId),
         session_id: session.id,
@@ -442,6 +437,28 @@ async function handleCheckoutSessionExpired(event: Stripe.Event): Promise<void> 
         return
     }
 
+    const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { email: true, dripUnsubscribed: true, banned: true },
+    })
+    if (!user?.email) {
+        logger.warn("Checkout expired but the user has no email address", {
+            userId,
+            sessionId: session.id,
+        })
+        return
+    }
+    // Recovery nudges are marketing-adjacent: honour the drip opt-out and never
+    // nudge banned accounts. Checked before the throttle claim so an opted-out
+    // user doesn't burn the window.
+    if (user.dripUnsubscribed || user.banned) {
+        logger.info("Checkout expired but the user is opted out or banned; skipping recovery email", {
+            userId,
+            sessionId: session.id,
+        })
+        return
+    }
+
     // One recovery email per user per throttle window, no matter how many
     // sessions they let expire. Claim before sending; release on send failure
     // so a later expired session can still trigger the email.
@@ -453,18 +470,6 @@ async function handleCheckoutSessionExpired(event: Stripe.Event): Promise<void> 
     })
     if (claimed === null) {
         logger.info("Checkout recovery email already sent recently; skipping", {
-            userId,
-            sessionId: session.id,
-        })
-        return
-    }
-
-    const user = await prisma.user.findUnique({
-        where: { id: userId },
-        select: { email: true },
-    })
-    if (!user?.email) {
-        logger.warn("Checkout expired but the user has no email address", {
             userId,
             sessionId: session.id,
         })
@@ -493,7 +498,7 @@ async function handleCheckoutSessionExpired(event: Stripe.Event): Promise<void> 
 
 /** Sync subscription state on successful payment (renewal or retry). */
 async function handleInvoicePaymentSucceeded(invoice: Stripe.Invoice) {
-    const subscriptionId = typeof invoice.subscription === 'string' ? invoice.subscription : (invoice.subscription as Stripe.Subscription)?.id
+    const subscriptionId = getInvoiceSubscriptionId(invoice)
     if (!subscriptionId) return
 
     const subscription = await stripe.subscriptions.retrieve(subscriptionId)
@@ -513,13 +518,11 @@ async function handleInvoicePaymentSucceeded(invoice: Stripe.Invoice) {
 }
 
 async function handleInvoicePaymentFailed(invoice: Stripe.Invoice) {
-    const subscriptionId = typeof invoice.subscription === 'string' ? invoice.subscription : (invoice.subscription as Stripe.Subscription)?.id
+    const subscriptionId = getInvoiceSubscriptionId(invoice)
     if (!subscriptionId) return
 
     // Force re-sync to check status (likely past_due or unpaid)
     const subscription = await stripe.subscriptions.retrieve(subscriptionId)
-
-    const isActive = subscription.status === 'active' || subscription.status === 'trialing'
 
     const context = await syncCanonicalSubscription(subscription)
 
@@ -547,31 +550,12 @@ async function handleInvoicePaymentFailed(invoice: Stripe.Invoice) {
         })
     }
 
-    // If access is revoked, set drop expiry and send notification. The org path
-    // does not require the (possibly deleted) buyer; it notifies current admins.
-    if (context && !isActive) {
-        const expiryDate = new Date()
-        expiryDate.setDate(expiryDate.getDate() + SUBSCRIPTION_GRACE_PERIOD_DAYS)
-
-        if (context.organizationId) {
-            const { handleOrgSubscriptionLoss } = await import("@/lib/services/org-billing")
-            await handleOrgSubscriptionLoss(context.organizationId, expiryDate)
-        } else if (context.user) {
-            // Only update drops that don't already have an expiry (unlimited drops)
-            await prisma.drop.updateMany({
-                where: {
-                    userId: context.user.id,
-                    organizationId: null,
-                    expiresAt: null,
-                    deletedAt: null,
-                },
-                data: {
-                    expiresAt: expiryDate,
-                },
-            })
-
-            await handleDowngradeNotification(context.user.id, context.user.email, expiryDate)
-        }
+    // While Stripe is still retrying (past_due) access is suspended by the
+    // status sync alone; drops are only put on an expiry clock once dunning
+    // has given up. The org path does not require the (possibly deleted)
+    // buyer; it notifies current admins.
+    if (LOST_STRIPE_STATUSES.has(subscription.status)) {
+        await handleLostSubscription(subscription.id, context)
     }
 }
 
@@ -580,7 +564,7 @@ async function handleInvoicePaymentFailed(invoice: Stripe.Invoice) {
  * This fires when a European payment requires additional authentication
  */
 async function handleInvoicePaymentActionRequired(invoice: Stripe.Invoice) {
-    const subscriptionId = typeof invoice.subscription === 'string' ? invoice.subscription : (invoice.subscription as Stripe.Subscription)?.id
+    const subscriptionId = getInvoiceSubscriptionId(invoice)
     if (!subscriptionId) return
 
     const context = await prisma.subscription.findUnique({
@@ -616,29 +600,39 @@ async function handleInvoicePaymentActionRequired(invoice: Stripe.Invoice) {
 }
 
 /** Sync plan/price changes and detect cancellation or status changes. */
-async function handleCustomerSubscriptionUpdated(subscription: Stripe.Subscription) {
+async function handleCustomerSubscriptionUpdated(eventSubscription: Stripe.Subscription) {
+    // Event snapshots can arrive out of order (and retries replay old ones), so
+    // sync the subscription's CURRENT state rather than trusting the payload.
+    let subscription: Stripe.Subscription
+    try {
+        subscription = await stripe.subscriptions.retrieve(eventSubscription.id)
+    } catch (error) {
+        if (error instanceof Stripe.errors.StripeInvalidRequestError && error.code === "resource_missing") {
+            // Gone at Stripe: customer.subscription.deleted owns revocation.
+            logger.info("Updated subscription no longer exists at Stripe; deferring to deletion event", {
+                subscriptionId: eventSubscription.id,
+            })
+            return
+        }
+        throw error
+    }
+
     const priceId = getSubscriptionPriceId(subscription)
 
     if (!priceId) {
         throw new Error(`Stripe subscription ${subscription.id} has no price ID`)
     }
 
-    // Only sync price if subscription is active or trialing
     const isActive = subscription.status === 'active' || subscription.status === 'trialing'
 
     const context = await syncCanonicalSubscription(subscription)
 
-    // Record downgrade if subscription became inactive.
-    if (context && !isActive) {
-        if (context.organizationId) {
-            const expiryDate = new Date()
-            expiryDate.setDate(expiryDate.getDate() + SUBSCRIPTION_GRACE_PERIOD_DAYS)
-            const { handleOrgSubscriptionLoss } = await import("@/lib/services/org-billing")
-            await handleOrgSubscriptionLoss(context.organizationId, expiryDate)
-        } else if (context.user) {
-            const { BillingDowngradeService } = await import("@/lib/services/billing-downgrade")
-            await BillingDowngradeService.recordDowngrade(context.user.id)
-        }
+    if (isActive) return
+
+    // Still in dunning (past_due/incomplete): access is suspended by the status
+    // sync, but the resource-deletion clock only starts on a terminal loss.
+    if (LOST_STRIPE_STATUSES.has(subscription.status)) {
+        await handleLostSubscription(subscription.id, context)
     }
 }
 
@@ -686,22 +680,6 @@ async function resolveUnlinkedSubscriptionOwner(
 }
 
 /**
- * Whether the user still holds another active/trialing PERSONAL subscription
- * (any provider). The subscription being deleted has already been canceled (or
- * never had a canonical row), so it cannot count itself here.
- */
-async function hasOtherActivePersonalSubscription(userId: string): Promise<boolean> {
-    const count = await prisma.subscription.count({
-        where: {
-            userId,
-            organizationId: null,
-            status: { in: ["active", "trialing"] },
-        },
-    })
-    return count > 0
-}
-
-/**
  * Revoke access, set grace period on drops, and begin downgrade flow.
  *
  * Deletion is revocation: unlike access-granting events — which retry while a
@@ -711,10 +689,6 @@ async function hasOtherActivePersonalSubscription(userId: string): Promise<boole
  * permanently once there is genuinely nothing left to revoke.
  */
 async function handleCustomerSubscriptionDeleted(subscription: Stripe.Subscription) {
-    // Calculate grace period expiry deadline
-    const expiryDate = new Date()
-    expiryDate.setDate(expiryDate.getDate() + SUBSCRIPTION_GRACE_PERIOD_DAYS)
-
     const local = await prisma.subscription.findUnique({
         where: { providerSubscriptionId: subscription.id },
         select: {
@@ -779,43 +753,9 @@ async function handleCustomerSubscriptionDeleted(subscription: Stripe.Subscripti
         })
     }
 
-    // Org subscription: downgrade the ORG (grace on org drops, notify all org
-    // admins), not the billing user's personal account.
-    if (context.organizationId) {
-        const { handleOrgSubscriptionLoss } = await import("@/lib/services/org-billing")
-        await handleOrgSubscriptionLoss(context.organizationId, expiryDate)
-        return
-    }
-
-    if (context.user) {
-        // Deleting one subscription must not downgrade a user who retains
-        // another active personal subscription (e.g. mid-migration between
-        // plans): the expiry stamped below is enforced by drop cleanup
-        // regardless of current entitlements, so it would eventually delete
-        // files the user is still entitled to keep.
-        if (await hasOtherActivePersonalSubscription(context.user.id)) {
-            logger.info("Skipping personal downgrade side effects; user retains another active subscription", {
-                userId: context.user.id,
-                subscriptionId: subscription.id,
-            })
-            return
-        }
-
-        // Set grace period expiry on all unlimited drops (Pro feature)
-        await prisma.drop.updateMany({
-            where: {
-                userId: context.user.id,
-                organizationId: null,
-                expiresAt: null, // Only drops with unlimited expiry
-                deletedAt: null,
-            },
-            data: {
-                expiresAt: expiryDate,
-            },
-        })
-
-        await handleDowngradeNotification(context.user.id, context.user.email, expiryDate)
-    }
+    // A deletion without a canonical row has nowhere to record the
+    // notification claim; it is a one-off event, so always notify.
+    await handleLostSubscription(subscription.id, context, local ? {} : { notify: true })
 }
 
 /** Restore access and cancel any active downgrade when a paused subscription resumes. */

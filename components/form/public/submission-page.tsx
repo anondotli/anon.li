@@ -11,10 +11,13 @@ import { encryptForForm } from "@/lib/crypto/asymmetric"
 import type { FormField, FormSchemaDoc as FormSchemaDocument } from "@/lib/form-schema"
 import {
     FormSchemaDoc as FormSchemaValidator,
+    MAX_FORM_SUBMISSION_FILES,
+    isFieldVisible,
     validateAnswersAgainstSchema,
 } from "@/lib/form-schema"
 import { collectFormFieldErrors } from "@/lib/form-answer-validation"
 import {
+    revokeFormAttachmentUpload,
     uploadFormAttachments,
     type FormAttachmentProgress,
     type SelectedFormFile,
@@ -27,6 +30,7 @@ import { OneQuestionFlow } from "./one-question-flow"
 import { ClassicFlow } from "./classic-flow"
 import { Notice } from "./notice"
 import Link from "next/link"
+import { ZodError } from "zod"
 
 const turnstileSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY!
 
@@ -155,8 +159,14 @@ export function FormSubmissionPage({ form }: Props) {
         if (submissionInFlightRef.current) return
         submissionInFlightRef.current = true
         setView({ state: "submitting" })
+        // Set once attachments are uploaded; revoked if the submit then fails
+        // so the abandoned upload stops counting against the form's cap.
+        let pendingUpload: { uploadToken: string } | null = null
         try {
             const selectedFiles = collectSelectedFiles(schema, answers)
+            // Validate everything except file ids (not known yet) before any
+            // bytes are encrypted/uploaded, so a bad answer fails fast.
+            validateAnswersAgainstSchema(schema, withPlaceholderFileIds(schema, answers))
             const answerDraft = { ...answers }
             let attachedDropId: string | null = null
             let attachmentUploadToken: string | null = null
@@ -181,6 +191,7 @@ export function FormSubmissionPage({ form }: Props) {
                 } finally {
                     if (uploadAbortRef.current === controller) uploadAbortRef.current = null
                 }
+                pendingUpload = { uploadToken: upload.uploadToken }
                 attachedDropId = upload.dropId
                 attachmentUploadToken = upload.uploadToken
                 uploadedFiles = upload.files
@@ -238,15 +249,17 @@ export function FormSubmissionPage({ form }: Props) {
                 const body = await res.json().catch(() => ({}))
                 throw new Error(body.error?.message ?? body.error ?? `Submission failed (${res.status})`)
             }
+            pendingUpload = null
             setView({ state: "idle" })
             setPhase({ kind: "thanks" })
         } catch (err) {
+            if (pendingUpload) void revokeFormAttachmentUpload(form.id, pendingUpload.uploadToken)
             resetTurnstile()
             const aborted = err instanceof Error
                 && (err.name === "AbortError" || err.message === "Upload cancelled")
             setView(aborted
                 ? { state: "idle" }
-                : { state: "error", message: err instanceof Error ? err.message : "Submission failed" })
+                : { state: "error", message: readableSubmitError(err) })
         } finally {
             submissionInFlightRef.current = false
         }
@@ -408,10 +421,32 @@ export function FormSubmissionPage({ form }: Props) {
     )
 }
 
+/** Zod errors carry a raw JSON issue list; never show that to respondents. */
+function readableSubmitError(err: unknown): string {
+    if (err instanceof ZodError) return "Some answers are invalid. Check your answers and try again."
+    return err instanceof Error ? err.message : "Submission failed"
+}
+
+/** Stand-in file ids so answers can be validated before files are uploaded. */
+function withPlaceholderFileIds(
+    schema: FormSchemaDocument,
+    answers: Record<string, unknown>,
+): Record<string, unknown> {
+    const draft = { ...answers }
+    for (const field of schema.fields) {
+        if (field.type !== "file") continue
+        const value = answers[field.id]
+        if (Array.isArray(value)) draft[field.id] = value.map((_, index) => `pending-${index}`)
+    }
+    return draft
+}
+
 function collectSelectedFiles(schema: FormSchemaDocument, answers: Record<string, unknown>): SelectedFormFile[] {
     const out: SelectedFormFile[] = []
     for (const field of schema.fields) {
         if (field.type !== "file") continue
+        // Hidden questions' answers are dropped on submit; don't upload them.
+        if (!isFieldVisible(field, answers)) continue
         const value = answers[field.id]
         const files = Array.isArray(value) ? value.filter(isFile) : []
         if (files.length > field.maxFiles) {
@@ -426,6 +461,11 @@ function collectSelectedFiles(schema: FormSchemaDocument, answers: Record<string
             }
             out.push({ fieldId: field.id, fieldLabel: field.label, file })
         }
+    }
+    if (out.length > MAX_FORM_SUBMISSION_FILES) {
+        throw new Error(
+            `You can attach at most ${MAX_FORM_SUBMISSION_FILES} files per submission (you selected ${out.length}). Remove some files and try again.`,
+        )
     }
     return out
 }

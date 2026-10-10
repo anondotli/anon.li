@@ -90,10 +90,13 @@ export function LoginForm({
                 analytics.loginStarted(provider)
             }
 
-            await authClient.signIn.social({
+            const result = await authClient.signIn.social({
                 provider,
                 callbackURL: destination,
             })
+            if (result?.error) {
+                setFormError(mapAuthError(result.error))
+            }
         } catch (error) {
             setFormError(describeRequestError(error))
         } finally {

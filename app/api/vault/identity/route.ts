@@ -97,7 +97,7 @@ export async function POST(request: Request) {
 
         const security = await prisma.userSecurity.findUnique({
             where: { userId: session.user.id },
-            select: { id: true, vaultGeneration: true },
+            select: { id: true, vaultGeneration: true, identityPublicKey: true },
         })
 
         if (!security) {
@@ -116,7 +116,7 @@ export async function POST(request: Request) {
             return withNoStore(apiError("Vault generation mismatch", ErrorCodes.CONFLICT, requestId, 409))
         }
 
-        await prisma.userSecurity.update({
+        const updateIdentity = prisma.userSecurity.update({
             where: { userId: session.user.id },
             data: {
                 identityPublicKey: validation.data.identityPublicKey,
@@ -124,6 +124,19 @@ export async function POST(request: Request) {
                 identityKeyGeneration: validation.data.vaultGeneration,
             },
         })
+
+        if (security.identityPublicKey === validation.data.identityPublicKey) {
+            await updateIdentity
+        } else {
+            // A new public key means any org vault key sealed to the previous one
+            // can never be opened again. Drop those grants atomically so the
+            // member reappears as "pending" and an admin re-grants to the new key,
+            // instead of being treated as already granted forever.
+            await prisma.$transaction([
+                updateIdentity,
+                prisma.organizationMemberKey.deleteMany({ where: { userId: session.user.id } }),
+            ])
+        }
 
         return withNoStore(apiSuccess({
             identityPublicKey: validation.data.identityPublicKey,

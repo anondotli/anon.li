@@ -1,4 +1,4 @@
-import { LATEST_PROTOCOL_VERSION, type Implementation, type ServerCapabilities } from "@modelcontextprotocol/sdk/types.js"
+import { LATEST_PROTOCOL_VERSION, type Implementation, type ServerCapabilities } from "@modelcontextprotocol/server"
 import { siteConfig } from "../../config/site"
 
 export const MCP_SERVER_INFO = {

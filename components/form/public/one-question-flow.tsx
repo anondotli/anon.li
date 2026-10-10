@@ -78,9 +78,11 @@ export function OneQuestionFlow({
     }, [current, answers, isLast, onSubmit])
 
     // Auto-advance: only when the user has interacted with this step in this session.
+    // Never on the last question — advancing there would submit the form on a
+    // single click; the respondent confirms with the Submit button instead.
     const wasAutoAdvanced = useRef<Set<string>>(new Set())
     useEffect(() => {
-        if (!current) return
+        if (!current || isLast) return
         const behavior = getFieldBehavior(current)
         if (!behavior.autoAdvances) return
         if (wasAutoAdvanced.current.has(current.id)) return
@@ -92,7 +94,7 @@ export function OneQuestionFlow({
             void goForward()
         }, 220)
         return () => window.clearTimeout(id)
-    }, [current, answers, goForward])
+    }, [current, isLast, answers, goForward])
 
     // Global keyboard handler.
     useEffect(() => {
@@ -106,6 +108,13 @@ export function OneQuestionFlow({
             ))
 
             if (e.key === "Escape") {
+                // Let open dropdowns/popovers and text inputs consume Escape
+                // (e.g. closing a select) without also leaving the question.
+                if (e.defaultPrevented || target?.closest(
+                    "input, textarea, select, [contenteditable='true'], [role='listbox'], [role='combobox'], [role='menu'], [role='dialog'], [data-radix-popper-content-wrapper]",
+                )) {
+                    return
+                }
                 e.preventDefault()
                 goBack()
                 return

@@ -5,7 +5,7 @@ import { apiError, apiSuccess, ErrorCodes, generateRequestId, withNoStore } from
 import { logVaultError, logVaultWarn } from "@/lib/vault/api"
 import { getVaultSession } from "@/lib/vault/server"
 import { enforceVaultRequestGuards } from "@/lib/vault/http"
-import { isOrgManager } from "@/lib/vault/org-access"
+import { assertOrgVaultAccess, isOrgManager } from "@/lib/vault/org-access"
 import { audit } from "@/lib/services/audit"
 
 /**
@@ -53,6 +53,9 @@ export async function POST(request: Request) {
         if (!(await isOrgManager(session.user.id, organizationId))) {
             return withNoStore(apiError("Insufficient organization role", ErrorCodes.FORBIDDEN, requestId, 403))
         }
+
+        const policyBlocked = await assertOrgVaultAccess({ user: session.user, organizationId, requestId, write: true })
+        if (policyBlocked) return policyBlocked
 
         // Self-heal guard: if any member key already exists, the org is already
         // seeded and the org vault key has been distributed. A fresh seed here is

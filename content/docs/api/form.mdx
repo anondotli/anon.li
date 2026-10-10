@@ -285,12 +285,16 @@ When a form allows file uploads, this endpoint validates the planned files and m
 
 ## Decrypting Submissions
 
+The wrapped form private key is served by `GET /api/vault/form-keys?formId=:id`. This is a **first-party, browser-session-only** endpoint (signed-in anon.li session with 2FA verified): it is not part of the public `/api/v1` API and does not accept `ak_` API keys. There is no `/api/v1/vault/form-keys` endpoint.
+
 ```javascript
-// 1. Fetch the wrapped private key from /api/v1/vault/form-keys (vault session required)
-const { wrapped } = await fetch('/api/v1/vault/form-keys?formId=' + formId).then(r => r.json())
+// 1. Fetch the wrapped private key (browser session cookie; not an API key)
+const { data } = await fetch('/api/vault/form-keys?formId=' + formId, {
+  credentials: 'same-origin',
+}).then(r => r.json())
 
 // 2. Unwrap the P-256 private key using the vault key (AES-GCM payload unwrap)
-const privateKey = await unwrapVaultPayload(wrapped, vaultKey)
+const privateKey = await unwrapVaultPayload(data.wrappedKey, vaultKey)
 
 // 3. For each submission, derive the shared secret and decrypt
 const sharedSecret = await crypto.subtle.deriveBits(

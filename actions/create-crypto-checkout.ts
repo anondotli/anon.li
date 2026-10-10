@@ -2,6 +2,7 @@
 
 import { createCryptoPayment } from "@/lib/data/crypto-payment"
 import { prisma } from "@/lib/prisma"
+import { recentDunningWhere } from "@/lib/services/billing-dunning"
 import { redirect } from "next/navigation"
 import { nanoid } from "nanoid"
 import { getNOWPaymentsClient } from "@/lib/nowpayments"
@@ -40,16 +41,26 @@ export async function createCryptoCheckout(params: CryptoCheckoutParams) {
                 throw new Error("Invalid price configuration")
             }
 
-            // Check for existing active subscription
+            // A running card subscription (or one in dunning) would be billed
+            // alongside the crypto period. A running CRYPTO subscription is
+            // fine: crypto never auto-renews, so paying again is the renewal
+            // and the webhook extends from the current period end.
             const existingSub = await prisma.subscription.findFirst({
                 where: {
                     userId,
                     organizationId: null,
-                    status: { in: ["active", "trialing"] },
-                    currentPeriodEnd: { gt: new Date() },
+                    provider: { not: "crypto" },
+                    OR: [
+                        { status: { in: ["active", "trialing"] }, currentPeriodEnd: { gt: new Date() } },
+                        recentDunningWhere(),
+                    ],
                 },
+                select: { status: true },
             })
 
+            if (existingSub?.status === "past_due") {
+                throw new Error("Your subscription has a failed payment. Update your payment method from the billing portal instead of starting a new subscription.")
+            }
             if (existingSub) {
                 throw new Error("You already have an active subscription. Please wait for it to expire or cancel it first.")
             }

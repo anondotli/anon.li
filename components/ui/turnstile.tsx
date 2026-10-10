@@ -90,6 +90,9 @@ export function Turnstile({
 
         const handleLoad = () => {
             if (window.turnstile) {
+                // The script may finish loading after the timeout already
+                // flagged an error — recover instead of staying on the error UI.
+                setHasError(false);
                 setIsScriptReady(true);
             }
         };
@@ -169,7 +172,21 @@ export function Turnstile({
     }, [isScriptReady, siteKey, theme, size, scheduleErrorUpdate]);
 
     const handleRetry = () => {
+        hasErrorRef.current = false;
         setHasError(false);
+
+        // Script arrived late (after the timeout) — just render the widget.
+        if (window.turnstile) {
+            setIsScriptReady(true);
+            return;
+        }
+
+        // A <script> that errored or stalled never fires "load" again, so drop
+        // it and let the load effect inject a fresh one.
+        document
+            .querySelectorAll('script[src*="challenges.cloudflare.com/turnstile"]')
+            .forEach((el) => el.remove());
+
         setIsScriptReady(false);
         setRetryCount((c) => c + 1);
     };

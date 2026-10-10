@@ -195,8 +195,27 @@ export async function uploadFormAttachments({
         await Promise.allSettled(
             activeUploads.map((upload) => abortFormFileUpload(dropId, uploadToken, upload.fileId, upload.s3UploadId)),
         )
+        // Free the form's staging slot now instead of holding it until the
+        // token expires (a few abandoned uploads would block every respondent).
+        await revokeFormAttachmentUpload(formId, uploadToken)
         throw error
     }
+}
+
+/**
+ * Revoke an unused attachment upload (cancelled, failed, or whose submission
+ * was rejected). Best effort: the server reaps anything left behind once the
+ * token expires. A token already consumed by a successful submission is a
+ * no-op on the server, so this can never detach a recorded attachment.
+ */
+export async function revokeFormAttachmentUpload(formId: string, uploadToken: string): Promise<void> {
+    await fetch(`/api/v1/form/${formId}/upload-token`, {
+        method: "DELETE",
+        credentials: "omit",
+        headers: { "X-Upload-Token": uploadToken },
+        // Survive a page unload right after a cancelled upload.
+        keepalive: true,
+    }).catch(() => undefined)
 }
 
 async function addFileToFormDrop(

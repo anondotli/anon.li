@@ -12,6 +12,7 @@
 import { NextResponse } from "next/server"
 import { z } from "zod"
 
+import { apiError, ErrorCodes, generateRequestId } from "@/lib/api-response"
 import { getClientIp, rateLimit } from "@/lib/rate-limit"
 import { withPolicy, scopeFromContext } from "@/lib/route-policy"
 import { type OwnerScope } from "@/lib/ownership"
@@ -42,7 +43,7 @@ const getHandler = withPolicy<RouteParams>(
         rateLimit: "dropMetadata",
         rateLimitIdentifier: async () => getClientIp(),
     },
-    async (_ctx, routeContext) => {
+    async (ctx, routeContext) => {
         const { id: dropId } = await routeContext.params
         const clientIp = await getClientIp()
 
@@ -53,7 +54,7 @@ const getHandler = withPolicy<RouteParams>(
 
         const drop = await getPublicDropMetadata(dropId)
         if (!drop) {
-            return NextResponse.json({ error: "Drop not found" }, { status: 404 })
+            return apiError("Drop not found", ErrorCodes.NOT_FOUND, ctx.requestId, 404)
         }
 
         return NextResponse.json(drop)
@@ -94,7 +95,7 @@ const completeHandler = withPolicy<RouteParams>(
         const validation = completeDropSchema.safeParse(body)
 
         if (!validation.success) {
-            return NextResponse.json({ error: "Invalid request body" }, { status: 400 })
+            return apiError("Invalid request body", ErrorCodes.VALIDATION_ERROR, ctx.requestId, 400)
         }
 
         await DropService.completeDrop(dropId, scopeFromContext(ctx))
@@ -121,18 +122,18 @@ const finishHandler = withPolicy<RouteParams>(
         if (hasUploadToken) {
             const access = await resolveTokenUploadAccess(ctx.request, dropId)
             if (!access) {
-                return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+                return apiError("Unauthorized", ErrorCodes.UNAUTHORIZED, ctx.requestId, 401)
             }
             finishScope = scopeForTokenUploadAccess(access)
         } else if (!ctx.userId) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+            return apiError("Unauthorized", ErrorCodes.UNAUTHORIZED, ctx.requestId, 401)
         }
 
         const body = await ctx.request.json().catch(() => null)
         const validation = finishDropSchema.safeParse(body)
 
         if (!validation.success) {
-            return NextResponse.json({ error: "Invalid request body" }, { status: 400 })
+            return apiError("Invalid request body", ErrorCodes.VALIDATION_ERROR, ctx.requestId, 400)
         }
 
         await DropService.finishDrop(dropId, validation.data.files, finishScope)
@@ -171,8 +172,11 @@ export async function PATCH(request: Request, routeContext: RouteParams) {
         return toggleHandler(request, routeContext)
     }
 
-    return NextResponse.json(
-        { error: "Invalid action. Use ?action=complete, ?action=toggle, or ?action=finish" },
-        { status: 400 },
+    // Outside withPolicy, so mint the request id here.
+    return apiError(
+        "Invalid action. Use ?action=complete, ?action=toggle, or ?action=finish",
+        ErrorCodes.INVALID_REQUEST,
+        generateRequestId(),
+        400,
     )
 }

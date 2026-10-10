@@ -25,10 +25,11 @@ import {
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import Link from "next/link"
-import { createAliasAction, updateAliasEncryptedMetadataAction } from "@/actions/alias"
+import { createAliasAction } from "@/actions/alias"
 import { analytics } from "@/lib/analytics"
 import { useVault } from "@/components/vault/vault-provider"
-import { encryptVaultText } from "@/lib/vault/crypto"
+import { AliasMetadataKeyError } from "@/components/alias/alias-metadata-key"
+import { saveAliasMetadata } from "@/components/alias/alias-metadata-write"
 import { UpgradeRequiredDialog } from "@/components/upgrade/upgrade-required-dialog"
 import type { UpgradeRequiredDetails } from "@/lib/api-error-utils"
 
@@ -159,21 +160,22 @@ export function CreateAliasDialog({ domains, recipients }: CreateAliasDialogProp
                 const trimmedLabel = label.trim()
 
                 if (createdAlias && trimmedLabel) {
-                    const vaultKey = vault.getVaultKey()
-                    if (vault.status !== "unlocked" || !vaultKey) {
-                        toast.error("Alias created, but the vault is locked so the label was not saved")
-                    } else {
-                        const encryptedLabel = await encryptVaultText(trimmedLabel, vaultKey, {
-                            aliasId: createdAlias.id,
-                            field: "label",
-                        })
-                        const metadataResult = await updateAliasEncryptedMetadataAction(createdAlias.id, {
-                            encryptedLabel,
-                            clearLegacyLabel: true,
-                        })
+                    // Team aliases are encrypted to the team key so every member
+                    // can read the label; personal ones to the personal vault key.
+                    try {
+                        const metadataResult = await saveAliasMetadata(
+                            vault,
+                            createdAlias,
+                            { label: trimmedLabel },
+                            { clearLegacyLabel: true },
+                        )
                         if (metadataResult.error) {
-                            toast.error("Alias created, but the label was not saved")
+                            toast.error(`Alias created, but the label was not saved: ${metadataResult.error}`)
                         }
+                    } catch (error) {
+                        toast.error(error instanceof AliasMetadataKeyError
+                            ? `Alias created, but the label was not saved: ${error.message}`
+                            : "Alias created, but the label was not saved")
                     }
                 }
 

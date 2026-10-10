@@ -1,6 +1,7 @@
 "use client"
 
 import { readVaultApiData } from "@/lib/vault/client"
+import { observeOrgKeyGeneration } from "@/lib/vault/org-vault-client"
 import { parseVaultData, WrappedFormKeyRecordSchema } from "@/lib/vault/client-schemas"
 
 interface WrappedFormKeyRecord {
@@ -15,11 +16,15 @@ interface WrappedFormKeyRecord {
 
 export async function fetchWrappedFormKey(formId: string): Promise<WrappedFormKeyRecord | null> {
     try {
-        return await readVaultApiData(
+        const record = await readVaultApiData(
             `/api/vault/form-keys?formId=${encodeURIComponent(formId)}`,
             undefined,
             parseVaultData(WrappedFormKeyRecordSchema),
         )
+        // A newer org key generation here means the team key was rotated
+        // elsewhere: drop any stale cached org key handle.
+        observeOrgKeyGeneration(record.organizationId, record.orgKeyGeneration)
+        return record
     } catch {
         return null
     }

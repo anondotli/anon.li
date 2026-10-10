@@ -16,6 +16,7 @@ import {
 import { runSecureAction, type ActionState } from "@/lib/safe-action"
 import { createLogger } from "@/lib/logger"
 import { prisma } from "@/lib/prisma"
+import { recentDunningWhere } from "@/lib/services/billing-dunning"
 import { trackServerEvent } from "@/lib/posthog.server"
 
 const logger = createLogger("StripeCheckout")
@@ -94,15 +95,24 @@ export async function createCheckoutSession(params: CheckoutParams) {
                 throw new Error("Invalid Price Configuration")
             }
 
+            // A subscription in dunning (past_due/unpaid) is still live at
+            // Stripe; a second checkout would bill the user twice once the
+            // failed payment is recovered.
             const existingSub = await prisma.subscription.findFirst({
                 where: {
                     userId,
                     organizationId: null,
-                    status: { in: ["active", "trialing"] },
-                    currentPeriodEnd: { gt: new Date() },
+                    OR: [
+                        { status: { in: ["active", "trialing"] }, currentPeriodEnd: { gt: new Date() } },
+                        recentDunningWhere(),
+                    ],
                 },
+                select: { status: true },
             })
 
+            if (existingSub?.status === "past_due") {
+                throw new Error("Your subscription has a failed payment. Update your payment method from the billing portal instead of starting a new subscription.")
+            }
             if (existingSub) {
                 throw new Error("You already have an active subscription. Manage it from your billing page.")
             }
@@ -110,7 +120,7 @@ export async function createCheckoutSession(params: CheckoutParams) {
             // Base checkout session config
             const baseConfig = {
                 mode: "subscription" as const,
-                payment_method_types: ["card" as const],
+                allowed_payment_method_types: ["card" as const],
                 customer_email: email,
                 client_reference_id: userId,
                 line_items: [
@@ -121,8 +131,16 @@ export async function createCheckoutSession(params: CheckoutParams) {
                 ],
                 success_url: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard/billing?success=true`,
                 cancel_url: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard/billing?canceled=true`,
+                // Webhook payloads never include line_items; the expired-checkout
+                // recovery flow reads the abandoned plan from here.
                 metadata: {
                     userId,
+                    priceId,
+                    ...(validatedParams && {
+                        product: validatedParams.product,
+                        tier: validatedParams.tier,
+                        frequency: validatedParams.frequency,
+                    }),
                 },
             }
 

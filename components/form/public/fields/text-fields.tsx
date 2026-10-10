@@ -4,7 +4,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 import type { FieldAccessibilityProps, FieldPresentation } from "./types"
 import { asString } from "./types"
-import type { FormField } from "@/lib/form-schema"
+import { textAnswerMaxLength, type FormField } from "@/lib/form-schema"
 
 const SPOTLIGHT_INPUT =
     "h-14 rounded-none border-0 border-b-2 border-border/50 bg-transparent px-0 text-2xl shadow-none placeholder:text-muted-foreground/40 focus-visible:border-foreground focus-visible:ring-0 sm:h-16 sm:text-3xl"
@@ -91,7 +91,7 @@ export const SingleLineField = forwardRef<FieldHandle, SingleLineProps>(function
             disabled={disabled}
             aria-invalid={invalid || undefined}
             aria-describedby={describedBy}
-            maxLength={"maxLength" in field ? field.maxLength : undefined}
+            maxLength={textAnswerMaxLength(field)}
             min={field.type === "number" || field.type === "date" ? field.min : undefined}
             max={field.type === "number" || field.type === "date" ? field.max : undefined}
             step={field.type === "number" ? field.step : undefined}
@@ -127,7 +127,7 @@ export const LongTextField = forwardRef<FieldHandle, LongTextProps>(function Lon
             onChange={(e) => onChange(e.target.value)}
             onKeyDown={onKeyDown}
             placeholder={field.placeholder}
-            maxLength={field.maxLength}
+            maxLength={textAnswerMaxLength(field)}
             disabled={disabled}
             aria-invalid={invalid || undefined}
             aria-describedby={describedBy}

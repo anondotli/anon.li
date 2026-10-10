@@ -11,7 +11,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { clearTrustedBrowserState } from "@/lib/vault/trusted-browser"
 import { broadcastVaultMessage } from "@/lib/vault/sync"
-import { readVaultApiData } from "@/lib/vault/client"
+import { readVaultApiData, signOutWithVaultCleanup, VaultApiError } from "@/lib/vault/client"
+import { isVaultSessionFresh, SESSION_NOT_FRESH_ERROR_CODE } from "@/lib/vault/session-freshness"
 import {
     base64UrlToArrayBuffer,
     arrayBufferToBase64Url,
@@ -30,6 +31,12 @@ export function PasswordSettings() {
     const [confirmPassword, setConfirmPassword] = React.useState("")
     const [isSubmitting, setIsSubmitting] = React.useState(false)
     const [step, setStep] = React.useState<1 | 2>(1)
+    // The change-password endpoint only accepts a recently created session.
+    // Detect a stale one up front instead of failing after the whole form.
+    const [needsReauth, setNeedsReauth] = React.useState(false)
+    const sessionCreatedAt = session?.session?.createdAt
+
+    const isSessionStale = () => sessionCreatedAt != null && !isVaultSessionFresh(sessionCreatedAt)
 
     const onSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
         event.preventDefault()
@@ -37,6 +44,11 @@ export function PasswordSettings() {
         if (step === 1) {
             if (!currentPassword) {
                 toast.error("Enter your current password")
+                return
+            }
+
+            if (isSessionStale()) {
+                setNeedsReauth(true)
                 return
             }
 
@@ -132,6 +144,12 @@ export function PasswordSettings() {
             setStep(1)
             toast.success("Password updated")
         } catch (error) {
+            // The server is authoritative on freshness (the local check above is
+            // only an early hint, and the session can age while the form is open).
+            if (error instanceof VaultApiError && error.code === SESSION_NOT_FRESH_ERROR_CODE) {
+                setNeedsReauth(true)
+                return
+            }
             toast.error(error instanceof Error ? error.message : "Password change failed")
         } finally {
             setIsSubmitting(false)
@@ -147,73 +165,93 @@ export function PasswordSettings() {
                 </CardDescription>
             </CardHeader>
             <CardContent className="p-8 pt-4">
-                <form onSubmit={onSubmit} className="grid gap-4">
-                    {step === 1 && (
-                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                            <Input
-                                id="current-password"
-                                type="password"
-                                value={currentPassword}
-                                onChange={(event) => setCurrentPassword(event.target.value)}
-                                autoComplete="current-password"
-                                className="h-11 flex-1 px-4 py-0"
-                                placeholder="Enter your current password"
-                                disabled={isSubmitting}
-                                required
-                            />
-                            <Button type="submit" className="h-11 sm:w-fit" disabled={isSubmitting || currentPassword.length === 0}>
-                                <KeyRound className="mr-2 h-4 w-4" />
-                                {isSubmitting ? "Checking..." : "Next"}
-                            </Button>
-                        </div>
-                    )}
-
-                    {step === 2 && (
-                        <>
-                            <div className="space-y-2">
-                                <Label htmlFor="new-password">New password</Label>
+                {needsReauth ? (
+                    <div role="alert" className="grid gap-3 rounded-xl border border-border/60 bg-muted/40 p-4">
+                        <p className="text-sm text-muted-foreground">
+                            For your security, changing your password requires a recent sign-in.
+                            Sign in again, then come back here to change it.
+                        </p>
+                        <Button
+                            type="button"
+                            className="h-11 sm:w-fit"
+                            onClick={() => signOutWithVaultCleanup(
+                                "password-settings-reauth",
+                                `/login?callbackUrl=${encodeURIComponent("/dashboard/settings")}`,
+                            )}
+                        >
+                            Sign in again
+                        </Button>
+                    </div>
+                ) : (
+                    <form onSubmit={onSubmit} className="grid gap-4">
+                        {step === 1 && (
+                            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                                 <Input
-                                    id="new-password"
+                                    id="current-password"
                                     type="password"
-                                    value={newPassword}
-                                    onChange={(event) => setNewPassword(event.target.value)}
-                                    autoComplete="new-password"
-                                    className="h-11 px-4 py-0"
-                                    placeholder="Create a new password"
+                                    aria-label="Current password"
+                                    value={currentPassword}
+                                    onChange={(event) => setCurrentPassword(event.target.value)}
+                                    autoComplete="current-password"
+                                    className="h-11 flex-1 px-4 py-0"
+                                    placeholder="Enter your current password"
                                     disabled={isSubmitting}
                                     required
                                 />
+                                <Button type="submit" className="h-11 sm:w-fit" disabled={isSubmitting || currentPassword.length === 0}>
+                                    <KeyRound className="mr-2 h-4 w-4" />
+                                    {isSubmitting ? "Checking..." : "Next"}
+                                </Button>
                             </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="confirm-new-password">Confirm new password</Label>
-                                <Input
-                                    id="confirm-new-password"
-                                    type="password"
-                                    value={confirmPassword}
-                                    onChange={(event) => setConfirmPassword(event.target.value)}
-                                    autoComplete="new-password"
-                                    className="h-11 px-4 py-0"
-                                    placeholder="Re-enter your new password"
-                                    disabled={isSubmitting}
-                                    required
-                                />
-                            </div>
-                        </>
-                    )}
+                        )}
 
-                    {step === 2 && (
-                        <div className="flex w-full justify-end gap-2">
-                            <Button type="button" variant="outline" className="h-11" onClick={() => setStep(1)} disabled={isSubmitting}>
-                                <ArrowLeft className="mr-2 h-4 w-4" />
-                                Back
-                            </Button>
-                            <Button type="submit" className="h-11 w-full sm:w-fit" disabled={isSubmitting}>
-                                <KeyRound className="mr-2 h-4 w-4" />
-                                {isSubmitting ? "Updating..." : "Change password"}
-                            </Button>
-                        </div>
-                    )}
-                </form>
+                        {step === 2 && (
+                            <>
+                                <div className="space-y-2">
+                                    <Label htmlFor="new-password">New password</Label>
+                                    <Input
+                                        id="new-password"
+                                        type="password"
+                                        value={newPassword}
+                                        onChange={(event) => setNewPassword(event.target.value)}
+                                        autoComplete="new-password"
+                                        className="h-11 px-4 py-0"
+                                        placeholder="Create a new password"
+                                        disabled={isSubmitting}
+                                        required
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label htmlFor="confirm-new-password">Confirm new password</Label>
+                                    <Input
+                                        id="confirm-new-password"
+                                        type="password"
+                                        value={confirmPassword}
+                                        onChange={(event) => setConfirmPassword(event.target.value)}
+                                        autoComplete="new-password"
+                                        className="h-11 px-4 py-0"
+                                        placeholder="Re-enter your new password"
+                                        disabled={isSubmitting}
+                                        required
+                                    />
+                                </div>
+                            </>
+                        )}
+
+                        {step === 2 && (
+                            <div className="flex w-full justify-end gap-2">
+                                <Button type="button" variant="outline" className="h-11" onClick={() => setStep(1)} disabled={isSubmitting}>
+                                    <ArrowLeft className="mr-2 h-4 w-4" />
+                                    Back
+                                </Button>
+                                <Button type="submit" className="h-11 w-full sm:w-fit" disabled={isSubmitting}>
+                                    <KeyRound className="mr-2 h-4 w-4" />
+                                    {isSubmitting ? "Updating..." : "Change password"}
+                                </Button>
+                            </div>
+                        )}
+                    </form>
+                )}
             </CardContent>
         </Card>
     )

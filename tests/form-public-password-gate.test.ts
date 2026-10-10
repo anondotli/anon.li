@@ -56,7 +56,7 @@ describe("FormService.getPublicForm password gate", () => {
     beforeEach(() => {
         vi.clearAllMocks()
         getFormOwnerEntitlements.mockResolvedValue({
-            limits: { removeBranding: true, customKey: true },
+            limits: { removeBranding: true, customKey: true, submissionsPerMonth: -1 },
             tiers: { form: "pro", drop: "pro" },
             subscribed: true,
         })

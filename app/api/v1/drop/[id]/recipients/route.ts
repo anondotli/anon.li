@@ -10,6 +10,7 @@
 
 import { NextResponse } from "next/server"
 
+import { apiError, ErrorCodes } from "@/lib/api-response"
 import { withPolicy, scopeFromContext } from "@/lib/route-policy"
 import { DropService } from "@/lib/services/drop"
 import { addRecipientsSchema } from "@/lib/validations/drop"
@@ -45,7 +46,7 @@ export const POST = withPolicy<RouteParams>(
         const body = await ctx.request.json().catch(() => null)
         const parsed = addRecipientsSchema.safeParse({ ...body, dropId })
         if (!parsed.success) {
-            return NextResponse.json({ error: "Invalid request body" }, { status: 400 })
+            return apiError("Invalid request body", ErrorCodes.VALIDATION_ERROR, ctx.requestId, 400)
         }
 
         const recipients = await DropService.addRecipients(

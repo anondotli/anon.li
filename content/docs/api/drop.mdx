@@ -658,7 +658,8 @@ const metadata = JSON.parse(metadataJson);
 | :--- | :--- |
 | `400` | Bad Request - Missing required fields or invalid parameters |
 | `401` | Unauthorized - Invalid or missing API key |
-| `403` | Forbidden - Feature not available on your plan |
+| `402` | Payment Required (`PAYMENT_REQUIRED`) - Plan limit reached (storage quota, file size, expiry, custom key). `error.details.upgrade` names the limit and the suggested plan |
+| `403` | Forbidden - Access denied, drop disabled or removed, or file uploads are banned |
 | `404` | Not Found - Drop doesn't exist |
 | `410` | Gone - Drop expired or download limit reached |
 | `429` | Too Many Requests - Rate limit exceeded |

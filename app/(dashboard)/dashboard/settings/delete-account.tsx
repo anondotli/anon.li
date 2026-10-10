@@ -18,6 +18,9 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { deleteAccountAction } from "@/actions/settings"
+import { clearVaultForSignOut } from "@/lib/vault/client"
+import { clearVaultRuntime } from "@/lib/vault/runtime"
+import { clearOrgVaultKeyCache } from "@/lib/vault/org-vault-client"
 
 export function DeleteAccountSection() {
     const [loading, setLoading] = useState(false)
@@ -36,7 +39,14 @@ export function DeleteAccountSection() {
                 toast.error(res.error)
             } else {
                 toast.success("Account deleted")
-                window.location.href = "/"
+                // Same local cleanup as sign-out: forget the trusted-browser
+                // capsule + device key, drop in-memory keys, and make other tabs
+                // lock and leave. The server session is already gone, so there's
+                // nothing for authClient.signOut to revoke.
+                clearVaultRuntime()
+                clearOrgVaultKeyCache()
+                await clearVaultForSignOut("delete-account")
+                window.location.replace("/")
             }
         } catch {
             toast.error("Failed to delete account")

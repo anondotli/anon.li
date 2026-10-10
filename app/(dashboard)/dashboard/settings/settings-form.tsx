@@ -47,14 +47,28 @@ export function SettingsForm({ user }: { user: { name?: string | null, email?: s
                             <Input
                                 id="name"
                                 name="name"
-                                defaultValue={user.name || ""}
+                                // React resets uncontrolled fields after a form action;
+                                // the action echoes the submitted name back so an
+                                // invalid entry isn't wiped.
+                                defaultValue={state?.name ?? user.name ?? ""}
                                 placeholder="John Doe"
+                                required
+                                minLength={2}
+                                maxLength={50}
+                                autoComplete="name"
+                                aria-invalid={state?.status === "error" || undefined}
+                                aria-describedby={state?.status === "error" ? "name-error" : undefined}
                                 className="h-12 rounded-xl border-border/40 focus:ring-primary/10 pr-24"
                             />
                             <div className="absolute right-2 top-1/2 -translate-y-1/2">
                                 <SubmitButton />
                             </div>
                         </div>
+                        {state?.status === "error" && (
+                            <p id="name-error" className="text-[0.8rem] text-destructive">
+                                {state.message}
+                            </p>
+                        )}
                     </div>
                     <div className="space-y-2">
                         <Label htmlFor="email" className="text-sm font-medium">Email Address</Label>

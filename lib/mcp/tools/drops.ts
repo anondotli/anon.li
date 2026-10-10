@@ -1,5 +1,5 @@
 import { z } from "zod"
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
+import type { McpServer } from "@modelcontextprotocol/server"
 import { DropService } from "@/lib/services/drop"
 import { invokeTool, toolResult } from "@/lib/mcp/invoke"
 import { personalScope } from "@/lib/ownership"
@@ -19,13 +19,13 @@ export function registerDropTools(server: McpServer, session: McpSession) {
                 readOnlyHint: true,
                 openWorldHint: false,
             },
-            inputSchema: {
+            inputSchema: z.object({
                 limit: z.number().int().min(1).max(100).default(50)
                     .describe("Maximum number of drops to return (1-100, default 50)"),
                 offset: z.number().int().min(0).default(0)
                     .describe("Number of drops to skip, for pagination (default 0)"),
-            },
-            outputSchema: {
+            }),
+            outputSchema: z.object({
                 total: z.number(),
                 drops: z.array(z.object({
                     id: z.string(),
@@ -39,7 +39,7 @@ export function registerDropTools(server: McpServer, session: McpSession) {
                     expires_at: z.string().nullable(),
                     created_at: z.string(),
                 })),
-            },
+            }),
         },
         async ({ limit, offset }) => invokeTool(session, { scope: "anon.li:drops", quota: "drop", rateLimit: "dropList" }, async (user) => {
             const { drops, total } = await DropService.listDrops(personalScope(user.id), { limit, offset })
@@ -73,13 +73,13 @@ export function registerDropTools(server: McpServer, session: McpSession) {
                 idempotentHint: false,
                 openWorldHint: false,
             },
-            inputSchema: {
+            inputSchema: z.object({
                 id: dropId,
-            },
-            outputSchema: {
+            }),
+            outputSchema: z.object({
                 id: z.string(),
                 disabled: z.boolean(),
-            },
+            }),
         },
         async ({ id }) => invokeTool(session, { scope: "anon.li:drops", quota: "drop", rateLimit: "dropOps" }, async (user) => {
             const disabled = await DropService.toggleDrop(id, personalScope(user.id))
@@ -99,13 +99,13 @@ export function registerDropTools(server: McpServer, session: McpSession) {
                 idempotentHint: true,
                 openWorldHint: false,
             },
-            inputSchema: {
+            inputSchema: z.object({
                 id: dropId,
-            },
-            outputSchema: {
+            }),
+            outputSchema: z.object({
                 deleted: z.boolean(),
                 id: z.string(),
-            },
+            }),
         },
         async ({ id }) => invokeTool(session, { scope: "anon.li:drops", quota: "drop", rateLimit: "dropOps" }, async (user) => {
             await DropService.deleteDrop(id, personalScope(user.id))

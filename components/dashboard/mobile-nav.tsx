@@ -19,7 +19,7 @@ export function DashboardMobileNav() {
                     <span className="sr-only">Toggle Menu</span>
                 </Button>
             </SheetTrigger>
-            <SheetContent side="left" className="pr-0">
+            <SheetContent side="left" className="pr-0 overflow-y-auto">
                 <SheetHeader className="sr-only">
                     <SheetTitle>Dashboard navigation</SheetTitle>
                     <SheetDescription>
@@ -36,8 +36,8 @@ export function DashboardMobileNav() {
                         <span className="font-bold">anon.li</span>
                     </Link>
                 </div>
-                <div className="px-3 py-6 h-full">
-                    <DashboardNav />
+                <div className="px-3 py-6">
+                    <DashboardNav onNavigate={() => setOpen(false)} />
                 </div>
             </SheetContent>
         </Sheet>

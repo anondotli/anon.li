@@ -1,4 +1,4 @@
-import { vi } from 'vitest'
+import { afterEach, vi } from 'vitest'
 
 // Prevent server-only from crashing in test environment
 vi.mock('server-only', () => ({}))
@@ -46,6 +46,8 @@ process.env.RESEND_API_KEY ??= 're_123456789'
 process.env.UPSTASH_REDIS_REST_URL ??= 'https://test.upstash.io'
 process.env.UPSTASH_REDIS_REST_TOKEN ??= 'test_token'
 process.env.TURNSTILE_SECRET_KEY ??= 'test_turnstile_secret'
+process.env.STRIPE_SECRET_KEY ??= 'sk_test_vitest'
+process.env.IP_HASH_PEPPER ??= 'test-ip-pepper-with-at-least-thirty-two-characters'
 process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ??= 'test_turnstile_site_key'
 process.env.REPORT_ENCRYPTION_KEY ??= 'a'.repeat(64)
 process.env.DKIM_ENCRYPTION_KEY ??= 'b'.repeat(64)
@@ -61,6 +63,19 @@ process.env.STRIPE_DROP_PLUS_MONTHLY_PRICE_ID ??= 'price_drop_plus_monthly'
 process.env.STRIPE_DROP_PLUS_YEARLY_PRICE_ID ??= 'price_drop_plus_yearly'
 process.env.STRIPE_DROP_PRO_MONTHLY_PRICE_ID ??= 'price_drop_pro_monthly'
 process.env.STRIPE_DROP_PRO_YEARLY_PRICE_ID ??= 'price_drop_pro_yearly'
+
+// Node 25+ ships its own Web Storage globals, which are unusable (undefined)
+// without --localstorage-file and shadow jsdom's implementation. Point the
+// globals back at jsdom's storage so browser-side tests behave like a browser.
+const jsdomWindow = (globalThis as { jsdom?: { window: Window } }).jsdom?.window
+if (jsdomWindow) {
+  for (const key of ['localStorage', 'sessionStorage'] as const) {
+    Object.defineProperty(globalThis, key, {
+      configurable: true,
+      get: () => jsdomWindow[key],
+    })
+  }
+}
 
 // Mock matchMedia
 if (typeof window !== 'undefined') {
@@ -86,4 +101,14 @@ if (typeof global !== 'undefined') {
     unobserve: vi.fn(),
     disconnect: vi.fn(),
   }))
+}
+
+// Testing Library only auto-registers cleanup when Vitest globals are enabled
+// (they aren't here). Unmount after every DOM test so no React work scheduled by
+// a finished test runs after its jsdom environment is torn down.
+if (jsdomWindow) {
+  afterEach(async () => {
+    const { cleanup } = await import('@testing-library/react')
+    cleanup()
+  })
 }

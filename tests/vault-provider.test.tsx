@@ -25,6 +25,7 @@ const sha256Base64Url = vi.fn()
 const unwrapVaultKey = vi.fn()
 const unwrapVaultManagedKey = vi.fn()
 const wrapVaultManagedKey = vi.fn()
+const clearOrgVaultKeyCache = vi.fn()
 const useSession = vi.fn<() => { data: { session: { expiresAt: Date } } | null }>(() => ({ data: null }))
 let syncCallback: ((message: unknown) => void) | null = null
 
@@ -67,6 +68,14 @@ vi.mock("@/lib/auth-client", () => ({
     authClient: { useSession: () => useSession() },
 }))
 
+vi.mock("@/lib/vault/org-vault-client", () => ({
+    clearOrgVaultKeyCache: (organizationId?: string) => clearOrgVaultKeyCache(organizationId),
+    ORG_KEY_REGRANT_REQUIRED_MESSAGE: "Your team key needs to be re-shared by an admin.",
+    ORG_KEY_UNRECOVERABLE_MESSAGE: "Contact support.",
+    getOrgKeyAccessState: vi.fn(),
+    getOrgVaultKey: vi.fn(),
+}))
+
 vi.mock("@/lib/vault/crypto", () => ({
     base64UrlToArrayBuffer: (value: string) => callBase64UrlToArrayBuffer(value),
     derivePasswordKEK: (password: string, salt: string) => derivePasswordKEK(password, salt),
@@ -100,6 +109,7 @@ describe("VaultProvider", () => {
         unwrapVaultKey.mockReset()
         unwrapVaultManagedKey.mockReset()
         wrapVaultManagedKey.mockReset()
+        clearOrgVaultKeyCache.mockReset()
         useSession.mockReset()
         useSession.mockImplementation(farFutureSession)
 
@@ -555,5 +565,89 @@ describe("VaultProvider", () => {
         expect(screen.getByText("locked:2")).toBeTruthy()
         expect(clearTrustedBrowserState).toHaveBeenCalled()
         expect(clearVaultRuntime).toHaveBeenCalled()
+    })
+    describe("trusted-browser auto-unlock failure handling", () => {
+        const capsule = {
+            version: 2,
+            deviceId: "device-1",
+            vaultId: "vault-123",
+            vaultGeneration: 4,
+            wrappedVaultKey: "wrapped-vault-key",
+            expiresAt: Date.now() + 60_000,
+        }
+
+        async function renderProvider() {
+            const { VaultProvider, useVault } = await import("@/components/vault/vault-provider")
+            function Probe() {
+                const { status } = useVault()
+                return <div>{status}</div>
+            }
+            render(
+                <VaultProvider>
+                    <Probe />
+                </VaultProvider>,
+            )
+            await act(async () => {
+                await flushPromises()
+                await flushPromises()
+            })
+        }
+
+        beforeEach(() => {
+            getVaultRuntime.mockReturnValue({ key: null, vaultGeneration: null, vaultId: null })
+            readCapsule.mockReturnValue(capsule)
+            getDeviceKey.mockResolvedValue({} as CryptoKey)
+        })
+
+        it("keeps local trust on a transient validation failure (network / 429 / 5xx)", async () => {
+            readVaultApiData.mockRejectedValue(new Error("Request failed"))
+
+            await renderProvider()
+
+            expect(screen.getByText("locked")).toBeTruthy()
+            expect(clearTrustedBrowserState).not.toHaveBeenCalled()
+        })
+
+        it("clears local trust when the server vault no longer matches the capsule", async () => {
+            readVaultApiData.mockResolvedValue({ vaultId: "vault-123", vaultGeneration: 5, hasVault: true })
+
+            await renderProvider()
+
+            expect(screen.getByText("locked")).toBeTruthy()
+            expect(clearTrustedBrowserState).toHaveBeenCalled()
+        })
+
+        it("clears local trust when the capsule does not unwrap under the device key", async () => {
+            readVaultApiData.mockResolvedValue({ vaultId: "vault-123", vaultGeneration: 4, hasVault: true })
+            unwrapVaultKey.mockRejectedValue(new DOMException("bad key", "OperationError"))
+
+            await renderProvider()
+
+            expect(screen.getByText("locked")).toBeTruthy()
+            expect(clearTrustedBrowserState).toHaveBeenCalled()
+        })
+    })
+
+    it("drops cached org vault keys when another tab locks the vault", async () => {
+        getVaultRuntime.mockReturnValue({ key: {} as CryptoKey, vaultGeneration: 1, vaultId: "vault-123" })
+
+        const { VaultProvider, useVault } = await import("@/components/vault/vault-provider")
+        function Probe() {
+            const { status } = useVault()
+            return <div>{status}</div>
+        }
+        render(
+            <VaultProvider>
+                <Probe />
+            </VaultProvider>,
+        )
+
+        await act(async () => {
+            syncCallback?.({ type: "VAULT_LOCKED", timestamp: Date.now(), source: "tab-2" })
+            await Promise.resolve()
+        })
+
+        expect(screen.getByText("locked")).toBeTruthy()
+        expect(clearOrgVaultKeyCache).toHaveBeenCalled()
     })
 })

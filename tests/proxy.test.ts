@@ -12,7 +12,21 @@ describe("proxy auth guard", () => {
         const response = await proxy(new NextRequest("http://localhost/dashboard/alias"))
 
         expect(response.status).toBe(307)
+        expect(response.headers.get("location")).toBe("http://localhost/login?callbackUrl=%2Fdashboard%2Falias")
+    })
+
+    it("does not echo admin paths into the login redirect", async () => {
+        const response = await proxy(new NextRequest("http://localhost/admin/users"))
+
         expect(response.headers.get("location")).toBe("http://localhost/login")
+    })
+
+    it("overwrites a client-supplied x-pathname request header", async () => {
+        const response = await proxy(new NextRequest("http://localhost/login?x=1", {
+            headers: { "x-pathname": "https://evil.example/" },
+        }))
+
+        expect(response.headers.get("x-middleware-request-x-pathname")).toBe("/login?x=1")
     })
 
     it("allows the 2FA page when a pending two-factor cookie exists", async () => {
@@ -24,6 +38,13 @@ describe("proxy auth guard", () => {
 
         expect(response.headers.get("location")).toBeNull()
         expect(response.headers.get("x-request-id")).toBeTruthy()
+    })
+
+    it.each(["/alias%5C", "/alias%5c", "/dashboard%5Calias"])("returns 404 for encoded backslash path %s", async (path) => {
+        const response = await proxy(new NextRequest(`http://localhost${path}`))
+
+        expect(response.status).toBe(404)
+        expect(response.headers.get("location")).toBeNull()
     })
 
     it("allows Turnstile network calls in CSP", async () => {

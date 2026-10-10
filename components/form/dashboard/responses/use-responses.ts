@@ -43,6 +43,7 @@ interface PayloadRow {
     created_at: string
     read_at: string | null
     has_attached_drop: boolean
+    attached_drop_id?: string | null
     ephemeral_pub_key?: string
     iv?: string
     encrypted_payload?: string
@@ -60,6 +61,7 @@ const CiphertextRowSchema = z.object({
 const SubmissionPageResponseSchema = z.object({
     data: z.array(CiphertextRowSchema.extend({
         has_attached_drop: z.boolean(),
+        attached_drop_id: z.string().min(1).max(128).nullable().optional(),
     })).max(PAGE_SIZE),
     meta: z.object({
         total: z.number().int().nonnegative(),
@@ -97,6 +99,7 @@ function metaOf(row: PayloadRow): SubmissionMeta {
         createdAt: row.created_at,
         readAt: row.read_at,
         hasAttachedDrop: row.has_attached_drop,
+        attachedDropId: row.attached_drop_id ?? null,
     }
 }
 
@@ -148,8 +151,14 @@ export interface UseResponsesResult {
     removeSubmission: (id: string) => void
     /** Re-fetch and decrypt a single row whose decryption failed. */
     retry: (id: string) => void
-    /** Page through + decrypt every submission (used for export); reuses the cache. */
-    ensureAllDecrypted: (onProgress?: (done: number, total: number) => void) => Promise<DecryptedSubmission[]>
+    /**
+     * Page through + decrypt every submission (used for export); reuses the
+     * cache. `failed` counts rows that could not be decrypted/parsed and are
+     * therefore missing from `rows`.
+     */
+    ensureAllDecrypted: (
+        onProgress?: (done: number, total: number) => void,
+    ) => Promise<{ rows: DecryptedSubmission[]; failed: number }>
 }
 
 export function useResponses(
@@ -264,7 +273,10 @@ export function useResponses(
 
     const markRead = useCallback((id: string) => {
         const target = submissionsRef.current.find((s) => s.id === id)
-        if (target && !target.readAt) {
+        // Already read: skip the request. The PATCH shares the formOps rate
+        // limit with save/toggle/delete, so browsing must not burn it.
+        if (target?.readAt) return
+        if (target) {
             setStats((s) => ({ ...s, unread: Math.max(0, s.unread - 1) }))
         }
         setSubmissions((prev) =>
@@ -322,9 +334,12 @@ export function useResponses(
     )
 
     const ensureAllDecrypted = useCallback(
-        async (onProgress?: (done: number, total: number) => void): Promise<DecryptedSubmission[]> => {
+        async (
+            onProgress?: (done: number, total: number) => void,
+        ): Promise<{ rows: DecryptedSubmission[]; failed: number }> => {
             const privateKey = await ensureKey()
             const out: DecryptedSubmission[] = []
+            let failed = 0
             const seen = new Set<string>()
             let offset = 0
             let pageTotal = Infinity
@@ -344,12 +359,15 @@ export function useResponses(
                             answers: state.answers,
                             attachments: state.attachments,
                         })
+                    } else {
+                        failed++
                     }
-                    onProgress?.(out.length, Number.isFinite(pageTotal) ? pageTotal : out.length)
+                    const done = out.length + failed
+                    onProgress?.(done, Number.isFinite(pageTotal) ? pageTotal : done)
                 }
                 if (rows.length === 0) break
             }
-            return out
+            return { rows: out, failed }
         },
         [ensureKey, fetchPayloadPage],
     )

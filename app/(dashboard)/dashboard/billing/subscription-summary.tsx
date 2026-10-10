@@ -31,6 +31,8 @@ export function SubscriptionSummary({ planId, status, currentPeriodEnd, paymentM
     const isPlus = planId === "plus"
     const isPaid = isPro || isPlus
     const isCrypto = paymentMethod === "crypto"
+    // A card payment failed: paid features are suspended until it is fixed.
+    const isPastDue = isPaid && status === "past_due"
 
     const formatDateStr = (date?: Date) => {
         if (!date) return "N/A"
@@ -69,7 +71,7 @@ export function SubscriptionSummary({ planId, status, currentPeriodEnd, paymentM
                         {isPaid && !isCrypto && (
                             <ManageSubscriptionButton
                                 variant="default"
-                                label="Manage Subscription"
+                                label={isPastDue ? "Update Payment Method" : "Manage Subscription"}
                                 className="w-full sm:w-auto"
                             />
                         )}
@@ -116,6 +118,12 @@ export function SubscriptionSummary({ planId, status, currentPeriodEnd, paymentM
                             </div>
                         )}
                     </div>
+                    {isPastDue && (
+                        <p className="text-sm text-amber-600 mt-6">
+                            Your last payment failed, so paid features are paused. Update your payment
+                            method to restore them — starting a new subscription would bill you twice.
+                        </p>
+                    )}
                 </CardContent>
             </Card>
             <PaymentMethodDialog

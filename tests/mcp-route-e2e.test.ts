@@ -1,28 +1,50 @@
 /**
  * @vitest-environment node
  *
- * End-to-end coverage of `/api/mcp`: the real route handler, the real
- * better-auth `withMcpAuth` wrapper, the real `invokeTool` gate and the real
- * tool registrations, driven by the official SDK client over Streamable HTTP.
- * Only the persistence layer (services, Prisma, Redis) is mocked.
+ * End-to-end coverage of `/api/mcp`: the real route handler (legacy 2025-era
+ * leg and the MCP 2026-07-28 leg), the real `invokeTool` gate and the real
+ * tool registrations, driven by the official SDK clients over Streamable HTTP
+ * — the v1 SDK client (what deployed MCP clients speak today) and the v2
+ * client pinned to 2026-07-28. better-auth's `requireMcpAuth` JWT verification
+ * is replaced by a fake that yields claims; the persistence layer (services,
+ * Prisma, Redis) is mocked.
  *
  * The official client validates every `structuredContent` against the tool's
  * declared `outputSchema`, so any drift between a handler and its schema fails
  * here the same way it fails in Claude.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { Client } from "@modelcontextprotocol/sdk/client/index.js"
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
-import { LATEST_PROTOCOL_VERSION } from "@modelcontextprotocol/sdk/types.js"
+import { Client as LegacyClient } from "@modelcontextprotocol/sdk/client/index.js"
+import { StreamableHTTPClientTransport as LegacyTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
+import { Client as ModernClient, StreamableHTTPClientTransport as ModernTransport } from "@modelcontextprotocol/client"
+import { LATEST_PROTOCOL_VERSION } from "@modelcontextprotocol/server"
 
-const getMcpSession = vi.fn()
+process.env.NEXT_PUBLIC_APP_URL = "https://anon.li"
 
-vi.mock("@/lib/auth", () => ({
-    auth: {
-        options: { baseURL: "https://anon.li", basePath: "/api/auth" },
-        api: { getMcpSession },
+/** Claims the fake `requireMcpAuth` yields for a bearer token; null = invalid token. */
+const verifyToken = vi.fn<(token: string) => Record<string, unknown> | null>()
+const authOptions = vi.hoisted(() => ({ value: undefined as unknown }))
+
+vi.mock("@/lib/auth", () => ({ auth: {} }))
+
+vi.mock("@better-auth/mcp", () => ({
+    requireMcpAuth: (_auth: unknown, handler: (req: Request, claims: Record<string, unknown>) => Promise<Response>, opts: unknown) => {
+        authOptions.value = opts
+        return async (req: Request) => {
+            const token = (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "")
+            const claims = token ? verifyToken(token) : null
+            if (!claims) {
+                return new Response(JSON.stringify({ jsonrpc: "2.0", error: { code: -32000, message: "no token payload" }, id: null }), {
+                    status: 401,
+                    headers: { "WWW-Authenticate": 'Bearer resource_metadata="https://anon.li/.well-known/oauth-protected-resource/api/mcp"' },
+                })
+            }
+            return handler(req, claims)
+        }
     },
 }))
+
+const findOauthClient = vi.fn()
 
 vi.mock("@/lib/posthog.server", () => ({
     getPostHogClient: () => null,
@@ -39,6 +61,7 @@ vi.mock("@/lib/prisma", () => ({
         user: {
             findUnique: vi.fn(async () => ({ banFileUpload: false, banAliasCreation: false })),
         },
+        oauthClient: { findUnique: findOauthClient },
     },
 }))
 
@@ -163,6 +186,7 @@ vi.mock("@/lib/services/form", () => ({ FormService }))
 
 const ALL_SCOPES = "anon.li:aliases anon.li:drops anon.li:forms offline_access"
 const MCP_URL = "https://anon.li/api/mcp"
+const TOKEN_IAT = 1_791_000_000
 
 async function route() {
     return import("@/app/api/mcp/route")
@@ -181,14 +205,55 @@ async function routeFetch(input: string | URL | Request, init?: RequestInit): Pr
     }
 }
 
-async function connectClient() {
-    const client = new Client({ name: "e2e-client", version: "0.0.0" })
-    const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), {
-        fetch: routeFetch,
-        requestInit: { headers: { Authorization: "Bearer test-token" } },
-    })
-    await client.connect(transport)
-    return client
+interface E2eClient {
+    getServerVersion(): { name: string; version: string } | undefined
+    getServerCapabilities(): { tools?: unknown } | undefined
+    getInstructions(): string | undefined
+    listTools(): Promise<{ tools: Array<{
+        name: string
+        title?: string
+        description?: string
+        annotations?: Record<string, unknown>
+        inputSchema: { type: string; properties?: unknown }
+        outputSchema?: { type: string }
+    }> }>
+    callTool(params: { name: string; arguments?: Record<string, unknown> }): Promise<{
+        isError?: boolean
+        content: unknown
+        structuredContent?: unknown
+        _meta?: Record<string, unknown>
+    }>
+    close(): Promise<void>
+}
+
+const CLIENT_ERAS: Array<[string, () => Promise<E2eClient>]> = [
+    ["2025-era client (SDK v1, legacy leg)", async () => {
+        const client = new LegacyClient({ name: "e2e-client", version: "0.0.0" })
+        await client.connect(new LegacyTransport(new URL(MCP_URL), {
+            fetch: routeFetch,
+            requestInit: { headers: { Authorization: "Bearer test-token" } },
+        }))
+        return client as unknown as E2eClient
+    }],
+    ["2026-07-28 client (SDK v2, modern leg)", async () => {
+        const client = new ModernClient(
+            { name: "e2e-client", version: "0.0.0" },
+            { versionNegotiation: { mode: { pin: "2026-07-28" } } },
+        )
+        await client.connect(new ModernTransport(new URL(MCP_URL), {
+            fetch: routeFetch,
+            requestInit: { headers: { Authorization: "Bearer test-token" } },
+        }))
+        return client as unknown as E2eClient
+    }],
+]
+
+let connectClient: () => Promise<E2eClient> = CLIENT_ERAS[0]![1]
+
+function grantClaims(scope = ALL_SCOPES) {
+    verifyToken.mockImplementation((token) => token === "test-token"
+        ? { sub: "user-1", azp: "client-1", client_id: "client-1", scope, aud: MCP_URL, iat: TOKEN_IAT }
+        : null)
 }
 
 function rpc(body: unknown, headers: Record<string, string> = {}) {
@@ -205,10 +270,10 @@ function rpc(body: unknown, headers: Record<string, string> = {}) {
     })
 }
 
-describe("/api/mcp end to end", () => {
-    beforeEach(() => {
+function resetMocks() {
         vi.clearAllMocks()
-        getMcpSession.mockResolvedValue({ userId: "user-1", clientId: "client-1", scopes: ALL_SCOPES })
+        grantClaims()
+        findOauthClient.mockResolvedValue({ disabled: false, consents: [{ id: "consent-1" }] })
         getAuthUserState.mockResolvedValue({
             banned: false,
             banReason: null,
@@ -216,6 +281,12 @@ describe("/api/mcp end to end", () => {
             banFileUpload: false,
             subscriptions: [],
         })
+}
+
+describe.each(CLIENT_ERAS)("/api/mcp end to end — %s", (_label, connect) => {
+    beforeEach(() => {
+        resetMocks()
+        connectClient = connect
     })
 
     it("initializes with server info, instructions, and the tools capability", async () => {
@@ -333,7 +404,7 @@ describe("/api/mcp end to end", () => {
         expect(missing.isError).toBe(true)
         expect(missing._meta?.["anon.li/error"]).toMatchObject({ code: "NOT_FOUND" })
 
-        getMcpSession.mockResolvedValue({ userId: "user-1", clientId: "client-1", scopes: "anon.li:aliases" })
+        grantClaims("anon.li:aliases")
         const scoped = await client.callTool({ name: "list_drops", arguments: {} })
         expect(scoped.isError).toBe(true)
         expect(scoped._meta?.["anon.li/error"]).toMatchObject({ code: "INSUFFICIENT_SCOPE" })
@@ -348,6 +419,22 @@ describe("/api/mcp end to end", () => {
         await client.close()
     })
 
+})
+
+describe("/api/mcp HTTP behaviour", () => {
+    beforeEach(() => {
+        resetMocks()
+        connectClient = CLIENT_ERAS[0]![1]
+    })
+
+    it("verifies tokens for the canonical MCP resource and origin issuer", async () => {
+        await (await connectClient()).close()
+        expect(authOptions.value).toEqual(expect.objectContaining({
+            resource: "https://anon.li/api/mcp",
+            issuer: "https://anon.li",
+        }))
+    })
+
     it("accepts tools/call with arguments omitted or null", async () => {
         await (await connectClient()).close()
         for (const params of [{ name: "list_recipients" }, { name: "list_recipients", arguments: null }]) {
@@ -358,21 +445,76 @@ describe("/api/mcp end to end", () => {
         }
     })
 
-    it("challenges unauthenticated requests with the app's normalized resource metadata", async () => {
-        getMcpSession.mockResolvedValue(null)
+    it("challenges unauthenticated requests with the app's resource metadata", async () => {
         const response = await rpc(
             { jsonrpc: "2.0", id: 1, method: "initialize", params: {} },
-            { Origin: "https://claude.ai" },
+            { Origin: "https://claude.ai", Authorization: "" },
         )
         expect(response.status).toBe(401)
         const challenge = response.headers.get("www-authenticate")
-        expect(challenge).toContain('resource_metadata="https://anon.li/.well-known/oauth-protected-resource"')
+        expect(challenge).toContain('resource_metadata="https://anon.li/.well-known/oauth-protected-resource/api/mcp"')
+        expect(challenge).not.toContain("invalid_token")
         expect(challenge).toContain('scope="anon.li:aliases anon.li:drops anon.li:forms offline_access"')
         expect(challenge).not.toContain("/api/auth/.well-known")
         expect(response.headers.get("access-control-allow-origin")).toBe("https://claude.ai")
         expect(response.headers.get("access-control-expose-headers")).toContain("WWW-Authenticate")
         const body = await response.json() as { error: Record<string, unknown> }
         expect(body.error).toEqual({ code: -32000, message: "Unauthorized: Authentication required" })
+    })
+
+    it("marks a rejected bearer token as invalid_token so clients refresh", async () => {
+        const response = await rpc(
+            { jsonrpc: "2.0", id: 1, method: "initialize", params: {} },
+            { Authorization: "Bearer stale-opaque-1.6-token" },
+        )
+        expect(response.status).toBe(401)
+        expect(response.headers.get("www-authenticate")).toContain('error="invalid_token"')
+    })
+
+    it("rejects tokens of a disabled or deleted OAuth client", async () => {
+        for (const client of [{ disabled: true, consents: [{ id: "consent-1" }] }, null]) {
+            findOauthClient.mockResolvedValueOnce(client)
+            const response = await rpc({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} })
+            expect(response.status).toBe(401)
+            expect(response.headers.get("www-authenticate")).toContain('error="invalid_token"')
+        }
+        expect(findOauthClient).toHaveBeenCalledWith(expect.objectContaining({ where: { clientId: "client-1" } }))
+    })
+
+    it("rejects a still-valid token once the user revoked the app in Connected apps", async () => {
+        const ok = await rpc({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} })
+        expect(ok.status).toBe(200)
+
+        // Revocation deleted the user's consent; the JWT itself still verifies.
+        findOauthClient.mockResolvedValueOnce({ disabled: false, consents: [] })
+        const response = await rpc({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} })
+        expect(response.status).toBe(401)
+        expect(response.headers.get("www-authenticate")).toContain('error="invalid_token"')
+
+        // The lookup is scoped to this user's consent, issued no later than the
+        // token (plus skew), so reconnecting does not revive pre-revoke tokens.
+        expect(findOauthClient).toHaveBeenLastCalledWith({
+            where: { clientId: "client-1" },
+            select: {
+                disabled: true,
+                consents: {
+                    where: { userId: "user-1", createdAt: { lte: new Date(TOKEN_IAT * 1000 + 60_000) } },
+                    select: { id: true },
+                    take: 1,
+                },
+            },
+        })
+    })
+
+    it("rejects tokens without a user subject", async () => {
+        verifyToken.mockReturnValue({ azp: "client-1", scope: ALL_SCOPES })
+        const response = await rpc({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} })
+        expect(response.status).toBe(401)
+    })
+
+    it("rejects non-JSON bodies with 415", async () => {
+        const response = await rpc("x", { "Content-Type": "text/plain" })
+        expect(response.status).toBe(415)
     })
 
     it("answers GET and DELETE with 405 so clients fall back to POST", async () => {

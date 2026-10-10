@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { createLogger } from "@/lib/logger";
 import { sendDomainDeletedEmail, sendDomainUnverifiedEmail } from "@/lib/resend";
 import { getOrgAdminEmails } from "@/lib/data/organization";
+import { REVOKED_DOMAIN_GRACE_DAYS } from "@/lib/constants";
 
 const logger = createLogger("CronDomains");
 const resolveTxt = util.promisify(dns.resolveTxt);
@@ -11,6 +12,11 @@ const DNS_TIMEOUT_MS = 10_000;
 const STALE_CLEANUP_BATCH_SIZE = 100;
 const REVERIFICATION_BATCH_SIZE = 50;
 const DAY_MS = 24 * 60 * 60 * 1000;
+/** Never-verified claims are abandoned after this long. */
+const NEVER_VERIFIED_TTL_MS = DAY_MS;
+// Days a revoked (previously verified) domain survives before cleanup. Lives in
+// lib/constants so the "verification lost" email can state it.
+export { REVOKED_DOMAIN_GRACE_DAYS };
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
     return new Promise<T>((resolve, reject) => {
@@ -49,7 +55,13 @@ async function notifyDomainOwners(
     await Promise.allSettled(
         recipients.map(async (email) => {
             try {
-                await send(email, domain.domain);
+                const result = await send(email, domain.domain);
+                // The lib/resend senders swallow errors and report them as
+                // `{ success: false }` rather than throwing — count those too.
+                if (isFailedSend(result)) {
+                    failures++;
+                    logger.warn("Domain notification send failed", { domain: domain.domain });
+                }
             } catch (error) {
                 failures++;
                 logger.error("Error sending domain notification", error, { domain: domain.domain });
@@ -59,20 +71,43 @@ async function notifyDomainOwners(
     return failures;
 }
 
+function isFailedSend(result: unknown): boolean {
+    return typeof result === "object"
+        && result !== null
+        && "success" in result
+        && (result as { success: unknown }).success === false;
+}
+
 export async function handleDomainsCron() {
     const cleanupResults = await cleanupStaleDomains();
     const reverifyResults = await reverifyActiveDomains();
     return { cleanup: cleanupResults, reverify: reverifyResults };
 }
 
+/**
+ * Delete abandoned domain claims and domains whose verification was revoked and
+ * never restored. Two distinct populations:
+ * - never verified (`unverifiedAt` null): removed 24h after creation;
+ * - previously verified, then revoked (`unverifiedAt` set): removed only after
+ *   REVOKED_DOMAIN_GRACE_DAYS, giving the owner time to act on the
+ *   "verification lost" email before the domain and its aliases disappear.
+ * Each domain's aliases (Alias.domain is a plain string, not an FK) are deleted
+ * in the same transaction, scoped to the domain's owner — matching
+ * DomainService.deleteDomain.
+ */
 export async function cleanupStaleDomains() {
     const results = { deleted: 0, errors: 0 };
-    const threshold = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const now = Date.now();
+    const neverVerifiedThreshold = new Date(now - NEVER_VERIFIED_TTL_MS);
+    const revokedThreshold = new Date(now - REVOKED_DOMAIN_GRACE_DAYS * DAY_MS);
 
     const staleDomains = await prisma.domain.findMany({
         where: {
             verified: false,
-            createdAt: { lt: threshold },
+            OR: [
+                { unverifiedAt: null, createdAt: { lt: neverVerifiedThreshold } },
+                { unverifiedAt: { lt: revokedThreshold } },
+            ],
         },
         include: { user: true },
         orderBy: { createdAt: "asc" },
@@ -81,23 +116,38 @@ export async function cleanupStaleDomains() {
 
     if (staleDomains.length === 0) return results;
 
-    const domainIds = staleDomains.map((domain) => domain.id);
+    const deletedDomains: typeof staleDomains = [];
+    for (const domain of staleDomains) {
+        try {
+            const removed = await prisma.$transaction(async (tx) => {
+                // Guard on `verified: false` so a domain re-verified since the
+                // select above is neither deleted nor stripped of its aliases.
+                const { count } = await tx.domain.deleteMany({
+                    where: { id: domain.id, verified: false },
+                });
+                if (count === 0) return false;
 
-    try {
-        const deleteResult = await prisma.domain.deleteMany({
-            where: { id: { in: domainIds } },
-        });
-        results.deleted = deleteResult.count;
-    } catch (error) {
-        logger.error("Error batch deleting stale domains", error);
-        results.errors = staleDomains.length;
-        return results;
+                await tx.alias.deleteMany({
+                    where: domain.organizationId
+                        ? { domain: domain.domain, organizationId: domain.organizationId }
+                        : { domain: domain.domain, userId: domain.userId, organizationId: null },
+                });
+                return true;
+            });
+            if (removed) {
+                results.deleted++;
+                deletedDomains.push(domain);
+            }
+        } catch (error) {
+            logger.error("Error deleting stale domain", error, { domainId: domain.id });
+            results.errors++;
+        }
     }
 
     // Keep outbound email concurrency bounded. Bursting a large stale-domain
     // batch at Resend can trip provider rate limits and turn a successful DB
     // cleanup into a wall of failed notifications.
-    for (const domain of staleDomains) {
+    for (const domain of deletedDomains) {
         results.errors += await notifyDomainOwners(domain, sendDomainDeletedEmail);
     }
 
@@ -135,6 +185,8 @@ export async function reverifyActiveDomains() {
                     data: {
                         verified: false,
                         ownershipVerified: false,
+                        // Starts the cleanup grace period (see cleanupStaleDomains).
+                        unverifiedAt: new Date(),
                     },
                 });
                 results.revoked++;

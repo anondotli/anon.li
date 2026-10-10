@@ -8,7 +8,7 @@ import {
 } from "@/lib/vault/drop-owner-keys"
 import { getVaultSession } from "@/lib/vault/server"
 import { enforceVaultRequestGuards } from "@/lib/vault/http"
-import { getMemberOrgIds, isOrgMember } from "@/lib/vault/org-access"
+import { assertOrgVaultAccess, getMemberOrgIds, isOrgMember } from "@/lib/vault/org-access"
 import {
     vaultGenerationSchema,
     vaultIdSchema,
@@ -79,6 +79,15 @@ export async function GET(request: Request) {
                 return withNoStore(apiError("Drop key not found", ErrorCodes.NOT_FOUND, requestId, 404))
             }
 
+            if (dropKey.organizationId) {
+                const policyBlocked = await assertOrgVaultAccess({
+                    user: session.user,
+                    organizationId: dropKey.organizationId,
+                    requestId,
+                })
+                if (policyBlocked) return policyBlocked
+            }
+
             return withNoStore(apiSuccess({
                 dropId: dropKey.dropId,
                 wrappedKey: dropKey.wrappedKey,
@@ -90,7 +99,8 @@ export async function GET(request: Request) {
 
         // List: the user's personal keys plus every org key for orgs they belong
         // to (so team-created drops are decryptable by all members).
-        const orgIds = await getMemberOrgIds(session.user.id)
+        // Orgs that enforce 2FA are left out for members without it.
+        const orgIds = await getMemberOrgIds(session.user.id, { twoFactorEnabled: session.user.twoFactorEnabled })
 
         const dropKeys = await prisma.dropOwnerKey.findMany({
             where: {

@@ -65,7 +65,9 @@ function syncStorageEnvCache(): void {
 function requireEnv(name: string): string {
   const value = process.env[name];
   if (!value) {
-    throw new ServiceUnavailableError(`${name} is required for storage operations`);
+    // The variable name is operator detail; keep it in logs, not user-facing errors.
+    storageLogger.error("Storage is misconfigured", undefined, { missing: name });
+    throw new ServiceUnavailableError("File storage is temporarily unavailable");
   }
 
   return value;

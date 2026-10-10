@@ -79,23 +79,23 @@ export class DropCleanupService {
         let totalFound = 0;
         let totalDeleted = 0;
         const allErrors: string[] = [];
+        const expiredWhere = {
+            expiresAt: { lt: twelveHoursAgo },
+            deletedAt: null,
+            // Form attachments live as long as their submission: the Form
+            // retention cleanup deletes them together under the owner's
+            // current plan, so a stale drop expiry must never reap them.
+            formSubmission: null,
+        } satisfies Prisma.DropWhereInput;
 
         if (dryRun) {
-            const found = await prisma.drop.count({
-                where: {
-                    expiresAt: { lt: twelveHoursAgo },
-                    deletedAt: null,
-                },
-            });
+            const found = await prisma.drop.count({ where: expiredWhere });
             return { found, deleted: 0, errors: [] };
         }
 
         while (true) {
             const expiredDrops = await prisma.drop.findMany({
-                where: {
-                    expiresAt: { lt: twelveHoursAgo },
-                    deletedAt: null,
-                },
+                where: expiredWhere,
                 select: { id: true },
                 take: BATCH_SIZE,
             });

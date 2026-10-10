@@ -2,12 +2,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
     dropOwnerKeyDeleteMany: vi.fn(),
+    formOwnerKeyDeleteMany: vi.fn(),
+    organizationMemberKeyDeleteMany: vi.fn(),
     userSecurityDeleteMany: vi.fn(),
 }))
 
 vi.mock("@/lib/prisma", () => ({
     prisma: {
         dropOwnerKey: { deleteMany: mocks.dropOwnerKeyDeleteMany },
+        formOwnerKey: { deleteMany: mocks.formOwnerKeyDeleteMany },
+        organizationMemberKey: { deleteMany: mocks.organizationMemberKeyDeleteMany },
         userSecurity: { deleteMany: mocks.userSecurityDeleteMany },
     },
 }))
@@ -18,6 +22,8 @@ describe("purgePersonalVaultKeysOps", () => {
     beforeEach(() => {
         vi.clearAllMocks()
         mocks.dropOwnerKeyDeleteMany.mockReturnValue({ count: 0 })
+        mocks.formOwnerKeyDeleteMany.mockReturnValue({ count: 0 })
+        mocks.organizationMemberKeyDeleteMany.mockReturnValue({ count: 0 })
         mocks.userSecurityDeleteMany.mockReturnValue({ count: 0 })
     })
 
@@ -35,6 +41,26 @@ describe("purgePersonalVaultKeysOps", () => {
         })
     })
 
+    it("scopes the form owner-key delete to PERSONAL keys, never org-owned ones", () => {
+        purgePersonalVaultKeysOps("user_123")
+
+        expect(mocks.formOwnerKeyDeleteMany).toHaveBeenCalledTimes(1)
+        expect(mocks.formOwnerKeyDeleteMany).toHaveBeenCalledWith({
+            where: { userId: "user_123", organizationId: null },
+        })
+    })
+
+    it("drops org member-key grants sealed to the purged identity key", () => {
+        // The identity private key lives on the purged userSecurity row, so these
+        // grants are unopenable; left in place, the pending-grant reconcile would
+        // treat the member as already granted and they'd be locked out for good.
+        purgePersonalVaultKeysOps("user_123")
+
+        expect(mocks.organizationMemberKeyDeleteMany).toHaveBeenCalledWith({
+            where: { userId: "user_123" },
+        })
+    })
+
     it("purges the user's personal userSecurity row", () => {
         purgePersonalVaultKeysOps("user_123")
 
@@ -44,8 +70,8 @@ describe("purgePersonalVaultKeysOps", () => {
         })
     })
 
-    it("returns both operations so callers can run them in one transaction", () => {
+    it("returns every operation so callers can run them in one transaction", () => {
         const ops = purgePersonalVaultKeysOps("user_123")
-        expect(ops).toHaveLength(2)
+        expect(ops).toHaveLength(4)
     })
 })

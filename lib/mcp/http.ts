@@ -21,19 +21,19 @@
  *     validates the *provided* value against the tool's input schema, so an
  *     omitted `arguments` fails with -32602 ("expected object, received
  *     undefined"). The body is normalized here, before the transport sees it.
- *  5. The 401 challenge names the app's own protected-resource metadata.
- *     better-auth's `withMcpAuth` points at its raw `/api/auth/.well-known/…`
- *     document, which advertises OIDC scopes instead of the anon.li ones and
- *     skips the normalization and CORS the top-level document has.
+ *  5. Every 401 carries one RFC 9728 challenge pointing at the path-suffixed
+ *     protected-resource metadata, the scopes to request, and — when a bearer
+ *     token was presented — `error="invalid_token"` so the client refreshes
+ *     instead of starting over (better-auth's `requireMcpAuth` omits it).
  */
 
-import { MCP_DEFAULT_SCOPE } from "./oauth-metadata"
+import { MCP_DEFAULT_SCOPE, MCP_RESOURCE_PATH, getAppOrigin } from "./oauth-metadata"
 
 /** Mirrors the SDK transport's `maxRequestBodySize` default (4 MiB). */
 export const MAX_REQUEST_BODY_BYTES = 4 * 1024 * 1024
 
 /** JSON-RPC batch ceiling, mirrored from the SDK transport. */
-export const MAX_BATCH_SIZE = 100
+const MAX_BATCH_SIZE = 100
 
 const ALLOW_HEADERS = [
     "Authorization",
@@ -53,7 +53,7 @@ const EXPOSE_HEADERS = ["WWW-Authenticate", "MCP-Session-Id", "Allow", "Content-
  * `Vary: Origin` keeps shared caches from mixing variants. Requests without an
  * `Origin` (curl, desktop CLIs, most agent runtimes) need no CORS headers.
  */
-export function mcpCorsHeaders(request: Request): Record<string, string> {
+function mcpCorsHeaders(request: Request): Record<string, string> {
     const origin = request.headers.get("origin")
     if (!origin) return {}
     return {
@@ -105,8 +105,8 @@ export function mcpMethodNotAllowed(): Response {
     })
 }
 
-/** RFC 9728 protected-resource metadata, served at the origin root. */
-export const MCP_PROTECTED_RESOURCE_METADATA_PATH = "/.well-known/oauth-protected-resource"
+/** RFC 9728 §3.1 path-suffixed protected-resource metadata for the `/api/mcp` resource. */
+const MCP_PROTECTED_RESOURCE_METADATA_PATH = `/.well-known/oauth-protected-resource${MCP_RESOURCE_PATH}`
 
 /**
  * `WWW-Authenticate` value for a rejected MCP request (RFC 6750 + RFC 9728).
@@ -114,7 +114,7 @@ export const MCP_PROTECTED_RESOURCE_METADATA_PATH = "/.well-known/oauth-protecte
  * and `error="invalid_token"` distinguishes an expired/revoked token — which a
  * client answers with a refresh — from a request that carried no token.
  */
-export function mcpAuthChallenge(resourceOrigin: string, hadToken: boolean): string {
+function mcpAuthChallenge(resourceOrigin: string, hadToken: boolean): string {
     const metadataUrl = new URL(MCP_PROTECTED_RESOURCE_METADATA_PATH, resourceOrigin).toString()
     const params = [`resource_metadata="${metadataUrl}"`, `scope="${MCP_DEFAULT_SCOPE}"`]
     if (hadToken) {
@@ -123,13 +123,28 @@ export function mcpAuthChallenge(resourceOrigin: string, hadToken: boolean): str
     return `Bearer ${params.join(", ")}`
 }
 
-/** Replace the auth layer's 401 with the challenge above; other responses pass through. */
-export function withMcpAuthChallenge(request: Request, response: Response, resourceOrigin: string): Response {
-    if (response.status !== 401) return response
-    const hadToken = /^bearer\s+\S/i.test(request.headers.get("authorization") ?? "")
+/** The 401 every unauthenticated or rejected MCP request receives. */
+export function mcpUnauthorizedResponse(request: Request): Response {
+    const hadToken = /^(bearer|dpop)\s+\S/i.test(request.headers.get("authorization") ?? "")
     return jsonRpcError(401, -32000, "Unauthorized: Authentication required", {
-        "WWW-Authenticate": mcpAuthChallenge(resourceOrigin, hadToken),
+        "WWW-Authenticate": mcpAuthChallenge(getAppOrigin(), hadToken),
     })
+}
+
+/**
+ * Replace the auth layer's bearer 401 with the challenge above; other
+ * responses (including DPoP challenges, which carry their own scheme) pass
+ * through.
+ */
+export function withMcpAuthChallenge(request: Request, response: Response): Response {
+    if (response.status !== 401) return response
+    if (/^dpop\b/i.test(response.headers.get("www-authenticate") ?? "")) return response
+    return mcpUnauthorizedResponse(request)
+}
+
+/** 415 for POSTs whose media type is not JSON (checked before the body is read). */
+export function mcpUnsupportedMediaType(): Response {
+    return jsonRpcError(415, -32000, "Unsupported Media Type: Content-Type must be application/json")
 }
 
 function jsonRpcError(status: number, code: number, message: string, extraHeaders: Record<string, string> = {}): Response {
@@ -173,7 +188,7 @@ export function withDiscoveryCors(request: Request, response: Response): Respons
  * validates an object (applying every schema default) instead of rejecting
  * `undefined`. Applies to single requests and batches.
  */
-export function withDefaultToolArguments<T>(message: T): T {
+function withDefaultToolArguments<T>(message: T): T {
     if (Array.isArray(message)) {
         return message.map((item) => withDefaultToolArguments(item)) as unknown as T
     }

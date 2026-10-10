@@ -446,4 +446,57 @@ describe("FormBuilderPage", () => {
             )
         })
     })
+
+    it("saves title and description edited in the JSON tab without leaving it", async () => {
+        const { FormBuilderPage } = await import("@/components/form/dashboard/builder-page")
+
+        render(
+            <FormBuilderPage
+                mode="edit"
+                limits={{ removeBranding: true, customKey: true, maxSubmissionFileSize: 10_000_000 }}
+                initialForm={{
+                    id: "abc123def456",
+                    title: "Original title",
+                    description: "Original description",
+                    schema,
+                    allowFileUploads: false,
+                    maxSubmissions: null,
+                    closesAt: null,
+                    hideBranding: false,
+                    submissionsCount: 0,
+                    notifyOnSubmission: true,
+                    customKey: false,
+                    disabledByUser: false,
+                }}
+            />,
+        )
+
+        fireEvent.mouseDown(screen.getByRole("tab", { name: /json/i }), { button: 0 })
+        const jsonTextarea = await waitFor(() => {
+            const found = Array.from(document.querySelectorAll("textarea"))
+                .find((box) => (box as HTMLTextAreaElement).value.includes('"Original title"'))
+            expect(found).toBeTruthy()
+            return found as HTMLTextAreaElement
+        })
+
+        fireEvent.change(jsonTextarea, {
+            target: {
+                value: jsonTextarea.value
+                    .replace('"Original title"', '"JSON title"')
+                    .replace('"Original description"', '"JSON description"'),
+            },
+        })
+        fireEvent.click(screen.getByRole("button", { name: "Save changes" }))
+
+        await waitFor(() => {
+            expect(actionMocks.updateFormAction).toHaveBeenCalledWith(
+                "abc123def456",
+                expect.objectContaining({
+                    title: "JSON title",
+                    description: "JSON description",
+                    schema: expect.objectContaining({ title: "JSON title", description: "JSON description" }),
+                }),
+            )
+        })
+    })
 })

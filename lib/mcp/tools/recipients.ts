@@ -1,5 +1,5 @@
 import { z } from "zod"
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
+import type { McpServer } from "@modelcontextprotocol/server"
 import { RecipientService } from "@/lib/services/recipient"
 import { invokeTool, toolResult } from "@/lib/mcp/invoke"
 import { personalScope } from "@/lib/ownership"
@@ -16,8 +16,8 @@ export function registerRecipientTools(server: McpServer, session: McpSession) {
                 readOnlyHint: true,
                 openWorldHint: false,
             },
-            inputSchema: {},
-            outputSchema: {
+            inputSchema: z.object({}),
+            outputSchema: z.object({
                 total: z.number(),
                 recipients: z.array(z.object({
                     id: z.string(),
@@ -27,7 +27,7 @@ export function registerRecipientTools(server: McpServer, session: McpSession) {
                     has_pgp: z.boolean(),
                     created_at: z.string(),
                 })),
-            },
+            }),
         },
         async () => invokeTool(session, { scope: "anon.li:aliases", rateLimit: "recipientOps" }, async (user) => {
             const recipients = await RecipientService.getRecipients(personalScope(user.id))
@@ -57,17 +57,17 @@ export function registerRecipientTools(server: McpServer, session: McpSession) {
                 idempotentHint: false,
                 openWorldHint: true,
             },
-            inputSchema: {
+            inputSchema: z.object({
                 email: z.string().trim().toLowerCase().email().max(254)
                     .describe("Email address to add as a forwarding destination"),
-            },
-            outputSchema: {
+            }),
+            outputSchema: z.object({
                 id: z.string(),
                 email: z.string(),
                 verified: z.boolean(),
                 verification_sent: z.boolean(),
                 message: z.string(),
-            },
+            }),
         },
         async ({ email }) => invokeTool(session, { scope: "anon.li:aliases", rateLimit: "recipientOps" }, async (user) => {
             const recipient = await RecipientService.addRecipient(personalScope(user.id), email)

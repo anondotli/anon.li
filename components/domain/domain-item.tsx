@@ -10,8 +10,8 @@ import {
     Loader2,
     ChevronDown,
     ChevronUp,
+    Globe,
 } from "lucide-react"
-import Image from "next/image"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -46,6 +46,7 @@ interface DomainItemProps {
         dkimSelector: string | null
         dkimVerified: boolean
         scheduledForRemovalAt?: Date | null
+        unverifiedAt?: Date | null
     }
 }
 
@@ -54,7 +55,7 @@ export function DomainItem({ domain }: DomainItemProps) {
     const [deleting, setDeleting] = useState(false)
     const [generatingDkim, setGeneratingDkim] = useState(false)
     const [isExpanded, setIsExpanded] = useState(!domain.verified)
-    const [faviconError, setFaviconError] = useState(false)
+    const detailsId = `domain-details-${domain.id}`
 
     const handleVerify = async () => {
         setVerifying(true)
@@ -116,8 +117,6 @@ export function DomainItem({ domain }: DomainItemProps) {
             ? "text-blue-500 bg-blue-500/10 border-blue-500/20"
             : "text-amber-500 bg-amber-500/10 border-amber-500/20"
 
-    const faviconUrl = `https://www.google.com/s2/favicons?sz=64&domain=${domain.domain}`
-
     return (
         <div className="group flex flex-col border rounded-xl bg-card overflow-hidden shadow-sm hover:shadow-md transition-all duration-300 animate-in fade-in slide-in-from-bottom-2">
             {/* Header */}
@@ -126,21 +125,9 @@ export function DomainItem({ domain }: DomainItemProps) {
                     <div className={cn("h-12 w-12 shrink-0 rounded-xl flex items-center justify-center transition-colors text-xl border shadow-sm overflow-hidden bg-secondary/50",
                         domain.verified ? "border-green-500/20 text-green-600" : "border-border text-foreground"
                     )}>
-                        {!faviconError ? (
-                            <Image
-                                src={faviconUrl}
-                                alt={domain.domain}
-                                width={32}
-                                height={32}
-                                className="w-8 h-8 object-contain"
-                                onError={() => setFaviconError(true)}
-                                unoptimized
-                            />
-                        ) : (
-                            <span>
-                                {domain.domain.charAt(0).toUpperCase()}
-                            </span>
-                        )}
+                        {/* Generic icon: fetching a favicon from a third party would
+                            leak the user's private domain list to that service. */}
+                        <Globe className="h-6 w-6" aria-hidden="true" />
                     </div>
                     <div className="min-w-0 flex-1 sm:flex-initial">
                         <div className="flex items-center gap-3 flex-wrap">
@@ -164,6 +151,8 @@ export function DomainItem({ domain }: DomainItemProps) {
                         <p className="text-sm text-muted-foreground mt-0.5 truncate">
                             {domain.verified
                                 ? "All records configured correctly"
+                                : domain.unverifiedAt
+                                    ? "Verification lost. Verify again to keep this domain"
                                 : domain.ownershipVerified
                                     ? "DNS records missing or incorrect"
                                     : "Domain ownership not yet verified"
@@ -191,6 +180,9 @@ export function DomainItem({ domain }: DomainItemProps) {
                             size="sm"
                             onClick={() => setIsExpanded(!isExpanded)}
                             className="h-8 w-8 p-0"
+                            aria-label={isExpanded ? "Hide DNS setup" : "Show DNS setup"}
+                            aria-expanded={isExpanded}
+                            aria-controls={detailsId}
                         >
                             {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                         </Button>
@@ -223,6 +215,10 @@ export function DomainItem({ domain }: DomainItemProps) {
 
             {/* Expandable Content */}
             <div
+                id={detailsId}
+                // Collapsed content stays in the DOM for the height animation;
+                // `inert` keeps its copy buttons out of the tab order / a11y tree.
+                inert={!isExpanded}
                 className={cn(
                     "grid transition-all duration-200 ease-in-out",
                     isExpanded ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"

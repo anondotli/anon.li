@@ -1,4 +1,4 @@
-import { McpError } from "@modelcontextprotocol/sdk/types.js"
+import { ProtocolError } from "@modelcontextprotocol/server"
 import { ApiError, ForbiddenError, NotFoundError, RateLimitError, ServiceUnavailableError, UpgradeRequiredError, ValidationError } from "@/lib/api-error-utils"
 import { checkApiQuota, type ApiQuotaType } from "@/lib/api-rate-limit"
 import { getAuthUserState } from "@/lib/data/auth"
@@ -39,7 +39,7 @@ export interface McpToolErrorDetails {
 /**
  * A failed tool call, as an MCP tool *result* rather than a JSON-RPC protocol
  * error. The spec is explicit that errors originating from a tool belong in the
- * result with `isError: true`, and the SDK flattens any thrown `McpError` into
+ * result with `isError: true`, and the SDK flattens any thrown `ProtocolError` into
  * `createToolError(message)` — its `data` payload never reaches the client.
  *
  * Building the result here keeps the structured details, in two places a client
@@ -158,7 +158,7 @@ export async function invokeTool<T>(
             subscriptions: user.subscriptions,
         })
     } catch (error) {
-        if (error instanceof McpError) throw error
+        if (error instanceof ProtocolError) throw error
         if (error instanceof UpgradeRequiredError) {
             return toolError({
                 code: error.code ?? "UPGRADE_REQUIRED",

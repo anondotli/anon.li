@@ -64,18 +64,24 @@ const RELATIVE_INTERVALS: [Intl.RelativeTimeFormatUnit, number][] = [
     ["minute", 60]
 ]
 
-/** Format a date as relative time (e.g. "2 hours ago", "yesterday", "just now"). */
+/**
+ * Format a date as relative time. Past dates read "2 hours ago" / "yesterday" /
+ * "just now"; future dates (e.g. expiries) read "in 3 days" / "tomorrow" /
+ * "in less than a minute".
+ */
 export function formatRelativeTime(date: Date | string | number): string {
-    const diffInSeconds = Math.floor((Date.now() - new Date(date).getTime()) / 1000)
-    if (diffInSeconds < 60) return "just now"
+    const diffMs = new Date(date).getTime() - Date.now()
+    const isFuture = diffMs > 0
+    const absSeconds = Math.floor(Math.abs(diffMs) / 1000)
+    if (absSeconds < 60) return isFuture ? "in less than a minute" : "just now"
 
     for (const [unit, seconds] of RELATIVE_INTERVALS) {
-        const interval = Math.floor(diffInSeconds / seconds)
+        const interval = Math.floor(absSeconds / seconds)
         if (interval >= 1) {
-            return new Intl.RelativeTimeFormat("en", { numeric: "auto" }).format(-interval, unit)
+            return new Intl.RelativeTimeFormat("en", { numeric: "auto" }).format(isFuture ? interval : -interval, unit)
         }
     }
-    return "just now"
+    return isFuture ? "in less than a minute" : "just now"
 }
 
 /** Status badge variant and label for abuse reports (admin panel). */

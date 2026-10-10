@@ -8,6 +8,7 @@ import { TwoFactorService } from "@/lib/services/two-factor"
 import { rateLimit } from "@/lib/rate-limit"
 import { prisma } from "@/lib/prisma"
 import { APIError } from "@better-auth/core/error"
+import { sanitizeAuthCallbackUrl } from "@/lib/safe-callback-url"
 
 /**
  * These actions intentionally DO NOT use the runSecureAction/runScopedAction
@@ -235,7 +236,8 @@ export async function regenerateBackupCodes(code: string): Promise<BackupCodesRe
  */
 export async function verifyTwoFactorLogin(
     code: string,
-    mode: "totp" | "backup"
+    mode: "totp" | "backup",
+    callbackUrl?: string | null,
 ): Promise<TwoFactorActionResult> {
     const reqHeaders = await headers()
     const existingSession = await betterAuth.api.getSession({ headers: reqHeaders })
@@ -308,7 +310,14 @@ export async function verifyTwoFactorLogin(
         where: { userId: updatedSession.userId },
         select: { id: true },
     })
-    const redirectTo = security ? "/dashboard/alias" : "/setup"
+    // Resume where the user was headed (consent screen, invitation, a dashboard
+    // page) — sanitized to the same-origin allowlist, never trusted verbatim.
+    const destination = sanitizeAuthCallbackUrl(callbackUrl)
+    const redirectTo = security
+        ? destination
+        : callbackUrl
+            ? `/setup?callbackUrl=${encodeURIComponent(destination)}`
+            : "/setup"
 
     return { success: true, redirectTo }
 }

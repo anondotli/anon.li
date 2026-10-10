@@ -9,11 +9,14 @@ import { DeleteAccountSection } from "./delete-account"
 import { DataExportSection } from "./data-export"
 import { TwoFactorSettings } from "./two-factor-settings"
 import { SessionManagement } from "./session-management"
+import { ConnectedApps } from "./connected-apps"
 import { Card, CardContent } from "@/components/ui/card"
-import { cookies } from "next/headers"
+import { headers } from "next/headers"
+import { auth as betterAuth } from "@/lib/auth"
 import { PasswordSettings } from "@/components/vault/password-settings"
 import { InviteFriends } from "./invite-friends"
 import { getReferralStats, REFERRAL_REWARD_DAYS } from "@/lib/services/referral"
+import { getConnectedApps } from "@/lib/data/connected-apps"
 
 export default async function SettingsPage() {
     const session = await auth()
@@ -25,11 +28,16 @@ export default async function SettingsPage() {
 
     if (!user) redirect("/login")
 
-    const referral = await getReferralStats(session.user.id)
+    const [referral, connectedApps] = await Promise.all([
+        getReferralStats(session.user.id),
+        getConnectedApps(session.user.id),
+    ])
     const referralLink = `${process.env.NEXT_PUBLIC_APP_URL}/?ref=${referral.code}`
 
-    const cookieStore = await cookies()
-    const currentSessionToken = cookieStore.get("better-auth.session_token")?.value?.split(".")[0] ?? ""
+    // Resolve via better-auth instead of reading the cookie by name — the name
+    // carries a `__Secure-` prefix in production.
+    const currentSession = await betterAuth.api.getSession({ headers: await headers() })
+    const currentSessionId = currentSession?.session?.id ?? null
 
     const sessionData = (await prisma.session.findMany({
         where: {
@@ -40,14 +48,13 @@ export default async function SettingsPage() {
             id: true,
             userAgent: true,
             createdAt: true,
-            token: true,
         },
         orderBy: { createdAt: "desc" },
     })).map((activeSession) => ({
         id: activeSession.id,
         userAgent: activeSession.userAgent,
         createdAt: activeSession.createdAt,
-        isCurrent: activeSession.token === currentSessionToken,
+        isCurrent: activeSession.id === currentSessionId,
     }))
 
     return (
@@ -99,6 +106,7 @@ export default async function SettingsPage() {
                             </CardContent>
                         </Card>
                         <SessionManagement sessions={sessionData} />
+                        <ConnectedApps apps={connectedApps} />
                     </div>
                 </div>
 

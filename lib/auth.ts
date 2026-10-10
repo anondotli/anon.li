@@ -1,8 +1,12 @@
 import { betterAuth } from "better-auth"
 import { prismaAdapter } from "better-auth/adapters/prisma"
-import { twoFactor, magicLink, mcp, captcha, organization } from "better-auth/plugins"
+import { twoFactor, magicLink, captcha, organization, jwt } from "better-auth/plugins"
+import { nextCookies } from "better-auth/next-js"
 import { createAuthMiddleware, getSessionFromCtx } from "better-auth/api"
 import { APIError } from "@better-auth/core/error"
+import { mcp } from "@better-auth/mcp"
+import { cimd } from "@better-auth/cimd"
+import { fetchClientMetadataResource } from "@better-auth/cimd/node"
 import { createHmac } from "node:crypto"
 import { prisma } from "@/lib/prisma"
 import {
@@ -23,12 +27,15 @@ import { getOrgSeatLimit } from "@/lib/org-seats"
 import { validateOrganizationName } from "@/lib/validations/organization"
 import { rateLimit } from "@/lib/rate-limit"
 import { trackServerEvent } from "@/lib/posthog.server"
-import { MCP_DEFAULT_SCOPE, MCP_OAUTH_SCOPES } from "@/lib/mcp/oauth-metadata"
+import { MCP_OAUTH_SCOPES, getMcpIssuer, getMcpResource } from "@/lib/mcp/oauth-metadata"
 import { purgePersonalVaultKeysOps } from "@/lib/vault/personal-purge"
 import {
-    isSafeMcpRedirectUri,
-    validateMcpClientRegistration,
-} from "@/lib/mcp/client-registration"
+    mcpOAuthBeforeHook,
+    organizationAfterHook,
+    organizationBeforeHook,
+    revokeOrganizationMemberAccess,
+    twoFactorSessionAfterHook,
+} from "@/lib/auth-hooks"
 
 const ACCOUNT_DELETION_PENDING_MESSAGE = "Account deletion is already in progress for this user."
 
@@ -110,6 +117,29 @@ export const auth = betterAuth({
         },
     },
 
+    // Endpoints of the OAuth provider / JWT plugins anon.li does not use. The MCP
+    // flow needs only authorize, consent, token, register, revoke and jwks.
+    disabledPaths: [
+        "/token",
+        "/oauth2/create-client",
+        "/oauth2/update-client",
+        "/oauth2/delete-client",
+        "/oauth2/client/rotate-secret",
+        "/oauth2/get-client",
+        "/oauth2/get-clients",
+        "/oauth2/public-client",
+        "/oauth2/public-client-prelogin",
+        "/oauth2/get-consent",
+        "/oauth2/get-consents",
+        "/oauth2/update-consent",
+        "/oauth2/delete-consent",
+        "/oauth2/continue",
+        "/oauth2/userinfo",
+        "/oauth2/introspect",
+        "/oauth2/end-session",
+        "/oauth2/end-session/confirm",
+    ],
+
     socialProviders: {
         github: {
             clientId: process.env.AUTH_GITHUB_ID!,
@@ -137,20 +167,33 @@ export const auth = betterAuth({
             issuer: "anon.li",
             backupCodeOptions: { amount: 8, length: 16, storeBackupCodes: "encrypted" },
         }),
+        // Signs the MCP access tokens (EdDSA, keys in the `jwks` table). The
+        // issuer stays the bare origin, as in 1.6, so the root RFC 8414 document
+        // and clients' cached issuer remain valid.
+        jwt({ jwt: { issuer: getMcpIssuer() }, disableSettingJwtHeader: true }),
         mcp({
-            // Unauthenticated authorize requests land here so the user can sign in
-            // (and complete 2FA if enabled) before the consent screen.
-            loginPage: "/login",
-            oidcConfig: {
-                loginPage: "/login",
-                accessTokenExpiresIn: 60 * 60, // 1 hour
-                refreshTokenExpiresIn: 60 * 60 * 24 * 14, // 14 days
-                defaultScope: MCP_DEFAULT_SCOPE,
-                allowDynamicClientRegistration: true,
-                consentPage: "/oauth/consent",
-                scopes: [...MCP_OAUTH_SCOPES],
-            },
+            resource: getMcpResource(),
+            // allowedScopes must be explicit: the Prisma adapter cannot seed a
+            // NULL text[] for the resource row.
+            resources: [{ identifier: getMcpResource(), name: "anon.li MCP", allowedScopes: [...MCP_OAUTH_SCOPES] }],
+            // Signed-out authorize requests land on the consent page, which
+            // bounces through /login (and /2fa) with a callbackUrl back to itself.
+            loginPage: "/oauth/consent",
+            consentPage: "/oauth/consent",
+            scopes: [...MCP_OAUTH_SCOPES],
+            advertisedMetadata: { scopes_supported: [...MCP_OAUTH_SCOPES] },
+            grantTypes: ["authorization_code", "refresh_token"],
+            accessTokenExpiresIn: 60 * 60, // 1 hour
+            refreshTokenExpiresIn: 60 * 60 * 24 * 14, // 14 days
+            // Dynamic Client Registration stays open for existing MCP clients
+            // (deprecated by MCP 2026-07-28 in favour of CIMD, enabled below).
+            allowDynamicClientRegistration: true,
+            allowUnauthenticatedClientRegistration: true,
+            // A single protected resource: every client may target it, including
+            // clients imported from 1.6 that carry no client↔resource link.
+            enforcePerClientResources: false,
         }),
+        cimd({ fetchClientMetadataResource, metadataProfile: "mcp-2026-07-28" }),
         organization({
             ac,
             roles,
@@ -206,19 +249,13 @@ export const auth = betterAuth({
                 afterRemoveMember: async ({ member, organization }) => {
                     const actorId = (await resolveActorId()) ?? member.userId
                     recordMemberRemoved({ actorId, targetUserId: member.userId, organizationId: organization.id, role: member.role })
-                    // Revoke the removed member's grant to the org vault key so the
-                    // owner-key endpoints stop serving it to them (soft revocation),
-                    // and persistently flag that a key rotation is recommended (full
-                    // forward secrecy needs an admin to rotate, since the removed
-                    // member could have cached the key). The team page reads
-                    // keyRotationRecommendedAt to show the banner across refreshes;
-                    // a successful rotation clears it.
-                    void prisma.organizationMemberKey
-                        .deleteMany({ where: { organizationId: organization.id, userId: member.userId } })
-                        .catch(() => {})
-                    void prisma.organization
-                        .update({ where: { id: organization.id }, data: { keyRotationRecommendedAt: new Date() } })
-                        .catch(() => {})
+                    // Revoke the removed member's grant to the org vault key (soft
+                    // revocation) and their org API keys, and persistently flag that
+                    // a key rotation is recommended (full forward secrecy needs an
+                    // admin to rotate, since the removed member could have cached the
+                    // key). The team page reads keyRotationRecommendedAt to show the
+                    // banner; a successful rotation clears it.
+                    void revokeOrganizationMemberAccess(organization.id, member.userId).catch(() => {})
                 },
                 afterUpdateMemberRole: async ({ member, previousRole, organization }) => {
                     const actorId = (await resolveActorId()) ?? member.userId
@@ -252,6 +289,9 @@ export const auth = betterAuth({
                 },
             },
         }),
+        // Must stay last: persists Set-Cookie from auth.api.* calls made in
+        // server actions (e.g. the new session minted when 2FA is enabled).
+        nextCookies(),
     ],
 
     session: {
@@ -353,47 +393,9 @@ export const auth = betterAuth({
                 if (results.some(Boolean)) throw tooManyRequests(code)
             }
 
-            if (ctx.path === "/mcp/register") {
-                if (await rateLimit("mcpRegister")) {
-                    throw tooManyRequests("MCP_REGISTRATION_RATE_LIMITED")
-                }
-                const registrationError = validateMcpClientRegistration(ctx.body)
-                if (registrationError) {
-                    throw APIError.from("BAD_REQUEST", {
-                        message: registrationError,
-                        code: "INVALID_MCP_CLIENT_REGISTRATION",
-                    })
-                }
-                return
-            }
-
-            if (ctx.path === "/mcp/authorize") {
-                if (await rateLimit("mcpOAuth")) {
-                    throw tooManyRequests("MCP_AUTHORIZATION_RATE_LIMITED")
-                }
-                const redirectUri = (ctx.query as { redirect_uri?: unknown } | undefined)?.redirect_uri
-                if (!isSafeMcpRedirectUri(redirectUri)) {
-                    throw APIError.from("BAD_REQUEST", {
-                        message: "Invalid or insecure redirect URI",
-                        code: "INVALID_MCP_REDIRECT_URI",
-                    })
-                }
-                return
-            }
-
-            if (ctx.path === "/mcp/token") {
-                if (await rateLimit("mcpToken")) {
-                    throw tooManyRequests("MCP_TOKEN_RATE_LIMITED")
-                }
-                return
-            }
-
-            if (ctx.path === "/oauth2/consent") {
-                if (await rateLimit("mcpOAuth")) {
-                    throw tooManyRequests("MCP_CONSENT_RATE_LIMITED")
-                }
-                return
-            }
+            const resolveSession = async () => ctx.context.session ?? await getSessionFromCtx(ctx)
+            await mcpOAuthBeforeHook(ctx, resolveSession)
+            await organizationBeforeHook(ctx, resolveSession)
 
             // Credential sign-in: throttle by client IP and by submitted email
             // (mirrors the sign-up guard in databaseHooks.user.create).
@@ -476,6 +478,10 @@ export const auth = betterAuth({
                     throw tooManyRequests("TWO_FACTOR_RATE_LIMITED")
                 }
             }
+        }),
+        after: createAuthMiddleware(async (ctx) => {
+            await twoFactorSessionAfterHook(ctx)
+            await organizationAfterHook(ctx)
         }),
     },
 

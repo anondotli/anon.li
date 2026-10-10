@@ -10,10 +10,10 @@ const logger = createLogger("DomainsError")
 
 export default function Error({
     error,
-    reset,
+    retry,
 }: {
     error: Error & { digest?: string }
-    reset: () => void
+    retry: () => void
 }) {
     useEffect(() => {
         logger.error("Unhandled error", error)
@@ -34,7 +34,7 @@ export default function Error({
                 </div>
 
                 <div className="flex gap-3 justify-center">
-                    <Button onClick={reset} size="sm" className="gap-2">
+                    <Button onClick={retry} size="sm" className="gap-2">
                         <RefreshCw className="h-4 w-4" />
                         Try again
                     </Button>

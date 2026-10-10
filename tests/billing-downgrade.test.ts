@@ -3,6 +3,7 @@
  * @vitest-environment node
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { Prisma } from "@prisma/client";
 
 const mockDeleteObject = vi.hoisted(() => vi.fn());
 const mockDeleteDropFilesAndReleaseQuota = vi.hoisted(() => vi.fn());
@@ -38,9 +39,18 @@ vi.mock("@/lib/prisma", () => {
             findMany: vi.fn(),
             updateMany: vi.fn(),
         },
+        aliasRecipient: {
+            findMany: vi.fn().mockResolvedValue([]),
+            createMany: vi.fn().mockResolvedValue({ count: 0 }),
+            updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+        },
+        subscription: {
+            count: vi.fn().mockResolvedValue(0),
+        },
         orphanedFile: {
             create: vi.fn(),
         },
+        $executeRaw: vi.fn().mockResolvedValue(0),
         // Batch transaction: execute all operations and return results
         $transaction: vi.fn(async (arg: unknown) => {
             if (Array.isArray(arg)) {
@@ -584,6 +594,320 @@ describe("BillingDowngradeService", () => {
             const result = await BillingDowngradeService.processDeletionBatch();
 
             expect(result.processed).toBeGreaterThanOrEqual(0);
+        });
+    });
+
+    describe("billing-loss drop grace", () => {
+        const mockDropUpdateMany = prisma.drop.updateMany as Mock;
+        const mockExecuteRaw = (prisma as unknown as { $executeRaw: Mock }).$executeRaw;
+
+        it("stamps only unlimited standalone drops and records the grace marker", async () => {
+            mockDropUpdateMany.mockResolvedValue({ count: 2 });
+            mockUserUpdateMany.mockResolvedValue({ count: 1 });
+
+            const expiry = await BillingDowngradeService.handlePersonalSubscriptionLoss("user_1", null, { notify: false });
+
+            expect(mockDropUpdateMany).toHaveBeenCalledWith({
+                where: {
+                    userId: "user_1",
+                    organizationId: null,
+                    expiresAt: null,
+                    deletedAt: null,
+                    formSubmission: null,
+                    formStagingId: null,
+                    uploadTokens: { none: { formId: { not: null } } },
+                },
+                data: { expiresAt: expiry, billingGraceExpiresAt: expiry },
+            });
+            expect(mockUserUpdateMany).toHaveBeenCalledWith({
+                where: { id: "user_1", downgradedAt: null },
+                data: { downgradedAt: expect.any(Date) },
+            });
+        });
+
+        it("notifies only when asked to", async () => {
+            const resend = await import("@/lib/resend");
+            mockDropUpdateMany.mockResolvedValue({ count: 0 });
+            mockUserUpdateMany.mockResolvedValue({ count: 1 });
+            mockAliasCount.mockResolvedValue(0);
+            mockDomainCount.mockResolvedValue(0);
+            mockRecipientCount.mockResolvedValue(0);
+
+            await BillingDowngradeService.handlePersonalSubscriptionLoss("user_1", "u@example.com", { notify: false });
+            expect(resend.sendSubscriptionCanceledEmail).not.toHaveBeenCalled();
+
+            await BillingDowngradeService.handlePersonalSubscriptionLoss("user_1", "u@example.com", { notify: true });
+            expect(resend.sendSubscriptionCanceledEmail).toHaveBeenCalledWith("u@example.com", expect.any(Date));
+        });
+
+        function executedSql() {
+            const [strings, ...values] = mockExecuteRaw.mock.calls[0]!;
+            return Prisma.sql(strings as string[], ...(values as unknown[]));
+        }
+
+        function setupCancel() {
+            mockUserFindUnique.mockResolvedValue({ referralPlusUntil: null, subscriptions: [] });
+            mockUserUpdate.mockResolvedValue({});
+            mockAliasUpdateMany.mockResolvedValue({ count: 0 });
+            mockDomainUpdateMany.mockResolvedValue({ count: 0 });
+            mockRecipientUpdateMany.mockResolvedValue({ count: 0 });
+            mockExecuteRaw.mockResolvedValue(3);
+        }
+
+        it("restores grace-stamped drops to unlimited when the plan allows no expiry", async () => {
+            setupCancel();
+            mockGetDropLimitsImpl.mockReturnValue({ maxStorage: 1, maxExpiry: -1, downloadLimits: true, features: {} });
+
+            await BillingDowngradeService.cancelDowngrade("user_1");
+
+            expect(mockExecuteRaw).toHaveBeenCalledTimes(1);
+            const sql = executedSql();
+            // Only un-stamp an expiry that is still the stamped grace value,
+            // scoped to the user's personal, non-Form drops.
+            expect(sql.sql).toContain('WHEN "expiresAt" = "billing_grace_expires_at" THEN NULL');
+            expect(sql.sql).toContain('"billing_grace_expires_at" = NULL');
+            expect(sql.sql).toContain('"organizationId" IS NULL');
+            expect(sql.sql).toContain('"form_staging_id" IS NULL');
+            expect(sql.sql).toContain('"form_submissions"');
+            expect(sql.values).toEqual(["user_1"]);
+        });
+
+        it("restores only up to the current plan's longest expiry when it has no unlimited option", async () => {
+            setupCancel();
+            mockGetDropLimitsImpl.mockReturnValue({ maxStorage: 1, maxExpiry: 30, downloadLimits: true, features: {} });
+
+            await BillingDowngradeService.cancelDowngrade("user_1");
+
+            const sql = executedSql();
+            expect(sql.sql).toMatch(/SET "expiresAt" = CASE\s+WHEN "expiresAt" = "billing_grace_expires_at" THEN GREATEST\("expiresAt",/);
+            const restoredTo = sql.values.find((v): v is Date => v instanceof Date)!;
+            const days = (restoredTo.getTime() - Date.now()) / 86400000;
+            expect(days).toBeGreaterThan(29.9);
+            expect(days).toBeLessThanOrEqual(30);
+            // Uses the user's current entitlement (subscriptions + referral Plus).
+            expect(mockGetDropLimitsImpl).toHaveBeenCalledWith({ referralPlusUntil: null, subscriptions: [] });
+        });
+
+        it("re-arms the expiry warning for restored drops", async () => {
+            setupCancel();
+
+            await BillingDowngradeService.cancelDowngrade("user_1");
+
+            expect(executedSql().sql).toMatch(/"expiryNotifiedAt" = CASE\s+WHEN "expiresAt" = "billing_grace_expires_at" THEN NULL/);
+        });
+
+        it("checks for an entitling personal subscription within the access grace", async () => {
+            const mockSubscriptionCount = (prisma as unknown as { subscription: { count: Mock } }).subscription.count;
+            mockSubscriptionCount.mockResolvedValueOnce(1);
+
+            await expect(BillingDowngradeService.hasActivePersonalSubscription("user_1")).resolves.toBe(true);
+            expect(mockSubscriptionCount).toHaveBeenCalledWith({
+                where: expect.objectContaining({
+                    userId: "user_1",
+                    organizationId: null,
+                    status: { in: ["active", "trialing"] },
+                }),
+            });
+        });
+    });
+
+    describe("referral Plus during downgrade", () => {
+        it("resolves excess against the user's current entitlement (referral Plus included)", async () => {
+            const referralUser = { referralPlusUntil: new Date(Date.now() + 86400000), subscriptions: [] };
+            mockUserFindUnique.mockResolvedValue(referralUser);
+            mockGetPlanLimitsImpl.mockReturnValue({ random: 100, custom: 10, domains: 1, apiRequests: 0, recipients: 5 });
+            mockAliasCount.mockResolvedValueOnce(15).mockResolvedValueOnce(3);
+            mockDomainCount.mockResolvedValue(1);
+            mockRecipientCount.mockResolvedValue(4);
+
+            const excess = await BillingDowngradeService.calculateExcess("user_1");
+
+            expect(mockGetPlanLimitsImpl).toHaveBeenCalledWith(referralUser);
+            expect(excess).toEqual({ excessRandom: 0, excessCustom: 0, excessDomains: 0, excessRecipients: 0 });
+        });
+
+        it("does not schedule resources while referral Plus is active and keeps the downgrade marker", async () => {
+            mockUserFindUnique.mockResolvedValue({
+                id: "user_1",
+                email: "test@example.com",
+                downgradedAt: new Date(Date.now() - 30 * 86400000),
+                referralPlusUntil: new Date(Date.now() + 86400000),
+                subscriptions: [],
+            });
+            mockAliasCount.mockResolvedValue(0);
+            mockDomainCount.mockResolvedValue(0);
+            mockRecipientCount.mockResolvedValue(0);
+
+            await BillingDowngradeService.scheduleExcessForUser("user_1");
+
+            expect(mockAliasFindMany).not.toHaveBeenCalled();
+            expect(mockTransaction).not.toHaveBeenCalled();
+            expect(mockUserUpdate).not.toHaveBeenCalled();
+        });
+
+        it("excludes active referral Plus holders from the scheduling batch", async () => {
+            mockUserFindMany.mockResolvedValue([]);
+
+            await BillingDowngradeService.processSchedulingBatch();
+
+            expect(mockUserFindMany).toHaveBeenCalledWith(expect.objectContaining({
+                where: expect.objectContaining({
+                    OR: [
+                        { referralPlusUntil: null },
+                        { referralPlusUntil: { lte: expect.any(Date) } },
+                    ],
+                }),
+            }));
+        });
+    });
+
+    describe("deleteScheduledForUser alias integrity", () => {
+        const mockAliasRecipientFindMany = (prisma as unknown as { aliasRecipient: { findMany: Mock } }).aliasRecipient.findMany;
+        const mockAliasRecipientCreateMany = (prisma as unknown as { aliasRecipient: { createMany: Mock } }).aliasRecipient.createMany;
+        const mockAliasRecipientUpdateMany = (prisma as unknown as { aliasRecipient: { updateMany: Mock } }).aliasRecipient.updateMany;
+
+        function setupFreeUser() {
+            mockUserFindUnique
+                .mockResolvedValueOnce({ id: "user_1", email: "test@example.com", subscriptions: [], referralPlusUntil: null })
+                .mockResolvedValueOnce({ storageUsed: BigInt(0) });
+            mockAliasCount.mockResolvedValue(0);
+            mockAliasFindMany.mockResolvedValue([]);
+        }
+
+        it("deletes a removed domain's personal aliases in the same transaction", async () => {
+            setupFreeUser();
+            mockDomainCount.mockResolvedValue(1);
+            mockDomainFindMany.mockResolvedValue([{ id: "d_1", domain: "example.com" }]);
+            mockRecipientFindMany.mockResolvedValue([]);
+
+            await BillingDowngradeService.deleteScheduledForUser("user_1");
+
+            expect(mockAliasDeleteMany).toHaveBeenCalledWith({
+                where: { userId: "user_1", organizationId: null, domain: { in: ["example.com"] } },
+            });
+            expect(mockDomainDeleteMany).toHaveBeenCalledWith({ where: { id: { in: ["d_1"] } } });
+            const aliasDeleteOrder = mockAliasDeleteMany.mock.invocationCallOrder[0]!;
+            const domainDeleteOrder = mockDomainDeleteMany.mock.invocationCallOrder[0]!;
+            expect(aliasDeleteOrder).toBeLessThan(domainDeleteOrder);
+        });
+
+        it("repoints aliases routed to a deleted recipient before deleting it", async () => {
+            setupFreeUser();
+            mockDomainCount.mockResolvedValue(0);
+            mockDomainFindMany.mockResolvedValue([]);
+            mockRecipientFindMany
+                .mockResolvedValueOnce([
+                    { id: "rec_default", isDefault: true },
+                    { id: "rec_gone", isDefault: false },
+                    { id: "rec_kept", isDefault: false },
+                ])
+                .mockResolvedValueOnce([{ id: "rec_gone" }]); // scheduled
+            mockGetRecipientLimitImpl.mockReturnValue(2);
+            mockAliasRecipientFindMany
+                // Join rows to the deleted recipient
+                .mockResolvedValueOnce([
+                    { aliasId: "alias_only_gone", isPrimary: true },
+                    { aliasId: "alias_shared", isPrimary: true },
+                ])
+                // Surviving join rows of the affected aliases
+                .mockResolvedValueOnce([
+                    { id: "ar_shared_kept", aliasId: "alias_shared", isPrimary: false },
+                ]);
+
+            await BillingDowngradeService.deleteScheduledForUser("user_1");
+
+            // Alias left without recipients gets the default as its primary.
+            expect(mockAliasRecipientCreateMany).toHaveBeenCalledWith({
+                data: [{ aliasId: "alias_only_gone", recipientId: "rec_default", ordinal: 0, isPrimary: true }],
+                skipDuplicates: true,
+            });
+            // Alias that keeps another recipient promotes it to primary.
+            expect(mockAliasRecipientUpdateMany).toHaveBeenCalledWith({
+                where: { id: { in: ["ar_shared_kept"] } },
+                data: { isPrimary: true },
+            });
+            // Legacy single-recipient pointer is repointed.
+            expect(mockAliasUpdateMany).toHaveBeenCalledWith({
+                where: { recipientId: { in: ["rec_gone"] } },
+                data: { recipientId: "rec_default" },
+            });
+            expect(mockRecipientDeleteMany).toHaveBeenCalledWith({ where: { id: { in: ["rec_gone"] } } });
+            const reassignOrder = mockAliasRecipientCreateMany.mock.invocationCallOrder[0]!;
+            const deleteOrder = mockRecipientDeleteMany.mock.invocationCallOrder[0]!;
+            expect(reassignOrder).toBeLessThan(deleteOrder);
+        });
+    });
+
+    describe("dunning does not start the resource-deletion clock", () => {
+        const mockSubscriptionCount = (prisma as unknown as { subscription: { count: Mock } }).subscription.count;
+
+        it("does not schedule resources while a personal Stripe subscription is in dunning", async () => {
+            mockUserFindUnique.mockResolvedValue({
+                id: "user_1",
+                email: "test@example.com",
+                downgradedAt: new Date(Date.now() - 10 * 86400000),
+                referralPlusUntil: null,
+                subscriptions: [],
+            });
+            mockSubscriptionCount.mockResolvedValueOnce(1);
+
+            await BillingDowngradeService.scheduleExcessForUser("user_1");
+
+            expect(mockSubscriptionCount).toHaveBeenCalledWith({
+                where: {
+                    userId: "user_1",
+                    organizationId: null,
+                    provider: "stripe",
+                    status: "past_due",
+                    lossNotifiedAt: null,
+                },
+            });
+            expect(mockAliasFindMany).not.toHaveBeenCalled();
+            expect(mockTransaction).not.toHaveBeenCalled();
+            expect(mockUserUpdate).not.toHaveBeenCalled();
+        });
+
+        it("stops deferring once the dunning bound has passed", async () => {
+            await expect(
+                BillingDowngradeService.isInDunning("user_1", new Date(Date.now() - 90 * 86400000)),
+            ).resolves.toBe(false);
+            expect(mockSubscriptionCount).not.toHaveBeenCalled();
+        });
+
+        it("excludes users in dunning from the scheduling batch", async () => {
+            mockUserFindMany.mockResolvedValue([]);
+
+            await BillingDowngradeService.processSchedulingBatch();
+
+            const where = mockUserFindMany.mock.calls[0]![0].where;
+            expect(where.AND).toContainEqual({
+                OR: [
+                    { downgradedAt: { lte: expect.any(Date) } },
+                    {
+                        subscriptions: {
+                            none: { organizationId: null, provider: "stripe", status: "past_due", lossNotifiedAt: null },
+                        },
+                    },
+                ],
+            });
+        });
+
+        it("restarts the clock on the first terminal loss signal", async () => {
+            const mockDropUpdateMany = prisma.drop.updateMany as Mock;
+            mockDropUpdateMany.mockResolvedValue({ count: 0 });
+            mockUserUpdateMany.mockResolvedValue({ count: 1 });
+            mockAliasCount.mockResolvedValue(0);
+            mockDomainCount.mockResolvedValue(0);
+            mockRecipientCount.mockResolvedValue(0);
+
+            await BillingDowngradeService.handlePersonalSubscriptionLoss("user_1", "u@example.com", { notify: true });
+
+            // Unconditional (no downgradedAt: null guard): a marker set during
+            // dunning must not shorten the announced 7+7-day window.
+            expect(mockUserUpdateMany).toHaveBeenCalledWith({
+                where: { id: "user_1" },
+                data: { downgradedAt: expect.any(Date) },
+            });
         });
     });
 });

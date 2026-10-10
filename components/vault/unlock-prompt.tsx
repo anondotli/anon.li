@@ -84,6 +84,7 @@ export function UnlockPrompt() {
             <form onSubmit={onSubmit} className="mt-7 w-full space-y-4">
                 <VaultPasswordInput
                     id="vault-password"
+                    aria-label="Password"
                     autoComplete="current-password"
                     value={password}
                     onChange={(event) => setPassword(event.target.value)}

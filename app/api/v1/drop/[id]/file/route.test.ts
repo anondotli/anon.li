@@ -136,7 +136,10 @@ describe("POST /api/v1/drop/[id]/file validation", () => {
         const response = await POST(request, { params: Promise.resolve({ id: "drop-123" }) });
 
         expect(response.status).toBe(400);
-        expect((await response.json()).error).toBe("Invalid request body");
+        expect((await response.json()).error).toMatchObject({
+            message: "Invalid request body",
+            code: "VALIDATION_ERROR",
+        });
     });
 
     it("validates CSRF for session-authenticated file mutations", async () => {

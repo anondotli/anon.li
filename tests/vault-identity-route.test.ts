@@ -17,6 +17,10 @@ const { getVaultSession, enforceVaultRequestGuards, prisma } = vi.hoisted(() => 
             findUnique: vi.fn(),
             update: vi.fn(),
         },
+        organizationMemberKey: {
+            deleteMany: vi.fn(),
+        },
+        $transaction: vi.fn(async (ops: Promise<unknown>[]) => Promise.all(ops)),
     },
 }))
 
@@ -108,6 +112,34 @@ describe("POST /api/vault/identity (publish own identity keypair)", () => {
                 identityKeyGeneration: 3,
             },
         })
+    })
+})
+
+describe("POST /api/vault/identity — org member key invalidation", () => {
+    it("re-publishing the SAME public key (e.g. after a password change) keeps org grants", async () => {
+        getVaultSession.mockResolvedValue({ user: { id: "u1" } })
+        prisma.userSecurity.findUnique.mockResolvedValue({ id: VAULT_ID, vaultGeneration: 3, identityPublicKey: PUBKEY })
+        prisma.userSecurity.update.mockResolvedValue({})
+        const res = await POST(postReq(validPayload))
+        expect(res.status).toBe(200)
+        expect(prisma.userSecurity.update).toHaveBeenCalledOnce()
+        expect(prisma.organizationMemberKey.deleteMany).not.toHaveBeenCalled()
+        expect(prisma.$transaction).not.toHaveBeenCalled()
+    })
+
+    it("a CHANGED public key atomically drops grants sealed to the old key", async () => {
+        getVaultSession.mockResolvedValue({ user: { id: "u1" } })
+        prisma.userSecurity.findUnique.mockResolvedValue({
+            id: VAULT_ID,
+            vaultGeneration: 3,
+            identityPublicKey: "C".repeat(88),
+        })
+        prisma.userSecurity.update.mockResolvedValue({})
+        prisma.organizationMemberKey.deleteMany.mockResolvedValue({ count: 2 })
+        const res = await POST(postReq(validPayload))
+        expect(res.status).toBe(200)
+        expect(prisma.$transaction).toHaveBeenCalledOnce()
+        expect(prisma.organizationMemberKey.deleteMany).toHaveBeenCalledWith({ where: { userId: "u1" } })
     })
 })
 

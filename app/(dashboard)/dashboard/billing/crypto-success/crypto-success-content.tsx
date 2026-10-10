@@ -7,8 +7,10 @@ import { Button } from "@/components/ui/button"
 import { CheckCircle2, Clock, Loader2, XCircle } from "lucide-react"
 import {
     isInternalCryptoFailureStatus,
+    isInternalCryptoReviewStatus,
     isNowPaymentsPaymentStatus,
     type InternalCryptoFailureStatus,
+    type InternalCryptoReviewStatus,
     type NowPaymentsPaymentStatus,
 } from "@/lib/crypto-payment-status"
 
@@ -16,7 +18,11 @@ interface CryptoSuccessContentProps {
     orderId: string
 }
 
-type PaymentStatus = NowPaymentsPaymentStatus | InternalCryptoFailureStatus | "unknown"
+type PaymentStatus =
+    | NowPaymentsPaymentStatus
+    | InternalCryptoFailureStatus
+    | InternalCryptoReviewStatus
+    | "unknown"
 
 const STATUS_STEPS: { key: PaymentStatus[]; label: string }[] = [
     { key: ["waiting", "partially_paid"], label: "Waiting for full payment" },
@@ -48,10 +54,13 @@ export function CryptoSuccessContent({ orderId }: CryptoSuccessContentProps) {
 
     const error = isTerminalFailure(status)
     const success = isTerminalSuccess(status)
+    const underReview = isInternalCryptoReviewStatus(status)
 
     // Poll for payment status updates
     useEffect(() => {
-        if (isTerminalSuccess(status) || isTerminalFailure(status)) return
+        // A held payment is resolved by support, not within this page visit;
+        // stop polling and let the billing page reflect the outcome.
+        if (isTerminalSuccess(status) || isTerminalFailure(status) || isInternalCryptoReviewStatus(status)) return
 
         let cancelled = false
 
@@ -64,7 +73,11 @@ export function CryptoSuccessContent({ orderId }: CryptoSuccessContentProps) {
                     ? data.status
                     : null
                 if (cancelled) return
-                if (isNowPaymentsPaymentStatus(nextStatus) || isInternalCryptoFailureStatus(nextStatus)) {
+                if (
+                    isNowPaymentsPaymentStatus(nextStatus)
+                    || isInternalCryptoFailureStatus(nextStatus)
+                    || isInternalCryptoReviewStatus(nextStatus)
+                ) {
                     setStatus(nextStatus)
                 } else {
                     setStatus("unknown")
@@ -93,6 +106,27 @@ export function CryptoSuccessContent({ orderId }: CryptoSuccessContentProps) {
     }, [success, router])
 
     const currentStep = useMemo(() => getStepIndex(status), [status])
+
+    if (underReview) {
+        return (
+            <div className="flex items-center justify-center min-h-[60vh]">
+                <Card className="w-full max-w-md rounded-3xl">
+                    <CardContent className="p-8 text-center space-y-4">
+                        <Clock className="h-12 w-12 text-amber-500 mx-auto" />
+                        <h2 className="text-xl font-medium font-serif">Payment Under Review</h2>
+                        <p className="text-muted-foreground">
+                            We received your payment but need to review it before activating your plan. No
+                            action is needed: it will activate automatically once resolved, or support will
+                            contact you.
+                        </p>
+                        <Button onClick={() => router.push("/dashboard/billing")} className="w-full">
+                            Back to Billing
+                        </Button>
+                    </CardContent>
+                </Card>
+            </div>
+        )
+    }
 
     if (error) {
         return (

@@ -47,6 +47,11 @@ export interface SubmissionMeta {
     createdAt: string
     readAt: string | null
     hasAttachedDrop: boolean
+    /**
+     * Server-recorded attachment drop. The decrypted payload's dropId is
+     * respondent-controlled, so links are only built when the two match.
+     */
+    attachedDropId?: string | null
 }
 
 interface AttachmentFile {
@@ -72,12 +77,18 @@ export interface DecryptedSubmission {
     attachments: DecryptedAttachments | null
 }
 
+// Answer strings are bounded by the server's ~5MB ciphertext cap rather than a
+// per-field limit: older forms (and API submitters) could send text longer than
+// the builder's defaults, and one long answer must not make the whole
+// submission unreadable for the owner.
+const MAX_ANSWER_STRING_LENGTH = 5 * 1024 * 1024
+
 const AnswerValueSchema = z.union([
-    z.string().max(50_000),
+    z.string().max(MAX_ANSWER_STRING_LENGTH),
     z.number().finite(),
     z.boolean(),
     z.null(),
-    z.array(z.string().max(50_000)).max(100),
+    z.array(z.string().max(MAX_ANSWER_STRING_LENGTH)).max(100),
     z
         .object({
             line1: z.string().max(200).optional(),

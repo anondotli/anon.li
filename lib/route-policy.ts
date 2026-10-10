@@ -51,6 +51,7 @@ const logger = createLogger("RoutePolicy")
 // org scope (so reads/writes are org-scoped) with the "member" role — enough for
 // resource CRUD (ownerWhere is role-agnostic) but unable to satisfy any
 // minRole-gated org operation. Broaden later via an explicit per-key scope.
+// validateApiKey only returns an org key while its creator is still a member.
 const ORG_API_KEY_ROLE: OrgRole = "member"
 
 // ─── Policy definition ─────────────────────────────────────────────────────
@@ -130,7 +131,37 @@ async function applyPolicyRateLimit<TRouteContext>(
     const identifier = await resolveRateLimitIdentifier(policy, ctx, routeContext)
     if (!identifier) return null
 
-    return rateLimit(policy.rateLimit, identifier)
+    const limited = await rateLimit(policy.rateLimit, identifier)
+    return limited ? toPolicyRateLimitResponse(limited, ctx.requestId) : null
+}
+
+const PER_REQUEST_LIMIT_HEADERS = ["X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset", "Retry-After"]
+
+/**
+ * lib/rate-limit.ts returns a legacy `{ error: string, message, retryAfter }`
+ * body. Re-shape it into the documented API error envelope
+ * (`{ error: { message, code }, meta: { request_id } }`), keeping its
+ * per-request rate-limit headers, plus X-Request-Id and no-store.
+ */
+function toPolicyRateLimitResponse(limited: Response, requestId: string): Response {
+    let response: Response
+    if (limited.status === 429) {
+        const resetMs = Number(limited.headers.get("X-RateLimit-Reset"))
+        response = apiRateLimitError(requestId, new Date(Number.isFinite(resetMs) && resetMs > 0 ? resetMs : Date.now()))
+    } else {
+        // Fail-closed limiter could not reach Redis (503).
+        response = apiError(
+            "We couldn't verify this request right now. Please try again shortly.",
+            ErrorCodes.SERVICE_UNAVAILABLE,
+            requestId,
+            limited.status,
+        )
+    }
+    for (const header of PER_REQUEST_LIMIT_HEADERS) {
+        const value = limited.headers.get(header)
+        if (value) response.headers.set(header, value)
+    }
+    return withNoStore(withApiHeaders(response, requestId))
 }
 
 function finalizePolicyResponse(
@@ -250,7 +281,16 @@ export function withPolicy<TRouteContext = void>(policy: RoutePolicy, handler: P
                 } else {
                     // Fall back to session
                     const session = await auth()
-                    if (!session?.user?.id) {
+                    // In optional mode, a session that can't pass the 2FA gates
+                    // (mid-challenge, or org requires 2FA it hasn't enrolled) is
+                    // treated as anonymous rather than rejected, so it can still
+                    // use the public flow (form submit / upload token) like any
+                    // signed-out visitor. It never gains authenticated identity.
+                    const sessionFailsTwoFactorGate = !!session?.user?.id && (
+                        (require2FA && requiresTwoFactorChallenge(session)) ||
+                        orgRequiresTwoFactorSetup(session)
+                    )
+                    if (!session?.user?.id || (policy.auth === "optional_api_key_or_session" && sessionFailsTwoFactorGate)) {
                         if (policy.auth === "optional_api_key_or_session") {
                             const ctx: PolicyContext = {
                                 requestId,

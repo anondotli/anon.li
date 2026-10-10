@@ -107,6 +107,9 @@ export const rateLimiters = {
   formSubmissionRead: createLimiter("ratelimit:form:submission:read", 300, "1 h"),
   stripeOps: createLimiter("ratelimit:stripe:ops", 10, "1 h"),
   profileUpdate: createLimiter("ratelimit:profile:update", 30, "1 h"),
+  // Revoking connected OAuth apps (MCP connectors) from Settings. Fails open:
+  // a Redis outage must not block a user cutting off a third-party app.
+  connectedAppRevoke: createLimiter("ratelimit:connected-app:revoke", 30, "1 h"),
   vaultBootstrap: createLimiter("ratelimit:vault:bootstrap", 5, "1 m"),
   vaultSetup: createLimiter("ratelimit:vault:setup", 5, "1 h"),
   vaultOps: createLimiter("ratelimit:vault:ops", 60, "1 h"),

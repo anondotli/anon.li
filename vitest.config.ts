@@ -14,7 +14,7 @@ export default defineConfig({
       '**/dist/**',
     ],
     alias: {
-      '@': path.resolve(__dirname, './'),
+      '@': path.resolve(import.meta.dirname, './'),
     },
   },
 })

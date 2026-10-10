@@ -115,12 +115,72 @@ describe("FormCleanupService retention safety", () => {
             ...personalForm(),
             user: {
                 downgradedAt: null,
-                subscriptions: [{ currentPeriodEnd: new Date(Date.now() - 2 * DAY_MS) }],
+                subscriptions: [{
+                    currentPeriodEnd: new Date(Date.now() - 2 * DAY_MS),
+                    status: "active",
+                    provider: "stripe",
+                    tier: "plus",
+                    lossNotifiedAt: null,
+                }],
             },
         }])
 
         await FormCleanupService.cleanupExpiredSubmissions()
         expect(submissionDelete).not.toHaveBeenCalled()
+    })
+
+    describe("users in dunning keep their paid retention", () => {
+        function dunningForm(opts: { downgradedDaysAgo: number; lossNotifiedAt?: Date | null; organizationId?: string | null }) {
+            return {
+                ...personalForm(new Date(Date.now() - opts.downgradedDaysAgo * DAY_MS)),
+                organizationId: opts.organizationId ?? null,
+                organization: opts.organizationId ? { formRetentionGraceUntil: new Date(Date.now() - DAY_MS) } : null,
+                user: {
+                    downgradedAt: new Date(Date.now() - opts.downgradedDaysAgo * DAY_MS),
+                    subscriptions: [{
+                        currentPeriodEnd: new Date(Date.now() + 20 * DAY_MS),
+                        status: "past_due",
+                        provider: "stripe",
+                        tier: "plus",
+                        lossNotifiedAt: opts.lossNotifiedAt ?? null,
+                    }],
+                },
+            }
+        }
+
+        it("does not purge under free retention while Stripe is still retrying", async () => {
+            // 60-day-old response: past Free (30d), within Plus (90d).
+            formFindMany.mockResolvedValue([dunningForm({ downgradedDaysAgo: 20 })])
+
+            await FormCleanupService.cleanupExpiredSubmissions()
+            expect(submissionDelete).not.toHaveBeenCalled()
+        })
+
+        it("applies free retention once the terminal loss is recorded", async () => {
+            formFindMany.mockResolvedValue([dunningForm({ downgradedDaysAgo: 20, lossNotifiedAt: new Date() })])
+
+            await FormCleanupService.cleanupExpiredSubmissions()
+            expect(submissionDelete).toHaveBeenCalled()
+        })
+
+        it("stops protecting a row stuck in past_due beyond the dunning bound", async () => {
+            formFindMany.mockResolvedValue([dunningForm({ downgradedDaysAgo: 70 })])
+
+            await FormCleanupService.cleanupExpiredSubmissions()
+            expect(submissionDelete).toHaveBeenCalled()
+        })
+
+        it("never extends an org form's retention from its creator's personal billing", async () => {
+            formFindMany.mockResolvedValue([dunningForm({ downgradedDaysAgo: 20, organizationId: "org-1" })])
+            getFormOwnerEntitlements.mockResolvedValue({
+                limits: { retentionDays: 30 },
+                tiers: { form: "free", drop: "free" },
+                subscribed: false,
+            })
+
+            await FormCleanupService.cleanupExpiredSubmissions()
+            expect(submissionDelete).toHaveBeenCalled()
+        })
     })
 
     it("prunes content-free quota identifiers after ninety days", async () => {

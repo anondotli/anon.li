@@ -320,7 +320,12 @@ curl -X DELETE https://anon.li/api/v1/alias/cuid... \
 
 ```json
 {
-  "success": true
+  "data": {
+    "deleted": true
+  },
+  "meta": {
+    "request_id": "req_..."
+  }
 }
 ```
 
@@ -330,11 +335,35 @@ curl -X DELETE https://anon.li/api/v1/alias/cuid... \
 | :--- | :--- |
 | `400` | Bad Request - Invalid parameters |
 | `401` | Unauthorized - Invalid or missing API key |
-| `403` | Forbidden - Plan limit reached or domain not allowed |
+| `402` | Payment Required (`PAYMENT_REQUIRED`) - Plan limit reached (alias count, custom domains, recipients). `error.details.upgrade` names the limit and the suggested plan |
+| `403` | Forbidden - Domain not associated with your account, or alias creation is banned |
 | `404` | Not Found - Alias doesn't exist |
 | `409` | Conflict - Alias already exists |
 | `429` | Too Many Requests - Rate limit exceeded |
 | `500` | Internal Server Error |
+
+A plan-limit error looks like this:
+
+```json
+{
+  "error": {
+    "message": "Random alias limit reached (10). Upgrade to add more.",
+    "code": "PAYMENT_REQUIRED",
+    "details": {
+      "upgrade": {
+        "scope": "alias_random",
+        "currentTier": "free",
+        "suggestedTier": "plus",
+        "currentValue": 10,
+        "limitValue": 10
+      }
+    }
+  },
+  "meta": {
+    "request_id": "req_..."
+  }
+}
+```
 
 ## Rate Limits
 

@@ -71,6 +71,12 @@ const serverEnvSchema = z.object({
 
     // Cron Protection
     CRON_SECRET: secret("CRON_SECRET"),
+    // Set automatically by Vercel (production hostname, no scheme). The daily
+    // cron aggregator falls back to it when NEXT_PUBLIC_APP_URL is unset.
+    VERCEL_PROJECT_PRODUCTION_URL: z.preprocess(emptyToUndefined, z.string().trim().min(1).max(255).optional()),
+    // Vercel "Protection Bypass for Automation" secret. Lets /api/mcp fetch its
+    // own JWKS on previews behind Deployment Protection.
+    VERCEL_AUTOMATION_BYPASS_SECRET: optionalString,
 
     // Abuse Reporting
     IP_HASH_PEPPER: secret("IP_HASH_PEPPER"),

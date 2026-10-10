@@ -26,7 +26,7 @@ export async function addDomainAction(domain: string): Promise<ActionState> {
         { rateLimitKey: "domainOps" },
         async (_data, scope) => {
             await DomainService.createDomain(scope, domain)
-            revalidatePath("/dashboard/alias/domains")
+            revalidatePath("/dashboard/domains")
         }
     )
 }
@@ -36,7 +36,7 @@ export async function verifyDomainAction(domainId: string): Promise<ActionState<
         { rateLimitKey: "domainOps" },
         async (_data, scope) => {
             const result = await DomainService.verifyDomain(scope, domainId)
-            revalidatePath("/dashboard/alias/domains")
+            revalidatePath("/dashboard/domains")
             return result
         }
     )
@@ -47,7 +47,7 @@ export async function regenerateDkimAction(domainId: string): Promise<ActionStat
         { rateLimitKey: "domainOps" },
         async (_data, scope) => {
             await DomainService.regenerateDkim(scope, domainId)
-            revalidatePath("/dashboard/alias/domains")
+            revalidatePath("/dashboard/domains")
         }
     )
 }
@@ -57,7 +57,7 @@ export async function deleteDomainAction(domainId: string): Promise<ActionState>
         { rateLimitKey: "domainOps" },
         async (_data, scope) => {
             await DomainService.deleteDomain(scope, domainId)
-            revalidatePath("/dashboard/alias/domains")
+            revalidatePath("/dashboard/domains")
         }
     )
 }

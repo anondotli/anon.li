@@ -75,8 +75,9 @@ export const QuestionFrame = forwardRef<QuestionFrameHandle, Props>(function Que
     )
 
     const behavior = getFieldBehavior(field)
-    // Optional auto-advance questions still need an explicit way to skip them.
-    const showOk = !behavior.autoAdvances || !field.required
+    // Optional auto-advance questions still need an explicit way to skip them,
+    // and the last question never auto-advances, so it always shows Submit.
+    const showOk = !behavior.autoAdvances || !field.required || isLast
     const padded = String(index).padStart(String(total).length, "0")
     const spotlight = presentation === "spotlight"
     const helpId = field.helpText ? `${field.id}-help` : null
@@ -125,7 +126,9 @@ export const QuestionFrame = forwardRef<QuestionFrameHandle, Props>(function Que
                     field={field}
                     value={value}
                     onChange={onChange}
-                    onAdvance={onAdvance}
+                    // Picking a choice on the last question must not submit the
+                    // form by itself; the respondent confirms with Submit.
+                    onAdvance={isLast && behavior.autoAdvances ? undefined : onAdvance}
                     presentation={presentation}
                     disabled={disabled}
                     autoFocus={spotlight}

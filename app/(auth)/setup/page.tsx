@@ -23,7 +23,9 @@ export default async function SetupPasswordPage({ searchParams }: SetupPageProps
     }
 
     if (session.user.twoFactorEnabled && !session.twoFactorVerified) {
-        redirect("/2fa")
+        // After 2FA, verifyTwoFactorLogin sends the user back through /setup
+        // (if the vault still needs it) and then on to this destination.
+        redirect(`/2fa?callbackUrl=${encodeURIComponent(callbackUrl)}`)
     }
 
     const [security, credentialAccount] = await Promise.all([

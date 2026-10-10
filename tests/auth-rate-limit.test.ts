@@ -17,6 +17,7 @@ type AuthBeforeHook = (ctx: AuthHookContext) => Promise<void>
 
 const harness = vi.hoisted(() => ({
     authOptions: null as unknown,
+    mcpOptions: null as unknown,
     getSessionFromCtx: vi.fn(async (): Promise<{ user: { id: string } } | null> => null),
     rateLimit: vi.fn(async (_type: string, _identifier?: string): Promise<Response | null> => null),
 }))
@@ -35,9 +36,28 @@ vi.mock("better-auth/adapters/prisma", () => ({
 vi.mock("better-auth/plugins", () => ({
     captcha: vi.fn(() => ({ id: "captcha" })),
     magicLink: vi.fn(() => ({ id: "magic-link" })),
-    mcp: vi.fn(() => ({ id: "mcp" })),
+    jwt: vi.fn(() => ({ id: "jwt" })),
     organization: vi.fn(() => ({ id: "organization" })),
     twoFactor: vi.fn(() => ({ id: "two-factor" })),
+}))
+
+vi.mock("better-auth/next-js", () => ({
+    nextCookies: vi.fn(() => ({ id: "next-cookies" })),
+}))
+
+vi.mock("@better-auth/mcp", () => ({
+    mcp: vi.fn((options: unknown) => {
+        harness.mcpOptions = options
+        return { id: "mcp" }
+    }),
+}))
+
+vi.mock("@better-auth/cimd", () => ({
+    cimd: vi.fn(() => ({ id: "cimd" })),
+}))
+
+vi.mock("@better-auth/cimd/node", () => ({
+    fetchClientMetadataResource: vi.fn(),
 }))
 
 vi.mock("better-auth/api", () => ({
@@ -70,8 +90,16 @@ vi.mock("@/lib/services/audit", () => ({
     recordMemberRoleChanged: vi.fn(),
 }))
 vi.mock("@/lib/mcp/oauth-metadata", () => ({
-    MCP_DEFAULT_SCOPE: "anon.li:aliases",
     MCP_OAUTH_SCOPES: ["anon.li:aliases"],
+    getMcpIssuer: () => "https://anon.li",
+    getMcpResource: () => "https://anon.li/api/mcp",
+}))
+vi.mock("@/lib/auth-hooks", () => ({
+    mcpOAuthBeforeHook: vi.fn(async () => {}),
+    organizationBeforeHook: vi.fn(async () => {}),
+    organizationAfterHook: vi.fn(async () => {}),
+    twoFactorSessionAfterHook: vi.fn(async () => {}),
+    revokeOrganizationMemberAccess: vi.fn(async () => {}),
 }))
 vi.mock("@/lib/vault/personal-purge", () => ({
     purgePersonalVaultKeysOps: vi.fn(() => []),
@@ -198,6 +226,33 @@ describe("Better Auth endpoint rate limiting", () => {
         const target = identifierWithPrefix("orgInvite", "target:")
         expect(actor).not.toContain("inviter-user-id")
         expect(target).not.toContain("invitee@example.com")
+    })
+
+    it("registers nextCookies() as the last plugin and the MCP provider with CIMD", () => {
+        const options = harness.authOptions as { plugins: Array<{ id: string }> }
+        const ids = options.plugins.map((plugin) => plugin.id)
+        expect(ids.at(-1)).toBe("next-cookies")
+        expect(ids).toEqual(expect.arrayContaining(["jwt", "mcp", "cimd"]))
+    })
+
+    it("configures the MCP OAuth provider for the canonical resource with DCR kept open", () => {
+        expect(harness.mcpOptions).toEqual(expect.objectContaining({
+            resource: "https://anon.li/api/mcp",
+            consentPage: "/oauth/consent",
+            loginPage: "/oauth/consent",
+            allowDynamicClientRegistration: true,
+            allowUnauthenticatedClientRegistration: true,
+            enforcePerClientResources: false,
+            grantTypes: ["authorization_code", "refresh_token"],
+        }))
+    })
+
+    it("runs the OAuth and organization guards on every request", async () => {
+        const hooks = await import("@/lib/auth-hooks")
+        const ctx = hookContext("/oauth2/consent", { accept: true })
+        await beforeHook()(ctx)
+        expect(hooks.mcpOAuthBeforeHook).toHaveBeenCalledWith(ctx, expect.any(Function))
+        expect(hooks.organizationBeforeHook).toHaveBeenCalledWith(ctx, expect.any(Function))
     })
 
     it("keeps password, magic-link, and 2FA sign-in guards active", async () => {

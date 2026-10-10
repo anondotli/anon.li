@@ -15,6 +15,7 @@ interface TestRouteContext {
 
 interface TestPolicyContext {
     request: Request
+    requestId: string
 }
 
 type TestHandler = (
@@ -26,7 +27,7 @@ vi.mock("@/lib/route-policy", () => ({
     withPolicy: (_policy: unknown, handler: TestHandler) => (
         request: Request,
         routeContext: TestRouteContext,
-    ) => handler({ request }, routeContext),
+    ) => handler({ request, requestId: "req_test" }, routeContext),
 }))
 
 vi.mock("@/lib/prisma", () => ({
@@ -77,6 +78,24 @@ describe("POST /api/v1/drop/[id]/download", () => {
         resolveDownloadAccess.mockResolvedValue({ allowed: true, recipientId: "recipient-123" })
         consumeDownload.mockResolvedValue(true)
         getPresignedDownloadUrl.mockImplementation(async (key: string) => `https://r2.example/${key}`)
+    })
+
+    it("returns the documented v1 error envelope when the allowance is exhausted", async () => {
+        consumeDownload.mockResolvedValue(false)
+        const { POST } = await import("./route")
+        const response = await POST(
+            new Request("http://localhost/api/v1/drop/drop-123/download", {
+                method: "POST",
+                headers: { "X-Drop-Recipient": "recipient-secret" },
+            }),
+            { params: Promise.resolve({ id: "drop-123" }) },
+        )
+
+        expect(response.status).toBe(404)
+        await expect(response.json()).resolves.toEqual({
+            error: { message: "Download limit reached.", code: "NOT_FOUND" },
+            meta: { request_id: "req_test" },
+        })
     })
 
     it("presigns the entire batch before atomically consuming allowances", async () => {

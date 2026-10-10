@@ -118,8 +118,11 @@ export function DropList({ initialDrops, storage, onDropsChange, userTier }: Dro
     return new Map<string, ResolvedDropKeyMaterial>(resolvedKeys);
   }, [unwrapDropKey, unwrapOrgManagedKey]);
 
-  const decryptDrops = useCallback(async (dropsToDecrypt: DropData[]) => {
-    setLoading(true);
+  // Pure with respect to component state: the caller decides whether the
+  // result is still current before committing it.
+  const decryptDrops = useCallback(async (
+    dropsToDecrypt: DropData[],
+  ): Promise<{ drops: DropItem[]; failed: boolean }> => {
     try {
       const resolvedKeys = await resolveDropKeys(dropsToDecrypt);
 
@@ -164,26 +167,37 @@ export function DropList({ initialDrops, storage, onDropsChange, userTier }: Dro
         })
       );
 
-      setDrops(processedDrops);
+      return { drops: processedDrops, failed: false };
     } catch {
-      toast.error("Failed to load some drop details");
-      setDrops(dropsToDecrypt.map((drop) => ({
-        ...drop,
-        files: drop.files.map((file) => ({ ...file })),
-        keyString: null,
-        keyUnavailable: !drop.customKey,
-      })));
-    } finally {
-      setLoading(false);
+      return {
+        drops: dropsToDecrypt.map((drop) => ({
+          ...drop,
+          files: drop.files.map((file) => ({ ...file })),
+          keyString: null,
+          keyUnavailable: !drop.customKey,
+        })),
+        failed: true,
+      };
     }
   }, [resolveDropKeys]);
 
+  // Re-decrypt whenever the server list changes (e.g. router.refresh()). Only
+  // the very first pass shows the skeleton; later passes keep the current list
+  // (and any open dialog, such as one-time recipient links) on screen until the
+  // fresh list is ready. A superseded pass never overwrites a newer one.
   useEffect(() => {
+    let cancelled = false;
     const timer = window.setTimeout(() => {
-      void decryptDrops(initialDrops);
+      void decryptDrops(initialDrops).then(({ drops: processed, failed }) => {
+        if (cancelled) return;
+        if (failed) toast.error("Failed to load some drop details");
+        setDrops(processed);
+        setLoading(false);
+      });
     }, 0);
 
     return () => {
+      cancelled = true;
       window.clearTimeout(timer);
     };
   }, [initialDrops, decryptDrops]);
@@ -257,17 +271,15 @@ export function DropList({ initialDrops, storage, onDropsChange, userTier }: Dro
   const storageLimit = parseInt(storage.limit);
   const storagePercentage = storageLimit > 0 ? (storageUsed / storageLimit) * 100 : 0;
 
-  if (loading) {
-    return (
-      <div className="space-y-4">
-        <div className="h-8 bg-muted animate-pulse rounded" />
-        <div className="h-32 bg-muted animate-pulse rounded" />
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-6">
+      {loading ? (
+        <div className="space-y-4">
+          <div className="h-8 bg-muted animate-pulse rounded" />
+          <div className="h-32 bg-muted animate-pulse rounded" />
+        </div>
+      ) : (
+      <>
       {/* Storage meter */}
       <div className="p-4 bg-muted/50 rounded-lg space-y-2">
         <div className="flex justify-between text-sm">
@@ -456,8 +468,10 @@ export function DropList({ initialDrops, storage, onDropsChange, userTier }: Dro
           </Table>
         </div>
       )}
+      </>
+      )}
 
-      {/* Recipients & access dialog */}
+      {/* Recipients & access dialog — kept mounted across list refreshes */}
       <RecipientsDialog
         key={recipientsDrop?.id ?? "closed"}
         drop={recipientsDrop}

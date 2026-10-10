@@ -33,6 +33,126 @@ interface DecryptedFile {
     chunkCount: number;
 }
 
+/**
+ * Start every presigned R2 request immediately. Download-limited drops get
+ * short-lived URLs (LIMITED_DROP_PRESIGNED_URL_EXPIRES) that only need to
+ * *begin* before they expire; fetching them one after another would let later
+ * URLs lapse on slow links after the single allowance was already spent.
+ * Bodies may then be consumed in any order.
+ */
+function startAuthorizedFetches(
+    files: readonly DecryptedFile[],
+    downloadUrls: Record<string, string>,
+    signal: AbortSignal,
+): Map<string, Promise<Response>> {
+    const responses = new Map<string, Promise<Response>>();
+    for (const file of files) {
+        const downloadUrl = downloadUrls[file.id];
+        if (!downloadUrl) {
+            throw new Error(`Missing download URL for ${file.decryptedName}`);
+        }
+        const response = fetch(downloadUrl, {
+            credentials: "omit",
+            referrerPolicy: "no-referrer",
+            signal,
+        }).then((res) => {
+            if (!res.ok) throw new Error(`Failed to download ${file.decryptedName}`);
+            return res;
+        });
+        // Rejections are observed when each body is consumed; don't let an
+        // early failure surface as an unhandled rejection in the meantime.
+        response.catch(() => undefined);
+        responses.set(file.id, response);
+    }
+    return responses;
+}
+
+interface DirectoryPickerWindow extends Window {
+    showDirectoryPicker?: (options?: { mode?: "read" | "readwrite" }) => Promise<FileSystemDirectoryHandle>;
+}
+
+function isAbortError(error: unknown): boolean {
+    // DOMException is not an Error subclass in every runtime; match by name.
+    return typeof error === "object" && error !== null
+        && (error as { name?: unknown }).name === "AbortError";
+}
+
+async function directoryEntryExists(directory: FileSystemDirectoryHandle, name: string): Promise<boolean> {
+    try {
+        await directory.getFileHandle(name);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Let the recipient choose ONE folder and stream every file into it. Calling
+ * showSaveFilePicker once per file fails in Chromium after the first dialog
+ * because each picker needs its own user activation.
+ *
+ * Returns null when the user cancels, undefined when the API is unavailable or
+ * fails (callers fall back to per-file destinations). Existing files in the
+ * folder are never overwritten: colliding names get a numbered suffix.
+ */
+async function prepareDirectoryDestinations(
+    files: readonly DecryptedFile[],
+): Promise<Map<string, PreparedDownloadDestination> | null | undefined> {
+    const showDirectoryPicker = (window as DirectoryPickerWindow).showDirectoryPicker;
+    if (typeof showDirectoryPicker !== "function") return undefined;
+
+    let directory: FileSystemDirectoryHandle;
+    try {
+        directory = await showDirectoryPicker.call(window, { mode: "readwrite" });
+    } catch (error) {
+        return isAbortError(error) ? null : undefined;
+    }
+
+    const destinations = new Map<string, PreparedDownloadDestination>();
+    const createdNames: string[] = [];
+    try {
+        const usedNames = new Set<string>();
+        for (const file of files) {
+            const baseName = sanitizeDownloadFilename(file.decryptedName);
+            let name = uniqueArchivePath(baseName, usedNames);
+            while (await directoryEntryExists(directory, name)) {
+                // Every earlier candidate is in usedNames, so this yields the
+                // next numbered variant of the original name.
+                name = uniqueArchivePath(baseName, usedNames);
+            }
+            const handle = await directory.getFileHandle(name, { create: true });
+            createdNames.push(name);
+            const writer = (await handle.createWritable()).getWriter();
+            const createdName = name;
+            let settled = false;
+            destinations.set(file.id, {
+                kind: "file-system",
+                write: async (chunk) => {
+                    if (settled) throw new Error("Download destination is already closed");
+                    await writer.write(chunk);
+                },
+                complete: async () => {
+                    if (settled) return;
+                    settled = true;
+                    await writer.close();
+                },
+                abort: async (reason) => {
+                    if (settled) return;
+                    settled = true;
+                    await writer.abort(reason).catch(() => undefined);
+                    // Don't leave an empty placeholder file behind.
+                    await directory.removeEntry(createdName).catch(() => undefined);
+                },
+            });
+        }
+        return destinations;
+    } catch {
+        await Promise.allSettled(Array.from(destinations.values(), (destination) => destination.abort()));
+        await Promise.allSettled(createdNames.map((name) => directory.removeEntry(name)));
+        return undefined;
+    }
+}
+
 export interface DecryptedDrop {
     id: string;
     title: string | null;
@@ -72,6 +192,8 @@ export function useDropDownload({
 
     const [password, setPassword] = useState("");
     const [passwordError, setPasswordError] = useState<string | null>(null);
+    const [submittingPassword, setSubmittingPassword] = useState(false);
+    const passwordSubmitInFlightRef = useRef(false);
 
     const [downloading, setDownloading] = useState(false);
     const [downloadProgress, setDownloadProgress] = useState(0);
@@ -239,6 +361,11 @@ export function useDropDownload({
     // Handle password submission
     const submitPassword = useCallback(async () => {
         if (!rawDrop || !password) return;
+        // Argon2 derivation is deliberately expensive; ignore repeat submits
+        // instead of running parallel derivations.
+        if (passwordSubmitInFlightRef.current) return;
+        passwordSubmitInFlightRef.current = true;
+        setSubmittingPassword(true);
 
         setPasswordError(null);
 
@@ -257,6 +384,9 @@ export function useDropDownload({
             setKeyString(derivedKey);
         } catch {
             setPasswordError("Incorrect password");
+        } finally {
+            passwordSubmitInFlightRef.current = false;
+            setSubmittingPassword(false);
         }
     }, [rawDrop, password]);
 
@@ -349,6 +479,112 @@ export function useDropDownload({
         }
     }, [drop, keyString, dropId, recipientToken]);
 
+    // Globally capped drops and recipient links have an allowance that each
+    // per-file authorization spends; whole-drop downloads spend it once.
+    const isLimitedDrop = Boolean(drop && (drop.maxDownloads !== null || recipientToken !== null));
+
+    // Download every file as its own plaintext file under ONE whole-drop
+    // authorization. Used when the drop is too large for an in-browser ZIP.
+    const downloadAllSeparately = useCallback(async () => {
+        if (!drop || !keyString || drop.files.length === 0) return;
+        if (downloadInProgressRef.current) return;
+
+        downloadInProgressRef.current = true;
+        setDownloadError(null);
+        const destinations = new Map<string, PreparedDownloadDestination>();
+        const fetchController = new AbortController();
+
+        try {
+            // Prepare every destination before authorizing, so cancelling any
+            // save dialog costs nothing. Prefer one folder picker over a save
+            // dialog per file.
+            const directoryDestinations = await prepareDirectoryDestinations(drop.files);
+            if (directoryDestinations === null) return;
+            if (directoryDestinations) {
+                for (const [fileId, destination] of directoryDestinations) {
+                    destinations.set(fileId, destination);
+                }
+            } else {
+                const usedNames = new Set<string>();
+                let inMemoryBytes = 0;
+                for (const file of drop.files) {
+                    const filename = uniqueArchivePath(sanitizeDownloadFilename(file.decryptedName), usedNames);
+                    const destination = await prepareDownloadDestination(filename, file.size);
+                    if (!destination) {
+                        for (const prepared of destinations.values()) await prepared.abort();
+                        destinations.clear();
+                        return;
+                    }
+                    destinations.set(file.id, destination);
+                    // Each memory fallback is individually bounded, but the
+                    // batch holds all of them at once. Refuse before the single
+                    // allowance is spent rather than running out of memory.
+                    if (destination.kind === "memory") {
+                        inMemoryBytes += file.size;
+                        if (inMemoryBytes > MAX_IN_MEMORY_DOWNLOAD_SIZE) {
+                            throw new Error(
+                                "This browser cannot safely save these files without loading them all into memory. " +
+                                "Try a current browser with site storage enabled, then download again.",
+                            );
+                        }
+                    }
+                }
+            }
+
+            setDownloading(true);
+            setDownloadProgress(0);
+            setCurrentFile("Preparing download...");
+
+            const downloadUrls = await recordDownload(dropId, recipientToken ?? undefined);
+            const responses = startAuthorizedFetches(drop.files, downloadUrls, fetchController.signal);
+
+            const key = await cryptoService.importKey(keyString);
+            const totalSize = drop.files.reduce((sum, f) => sum + f.size, 0);
+            let receivedLength = 0;
+            setCurrentFile(`Downloading ${drop.files.length} files...`);
+
+            // Drain every body concurrently so no started transfer stalls
+            // behind another file while its connection sits idle.
+            await Promise.all(drop.files.map(async (file) => {
+                const destination = destinations.get(file.id)!;
+                const response = await responses.get(file.id)!;
+                if (!response.body) throw new Error("ReadableStream not supported in this browser");
+
+                const iv = new Uint8Array(cryptoService.base64UrlToArrayBuffer(file.iv));
+                const reader = response.body
+                    .pipeThrough(cryptoService.createDecryptionStream(key, iv, file.chunkSize, {
+                        encryptedSize: file.encryptedSize,
+                        chunkCount: file.chunkCount,
+                    }))
+                    .getReader();
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    await destination.write(value);
+                    receivedLength += value.length;
+                    setDownloadProgress(Math.min(99, Math.round((receivedLength / totalSize) * 100)));
+                }
+
+                await destination.complete();
+                destinations.delete(file.id);
+            }));
+
+            setDownloadProgress(100);
+        } catch (err) {
+            fetchController.abort();
+            await Promise.allSettled(
+                Array.from(destinations.values(), (destination) => destination.abort(err)),
+            );
+            setDownloadError(err instanceof Error ? err.message : "Download failed");
+        } finally {
+            downloadInProgressRef.current = false;
+            setDownloading(false);
+            setCurrentFile(null);
+            setDownloadProgress(0);
+        }
+    }, [drop, keyString, dropId, recipientToken]);
+
     // Download all files as ZIP
     const downloadAll = useCallback(async () => {
         if (!drop || !keyString || drop.files.length === 0) return;
@@ -362,14 +598,18 @@ export function useDropDownload({
 
         const totalSize = drop.files.reduce((sum, f) => sum + f.size, 0);
 
-        // Check size limit
+        // Too large for an in-browser ZIP. Download-limited drops still need a
+        // single whole-drop authorization (per-file downloads would each spend
+        // the allowance), so save every file separately from one batch grant.
         if (totalSize > MAX_SAFE_ZIP_SIZE) {
+            if (isLimitedDrop) return downloadAllSeparately();
             return;
         }
 
         downloadInProgressRef.current = true;
         setDownloadError(null);
         let destination: PreparedDownloadDestination | null = null;
+        const fetchController = new AbortController();
 
         try {
             const safeTitle = drop.title
@@ -386,6 +626,7 @@ export function useDropDownload({
 
             // Record download and get signed URLs
             const downloadUrls = await recordDownload(dropId, recipientToken ?? undefined);
+            const responses = startAuthorizedFetches(drop.files, downloadUrls, fetchController.signal);
 
             const key = await cryptoService.importKey(keyString);
             const zipFiles: { [key: string]: Uint8Array } = {};
@@ -395,23 +636,13 @@ export function useDropDownload({
                 const file = drop.files[i];
                 if (!file) continue;
 
-                const downloadUrl = downloadUrls[file.id];
-
-                if (!downloadUrl) {
-                    throw new Error(`Missing download URL for ${file.decryptedName}`);
-                }
-
                 setCurrentFile(`Downloading ${file.decryptedName}...`);
                 setDownloadProgress(Math.round((i / drop.files.length) * 80));
 
                 const iv = new Uint8Array(cryptoService.base64UrlToArrayBuffer(file.iv));
 
-                // Fetch and decrypt
-                const response = await fetch(downloadUrl, {
-                    credentials: "omit",
-                    referrerPolicy: "no-referrer",
-                });
-                if (!response.ok) throw new Error(`Failed to download ${file.decryptedName}`);
+                // Read this file's (already started) response, then decrypt
+                const response = await responses.get(file.id)!;
 
                 const encryptedData = await response.arrayBuffer();
                 if (encryptedData.byteLength !== file.encryptedSize) {
@@ -465,6 +696,7 @@ export function useDropDownload({
             setDownloadProgress(100);
 
         } catch (err) {
+            fetchController.abort();
             await destination?.abort(err);
             setDownloadError(err instanceof Error ? err.message : "Failed to create ZIP");
         } finally {
@@ -473,7 +705,7 @@ export function useDropDownload({
             setCurrentFile(null);
             setDownloadProgress(0);
         }
-    }, [drop, keyString, downloadFile, dropId, recipientToken]);
+    }, [drop, keyString, downloadFile, dropId, recipientToken, isLimitedDrop, downloadAllSeparately]);
 
     // Utility functions
     const getTotalSize = useCallback(() => {
@@ -512,6 +744,7 @@ export function useDropDownload({
         setPassword,
         passwordError,
         submitPassword,
+        submittingPassword,
 
         // Download state
         downloading,
@@ -526,6 +759,10 @@ export function useDropDownload({
         // Utilities
         getTotalSize,
         canDownloadAsZip: canDownloadAsZip(),
+        // Limited drops too large to ZIP can still be fetched whole (as
+        // separate files) under one download authorization.
+        canDownloadAllSeparately: isLimitedDrop && !canDownloadAsZip(),
+        isLimitedDrop,
         formatBytes,
     };
 }

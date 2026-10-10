@@ -1,5 +1,5 @@
 import { z } from "zod"
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
+import type { McpServer } from "@modelcontextprotocol/server"
 import { FormService } from "@/lib/services/form"
 import { invokeTool, toolResult } from "@/lib/mcp/invoke"
 import { personalScope } from "@/lib/ownership"
@@ -19,13 +19,13 @@ export function registerFormTools(server: McpServer, session: McpSession) {
                 readOnlyHint: true,
                 openWorldHint: false,
             },
-            inputSchema: {
+            inputSchema: z.object({
                 limit: z.number().int().min(1).max(100).default(50)
                     .describe("Maximum number of forms to return (1-100, default 50)"),
                 offset: z.number().int().min(0).default(0)
                     .describe("Number of forms to skip, for pagination (default 0)"),
-            },
-            outputSchema: {
+            }),
+            outputSchema: z.object({
                 total: z.number(),
                 forms: z.array(z.object({
                     id: z.string(),
@@ -43,7 +43,7 @@ export function registerFormTools(server: McpServer, session: McpSession) {
                     created_at: z.string(),
                     updated_at: z.string(),
                 })),
-            },
+            }),
         },
         async ({ limit, offset }) => invokeTool(session, { scope: "anon.li:forms", quota: "form", rateLimit: "formList" }, async (user) => {
             const { forms, total } = await FormService.listForms(personalScope(user.id), { limit, offset })
@@ -81,13 +81,13 @@ export function registerFormTools(server: McpServer, session: McpSession) {
                 idempotentHint: false,
                 openWorldHint: false,
             },
-            inputSchema: {
+            inputSchema: z.object({
                 id: formId,
-            },
-            outputSchema: {
+            }),
+            outputSchema: z.object({
                 id: z.string(),
                 disabled: z.boolean(),
-            },
+            }),
         },
         async ({ id }) => invokeTool(session, { scope: "anon.li:forms", quota: "form", rateLimit: "formOps" }, async (user) => {
             const disabled = await FormService.toggleForm(id, personalScope(user.id))
@@ -107,13 +107,13 @@ export function registerFormTools(server: McpServer, session: McpSession) {
                 idempotentHint: true,
                 openWorldHint: false,
             },
-            inputSchema: {
+            inputSchema: z.object({
                 id: formId,
-            },
-            outputSchema: {
+            }),
+            outputSchema: z.object({
                 deleted: z.boolean(),
                 id: z.string(),
-            },
+            }),
         },
         async ({ id }) => invokeTool(session, { scope: "anon.li:forms", quota: "form", rateLimit: "formOps" }, async (user) => {
             await FormService.deleteForm(id, personalScope(user.id))

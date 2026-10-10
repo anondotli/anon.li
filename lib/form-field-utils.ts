@@ -30,6 +30,8 @@ export function convertField(
             label: field.label || "Untitled question",
             required: field.required,
             helpText: field.helpText,
+            // Keep the question's own visibility rule across a type change.
+            ...(field.visibleWhen ? { visibleWhen: field.visibleWhen } : {}),
         },
         maxFileSizeLimit,
     )
@@ -37,7 +39,7 @@ export function convertField(
 
 function fieldForType(
     type: FormFieldType,
-    base: Pick<FormField, "id" | "label" | "required" | "helpText">,
+    base: Pick<FormField, "id" | "label" | "required" | "helpText" | "visibleWhen">,
     maxFileSizeLimit?: number,
 ): FormField {
     switch (type) {

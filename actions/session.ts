@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma"
 import { runSecureAction, type ActionState } from "@/lib/safe-action"
 import { revalidatePath } from "next/cache"
 import { createLogger } from "@/lib/logger"
-import { cookies, headers } from "next/headers"
+import { headers } from "next/headers"
 import { auth } from "@/lib/auth"
 import { getTurnstileError } from "@/lib/turnstile"
 import { normalizeEmail } from "@/lib/vault/server"
@@ -76,13 +76,19 @@ export async function revokeAllOtherSessionsAction(): Promise<ActionState> {
     return runSecureAction(
         { rateLimitKey: "auth" },
         async (_data, userId) => {
-            const cookieStore = await cookies()
-            const currentToken = cookieStore.get("better-auth.session_token")?.value?.split(".")[0] ?? ""
+            // Resolve the current session through better-auth rather than reading
+            // the cookie by name: in production the cookie is
+            // `__Secure-better-auth.session_token`, and a missed lookup would
+            // exclude nothing and sign out THIS device too.
+            const current = await auth.api.getSession({ headers: await headers() })
+            if (!current?.session?.id || current.user.id !== userId) {
+                throw new Error("Could not resolve the current session")
+            }
 
             const result = await prisma.session.deleteMany({
                 where: {
                     userId,
-                    token: { not: currentToken },
+                    id: { not: current.session.id },
                 },
             })
 

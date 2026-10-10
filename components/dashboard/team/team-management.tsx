@@ -5,7 +5,7 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { authClient } from "@/lib/auth-client"
 import { useOptionalVault } from "@/components/vault/vault-provider"
-import { bootstrapOrgVault, rotateOrgVaultKey } from "@/lib/vault/org-vault-client"
+import { bootstrapOrgVault, ORG_KEY_REGRANT_REQUIRED_MESSAGE, ORG_KEY_UNRECOVERABLE_MESSAGE, rotateOrgVaultKey } from "@/lib/vault/org-vault-client"
 import { createTeamCheckoutSession } from "@/actions/create-team-checkout"
 import { createOrgPortalSession, updateOrgSeats } from "@/actions/manage-org-billing"
 import { BUSINESS_PLAN, BUSINESS_SEAT_PRICE, ENTERPRISE_PLAN } from "@/config/plans"
@@ -143,6 +143,12 @@ export function TeamManagement({ currentUserId, plan, seatLimit, keyRotationReco
         let cancelled = false
         void bootstrapOrgVault({ orgId, vaultKey, canManage: canManageForBootstrap })
             .then((res) => {
+                if (!cancelled && res.status === "regrant-required") {
+                    toast.warning(ORG_KEY_REGRANT_REQUIRED_MESSAGE)
+                }
+                if (!cancelled && res.status === "key-unrecoverable") {
+                    toast.error(ORG_KEY_UNRECOVERABLE_MESSAGE, { duration: Infinity })
+                }
                 if (!cancelled && res.grantedCount > 0) {
                     toast.success(`Shared the team key with ${res.grantedCount} member${res.grantedCount === 1 ? "" : "s"}`)
                 }

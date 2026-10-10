@@ -10,7 +10,13 @@ import {
 } from "@/lib/vault/crypto"
 import { persistTrustedBrowser, readVaultApiData } from "@/lib/vault/client"
 import { ensureIdentityKeypair } from "@/lib/vault/identity-keys-client"
-import { clearOrgVaultKeyCache, getOrgKeyAccessState, getOrgVaultKey } from "@/lib/vault/org-vault-client"
+import {
+    clearOrgVaultKeyCache,
+    getOrgKeyAccessState,
+    getOrgVaultKey,
+    ORG_KEY_REGRANT_REQUIRED_MESSAGE,
+    ORG_KEY_UNRECOVERABLE_MESSAGE,
+} from "@/lib/vault/org-vault-client"
 import { getVaultRuntime, setVaultRuntime, clearVaultRuntime } from "@/lib/vault/runtime"
 import { getVaultStorageSupport } from "@/lib/vault/storage-support"
 import {
@@ -226,8 +232,9 @@ function EnabledVaultProvider({ children }: { children: React.ReactNode }) {
             return false
         }
 
+        let status: { vaultId: string | null; vaultGeneration: number | null; hasVault: boolean }
         try {
-            const status = await withTimeout(
+            status = await withTimeout(
                 readVaultApiData<{
                     vaultId: string | null
                     vaultGeneration: number | null
@@ -236,22 +243,43 @@ function EnabledVaultProvider({ children }: { children: React.ReactNode }) {
                 TRUSTED_BROWSER_BOOTSTRAP_TIMEOUT_MS,
                 "Trusted browser validation timed out",
             )
+        } catch {
+            // Network failure, timeout, 429 or 5xx says nothing about whether the
+            // local trust is still valid. Lock this tab but keep the capsule so the
+            // next attempt (or another tab) can still auto-unlock.
+            setLockedState()
+            return false
+        }
 
-            if (!status.hasVault || status.vaultId !== capsule.vaultId || status.vaultGeneration !== capsule.vaultGeneration) {
-                await clearTrustedBrowserState()
-                setLockedState()
-                return false
-            }
+        // Definite mismatch: the server vault moved on (rotation / reset), so the
+        // capsule can never unlock again — discard it.
+        if (!status.hasVault || status.vaultId !== capsule.vaultId || status.vaultGeneration !== capsule.vaultGeneration) {
+            await clearTrustedBrowserState()
+            setLockedState()
+            return false
+        }
 
-            const vaultKey = await withTimeout(
+        let vaultKey: CryptoKey
+        try {
+            vaultKey = await withTimeout(
                 unwrapVaultKey(base64UrlToArrayBuffer(capsule.wrappedVaultKey), deviceKey),
                 TRUSTED_BROWSER_BOOTSTRAP_TIMEOUT_MS,
                 "Trusted browser unlock timed out",
             )
+        } catch (unwrapError) {
+            // A capsule that doesn't unwrap under this device key is corrupt;
+            // only a timeout is worth retrying later.
+            if (!(unwrapError instanceof TimeoutError)) {
+                await clearTrustedBrowserState()
+            }
+            setLockedState()
+            return false
+        }
+
+        try {
             await finishUnlock(vaultKey, capsule.vaultGeneration, capsule.vaultId)
             return true
         } catch {
-            await clearTrustedBrowserState()
             setLockedState()
             return false
         }
@@ -310,28 +338,22 @@ function EnabledVaultProvider({ children }: { children: React.ReactNode }) {
             }
 
             if (message.type === "SIGN_OUT") {
-                clearVaultRuntime()
-                setVaultGeneration(null)
-                setVaultId(null)
-                setStatus("locked")
-                setError(null)
+                setLockedState()
                 // The originating tab has revoked the session server-side; the
                 // session cookie in this tab is no longer valid. Hard-navigate
                 // to /login so the receiver doesn't sit on an authed-looking page
                 // with a locked vault until the next server roundtrip.
-                window.location.href = "/login"
+                window.location.replace("/login")
                 return
             }
 
             if (message.type === "VAULT_LOCKED") {
-                clearVaultRuntime()
-                setVaultGeneration(null)
-                setVaultId(null)
-                setStatus("locked")
-                setError(null)
+                // setLockedState also drops cached org vault keys, which would
+                // otherwise outlive the lock in this tab.
+                setLockedState()
             }
         })
-    }, [attemptTrustedBrowserUnlock, tabId])
+    }, [attemptTrustedBrowserUnlock, setLockedState, tabId])
 
     // Auto-lock when the login session expires.
     //
@@ -450,7 +472,11 @@ function EnabledVaultProvider({ children }: { children: React.ReactNode }) {
             throw new Error(
                 state === "no-identity"
                     ? "Your encryption identity isn't set up yet. Unlock your vault and try again in a moment."
-                    : "You don't have access to this team's encryption key yet. Ask a team admin to grant access.",
+                    : state === "regrant-required"
+                        ? ORG_KEY_REGRANT_REQUIRED_MESSAGE
+                        : state === "key-unrecoverable"
+                            ? ORG_KEY_UNRECOVERABLE_MESSAGE
+                            : "You don't have access to this team's encryption key yet. Ask a team admin to grant access.",
             )
         }
         return { wrappedKey: await wrapVaultManagedKey(rawKey, handle.key), orgKeyGeneration: handle.generation }
@@ -463,7 +489,14 @@ function EnabledVaultProvider({ children }: { children: React.ReactNode }) {
         }
         const handle = await getOrgVaultKey(organizationId, vaultKey)
         if (!handle) {
-            throw new Error("You don't have access to this team's encryption key yet. Ask a team admin to grant access.")
+            const state = await getOrgKeyAccessState(organizationId, vaultKey)
+            throw new Error(
+                state === "regrant-required"
+                    ? ORG_KEY_REGRANT_REQUIRED_MESSAGE
+                    : state === "key-unrecoverable"
+                        ? ORG_KEY_UNRECOVERABLE_MESSAGE
+                        : "You don't have access to this team's encryption key yet. Ask a team admin to grant access.",
+            )
         }
         return unwrapVaultManagedKey(wrappedKey, handle.key)
     }, [])

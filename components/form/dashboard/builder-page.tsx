@@ -203,17 +203,26 @@ export function FormBuilderPage({
         [editorMode, rawJson, schema, updateSchema, parseJsonDraft],
     )
 
+    // Returns the committed values too: the state setters below don't land
+    // until the next render, so a caller in the same tick (handleSave) must use
+    // these rather than its stale title/description/notify closure.
     const commitJsonDraft = useCallback(() => {
         const draft = parseJsonDraft(rawJson)
         if (!draft) return null
         const { parsed, suppliedTitle } = draft
+        const committed = {
+            schema: parsed,
+            title: suppliedTitle || title,
+            description: parsed.description ?? "",
+            notifyOnSubmission: parsed.notifyOnSubmission,
+        }
         setSchema(parsed)
         if (suppliedTitle) setTitle(suppliedTitle)
-        setDescription(parsed.description ?? "")
-        setNotifyOnSubmission(parsed.notifyOnSubmission)
+        setDescription(committed.description)
+        setNotifyOnSubmission(committed.notifyOnSubmission)
         setJsonError(null)
-        return parsed
-    }, [rawJson, parseJsonDraft])
+        return committed
+    }, [rawJson, parseJsonDraft, title])
 
     const handleEditorModeChange = (next: string) => {
         const nextMode = next as EditorMode
@@ -234,22 +243,24 @@ export function FormBuilderPage({
     const canSave = !disabled && title.trim().length > 0
 
     const handleSave = async () => {
-        // In JSON mode the draft holds the authoritative `notifyOnSubmission`
-        // (and title) value, and setNotifyOnSubmission hasn't landed by the time
-        // we read the closure below. Take it straight from the committed doc so
-        // the saved schema isn't reverted to the stale toggle value.
-        const committedSchema = editorMode === "json" ? commitJsonDraft() : schema
+        // In JSON mode the draft holds the authoritative title, description and
+        // `notifyOnSubmission`, and their setters haven't landed by the time we
+        // read the closure below. Take them straight from the committed draft so
+        // JSON-tab edits aren't reverted to the stale intro/toggle values.
+        const committed = editorMode === "json" ? commitJsonDraft() : null
+        if (editorMode === "json" && !committed) {
+            toast.error("Fix the JSON before saving")
+            return
+        }
 
         const input = buildFormInput({
-            title,
-            description,
-            schema: committedSchema,
+            title: committed?.title ?? title,
+            description: committed?.description ?? description,
+            schema: committed?.schema ?? schema,
             hideBranding,
             maxSubmissions,
             closesAt,
-            notifyOnSubmission: editorMode === "json"
-                ? (committedSchema?.notifyOnSubmission ?? notifyOnSubmission)
-                : notifyOnSubmission,
+            notifyOnSubmission: committed?.notifyOnSubmission ?? notifyOnSubmission,
             disabledByUser: !formActive,
             passwordEnabled,
             passwordPayload,
@@ -437,7 +448,15 @@ export function FormBuilderPage({
                         asChild
                         className="-ml-2 h-8 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
                     >
-                        <Link href="/dashboard/form">
+                        <Link
+                            href="/dashboard/form"
+                            onClick={(event) => {
+                                // beforeunload doesn't fire for client-side navigation.
+                                if (hasChanges && !window.confirm("You have unsaved changes. Leave without saving?")) {
+                                    event.preventDefault()
+                                }
+                            }}
+                        >
                             <ArrowLeft className="h-4 w-4" />
                             All forms
                         </Link>

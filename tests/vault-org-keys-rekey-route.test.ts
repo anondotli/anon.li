@@ -16,10 +16,12 @@ const { getVaultSession, enforceVaultRequestGuards, audit, prisma } = vi.hoisted
     audit: vi.fn(),
     prisma: {
         member: { findUnique: vi.fn(), findMany: vi.fn() },
-        organization: { updateMany: vi.fn() },
+        // findUnique: org vault policy lookup (enforce2FA / suspension) — no policy by default.
+        organization: { updateMany: vi.fn(), findUnique: vi.fn(async () => null) },
         organizationMemberKey: { upsert: vi.fn() },
         dropOwnerKey: { findMany: vi.fn(), updateMany: vi.fn() },
         formOwnerKey: { findMany: vi.fn(), updateMany: vi.fn() },
+        alias: { findMany: vi.fn(), updateMany: vi.fn() },
         $transaction: vi.fn(),
     },
 }))
@@ -30,7 +32,8 @@ vi.mock("@/lib/vault/http", () => ({ enforceVaultRequestGuards }))
 vi.mock("@/lib/vault/api", () => ({ logVaultError: vi.fn(), logVaultWarn: vi.fn() }))
 vi.mock("@/lib/services/audit", () => ({ audit }))
 
-import { POST } from "@/app/api/vault/org-keys/rekey/route"
+import { GET, POST } from "@/app/api/vault/org-keys/rekey/route"
+import { hashCiphertext } from "@/lib/vault/ciphertext-hash"
 
 const ORG = "org-1"
 
@@ -77,6 +80,8 @@ beforeEach(() => {
     prisma.dropOwnerKey.updateMany.mockResolvedValue({ count: 1 })
     prisma.formOwnerKey.findMany.mockResolvedValue([{ formId: "f1" }, { formId: "f2" }])
     prisma.formOwnerKey.updateMany.mockResolvedValue({ count: 1 })
+    prisma.alias.findMany.mockResolvedValue([])
+    prisma.alias.updateMany.mockResolvedValue({ count: 1 })
     prisma.$transaction.mockImplementation(runTx)
 })
 
@@ -201,7 +206,8 @@ describe("POST /api/vault/org-keys/rekey", () => {
         const payload = await res.json()
 
         expect(res.status).toBe(409)
-        expect(payload.error.code).toBe("CONFLICT")
+        // Retryable by the client (re-prepare the rotation from fresh data).
+        expect(payload.error.code).toBe("ROTATION_DATA_CHANGED")
         // The bump ran in the transaction, but throwing here makes Prisma roll it
         // back together with keyRotationRecommendedAt: null.
         expect(prisma.organization.updateMany).toHaveBeenCalledTimes(1)
@@ -269,5 +275,126 @@ describe("POST /api/vault/org-keys/rekey", () => {
 
         expect(res.status).toBe(409)
         expect(prisma.organization.updateMany).toHaveBeenCalledTimes(1)
+    })
+})
+
+const ENVELOPE = (tag: string) => JSON.stringify({ v: 1, alg: "AES-256-GCM", iv: "i".repeat(16), ct: tag.replace(/[^A-Za-z0-9_-]/g, "_") })
+
+describe("org alias metadata in rotation", () => {
+    const LABEL = ENVELOPE("old-label")
+    const NOTE = ENVELOPE("old-note")
+
+    it("GET lists the org's encrypted alias labels/notes", async () => {
+        prisma.dropOwnerKey.findMany.mockResolvedValue([])
+        prisma.formOwnerKey.findMany.mockResolvedValue([])
+        prisma.alias.findMany.mockResolvedValue([{ id: "a1", encryptedLabel: LABEL, encryptedNote: null }])
+
+        const res = await GET(new Request(`https://x/api/vault/org-keys/rekey?organizationId=${ORG}`))
+        const payload = await res.json()
+
+        expect(res.status).toBe(200)
+        expect(prisma.alias.findMany).toHaveBeenCalledWith({
+            where: {
+                organizationId: ORG,
+                OR: [{ encryptedLabel: { not: null } }, { encryptedNote: { not: null } }],
+            },
+            select: { id: true, encryptedLabel: true, encryptedNote: true },
+        })
+        expect(payload.data.aliasMetadata).toEqual([{ id: "a1", encryptedLabel: LABEL, encryptedNote: null }])
+    })
+
+    it("POST applies re-encrypted fields as a compare-and-swap on the ciphertext seen at GET", async () => {
+        prisma.alias.findMany.mockResolvedValue([
+            { id: "a1", encryptedLabel: LABEL, encryptedNote: NOTE },
+            { id: "a2", encryptedLabel: ENVELOPE("legacy"), encryptedNote: null },
+        ])
+
+        const res = await POST(postReq({
+            ...body,
+            aliasMetadata: [
+                {
+                    id: "a1",
+                    previousLabelHash: await hashCiphertext(LABEL),
+                    previousNoteHash: await hashCiphertext(NOTE),
+                    encryptedLabel: ENVELOPE("new-l"),
+                    encryptedNote: ENVELOPE("new-n"),
+                },
+                // Legacy personal-key label: echoed for the snapshot, not rewritten.
+                { id: "a2", previousLabelHash: await hashCiphertext(ENVELOPE("legacy")), previousNoteHash: null },
+            ],
+        }))
+
+        expect(res.status).toBe(200)
+        expect(prisma.alias.updateMany).toHaveBeenCalledTimes(1)
+        expect(prisma.alias.updateMany).toHaveBeenCalledWith({
+            where: { id: "a1", organizationId: ORG, encryptedLabel: LABEL, encryptedNote: NOTE },
+            data: { encryptedLabel: ENVELOPE("new-l"), encryptedNote: ENVELOPE("new-n") },
+        })
+    })
+
+    it("409 ROTATION_DATA_CHANGED when a label was edited since the GET (no revert)", async () => {
+        prisma.alias.findMany.mockResolvedValue([{ id: "a1", encryptedLabel: ENVELOPE("edited"), encryptedNote: null }])
+
+        const res = await POST(postReq({
+            ...body,
+            aliasMetadata: [{
+                id: "a1",
+                previousLabelHash: await hashCiphertext(LABEL),
+                previousNoteHash: null,
+                encryptedLabel: ENVELOPE("rekeyed-stale"),
+            }],
+        }))
+
+        expect(res.status).toBe(409)
+        expect((await res.json()).error.code).toBe("ROTATION_DATA_CHANGED")
+        expect(prisma.alias.updateMany).not.toHaveBeenCalled()
+        expect(audit).not.toHaveBeenCalled()
+    })
+
+    it("409 ROTATION_DATA_CHANGED when an alias got its first label since the GET", async () => {
+        prisma.alias.findMany.mockResolvedValue([{ id: "new-label", encryptedLabel: LABEL, encryptedNote: null }])
+
+        const res = await POST(postReq(body)) // client saw no labeled aliases
+
+        expect(res.status).toBe(409)
+        expect((await res.json()).error.code).toBe("ROTATION_DATA_CHANGED")
+    })
+
+    it("409 when the compare-and-swap update misses", async () => {
+        prisma.alias.findMany.mockResolvedValue([{ id: "a1", encryptedLabel: LABEL, encryptedNote: null }])
+        prisma.alias.updateMany.mockResolvedValue({ count: 0 })
+
+        const res = await POST(postReq({
+            ...body,
+            aliasMetadata: [{ id: "a1", previousLabelHash: await hashCiphertext(LABEL), previousNoteHash: null, encryptedLabel: ENVELOPE("x") }],
+        }))
+        expect(res.status).toBe(409)
+        expect(audit).not.toHaveBeenCalled()
+    })
+
+    it("409 for an alias id that isn't an org alias with metadata (e.g. forged/personal)", async () => {
+        const res = await POST(postReq({
+            ...body,
+            aliasMetadata: [{ id: "someone-elses", previousLabelHash: await hashCiphertext(LABEL), previousNoteHash: null, encryptedLabel: ENVELOPE("x") }],
+        }))
+        expect(res.status).toBe(409)
+        expect(prisma.alias.updateMany).not.toHaveBeenCalled()
+    })
+
+    it.each([
+        ["a duplicate alias id", () => [
+            { id: "a1", previousLabelHash: "h".repeat(43), previousNoteHash: null },
+            { id: "a1", previousLabelHash: "h".repeat(43), previousNoteHash: null },
+        ]],
+        ["a missing previous hash", () => [{ id: "a1", encryptedLabel: ENVELOPE("x") }]],
+        ["a malformed hash", () => [{ id: "a1", previousLabelHash: "short", previousNoteHash: null }]],
+        ["a new value for a field that was empty", () => [{ id: "a1", previousLabelHash: null, previousNoteHash: null, encryptedLabel: ENVELOPE("x") }]],
+        ["a non-envelope value", () => [{ id: "a1", previousLabelHash: "h".repeat(43), previousNoteHash: null, encryptedLabel: "plaintext label" }]],
+        ["an oversized envelope", () => [{ id: "a1", previousLabelHash: "h".repeat(43), previousNoteHash: null, encryptedLabel: ENVELOPE("x".repeat(3000)) }]],
+        ["an unknown field", () => [{ id: "a1", previousLabelHash: "h".repeat(43), previousNoteHash: null, userId: "u" }]],
+    ])("400 on %s", async (_name, aliasMetadata) => {
+        const res = await POST(postReq({ ...body, aliasMetadata: aliasMetadata() }))
+        expect(res.status).toBe(400)
+        expect(prisma.organization.updateMany).not.toHaveBeenCalled()
     })
 })

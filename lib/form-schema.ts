@@ -269,6 +269,29 @@ export function withFormMeta(
     }
 }
 
+/**
+ * Character cap for text answers when the builder set no explicit maxLength.
+ * Unbounded answers could produce a payload the dashboard refuses to render.
+ */
+export const DEFAULT_TEXT_MAX_LENGTH = 50_000
+
+/** Server cap on attachments per submission (all file questions combined). */
+export const MAX_FORM_SUBMISSION_FILES = 20
+
+/** Effective character cap for a free-text question, or undefined for other types. */
+export function textAnswerMaxLength(field: FormField): number | undefined {
+    switch (field.type) {
+        case "short_text":
+        case "long_text":
+            return field.maxLength ?? DEFAULT_TEXT_MAX_LENGTH
+        case "email":
+        case "phone":
+            return DEFAULT_TEXT_MAX_LENGTH
+        default:
+            return undefined
+    }
+}
+
 function isEmptyAnswer(value: unknown): boolean {
     if (value === undefined || value === null) return true
     if (typeof value === "string") return value.trim() === ""
@@ -342,13 +365,23 @@ export function describeAddressParts(parts: AddressPart[]): string {
     return parts.map((part) => ADDRESS_PART_META[part].label.toLowerCase()).join(", ")
 }
 
+/** Per-part character caps for address answers (also the inputs' maxLength). */
+export const ADDRESS_PART_MAX_LENGTH: Record<AddressPart, number> = {
+    line1: 200,
+    line2: 200,
+    city: 120,
+    state: 120,
+    postalCode: 40,
+    country: 120,
+}
+
 const AddressValueSchema = z.object({
-    line1: z.string().max(200).optional(),
-    line2: z.string().max(200).optional(),
-    city: z.string().max(120).optional(),
-    state: z.string().max(120).optional(),
-    postalCode: z.string().max(40).optional(),
-    country: z.string().max(120).optional(),
+    line1: z.string().max(ADDRESS_PART_MAX_LENGTH.line1).optional(),
+    line2: z.string().max(ADDRESS_PART_MAX_LENGTH.line2).optional(),
+    city: z.string().max(ADDRESS_PART_MAX_LENGTH.city).optional(),
+    state: z.string().max(ADDRESS_PART_MAX_LENGTH.state).optional(),
+    postalCode: z.string().max(ADDRESS_PART_MAX_LENGTH.postalCode).optional(),
+    country: z.string().max(ADDRESS_PART_MAX_LENGTH.country).optional(),
 })
 
 export type AddressValue = z.infer<typeof AddressValueSchema>
@@ -365,7 +398,22 @@ export function parseAddressValue(
     if (typeof value !== "object" || value === null || Array.isArray(value)) {
         throw new Error(`Field "${label}" must be an address`)
     }
-    const parsed = AddressValueSchema.parse(value)
+    const result = AddressValueSchema.safeParse(value)
+    if (!result.success) {
+        // Never surface Zod's raw JSON issue list to respondents.
+        const part = result.error.issues[0]?.path[0]
+        const partLabel = typeof part === "string" && part in ADDRESS_PART_META
+            ? ADDRESS_PART_META[part as AddressPart].label
+            : null
+        const raw = partLabel ? (value as Record<string, unknown>)[part as AddressPart] : undefined
+        if (partLabel && typeof raw === "string") {
+            throw new Error(
+                `Field "${label}": ${partLabel} must be at most ${ADDRESS_PART_MAX_LENGTH[part as AddressPart]} characters`,
+            )
+        }
+        throw new Error(`Field "${label}" must be an address`)
+    }
+    const parsed = result.data
     const out: AddressValue = {}
     for (const part of ADDRESS_PARTS) {
         if (!parts[part].enabled) continue
@@ -451,8 +499,9 @@ export function validateAnswersAgainstSchema(
                 if (field.type === "email" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
                     throw new Error(`Field "${field.label}" must be a valid email`)
                 }
-                if ("maxLength" in field && field.maxLength && value.length > field.maxLength) {
-                    throw new Error(`Field "${field.label}" exceeds ${field.maxLength} characters`)
+                const maxLength = textAnswerMaxLength(field)
+                if (maxLength !== undefined && value.length > maxLength) {
+                    throw new Error(`Field "${field.label}" exceeds ${maxLength} characters`)
                 }
                 out[field.id] = value.trim()
                 break

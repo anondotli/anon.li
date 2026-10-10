@@ -1,9 +1,13 @@
 import {
+    ADDRESS_PART_MAX_LENGTH,
+    ADDRESS_PART_META,
+    ADDRESS_PARTS,
     describeAddressParts,
     isBlankObject,
     isFieldVisible,
     isIsoDateValue,
     missingRequiredAddressParts,
+    textAnswerMaxLength,
     type FormField,
     type FormSchemaDoc,
 } from "@/lib/form-schema"
@@ -28,18 +32,19 @@ export function validateFormFieldAnswer(field: FormField, value: unknown): strin
 
     switch (field.type) {
         case "email":
-            if (typeof value !== "string" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+        case "short_text":
+        case "long_text":
+        case "phone": {
+            if (typeof value !== "string") return field.type === "email" ? "Enter a valid email address" : "Enter text"
+            const maxLength = textAnswerMaxLength(field)
+            if (maxLength !== undefined && value.length > maxLength) {
+                return `Keep this under ${maxLength} characters`
+            }
+            if (field.type === "email" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
                 return "Enter a valid email address"
             }
             return null
-        case "short_text":
-        case "long_text":
-        case "phone":
-            if (typeof value !== "string") return "Enter text"
-            if ("maxLength" in field && field.maxLength && value.length > field.maxLength) {
-                return `Keep this under ${field.maxLength} characters`
-            }
-            return null
+        }
         case "number": {
             const number = typeof value === "number" ? value : Number(value)
             if (!Number.isFinite(number)) return "Enter a valid number"
@@ -87,6 +92,15 @@ export function validateFormFieldAnswer(field: FormField, value: unknown): strin
             }
             return null
         case "address": {
+            const address = value && typeof value === "object" && !Array.isArray(value)
+                ? (value as Record<string, unknown>)
+                : {}
+            for (const part of ADDRESS_PARTS) {
+                const partValue = address[part]
+                if (typeof partValue === "string" && partValue.length > ADDRESS_PART_MAX_LENGTH[part]) {
+                    return `${ADDRESS_PART_META[part].label} must be at most ${ADDRESS_PART_MAX_LENGTH[part]} characters`
+                }
+            }
             const missing = missingRequiredAddressParts(field, value)
             return missing.length > 0 ? `Enter ${describeAddressParts(missing)}` : null
         }

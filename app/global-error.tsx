@@ -14,10 +14,10 @@ const logger = createLogger("RootError")
  */
 export default function GlobalError({
     error,
-    reset,
+    retry,
 }: {
     error: Error & { digest?: string }
-    reset: () => void
+    retry: () => void
 }) {
     useEffect(() => {
         logger.error("Unhandled root-layout error", error)
@@ -59,7 +59,7 @@ export default function GlobalError({
                         </p>
                     )}
                     <button
-                        onClick={() => reset()}
+                        onClick={() => retry()}
                         style={{
                             cursor: "pointer",
                             border: "1px solid #3f3f46",

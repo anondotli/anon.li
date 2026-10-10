@@ -11,8 +11,16 @@ import { prisma } from "@/lib/prisma"
 import { eraseUserDrops } from "@/lib/services/erasure"
 import { purgePersonalVaultKeysOps } from "@/lib/vault/personal-purge"
 import { createLogger } from "@/lib/logger"
+import { ServiceUnavailableError } from "@/lib/api-error-utils"
 
 const logger = createLogger("DeletionService")
+
+/** Subscription states in which Stripe may still bill the customer. */
+const BILLABLE_SUBSCRIPTION_STATUSES = ["active", "trialing", "past_due", "unpaid", "incomplete"]
+
+function isStripeResourceMissing(error: unknown): boolean {
+    return typeof error === "object" && error !== null && (error as { code?: unknown }).code === "resource_missing"
+}
 
 export class DeletionService {
     /**
@@ -43,6 +51,66 @@ export class DeletionService {
     }
 
     /**
+     * Cancel the user's PERSONAL Stripe subscriptions immediately. Deleting the
+     * local Subscription rows alone would leave Stripe billing a customer whose
+     * account no longer exists. Org subscriptions belong to the org and are left
+     * alone (the sole-owner guard already prevents orphaning an org).
+     *
+     * Throws if any cancellation can't be confirmed, so deletion stops before
+     * erasing data and the request stays as a retry marker.
+     */
+    static async cancelPersonalStripeSubscriptions(userId: string): Promise<void> {
+        const subscriptions = await prisma.subscription.findMany({
+            where: {
+                userId,
+                organizationId: null,
+                provider: "stripe",
+                providerSubscriptionId: { not: null },
+                status: { in: BILLABLE_SUBSCRIPTION_STATUSES },
+            },
+            select: { id: true, providerSubscriptionId: true },
+        })
+        if (subscriptions.length === 0) return
+
+        // Loaded lazily: lib/stripe throws at import time without billing env.
+        const { stripe } = await import("@/lib/stripe")
+
+        for (const subscription of subscriptions) {
+            const providerSubscriptionId = subscription.providerSubscriptionId!
+            try {
+                await stripe.subscriptions.cancel(providerSubscriptionId)
+            } catch (error) {
+                // Already gone or already canceled on Stripe's side is fine.
+                const current = isStripeResourceMissing(error)
+                    ? null
+                    : await stripe.subscriptions.retrieve(providerSubscriptionId).catch(() => null)
+                const alreadyEnded = isStripeResourceMissing(error)
+                    || current?.status === "canceled"
+                    || current?.status === "incomplete_expired"
+                if (!alreadyEnded) {
+                    logger.error("Failed to cancel Stripe subscription during account deletion", error, {
+                        userId,
+                        subscriptionId: subscription.id,
+                    })
+                    throw new ServiceUnavailableError(
+                        "We couldn't cancel your active subscription, so your account was not deleted. Please try again or contact support.",
+                    )
+                }
+            }
+
+            // Record it locally so a retry doesn't call Stripe again.
+            await prisma.subscription.update({
+                where: { id: subscription.id },
+                data: { status: "canceled", cancelAtPeriodEnd: false },
+            })
+            logger.info("Canceled personal Stripe subscription for account deletion", {
+                userId,
+                subscriptionId: subscription.id,
+            })
+        }
+    }
+
+    /**
      * Request account deletion. Creates a DeletionRequest in "pending" state to
      * block new access, erases active resources, then hard-deletes the user.
      */
@@ -56,6 +124,10 @@ export class DeletionService {
                 `Cannot delete account: sole owner of ${soleOwnerOrgs.map((o) => o.name).join(", ")}. Transfer ownership or delete the team first.`,
             )
         }
+
+        // Stop billing before anything is revoked: if Stripe is unreachable the
+        // user stays signed in and can simply retry.
+        await this.cancelPersonalStripeSubscriptions(userId)
 
         // Revoke all sessions immediately
         await prisma.session.deleteMany({ where: { userId } })
@@ -112,6 +184,10 @@ export class DeletionService {
             // (organizationId: null). Org-owned resources the user created belong
             // to the org, not the user — their FK userId is SetNull on user
             // deletion so they persist under the organization.
+
+            // Step 0: Stop billing (idempotent — re-checked here so admin retries
+            // and requests created elsewhere are covered too).
+            await this.cancelPersonalStripeSubscriptions(userId)
 
             // Step 1: Delete aliases
             if (!request.aliasesDeleted) {

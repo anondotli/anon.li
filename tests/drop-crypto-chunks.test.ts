@@ -165,3 +165,103 @@ describe("Drop decryption stream integrity", () => {
         )
     })
 })
+
+describe("Drop decryption stream buffering", () => {
+    async function encryptFile(plaintext: Uint8Array, chunkSize: number) {
+        const keyString = await cryptoService.generateKey()
+        const key = await cryptoService.importKey(keyString)
+        const baseIv = crypto.getRandomValues(new Uint8Array(12))
+        const parts: Uint8Array[] = []
+        let chunkCount = 0
+        for (let start = 0; start < plaintext.byteLength; start += chunkSize) {
+            const slice = plaintext.slice(start, start + chunkSize)
+            parts.push(new Uint8Array(await cryptoService.encryptChunk(slice.buffer, key, baseIv, chunkCount)))
+            chunkCount++
+        }
+        const ciphertext = new Uint8Array(parts.reduce((sum, part) => sum + part.byteLength, 0))
+        let offset = 0
+        for (const part of parts) {
+            ciphertext.set(part, offset)
+            offset += part.byteLength
+        }
+        return { key, baseIv, ciphertext, chunkCount }
+    }
+
+    function streamInReads(ciphertext: Uint8Array, readSizes: number[]) {
+        return new ReadableStream<Uint8Array>({
+            start(controller) {
+                let offset = 0
+                let i = 0
+                while (offset < ciphertext.byteLength) {
+                    const size = readSizes[i++ % readSizes.length]!
+                    // Copy so the stream cannot rely on reads sharing one buffer.
+                    controller.enqueue(ciphertext.slice(offset, offset + size))
+                    offset += size
+                }
+                controller.close()
+            },
+        })
+    }
+
+    it("decrypts ciphertext split into many small odd-sized reads", async () => {
+        const chunkSize = 37
+        const plaintext = crypto.getRandomValues(new Uint8Array(chunkSize * 9))
+        const { key, baseIv, ciphertext, chunkCount } = await encryptFile(plaintext, chunkSize)
+        expect(ciphertext.byteLength).toBe(chunkCount * (chunkSize + AUTH_TAG_SIZE))
+
+        const decrypted = streamInReads(ciphertext, [1, 7, 3, 53, 2, 101, 13])
+            .pipeThrough(cryptoService.createDecryptionStream(key, baseIv, chunkSize, {
+                encryptedSize: ciphertext.byteLength,
+                chunkCount,
+            }))
+
+        expect(new Uint8Array(await new Response(decrypted).arrayBuffer())).toEqual(plaintext)
+    })
+
+    it("decrypts a short final chunk delivered across reads, including one read spanning chunks", async () => {
+        const chunkSize = 64
+        const plaintext = crypto.getRandomValues(new Uint8Array(chunkSize * 4 + 11))
+        const { key, baseIv, ciphertext, chunkCount } = await encryptFile(plaintext, chunkSize)
+        expect(chunkCount).toBe(5)
+
+        // A 200-byte read spans multiple encrypted chunks; 5-byte reads split
+        // the final short chunk.
+        const decrypted = streamInReads(ciphertext, [200, 5])
+            .pipeThrough(cryptoService.createDecryptionStream(key, baseIv, chunkSize, {
+                encryptedSize: ciphertext.byteLength,
+                chunkCount,
+            }))
+
+        expect(new Uint8Array(await new Response(decrypted).arrayBuffer())).toEqual(plaintext)
+    })
+
+    it("decrypts when the entire file arrives in a single read", async () => {
+        const chunkSize = 16
+        const plaintext = crypto.getRandomValues(new Uint8Array(chunkSize * 3 + 1))
+        const { key, baseIv, ciphertext, chunkCount } = await encryptFile(plaintext, chunkSize)
+
+        const decrypted = streamInReads(ciphertext, [ciphertext.byteLength])
+            .pipeThrough(cryptoService.createDecryptionStream(key, baseIv, chunkSize, {
+                encryptedSize: ciphertext.byteLength,
+                chunkCount,
+            }))
+
+        expect(new Uint8Array(await new Response(decrypted).arrayBuffer())).toEqual(plaintext)
+    })
+
+    it("rejects more full chunks than declared", async () => {
+        const chunkSize = 16
+        const plaintext = crypto.getRandomValues(new Uint8Array(chunkSize * 3))
+        const { key, baseIv, ciphertext } = await encryptFile(plaintext, chunkSize)
+
+        const decrypted = streamInReads(ciphertext, [9])
+            .pipeThrough(cryptoService.createDecryptionStream(key, baseIv, chunkSize, {
+                encryptedSize: ciphertext.byteLength,
+                chunkCount: 2,
+            }))
+
+        await expect(new Response(decrypted).arrayBuffer()).rejects.toThrow(
+            "Encrypted file contains too many chunks",
+        )
+    })
+})

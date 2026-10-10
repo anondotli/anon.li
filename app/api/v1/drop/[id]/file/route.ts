@@ -5,6 +5,7 @@
 
 import { NextResponse } from "next/server"
 
+import { apiError, ErrorCodes } from "@/lib/api-response"
 import { getClientIp, rateLimit } from "@/lib/rate-limit"
 import { withPolicy, scopeFromContext } from "@/lib/route-policy"
 import { type OwnerScope } from "@/lib/ownership"
@@ -50,18 +51,18 @@ export const POST = withPolicy<RouteParams>(
         if (hasUploadToken) {
             const access = await resolveTokenUploadAccess(ctx.request, dropId)
             if (!access) {
-                return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+                return apiError("Unauthorized", ErrorCodes.UNAUTHORIZED, ctx.requestId, 401)
             }
             uploadScope = scopeForTokenUploadAccess(access)
             formId = access.formId
         } else if (!ctx.userId) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+            return apiError("Unauthorized", ErrorCodes.UNAUTHORIZED, ctx.requestId, 401)
         }
 
         const body = await ctx.request.json().catch(() => null)
         const validation = addFileApiSchema.safeParse(body)
         if (!validation.success) {
-            return NextResponse.json({ error: "Invalid request body" }, { status: 400 })
+            return apiError("Invalid request body", ErrorCodes.VALIDATION_ERROR, ctx.requestId, 400)
         }
 
         const uploadParts = buildMultipartUploadParts(
@@ -83,11 +84,14 @@ export const POST = withPolicy<RouteParams>(
         }
 
         const { formFieldId: _formFieldId, ...dropFileInput } = validation.data
-        const result = quotaOverride
+        // Form-token uploads act under the form owner's scope but are made by
+        // anonymous visitors, so they must not touch the owner's own
+        // incomplete-drop allowance.
+        const result = formId
             ? await DropService.addFile(uploadScope, {
                   dropId,
                   ...dropFileInput,
-              }, { quotaOverride })
+              }, { tokenAuthorized: true, quotaOverride })
             : await DropService.addFile(uploadScope, {
                   dropId,
                   ...dropFileInput,

@@ -17,10 +17,12 @@ vi.mock("@/lib/prisma", () => {
         orphanedFile: { createMany: vi.fn() },
         member: { findUnique: vi.fn(), count: vi.fn(), delete: vi.fn(), update: vi.fn() },
         organizationMemberKey: { deleteMany: vi.fn() },
+        apiKey: { deleteMany: vi.fn() },
         invitation: { findUnique: vi.fn(), update: vi.fn() },
         user: { findUnique: vi.fn(), update: vi.fn() },
         twoFactor: { deleteMany: vi.fn() },
-        oauthApplication: { findUnique: vi.fn(), update: vi.fn(), delete: vi.fn() },
+        oauthClient: { findUnique: vi.fn(), update: vi.fn(), delete: vi.fn() },
+        oauthRefreshToken: { updateMany: vi.fn() },
         oauthAccessToken: { deleteMany: vi.fn() },
         oauthConsent: { deleteMany: vi.fn() },
         form: { findUnique: vi.fn(), delete: vi.fn() },
@@ -41,7 +43,7 @@ vi.mock("@/lib/services/drop-storage", () => ({
 
 vi.mock("@/lib/storage", () => ({ abortMultipartUpload: vi.fn() }))
 
-type MethodName = "findUnique" | "update" | "delete" | "deleteMany" | "createMany" | "findMany" | "count"
+type MethodName = "findUnique" | "update" | "delete" | "deleteMany" | "createMany" | "findMany" | "count" | "updateMany"
 type Model = Record<MethodName, Mock>
 const db = prisma as unknown as {
     organization: Model
@@ -49,10 +51,12 @@ const db = prisma as unknown as {
     orphanedFile: Model
     member: Model
     organizationMemberKey: Model
+    apiKey: Model
     invitation: Model
     user: Model
     twoFactor: Model
-    oauthApplication: Model
+    oauthClient: Model
+    oauthRefreshToken: Model
     oauthAccessToken: Model
     oauthConsent: Model
     form: Model
@@ -125,13 +129,17 @@ describe("AdminService — organization management", () => {
         expect(db.member.delete).not.toHaveBeenCalled()
     })
 
-    it("removes a member, drops their wrapped key, and flags key rotation", async () => {
+    it("removes a member, drops their wrapped key and org API keys, and flags key rotation", async () => {
         db.member.findUnique.mockResolvedValue({ id: "m_1", role: "member" })
 
         await AdminService.removeOrgMember("org_1", "user_1")
 
         expect(db.member.delete).toHaveBeenCalled()
         expect(db.organizationMemberKey.deleteMany).toHaveBeenCalledWith({
+            where: { organizationId: "org_1", userId: "user_1" },
+        })
+        // Org API keys they minted must stop working with their membership.
+        expect(db.apiKey.deleteMany).toHaveBeenCalledWith({
             where: { organizationId: "org_1", userId: "user_1" },
         })
         expect(db.organization.update).toHaveBeenCalledWith({
@@ -176,20 +184,48 @@ describe("AdminService — user editing", () => {
 })
 
 describe("AdminService — OAuth applications", () => {
-    it("revokes tokens and consents by clientId when deleting an app", async () => {
-        db.oauthApplication.findUnique.mockResolvedValue({ id: "app_1", clientId: "client_abc" })
+    it("deletes the client; tokens, consents and resource links cascade by clientId", async () => {
+        db.oauthClient.findUnique.mockResolvedValue({ id: "app_1", clientDiscoveryId: null })
 
         await AdminService.deleteOauthApp("app_1")
 
-        expect(db.oauthAccessToken.deleteMany).toHaveBeenCalledWith({ where: { clientId: "client_abc" } })
-        expect(db.oauthConsent.deleteMany).toHaveBeenCalledWith({ where: { clientId: "client_abc" } })
-        expect(db.oauthApplication.delete).toHaveBeenCalledWith({ where: { id: "app_1" } })
+        expect(db.oauthClient.delete).toHaveBeenCalledWith({ where: { id: "app_1" } })
     })
 
-    it("toggles the disabled flag", async () => {
-        db.oauthApplication.findUnique.mockResolvedValue({ id: "app_1" })
+    it("refuses to delete a CIMD client, which would re-register on its next authorize", async () => {
+        db.oauthClient.findUnique.mockResolvedValue({ id: "app_1", clientDiscoveryId: "cimd" })
+        await expect(AdminService.deleteOauthApp("app_1")).rejects.toThrow(/disable this application instead/)
+        expect(db.oauthClient.delete).not.toHaveBeenCalled()
+    })
+
+    it("refuses to delete an unknown client", async () => {
+        db.oauthClient.findUnique.mockResolvedValue(null)
+        await expect(AdminService.deleteOauthApp("missing")).rejects.toThrow("Application not found")
+        expect(db.oauthClient.delete).not.toHaveBeenCalled()
+    })
+
+    it("disabling an app revokes its refresh tokens, stored access tokens and consents", async () => {
+        db.oauthClient.findUnique.mockResolvedValue({ id: "app_1", clientId: "client_abc" })
         await AdminService.setOauthAppDisabled("app_1", true)
-        expect(db.oauthApplication.update).toHaveBeenCalledWith({ where: { id: "app_1" }, data: { disabled: true } })
+        expect(db.oauthClient.update).toHaveBeenCalledWith({ where: { id: "app_1" }, data: { disabled: true } })
+        expect(db.oauthRefreshToken.updateMany).toHaveBeenCalledWith({
+            where: { clientId: "client_abc", revoked: null },
+            data: { revoked: expect.any(Date) },
+        })
+        expect(db.oauthAccessToken.deleteMany).toHaveBeenCalledWith({ where: { clientId: "client_abc" } })
+        expect(db.$transaction).toHaveBeenCalled()
+        // Without a consent older than the token, the MCP grant check cannot
+        // revive pre-disable JWTs if the app is re-enabled.
+        expect(db.oauthConsent.deleteMany).toHaveBeenCalledWith({ where: { clientId: "client_abc" } })
+    })
+
+    it("re-enabling an app does not touch tokens", async () => {
+        db.oauthClient.findUnique.mockResolvedValue({ id: "app_1", clientId: "client_abc" })
+        await AdminService.setOauthAppDisabled("app_1", false)
+        expect(db.oauthClient.update).toHaveBeenCalledWith({ where: { id: "app_1" }, data: { disabled: false } })
+        expect(db.oauthRefreshToken.updateMany).not.toHaveBeenCalled()
+        expect(db.oauthAccessToken.deleteMany).not.toHaveBeenCalled()
+        expect(db.oauthConsent.deleteMany).not.toHaveBeenCalled()
     })
 })
 

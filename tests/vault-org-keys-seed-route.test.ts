@@ -14,7 +14,8 @@ const { getVaultSession, enforceVaultRequestGuards, audit, prisma } = vi.hoisted
     audit: vi.fn(),
     prisma: {
         member: { findUnique: vi.fn() },
-        organization: { updateMany: vi.fn() },
+        // findUnique: org vault policy lookup (enforce2FA / suspension) — no policy by default.
+        organization: { updateMany: vi.fn(), findUnique: vi.fn(async () => null) },
         organizationMemberKey: { create: vi.fn(), findFirst: vi.fn() },
         $transaction: vi.fn(),
     },

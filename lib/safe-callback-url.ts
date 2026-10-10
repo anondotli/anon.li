@@ -1,5 +1,19 @@
 const DEFAULT_AUTH_CALLBACK_URL = "/dashboard/alias"
 const SAFE_CALLBACK_PREFIX = "/dashboard"
+// Base used only to resolve dot-segments / encodings; never part of the output.
+const RESOLUTION_BASE = "https://callback.invalid"
+
+/**
+ * Same-origin paths a post-login redirect may land on: the dashboard, an org
+ * invitation (`/accept-invitation/<id>`) and the OAuth consent screen — the
+ * last two bounce through /login when signed out and must come back.
+ */
+function isAllowedCallbackPath(pathname: string): boolean {
+    return pathname === SAFE_CALLBACK_PREFIX
+        || pathname.startsWith(`${SAFE_CALLBACK_PREFIX}/`)
+        || /^\/accept-invitation\/[A-Za-z0-9_-]+$/.test(pathname)
+        || pathname === "/oauth/consent"
+}
 
 function getAllowedOrigins(): string[] {
     const origins = new Set<string>()
@@ -21,15 +35,26 @@ function getAllowedOrigins(): string[] {
 }
 
 function normalizeRelativeCallbackPath(input: string): string | null {
-    if (!input.startsWith("/") || input.startsWith("//")) {
+    if (!input.startsWith("/") || input.startsWith("//") || input.includes("\\")) {
         return null
     }
 
-    if (!(input === SAFE_CALLBACK_PREFIX || input.startsWith(`${SAFE_CALLBACK_PREFIX}/`))) {
+    // Judge the path the browser will actually navigate to, so dot-segments
+    // (`/dashboard/../admin`) can't smuggle a disallowed path past the prefix.
+    let resolved: URL
+    try {
+        resolved = new URL(input, RESOLUTION_BASE)
+    } catch {
+        return null
+    }
+    if (resolved.origin !== RESOLUTION_BASE || !isAllowedCallbackPath(resolved.pathname)) {
         return null
     }
 
-    return input
+    // Return the parsed form, not the raw input: the URL parser strips tab/CR/LF
+    // and percent-encodes what it must, so the result is always a valid
+    // Location header value and is exactly the path that was validated.
+    return `${resolved.pathname}${resolved.search}${resolved.hash}`
 }
 
 export function sanitizeAuthCallbackUrl(

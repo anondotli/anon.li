@@ -62,7 +62,7 @@ Build forms whose responses are encrypted in the respondent's browser. The appli
 
 ## Quick Start
 
-anon.li is an integration-backed application and deliberately fails fast when required infrastructure is missing. Local development requires [Bun](https://bun.sh) \>= 1.3.5, Node.js 24, and credentials for the services below.
+anon.li is an integration-backed application and deliberately fails fast when required infrastructure is missing. Local development requires [Bun](https://bun.sh) \>= 1.4.3, Node.js 24, and credentials for the services below.
 
 | Service | Purpose | Required |
 |---|---|---|

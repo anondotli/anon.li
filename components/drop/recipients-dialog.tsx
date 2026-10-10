@@ -197,10 +197,17 @@ export function RecipientsDialog({ drop, origin, canManage, canViewLogs, onClose
             <span className="font-medium text-foreground">Pro</span> plans.
           </div>
         ) : (
-          <Tabs defaultValue="recipients" className="w-full">
+          <Tabs
+            defaultValue="recipients"
+            className="w-full"
+            // onValueChange (not onClick) so keyboard tab activation loads too.
+            onValueChange={(value) => {
+              if (value === "log" && events === null && !logLocked) void loadEvents();
+            }}
+          >
             <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="recipients">Recipients</TabsTrigger>
-              <TabsTrigger value="log" onClick={() => events === null && !logLocked && void loadEvents()}>
+              <TabsTrigger value="log">
                 Access log
               </TabsTrigger>
             </TabsList>

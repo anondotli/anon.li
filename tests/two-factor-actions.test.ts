@@ -120,6 +120,44 @@ describe("verifyTwoFactorLogin", () => {
         expect(result).toEqual({ success: true, redirectTo: "/setup" })
     })
 
+    it("resumes a sanitized same-origin callbackUrl after verification", async () => {
+        getSession.mockResolvedValue(null)
+        verifyTOTP.mockResolvedValue({ token: "new-session-token" })
+
+        const { verifyTwoFactorLogin } = await import("@/actions/two-factor")
+        const consent = "/oauth/consent?consent_code=c1&client_id=x&scope=anon.li%3Aaliases"
+
+        expect(await verifyTwoFactorLogin("123456", "totp", consent)).toEqual({ success: true, redirectTo: consent })
+    })
+
+    it.each(["https://evil.example/dashboard", "//evil.example", "/admin", "/dashboard/../admin"])(
+        "drops an unsafe callbackUrl %s and falls back to the dashboard",
+        async (callbackUrl) => {
+            getSession.mockResolvedValue(null)
+            verifyTOTP.mockResolvedValue({ token: "new-session-token" })
+
+            const { verifyTwoFactorLogin } = await import("@/actions/two-factor")
+            expect(await verifyTwoFactorLogin("123456", "totp", callbackUrl)).toEqual({
+                success: true,
+                redirectTo: "/dashboard/alias",
+            })
+        },
+    )
+
+    it("routes through /setup with the callbackUrl when the vault still needs setup", async () => {
+        getSession.mockResolvedValue(null)
+        verifyTOTP.mockResolvedValue({ token: "new-session-token" })
+        userSecurityFindUnique.mockResolvedValue(null)
+
+        const { verifyTwoFactorLogin } = await import("@/actions/two-factor")
+        const result = await verifyTwoFactorLogin("123456", "totp", "/accept-invitation/inv_1")
+
+        expect(result).toEqual({
+            success: true,
+            redirectTo: `/setup?callbackUrl=${encodeURIComponent("/accept-invitation/inv_1")}`,
+        })
+    })
+
     it("keeps supporting unverified sessions from OAuth or magic-link flows", async () => {
         getSession.mockResolvedValue({
             session: { id: "session-1", token: "existing-session-token" },

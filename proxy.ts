@@ -124,9 +124,19 @@ function hasPendingTwoFactorCookie(req: NextRequest) {
     return TWO_FACTOR_COOKIE_NAMES.some((name) => Boolean(req.cookies.get(name)?.value))
 }
 
+// An encoded backslash (`%5C`) never names a real route, but on Vercel the
+// Next launcher still tries to load it as a Pages Router module
+// (`.next/server/pages/alias%5C.js`) and logs MODULE_NOT_FOUND. Answer 404
+// here before the request reaches the router.
+const ENCODED_BACKSLASH = /%5c/i
+
 export default async function proxy(req: NextRequest) {
     const { nextUrl } = req
     const pathname = nextUrl.pathname
+
+    if (ENCODED_BACKSLASH.test(pathname)) {
+        return new NextResponse("Not Found", { status: 404 })
+    }
 
     // Generate unique request ID for tracing
     const requestId = nanoid(21)
@@ -139,7 +149,13 @@ export default async function proxy(req: NextRequest) {
     // The 2FA page/action validates the signed temporary cookie.
     const canAccessPendingTwoFactor = pathname === "/2fa" && hasPendingTwoFactorCookie(req)
     if (needsAuth && !getSessionCookie(req) && !canAccessPendingTwoFactor) {
-        return NextResponse.redirect(new URL('/login', nextUrl))
+        const loginUrl = new URL('/login', nextUrl)
+        // Resume dashboard deep links after sign-in (sanitized again by /login).
+        // Admin paths are deliberately not echoed back.
+        if (pathname.startsWith('/dashboard')) {
+            loginUrl.searchParams.set('callbackUrl', `${pathname}${nextUrl.search}`)
+        }
+        return NextResponse.redirect(loginUrl)
     }
 
     const strictCsp = pathNeedsStrictCsp(pathname)
@@ -154,6 +170,10 @@ export default async function proxy(req: NextRequest) {
         requestHeaders.set("x-nonce", nonce)
     }
     requestHeaders.set("Content-Security-Policy", csp)
+    // Server layouts can't see the request path; expose it so auth redirects can
+    // carry the destination through /login and /2fa. Always overwritten here, so a
+    // client-supplied value never survives (and consumers still sanitize it).
+    requestHeaders.set("x-pathname", `${pathname}${req.nextUrl.search}`)
 
     if (shouldRewriteToMarkdown(req)) {
         const response = NextResponse.rewrite(createMarkdownRewriteUrl(req), {

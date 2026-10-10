@@ -11,6 +11,7 @@ import { RecipientList, AddRecipientDialog } from "@/components/recipients"
 import { Mail, ArrowLeft, AlertTriangle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
+import { DOWNGRADE_DELETION_DELAY_DAYS, DOWNGRADE_SCHEDULING_DELAY_DAYS } from "@/lib/constants"
 
 export default async function RecipientsPage() {
     const session = await auth()
@@ -110,8 +111,8 @@ export default async function RecipientsPage() {
                     <div>
                         <p className="font-medium">Your account has been downgraded to the free tier.</p>
                         <p className="text-destructive/80 mt-1">
-                            Excess recipients will be scheduled for removal 30 days after downgrade
-                            and permanently deleted 14 days later.{" "}
+                            Excess recipients will be scheduled for removal {DOWNGRADE_SCHEDULING_DELAY_DAYS} days after downgrade
+                            and permanently deleted {DOWNGRADE_DELETION_DELAY_DAYS} days later.{" "}
                             <Link href="/dashboard/billing" className="underline font-medium text-destructive">
                                 Renew your subscription
                             </Link>{" "}

@@ -7,14 +7,15 @@ import { Switch } from "@/components/ui/switch"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
     Trash2, Copy, Check, Mail, Clock, Tag, FileText,
-    MoreHorizontal, ShieldCheck, Forward, AlertTriangle
+    MoreHorizontal, ShieldCheck, Forward, AlertTriangle,
+    ChevronDown, ChevronUp,
 } from "lucide-react"
-import { toggleAliasAction, deleteAliasAction, updateAliasAction, updateAliasEncryptedMetadataAction } from "@/actions/alias"
+import { toggleAliasAction, deleteAliasAction, updateAliasAction } from "@/actions/alias"
 import { useVault } from "@/components/vault/vault-provider"
-import { encryptVaultText } from "@/lib/vault/crypto"
+import { AliasMetadataKeyError } from "@/components/alias/alias-metadata-key"
+import { saveAliasMetadata } from "@/components/alias/alias-metadata-write"
 import {
     Dialog,
     DialogContent,
@@ -67,6 +68,14 @@ interface AliasItemProps {
         lastEmailAt?: Date | null
         createdAt: Date
         scheduledForRemovalAt?: Date | null
+        /** Set when an admin took the alias down; the owner can't re-enable it. */
+        takenDownAt?: Date | null
+        organizationId?: string | null
+        /** Full forwarding list (join table), ordered; primary first. */
+        aliasRecipients?: {
+            isPrimary: boolean
+            recipient: { id: string; email: string; pgpPublicKey: string | null }
+        }[]
     }
     metadata: {
         label: string | null
@@ -75,11 +84,15 @@ interface AliasItemProps {
         noteStatus: "empty" | "decrypted" | "legacy" | "error"
     }
     recipients?: Recipient[]
+    /** False for plain team members: changing forwarding is admin+ on the server. */
+    canManage?: boolean
 }
 
-export function AliasItem({ alias, metadata, recipients = [] }: AliasItemProps) {
+export function AliasItem({ alias, metadata, recipients = [], canManage = true }: AliasItemProps) {
     const router = useRouter()
     const vault = useVault()
+    const isTakenDown = Boolean(alias.takenDownAt)
+    const takenDownId = `alias-taken-down-${alias.id}`
     const [isPending, startTransition] = useTransition()
     const { copied: hasCopied, copy } = useClipboard()
     const [isExpanded, setIsExpanded] = useState(false)
@@ -89,11 +102,44 @@ export function AliasItem({ alias, metadata, recipients = [] }: AliasItemProps) 
     const [showDeleteDialog, setShowDeleteDialog] = useState(false)
     const [label, setLabel] = useState("")
     const [note, setNote] = useState("")
-    const [selectedRecipientId, setSelectedRecipientId] = useState(alias.recipientId || "")
 
-    // Find current recipient from the alias's recipient or from recipients list
-    const currentRecipient = alias.recipient || recipients.find(r => r.id === alias.recipientId)
+    // Full forwarding list from the join table (an alias can forward to several
+    // recipients via the API); fall back to the legacy single recipient.
+    const legacyRecipient = alias.recipient || recipients.find(r => r.id === alias.recipientId)
+    const forwardingRecipients = alias.aliasRecipients && alias.aliasRecipients.length > 0
+        ? alias.aliasRecipients.map((row) => row.recipient)
+        : legacyRecipient ? [legacyRecipient] : []
+    const currentRecipient = forwardingRecipients[0]
     const recipientEmail = currentRecipient?.email || "Unknown"
+    const extraRecipientCount = Math.max(forwardingRecipients.length - 1, 0)
+    const hasRecipient = forwardingRecipients.length > 0
+
+    const [selectedRecipientIds, setSelectedRecipientIds] = useState<string[]>(
+        () => forwardingRecipients.map((r) => r.id),
+    )
+
+    const startEditingRecipients = () => {
+        setSelectedRecipientIds(forwardingRecipients.map((r) => r.id))
+        setIsEditingRecipient(true)
+        setIsEditingLabel(false)
+        setIsEditingNote(false)
+        setIsExpanded(true)
+    }
+
+    const toggleSelectedRecipient = (recipientId: string, checked: boolean) => {
+        setSelectedRecipientIds((current) => checked
+            ? current.includes(recipientId) ? current : [...current, recipientId]
+            : current.filter((id) => id !== recipientId))
+    }
+
+    // Recipients this alias forwards to that aren't in the selectable (verified)
+    // list still need a row, so editing never silently drops them.
+    const editableRecipients = [
+        ...recipients,
+        ...forwardingRecipients
+            .filter((fr) => !recipients.some((r) => r.id === fr.id))
+            .map((fr) => ({ ...fr, verified: true, isDefault: false })),
+    ]
 
     const handleCopy = async () => {
         if (await copy(alias.email)) {
@@ -125,26 +171,27 @@ export function AliasItem({ alias, metadata, recipients = [] }: AliasItemProps) 
         })
     }
 
+    // Org aliases are encrypted to the team key so every member can read them;
+    // saveAliasMetadata handles key selection and a stale-team-key retry.
+    const saveMetadata = async (fields: { label?: string | null; note?: string | null }) => {
+        try {
+            return await saveAliasMetadata(vault, alias, fields, {
+                ...(fields.label !== undefined && { clearLegacyLabel: true }),
+                ...(fields.note !== undefined && { clearLegacyNote: true }),
+            })
+        } catch (error) {
+            return {
+                error: error instanceof AliasMetadataKeyError
+                    ? error.message
+                    : "Unlock your vault to update labels and notes",
+            }
+        }
+    }
+
     const handleSaveLabel = () => {
         startTransition(async () => {
             const trimmedLabel = label.trim()
-            const vaultKey = vault.getVaultKey()
-            if (vault.status !== "unlocked" || !vaultKey) {
-                toast.error("Unlock your vault to update labels")
-                return
-            }
-
-            const encryptedLabel = trimmedLabel
-                ? await encryptVaultText(trimmedLabel, vaultKey, {
-                    aliasId: alias.id,
-                    field: "label",
-                })
-                : null
-
-            const result = await updateAliasEncryptedMetadataAction(alias.id, {
-                encryptedLabel,
-                clearLegacyLabel: true,
-            })
+            const result = await saveMetadata({ label: trimmedLabel || null })
             if (result.error) {
                 toast.error(result.error)
             } else {
@@ -158,23 +205,7 @@ export function AliasItem({ alias, metadata, recipients = [] }: AliasItemProps) 
     const handleSaveNote = () => {
         startTransition(async () => {
             const trimmedNote = note.trim()
-            const vaultKey = vault.getVaultKey()
-            if (vault.status !== "unlocked" || !vaultKey) {
-                toast.error("Unlock your vault to update notes")
-                return
-            }
-
-            const encryptedNote = trimmedNote
-                ? await encryptVaultText(trimmedNote, vaultKey, {
-                    aliasId: alias.id,
-                    field: "note",
-                })
-                : null
-
-            const result = await updateAliasEncryptedMetadataAction(alias.id, {
-                encryptedNote,
-                clearLegacyNote: true,
-            })
+            const result = await saveMetadata({ note: trimmedNote || null })
             if (result.error) {
                 toast.error(result.error)
             } else {
@@ -186,12 +217,12 @@ export function AliasItem({ alias, metadata, recipients = [] }: AliasItemProps) 
     }
 
     const handleSaveRecipient = () => {
-        if (!selectedRecipientId) {
-            toast.error("Please select a recipient")
+        if (selectedRecipientIds.length === 0) {
+            toast.error("Select at least one recipient")
             return
         }
         startTransition(async () => {
-            const result = await updateAliasAction(alias.id, { recipientId: selectedRecipientId })
+            const result = await updateAliasAction(alias.id, { recipientIds: selectedRecipientIds })
             if (result.error) {
                 toast.error(result.error)
             } else {
@@ -245,9 +276,20 @@ export function AliasItem({ alias, metadata, recipients = [] }: AliasItemProps) 
                                         Removal scheduled
                                     </Badge>
                                 )}
+                                {isTakenDown && (
+                                    <Badge variant="destructive" className="text-xs shrink-0">
+                                        <AlertTriangle className="h-3 w-3 mr-1" />
+                                        Disabled by anon.li
+                                    </Badge>
+                                )}
                             </div>
+                            {isTakenDown && (
+                                <p id={takenDownId} className="mt-1 text-xs text-destructive">
+                                    This alias was disabled by anon.li for violating our terms of service and can&apos;t be re-enabled.
+                                </p>
+                            )}
                             <div className="flex items-center gap-2 sm:gap-3 text-xs sm:text-sm text-muted-foreground mt-1">
-                                {!alias.recipientId && alias.active ? (
+                                {!hasRecipient && alias.active ? (
                                     <span className="flex items-center gap-1 text-amber-600 dark:text-amber-500">
                                         <AlertTriangle className="h-3 w-3 shrink-0" />
                                         No recipient - emails won&apos;t be forwarded
@@ -255,9 +297,12 @@ export function AliasItem({ alias, metadata, recipients = [] }: AliasItemProps) 
                                 ) : (
                                     <span className="flex items-center gap-1 truncate max-w-[150px] sm:max-w-none">
                                         <Forward className="h-3 w-3 shrink-0" />
-                                        {recipientEmail}
+                                        <span className="truncate">{recipientEmail}</span>
                                         {currentRecipient?.pgpPublicKey && (
                                             <ShieldCheck className="h-3 w-3 text-green-600 shrink-0" />
+                                        )}
+                                        {extraRecipientCount > 0 && (
+                                            <span className="shrink-0">+{extraRecipientCount}</span>
                                         )}
                                     </span>
                                 )}
@@ -279,13 +324,14 @@ export function AliasItem({ alias, metadata, recipients = [] }: AliasItemProps) 
                             {/* Desktop: Active/Paused label + switch */}
                             <div className="hidden sm:flex items-center gap-2">
                                 <span className="text-sm text-muted-foreground">
-                                    {alias.active ? 'Active' : 'Paused'}
+                                    {alias.active ? 'Active' : isTakenDown ? 'Disabled' : 'Paused'}
                                 </span>
                                 <Switch
                                     checked={alias.active}
                                     onCheckedChange={handleToggle}
-                                    disabled={isPending}
+                                    disabled={isPending || (isTakenDown && !alias.active)}
                                     aria-label={alias.active ? "Pause alias" : "Activate alias"}
+                                    aria-describedby={isTakenDown ? takenDownId : undefined}
                                 />
                             </div>
 
@@ -293,8 +339,9 @@ export function AliasItem({ alias, metadata, recipients = [] }: AliasItemProps) 
                             <Switch
                                 checked={alias.active}
                                 onCheckedChange={handleToggle}
-                                disabled={isPending}
+                                disabled={isPending || (isTakenDown && !alias.active)}
                                 aria-label={alias.active ? "Pause alias" : "Activate alias"}
+                                aria-describedby={isTakenDown ? takenDownId : undefined}
                                 className="sm:hidden"
                             />
 
@@ -332,6 +379,12 @@ export function AliasItem({ alias, metadata, recipients = [] }: AliasItemProps) 
                                         <FileText className="h-4 w-4 mr-2" />
                                         Edit note
                                     </DropdownMenuItem>
+                                    {canManage && recipients.length > 0 && (
+                                        <DropdownMenuItem onClick={startEditingRecipients}>
+                                            <Forward className="h-4 w-4 mr-2" />
+                                            Change forwarding
+                                        </DropdownMenuItem>
+                                    )}
                                     <DropdownMenuSeparator />
                                     <DropdownMenuItem
                                         className="text-destructive focus:text-destructive"
@@ -342,6 +395,20 @@ export function AliasItem({ alias, metadata, recipients = [] }: AliasItemProps) 
                                     </DropdownMenuItem>
                                 </DropdownMenuContent>
                             </DropdownMenu>
+
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-muted-foreground"
+                                aria-label={isExpanded ? "Collapse alias details" : "Expand alias details"}
+                                aria-expanded={isExpanded}
+                                onClick={() => setIsExpanded((value) => !value)}
+                            >
+                                {isExpanded
+                                    ? <ChevronUp className="h-4 w-4" />
+                                    : <ChevronDown className="h-4 w-4" />}
+                            </Button>
                         </div>
                     </div>
                 </div>
@@ -413,45 +480,56 @@ export function AliasItem({ alias, metadata, recipients = [] }: AliasItemProps) 
                         )}
 
                         {/* Recipient Edit */}
-                        {isEditingRecipient && recipients.length > 1 && (
-                            <div className="space-y-2">
-                                <div className="text-sm font-medium">Forward to</div>
+                        {canManage && isEditingRecipient && (
+                            <fieldset className="space-y-2">
+                                <legend className="text-sm font-medium">Forward to</legend>
+                                <p className="text-xs text-muted-foreground">
+                                    The first selected recipient is the primary.
+                                </p>
+                                <div className="space-y-1">
+                                    {editableRecipients.map(r => {
+                                        const position = selectedRecipientIds.indexOf(r.id)
+                                        return (
+                                            <label
+                                                key={r.id}
+                                                className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-background cursor-pointer"
+                                            >
+                                                <input
+                                                    type="checkbox"
+                                                    className="h-4 w-4 accent-primary"
+                                                    checked={position !== -1}
+                                                    onChange={(e) => toggleSelectedRecipient(r.id, e.target.checked)}
+                                                />
+                                                <span className="break-all">{r.email}</span>
+                                                {r.isDefault && (
+                                                    <span className="text-xs text-muted-foreground">(Default)</span>
+                                                )}
+                                                {r.pgpPublicKey && (
+                                                    <ShieldCheck className="h-3 w-3 text-green-600 shrink-0" />
+                                                )}
+                                                {position === 0 && (
+                                                    <Badge variant="secondary" className="text-xs ml-auto">Primary</Badge>
+                                                )}
+                                            </label>
+                                        )
+                                    })}
+                                </div>
                                 <div className="flex gap-2">
-                                    <Select value={selectedRecipientId} onValueChange={setSelectedRecipientId}>
-                                        <SelectTrigger className="flex-1">
-                                            <SelectValue placeholder="Select recipient" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {recipients.map(r => (
-                                                <SelectItem key={r.id} value={r.id}>
-                                                    <div className="flex items-center gap-2">
-                                                        <span>{r.email}</span>
-                                                        {r.isDefault && (
-                                                            <span className="text-xs text-muted-foreground">(Default)</span>
-                                                        )}
-                                                        {r.pgpPublicKey && (
-                                                            <ShieldCheck className="h-3 w-3 text-green-600" />
-                                                        )}
-                                                    </div>
-                                                </SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
-                                    <Button size="sm" onClick={handleSaveRecipient} disabled={isPending}>
+                                    <Button size="sm" onClick={handleSaveRecipient} disabled={isPending || selectedRecipientIds.length === 0}>
                                         Save
                                     </Button>
                                     <Button
                                         size="sm"
                                         variant="ghost"
                                         onClick={() => {
-                                            setSelectedRecipientId(alias.recipientId || "")
+                                            setSelectedRecipientIds(forwardingRecipients.map((r) => r.id))
                                             setIsEditingRecipient(false)
                                         }}
                                     >
                                         Cancel
                                     </Button>
                                 </div>
-                            </div>
+                            </fieldset>
                         )}
 
                         {/* Statistics */}
@@ -479,29 +557,42 @@ export function AliasItem({ alias, metadata, recipients = [] }: AliasItemProps) 
                         {/* Forwarding Info */}
                         <div className="text-sm">
                             <div className="text-muted-foreground mb-1">Forwarding to</div>
-                            <div className="flex items-center gap-2 text-foreground bg-background rounded-md p-2 border">
-                                <Forward className="h-4 w-4 text-muted-foreground" />
-                                <span>{recipientEmail}</span>
-                                {currentRecipient?.pgpPublicKey && (
-                                    <Badge variant="secondary" className="text-xs text-green-600">
-                                        <ShieldCheck className="h-3 w-3 mr-1" />
-                                        PGP Encrypted
-                                    </Badge>
-                                )}
-                                {recipients.length > 1 && !isEditingRecipient && (
+                            <div className="flex items-start gap-2 text-foreground bg-background rounded-md p-2 border">
+                                <Forward className="h-4 w-4 mt-0.5 shrink-0 text-muted-foreground" />
+                                <ul className="min-w-0 flex-1 space-y-1">
+                                    {forwardingRecipients.length === 0 ? (
+                                        <li className="text-muted-foreground">No recipient</li>
+                                    ) : forwardingRecipients.map((r, index) => (
+                                        <li key={r.id} className="flex flex-wrap items-center gap-2">
+                                            <span className="break-all">{r.email}</span>
+                                            {forwardingRecipients.length > 1 && index === 0 && (
+                                                <Badge variant="outline" className="text-xs">Primary</Badge>
+                                            )}
+                                            {r.pgpPublicKey && (
+                                                <Badge variant="secondary" className="text-xs text-green-600">
+                                                    <ShieldCheck className="h-3 w-3 mr-1" />
+                                                    PGP Encrypted
+                                                </Badge>
+                                            )}
+                                        </li>
+                                    ))}
+                                </ul>
+                                {canManage && recipients.length > 0 && !isEditingRecipient && (
                                     <Button
                                         variant="ghost"
                                         size="sm"
-                                        className="ml-auto h-7 text-xs"
-                                        onClick={() => {
-                                            setSelectedRecipientId(alias.recipientId || "")
-                                            setIsEditingRecipient(true)
-                                        }}
+                                        className="h-7 text-xs shrink-0"
+                                        onClick={startEditingRecipients}
                                     >
                                         Change
                                     </Button>
                                 )}
                             </div>
+                            {!canManage && (
+                                <p className="mt-1 text-xs text-muted-foreground">
+                                    Only team admins can change where this alias forwards.
+                                </p>
+                            )}
                         </div>
                     </div>
                 </CollapsibleContent>

@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
+import { useClipboard } from "@/hooks/use-clipboard"
 
 interface DomainOwnershipStepProps {
     verified: boolean
@@ -12,9 +13,13 @@ interface DomainOwnershipStepProps {
 }
 
 export function DomainOwnershipStep({ verified, verificationToken }: DomainOwnershipStepProps) {
-    const copyToClipboard = (text: string, label: string) => {
-        navigator.clipboard.writeText(text)
-        toast.success(`Copied ${label} to clipboard`)
+    const { copy } = useClipboard()
+    const copyToClipboard = async (text: string, label: string) => {
+        if (await copy(text)) {
+            toast.success(`Copied ${label} to clipboard`)
+        } else {
+            toast.error("Failed to copy")
+        }
     }
 
     return (
@@ -50,15 +55,15 @@ export function DomainOwnershipStep({ verified, verificationToken }: DomainOwner
                             </div>
                             <div className="space-y-1 min-w-0">
                                 <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Value</span>
-                                <div className="flex items-center gap-2 group/value min-w-0">
-                                    <code className="flex-1 bg-background px-2 py-1 rounded border border-border/50 font-mono text-xs truncate">
+                                <div className="flex items-start gap-2 min-w-0">
+                                    <code className="flex-1 bg-background px-2 py-1 rounded border border-border/50 font-mono text-xs break-all">
                                         anon.li={verificationToken}
                                     </code>
                                     <Button
                                         variant="ghost"
                                         size="icon"
                                         aria-label="Copy verification token"
-                                        className="h-6 w-6 shrink-0 opacity-0 group-hover/value:opacity-100 transition-opacity"
+                                        className="h-6 w-6 shrink-0"
                                         onClick={() => copyToClipboard(`anon.li=${verificationToken}`, "Verification Token")}
                                     >
                                         <Copy className="h-3 w-3" />

@@ -8,6 +8,7 @@ import { isOrgScope } from "@/lib/ownership"
 import { ValidationError } from "@/lib/api-error-utils"
 import { BUSINESS_PLAN } from "@/config/plans"
 import { prisma } from "@/lib/prisma"
+import { recentDunningWhere } from "@/lib/services/billing-dunning"
 import { trackServerEvent } from "@/lib/posthog.server"
 
 interface TeamCheckoutParams {
@@ -43,14 +44,21 @@ export async function createTeamCheckoutSession(params: TeamCheckoutParams) {
                 throw new Error("The Business plan is not configured. Set STRIPE_BUSINESS_*_PRICE_ID.")
             }
 
-            // One active subscription per org.
+            // One live subscription per org. One in dunning (past_due/unpaid)
+            // is still live at Stripe; a second checkout would double-bill.
             const existing = await prisma.subscription.findFirst({
                 where: {
                     organizationId,
-                    status: { in: ["active", "trialing"] },
-                    currentPeriodEnd: { gt: new Date() },
+                    OR: [
+                        { status: { in: ["active", "trialing"] }, currentPeriodEnd: { gt: new Date() } },
+                        recentDunningWhere(),
+                    ],
                 },
+                select: { status: true },
             })
+            if (existing?.status === "past_due") {
+                throw new ValidationError("Your team's subscription has a failed payment. Update the payment method from the billing portal instead of starting a new subscription.")
+            }
             if (existing) {
                 throw new ValidationError("Your team already has an active subscription. Manage it from billing.")
             }
@@ -63,7 +71,7 @@ export async function createTeamCheckoutSession(params: TeamCheckoutParams) {
 
             const checkoutSession = await stripe.checkout.sessions.create({
                 mode: "subscription",
-                payment_method_types: ["card"],
+                allowed_payment_method_types: ["card"],
                 customer_email: email,
                 client_reference_id: scope.userId,
                 line_items: [{ price: priceId, quantity: seats }],
@@ -71,7 +79,16 @@ export async function createTeamCheckoutSession(params: TeamCheckoutParams) {
                 subscription_data: {
                     metadata: { userId: scope.userId, organizationId },
                 },
-                metadata: { userId: scope.userId, organizationId },
+                metadata: {
+                    userId: scope.userId,
+                    organizationId,
+                    // Read by the expired-checkout recovery flow (webhook
+                    // payloads never include line_items).
+                    priceId,
+                    product: "business",
+                    tier: "pro",
+                    frequency,
+                },
                 success_url: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard/team?success=true`,
                 cancel_url: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard/team?canceled=true`,
             })

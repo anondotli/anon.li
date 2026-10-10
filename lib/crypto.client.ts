@@ -360,7 +360,13 @@ class FileEncryptionService {
     const encryptedChunkSize = chunkSize + AUTH_TAG_SIZE;
     let chunkIndex = 0;
     let receivedEncryptedBytes = 0;
-    let buffer = new Uint8Array(0);
+    // One reusable chunk-sized buffer filled across network reads. Each
+    // ciphertext byte is copied exactly once, so the cost stays linear no
+    // matter how small or oddly sized the reads are. Safe to reuse because
+    // each chunk is fully decrypted (WebCrypto copies its input) before the
+    // next bytes are written.
+    const pending = new Uint8Array(encryptedChunkSize);
+    let pendingLength = 0;
     const decryptChunk = this.decryptChunk.bind(this);
     const getView = this.getView.bind(this);
 
@@ -371,36 +377,37 @@ class FileEncryptionService {
           throw new Error("Encrypted file is larger than declared");
         }
 
-        const newBuffer = new Uint8Array(buffer.length + chunk.length);
-        newBuffer.set(buffer);
-        newBuffer.set(chunk, buffer.length);
-        buffer = newBuffer;
+        let offset = 0;
+        while (offset < chunk.byteLength) {
+          const take = Math.min(encryptedChunkSize - pendingLength, chunk.byteLength - offset);
+          pending.set(chunk.subarray(offset, offset + take), pendingLength);
+          pendingLength += take;
+          offset += take;
 
-        while (buffer.length >= encryptedChunkSize) {
-          const chunkData = buffer.slice(0, encryptedChunkSize);
-          buffer = buffer.slice(encryptedChunkSize);
+          if (pendingLength < encryptedChunkSize) break;
+
+          if (chunkIndex >= expected.chunkCount) {
+            throw new Error("Encrypted file contains too many chunks");
+          }
 
           const decrypted = await decryptChunk(
-            getView(chunkData),
+            pending.buffer,
             key,
             baseIv,
             chunkIndex
           );
+          pendingLength = 0;
 
           controller.enqueue(new Uint8Array(decrypted));
           chunkIndex++;
-
-          if (chunkIndex > expected.chunkCount) {
-            throw new Error("Encrypted file contains too many chunks");
-          }
         }
       },
 
       async flush(controller) {
-        if (buffer.length > 0) {
+        if (pendingLength > 0) {
           try {
             const decrypted = await decryptChunk(
-              getView(buffer),
+              getView(pending.subarray(0, pendingLength)),
               key,
               baseIv,
               chunkIndex

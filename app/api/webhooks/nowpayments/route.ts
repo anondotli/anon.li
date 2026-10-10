@@ -4,11 +4,12 @@ import { prisma } from "@/lib/prisma"
 import { NOWPaymentsClient } from "@/lib/nowpayments"
 import { Redis } from "@upstash/redis"
 import { createLogger } from "@/lib/logger"
-import { getCryptoIntervalForStripePriceId, isValidCryptoProduct, isValidCryptoTier, type CryptoInterval } from "@/lib/crypto-prices"
-import { createCryptoSubscription } from "@/lib/services/subscription-sync"
-import { captureServerEvent, flushPostHog, trackServerEvent } from "@/lib/posthog.server"
+import { isValidCryptoProduct, isValidCryptoTier } from "@/lib/crypto-prices"
+import { handleCryptoSubscriptionLoss } from "@/lib/services/crypto-subscription"
+import { flushPostHog, trackServerEvent } from "@/lib/posthog.server"
 import { Prisma } from "@prisma/client"
 import { isNowPaymentsPaymentStatus } from "@/lib/crypto-payment-status"
+import { activateCryptoPayment, CRYPTO_TERMINAL_STATUSES } from "@/lib/services/crypto-activation"
 
 const logger = createLogger("NOWPaymentsWebhook")
 
@@ -25,10 +26,11 @@ function getRedis(): Redis {
 
 // Terminal statuses. A refund is the sole higher-precedence transition and may
 // supersede another terminal status (most importantly `finished`).
-const TERMINAL_STATUSES = new Set(["finished", "failed", "refunded", "expired"])
+const TERMINAL_STATUSES = new Set<string>(CRYPTO_TERMINAL_STATUSES)
 
 // Statuses that indicate successful payment
 const SUCCESS_STATUSES = new Set(["finished", "confirmed", "sending"])
+
 
 /**
  * Atomically try to claim an IPN event+status for processing using SET NX.
@@ -73,67 +75,6 @@ function validateCryptoProductTier(product: string, tier: string, paymentId: str
         return false
     }
     return true
-}
-
-/**
- * Non-critical side effects after successful crypto subscription activation.
- * Called outside the DB transaction — failures here don't block activation.
- */
-async function postActivationSideEffects(
-    payment: { id: string; userId: string; product: string; tier: string; planPriceId: string; priceAmount: number },
-    periodEnd: Date,
-    orderId: string,
-    interval: CryptoInterval,
-): Promise<void> {
-    // Cancel any active downgrade
-    try {
-        const { BillingDowngradeService } = await import("@/lib/services/billing-downgrade")
-        await BillingDowngradeService.cancelDowngrade(payment.userId)
-    } catch (error) {
-        logger.error("Failed to cancel downgrade after crypto activation", error)
-    }
-
-    // Send confirmation email
-    try {
-        const user = await getUserBillingState(payment.userId)
-        if (user?.email) {
-            const { sendCryptoPaymentConfirmationEmail } = await import("@/lib/resend")
-            await sendCryptoPaymentConfirmationEmail(user.email, {
-                product: payment.product,
-                tier: payment.tier,
-                periodEnd,
-            })
-        }
-    } catch (emailError) {
-        logger.error("Failed to send crypto confirmation email", emailError)
-    }
-
-    // Authoritative, ad-blocker-proof revenue event (server-side).
-    captureServerEvent(payment.userId, "subscription_activated", {
-        provider: "crypto",
-        product: payment.product,
-        tier: payment.tier,
-        frequency: interval,
-        amount: payment.priceAmount,
-        billing_reason: "new",
-        order_id: orderId,
-    })
-    // Crypto-lifecycle alias so the crypto funnel (created → paid/expired) is
-    // self-contained without mixing in card purchases.
-    captureServerEvent(payment.userId, "crypto_invoice_paid", {
-        product: payment.product,
-        tier: payment.tier,
-        amount: payment.priceAmount,
-        order_id: orderId,
-    })
-    after(() => flushPostHog())
-
-    logger.info("Crypto subscription activated", {
-        userId: payment.userId,
-        product: payment.product,
-        tier: payment.tier,
-        periodEnd: periodEnd.toISOString(),
-    })
 }
 
 export async function POST(req: Request) {
@@ -221,7 +162,14 @@ export async function POST(req: Request) {
             // Keep the payment state and its canonical entitlement in the same
             // transaction. updateMany makes this idempotent for legacy/refund
             // replays where the subscription row may already be absent.
+            const syntheticSubId = `crypto_${orderId}`
             await prisma.$transaction(async (tx) => {
+                const entitling = await tx.subscription.count({
+                    where: {
+                        providerSubscriptionId: syntheticSubId,
+                        status: { in: ["active", "trialing"] },
+                    },
+                })
                 await tx.cryptoPayment.update({
                     where: { id: payment.id },
                     data: {
@@ -232,15 +180,49 @@ export async function POST(req: Request) {
                         actuallyPaid: body.actually_paid != null ? Number(body.actually_paid) : payment.actuallyPaid,
                     },
                 })
-                await tx.subscription.updateMany({
-                    where: { providerSubscriptionId: `crypto_${orderId}` },
-                    data: {
-                        status: "canceled",
-                        currentPeriodEnd: refundedAt,
-                        cancelAtPeriodEnd: false,
-                    },
-                })
+                if (entitling > 0) {
+                    // Revoking live access: leave lossNotifiedAt null as the
+                    // "loss side effects pending" marker, cleared below.
+                    await tx.subscription.updateMany({
+                        where: { providerSubscriptionId: syntheticSubId },
+                        data: {
+                            status: "canceled",
+                            currentPeriodEnd: refundedAt,
+                            cancelAtPeriodEnd: false,
+                        },
+                    })
+                } else {
+                    // Nothing entitling to revoke (already expired/superseded):
+                    // no loss to apply. A row already canceled by an earlier
+                    // delivery of this refund keeps its pending marker.
+                    await tx.subscription.updateMany({
+                        where: { providerSubscriptionId: syntheticSubId, status: { not: "canceled" } },
+                        data: {
+                            status: "canceled",
+                            currentPeriodEnd: refundedAt,
+                            cancelAtPeriodEnd: false,
+                            lossNotifiedAt: refundedAt,
+                        },
+                    })
+                }
             }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+
+            // A refund that revoked live access is a subscription loss: drop
+            // grace, downgrade clock and notification, like a lapsed period.
+            // Retryable: on failure the IPN claim is released (500) and the
+            // retry finds the pending marker still set.
+            const pendingLoss = await prisma.subscription.findFirst({
+                where: { providerSubscriptionId: syntheticSubId, status: "canceled", lossNotifiedAt: null },
+                select: { id: true },
+            })
+            if (pendingLoss) {
+                const user = await getUserBillingState(payment.userId)
+                await handleCryptoSubscriptionLoss(payment.userId, user?.email ?? null)
+                await prisma.subscription.updateMany({
+                    where: { id: pendingLoss.id, lossNotifiedAt: null },
+                    data: { lossNotifiedAt: new Date() },
+                })
+            }
 
             // Revenue instrumentation: a refund revokes the entitlement.
             trackServerEvent(payment.userId, "subscription_canceled", {
@@ -344,71 +326,16 @@ export async function POST(req: Request) {
         }
 
         // Update payment record with IPN data + activate subscription atomically
+        // (or hold it for review when a live Stripe subscription conflicts).
         if (!isRefund && shouldActivate) {
-            // The billing interval is encoded in the Stripe price id stored at
-            // checkout. Crypto has no recurring billing, so this is the only
-            // durable record of which period length was purchased. Unknown ids
-            // fall back to yearly: every pre-interval-support invoice was
-            // yearly, and over-granting beats blocking a paid activation.
-            let interval = getCryptoIntervalForStripePriceId(payment.planPriceId)
-            if (!interval) {
-                logger.error("Unrecognized crypto planPriceId — defaulting to yearly period", undefined, {
-                    paymentId: payment.id,
-                    planPriceId: payment.planPriceId,
-                })
-                interval = "yearly"
-            }
-
-            const now = new Date()
-            const periodEnd = new Date(now)
-            if (interval === "monthly") {
-                periodEnd.setMonth(periodEnd.getMonth() + 1)
-            } else {
-                periodEnd.setFullYear(periodEnd.getFullYear() + 1)
-            }
-
-            // Single Serializable transaction across CryptoPayment, User, and the
-            // canonical Subscription row. Serializable isolation is required so
-            // concurrent IPNs for the same user (e.g. the user paid two crypto
-            // invoices) cannot both observe "no active subs" and end up creating
-            // two simultaneously-active rows. Postgres aborts the loser; the
-            // released claim lets NOWPayments retry and the synthetic-id upsert
-            // is then a no-op idempotent update.
-            const didActivate = await prisma.$transaction(async (tx) => {
-                // The initial lookup happens before the transaction. Make the
-                // transition conditional here as well, so a refund committed in
-                // the meantime wins and a stale success event cannot reactivate it.
-                const result = await tx.cryptoPayment.updateMany({
-                    where: {
-                        id: payment.id,
-                        status: { notIn: [...TERMINAL_STATUSES] },
-                    },
-                    data: {
-                        nowPaymentId: paymentId,
-                        status: paymentStatus,
-                        payCurrency: String(body.pay_currency ?? payment.payCurrency),
-                        payAmount: Number(body.pay_amount ?? payment.payAmount),
-                        actuallyPaid: body.actually_paid != null ? Number(body.actually_paid) : payment.actuallyPaid,
-                        periodStart: now,
-                        periodEnd: periodEnd,
-                    },
-                })
-                if (result.count === 0) return false
-
-                await tx.user.update({
-                    where: { id: payment.userId },
-                    data: {
-                        paymentMethod: "crypto",
-                    },
-                })
-                await createCryptoSubscription(tx, payment.userId, payment.product, payment.tier, now, periodEnd, orderId, payment.planPriceId)
-                return true
-            }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
-
-            // Non-critical side effects outside transaction
-            if (didActivate) {
-                await postActivationSideEffects(payment, periodEnd, orderId, interval)
-            }
+            const outcome = await activateCryptoPayment(payment, {
+                status: paymentStatus,
+                nowPaymentId: paymentId,
+                payCurrency: String(body.pay_currency ?? payment.payCurrency),
+                payAmount: Number(body.pay_amount ?? payment.payAmount),
+                actuallyPaid: body.actually_paid != null ? Number(body.actually_paid) : payment.actuallyPaid,
+            })
+            if (outcome.kind !== "skipped") after(() => flushPostHog())
         } else if (!isRefund) {
             // Non-activation status update
             // The terminal-state predicate makes this write safe against a refund

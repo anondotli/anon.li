@@ -7,7 +7,12 @@ import { Button } from "@/components/ui/button"
 import { Mail, Globe, Settings, CreditCard, FileUp, BarChart3, ClipboardList, Users } from "lucide-react"
 import { authClient } from "@/lib/auth-client"
 
-export function DashboardNav({ className, ...props }: React.HTMLAttributes<HTMLElement>) {
+interface DashboardNavProps extends React.HTMLAttributes<HTMLElement> {
+    /** Called when a nav link triggers a client-side navigation (e.g. to close the mobile sheet). */
+    onNavigate?: () => void
+}
+
+export function DashboardNav({ className, onNavigate, ...props }: DashboardNavProps) {
     const pathname = usePathname()
     // Only surface "Team" while a team context is actually selected — the page
     // shows the *active* org's console, so in personal context (even for org
@@ -39,7 +44,7 @@ export function DashboardNav({ className, ...props }: React.HTMLAttributes<HTMLE
                     variant={pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href + "/")) ? "secondary" : "ghost"}
                     className="justify-start"
                 >
-                    <Link href={item.href}>
+                    <Link href={item.href} onNavigate={onNavigate}>
                         {item.icon}
                         {item.title}
                     </Link>
@@ -56,7 +61,7 @@ export function DashboardNav({ className, ...props }: React.HTMLAttributes<HTMLE
                     variant={pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href + "/")) ? "secondary" : "ghost"}
                     className="justify-start"
                 >
-                    <Link href={item.href}>
+                    <Link href={item.href} onNavigate={onNavigate}>
                         {item.icon}
                         {item.title}
                     </Link>

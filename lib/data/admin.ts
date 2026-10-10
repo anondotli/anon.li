@@ -6,6 +6,7 @@ import {
     ALIAS_PLANS,
     DROP_PLANS,
     FORM_PLANS,
+    BUSINESS_PLAN,
     BUSINESS_SEAT_PRICE,
     type PaidTier,
     type Product,
@@ -1199,9 +1200,12 @@ export async function getAdminAliasDetail(aliasId: string) {
         return null
     }
 
+    // Domain names are only unique among verified rows; unverified claims of
+    // the same name may coexist. The verified row is the one routing mail.
     const domain = await prisma.domain.findFirst({
         where: { domain: alias.domain },
         select: { id: true, domain: true, verified: true, userId: true },
+        orderBy: [{ verified: "desc" }, { createdAt: "asc" }],
     })
 
     return { alias: { ...alias, recipients: mapAliasRecipients(alias) }, domain }
@@ -1958,24 +1962,62 @@ type AdminOauthAppRow = {
     id: string
     clientId: string
     name: string
+    /** Display label: public/confidential, application type, CIMD. */
     type: string
+    /**
+     * Client ID Metadata Document client: its client_id is a metadata URL and
+     * it is re-registered on the next authorize, so it can be disabled but not
+     * meaningfully deleted.
+     */
+    discovered: boolean
     disabled: boolean
     createdAt: Date
     user: UserRef | null
 }
 
-/** Counts active access tokens + consents per clientId for a set of apps. */
+const OAUTH_CLIENT_ROW_SELECT = {
+    id: true,
+    clientId: true,
+    name: true,
+    tokenEndpointAuthMethod: true,
+    applicationType: true,
+    clientDiscoveryId: true,
+    disabled: true,
+    createdAt: true,
+    user: { select: { id: true, email: true, name: true } },
+} satisfies Prisma.OauthClientSelect
+
+type OauthClientRowSource = Prisma.OauthClientGetPayload<{ select: typeof OAUTH_CLIENT_ROW_SELECT }>
+
+/** Exported for tests: map an oauth_clients row onto the admin table row. */
+export function toAdminOauthAppRow(client: OauthClientRowSource): AdminOauthAppRow {
+    const kind = client.tokenEndpointAuthMethod === "none" ? "public" : "confidential"
+    const labels = [kind, client.applicationType, client.clientDiscoveryId ? "CIMD" : null].filter(Boolean)
+    return {
+        id: client.id,
+        clientId: client.clientId,
+        name: client.name?.trim() || client.clientId,
+        type: labels.join(" · "),
+        discovered: Boolean(client.clientDiscoveryId),
+        disabled: client.disabled === true,
+        createdAt: client.createdAt ?? new Date(0),
+        user: client.user ?? null,
+    }
+}
+
+/** Counts live refresh tokens + consents per clientId for a set of apps. */
 async function getOauthAppUsage(clientIds: string[]) {
     if (clientIds.length === 0) return new Map<string, { tokens: number; consents: number }>()
     const [tokenGroups, consentGroups] = await Promise.all([
-        prisma.oauthAccessToken.groupBy({
+        // JWT access tokens are stateless; a live refresh token is a live grant.
+        prisma.oauthRefreshToken.groupBy({
             by: ["clientId"],
-            where: { clientId: { in: clientIds } },
+            where: { clientId: { in: clientIds }, revoked: null, expiresAt: { gt: new Date() } },
             _count: { _all: true },
         }),
         prisma.oauthConsent.groupBy({
             by: ["clientId"],
-            where: { clientId: { in: clientIds }, consentGiven: true },
+            where: { clientId: { in: clientIds } },
             _count: { _all: true },
         }),
     ])
@@ -1991,7 +2033,7 @@ export async function getAdminOauthApps(searchParams: SearchParams) {
     const page = parsePage(getStringParam(searchParams, "page"))
     const filter = getStringParam(searchParams, "filter") || ""
 
-    const where: Prisma.OauthApplicationWhereInput = {
+    const where: Prisma.OauthClientWhereInput = {
         ...(search && {
             OR: [
                 { name: { contains: search, mode: "insensitive" } },
@@ -2000,28 +2042,21 @@ export async function getAdminOauthApps(searchParams: SearchParams) {
             ],
         }),
         ...(filter === "disabled" && { disabled: true }),
-        ...(filter === "active" && { disabled: false }),
+        ...(filter === "active" && { disabled: { not: true } }),
     }
 
-    const [apps, total] = await Promise.all([
-        prismaPayload<Promise<AdminOauthAppRow[]>>(prisma.oauthApplication.findMany({
+    const [clients, total] = await Promise.all([
+        prisma.oauthClient.findMany({
             where,
-            select: {
-                id: true,
-                clientId: true,
-                name: true,
-                type: true,
-                disabled: true,
-                createdAt: true,
-                user: { select: { id: true, email: true, name: true } },
-            },
+            select: OAUTH_CLIENT_ROW_SELECT,
             orderBy: { createdAt: "desc" },
             skip: (page - 1) * ADMIN_PAGE_SIZE,
             take: ADMIN_PAGE_SIZE,
-        })),
-        prisma.oauthApplication.count({ where }),
+        }),
+        prisma.oauthClient.count({ where }),
     ])
 
+    const apps = clients.map(toAdminOauthAppRow)
     const usage = await getOauthAppUsage(apps.map((a) => a.clientId))
 
     return {
@@ -2034,25 +2069,18 @@ export async function getAdminOauthApps(searchParams: SearchParams) {
 }
 
 export async function getAdminOauthAppDetail(appId: string) {
-    const app = prismaPayload<(AdminOauthAppRow & { redirectUrls: string; updatedAt: Date }) | null>(
-        await prisma.oauthApplication.findUnique({
-            where: { id: appId },
-            select: {
-                id: true,
-                clientId: true,
-                name: true,
-                type: true,
-                disabled: true,
-                redirectUrls: true,
-                createdAt: true,
-                updatedAt: true,
-                user: { select: { id: true, email: true, name: true } },
-            },
-        }),
-    )
+    const client = await prisma.oauthClient.findUnique({
+        where: { id: appId },
+        select: { ...OAUTH_CLIENT_ROW_SELECT, redirectUris: true, updatedAt: true },
+    })
 
-    if (!app) return null
+    if (!client) return null
 
+    const app = {
+        ...toAdminOauthAppRow(client),
+        redirectUris: client.redirectUris,
+        updatedAt: client.updatedAt ?? client.createdAt ?? new Date(0),
+    }
     const usage = await getOauthAppUsage([app.clientId])
     return { ...app, usage: usage.get(app.clientId) ?? { tokens: 0, consents: 0 } }
 }
@@ -2150,9 +2178,20 @@ export async function getAdminGrowthSeries(days: number) {
     }
 }
 
-/** Estimated monthly price (USD) for an active subscription line. */
-function monthlyPriceFor(product: string, tier: string, seats: number): number {
-    if (product === "business") return BUSINESS_SEAT_PRICE.monthly * Math.max(seats, 1)
+/**
+ * Estimated monthly price (USD) for an active subscription line. The interval
+ * is inferred from the stored price id (crypto rows store the matching Stripe
+ * price id); yearly prices are normalized to monthly (÷ 12), and unrecognized
+ * ids fall back to the monthly list price.
+ */
+function monthlyPriceFor(product: string, tier: string, seats: number, providerPriceId: string | null): number {
+    if (product === "business") {
+        const yearlyId = BUSINESS_PLAN.priceIds?.yearly
+        const perSeat = yearlyId && providerPriceId === yearlyId
+            ? BUSINESS_SEAT_PRICE.yearly / 12
+            : BUSINESS_SEAT_PRICE.monthly
+        return perSeat * Math.max(seats, 1)
+    }
     const map =
         product === "bundle" ? BUNDLE_PLANS
             : product === "alias" ? ALIAS_PLANS
@@ -2161,7 +2200,11 @@ function monthlyPriceFor(product: string, tier: string, seats: number): number {
                         : null
     if (!map) return 0
     const def = map[tier as "free" | "plus" | "pro"]
-    return def?.price.monthly ?? 0
+    if (!def) return 0
+    if (def.priceIds?.yearly && providerPriceId === def.priceIds.yearly) {
+        return def.price.yearly / 12
+    }
+    return def.price.monthly
 }
 
 /**
@@ -2176,8 +2219,17 @@ export async function getAdminRevenueSeries(days: number) {
         prisma.$queryRaw<DailyCountRow[]>`SELECT date_trunc('day', "createdAt") AS bucket, count(*) AS count FROM "subscriptions" WHERE "createdAt" >= ${since} AND "provider" = 'stripe' AND NOT EXISTS (SELECT 1 FROM users u WHERE u.id = "subscriptions"."userId" AND u."isAdmin" = true) GROUP BY bucket`,
         prisma.$queryRaw<DailyCountRow[]>`SELECT date_trunc('day', "createdAt") AS bucket, count(*) AS count FROM "subscriptions" WHERE "createdAt" >= ${since} AND "provider" = 'crypto' AND NOT EXISTS (SELECT 1 FROM users u WHERE u.id = "subscriptions"."userId" AND u."isAdmin" = true) GROUP BY bucket`,
         prisma.subscription.findMany({
-            where: { status: { in: ["active", "trialing"] }, NOT: { user: { isAdmin: true } } },
-            select: { provider: true, product: true, tier: true, seats: true },
+            where: {
+                status: { in: ["active", "trialing"] },
+                NOT: { user: { isAdmin: true } },
+                // A prepaid crypto period that lapsed (past the one-day access
+                // grace) is not revenue even before the billing cron expires it.
+                OR: [
+                    { currentPeriodEnd: null },
+                    { currentPeriodEnd: { gt: new Date(Date.now() - DAY_MS) } },
+                ],
+            },
+            select: { provider: true, product: true, tier: true, seats: true, providerPriceId: true },
         }),
     ])
 
@@ -2196,7 +2248,7 @@ export async function getAdminRevenueSeries(days: number) {
         // revenue. Keep them in the active-subscription count, but not MRR.
         if (sub.provider === "manual") continue
 
-        const price = monthlyPriceFor(sub.product, sub.tier, sub.seats)
+        const price = monthlyPriceFor(sub.product, sub.tier, sub.seats, sub.providerPriceId)
         currentMrr += price
         mrrByProduct[sub.product] = (mrrByProduct[sub.product] ?? 0) + price
     }

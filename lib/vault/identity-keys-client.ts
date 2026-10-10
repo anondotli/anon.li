@@ -1,13 +1,18 @@
 "use client"
 
 import { readVaultApiData } from "@/lib/vault/client"
-import { provisionIdentityKeypair } from "@/lib/vault/identity-keypair"
+import {
+    provisionIdentityKeypair,
+    recoverIdentityPrivateKey,
+    type StoredIdentityKeypair,
+} from "@/lib/vault/identity-keypair"
 import { IdentityMaterialSchema, parseVaultData } from "@/lib/vault/client-schemas"
 
 /**
  * Ensure the user has an identity keypair provisioned for the CURRENT vault
  * generation (ORG-E2EE-DESIGN.md §3a/§9), generating + publishing one if it is
- * absent or stale (e.g. after a vault rotation re-wrapped to a new generation).
+ * absent or no longer unwraps under the current vault key, and re-publishing the
+ * existing pair when only the generation moved (e.g. a vault password change).
  * Idempotent: a no-op when an up-to-date keypair already exists.
  *
  * MUST be called fail-open after a vault unlock — the caller is responsible for
@@ -29,7 +34,24 @@ export async function ensureIdentityKeypair(
         return existing.identityPublicKey
     }
 
-    const stored = await provisionIdentityKeypair(vaultKey)
+    // A generation bump does not necessarily mean a new vault key: a vault
+    // password change re-wraps the SAME key under a new generation. If the stored
+    // private key still unwraps, re-publish the existing pair under the current
+    // generation. Generating a fresh pair here would orphan every org member key
+    // sealed to the old public key and lock the user out of their team vault.
+    let stored: StoredIdentityKeypair | null = null
+    if (existing.identityPublicKey && existing.wrappedIdentityPrivateKey) {
+        try {
+            await recoverIdentityPrivateKey(existing.wrappedIdentityPrivateKey, vaultKey)
+            stored = {
+                identityPublicKey: existing.identityPublicKey,
+                wrappedIdentityPrivateKey: existing.wrappedIdentityPrivateKey,
+            }
+        } catch {
+            // Wrapped under a different vault key — fall through to a fresh pair.
+        }
+    }
+    stored ??= await provisionIdentityKeypair(vaultKey)
     const body = JSON.stringify({
         identityPublicKey: stored.identityPublicKey,
         wrappedIdentityPrivateKey: stored.wrappedIdentityPrivateKey,

@@ -236,7 +236,10 @@ export function FileUploader({ onUploadComplete, userTier, maxStorage, usedStora
       <>
         <SuccessView
           shareUrl={shareUrl}
-          password={config.password}
+          // Only claim password protection when the drop was actually
+          // created with one; a leftover password typed before switching back
+          // to key-in-link mode must not appear on the success screen.
+          password={dropMeta?.passwordProtected ? config.password : undefined}
           fileCount={files.length || 1}
           totalSize={totalSize}
           expiresAt={dropMeta?.expiresAt ? new Date(dropMeta.expiresAt) : undefined}

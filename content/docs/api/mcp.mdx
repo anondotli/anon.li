@@ -15,7 +15,9 @@ short-lived bearer token scoped to your account.
 https://anon.li/api/mcp
 ```
 
-The transport is **Streamable HTTP** (the modern MCP transport).
+The transport is **Streamable HTTP**. The server speaks protocol revisions
+2025-03-26, 2025-06-18 and 2025-11-25 (JSON responses, no session) as well as
+2026-07-28.
 
 ## Adding the server to Claude
 
@@ -45,21 +47,35 @@ find the transport and OAuth configuration with no manual setup:
 |---|---|
 | MCP Server Card (SEP-1649 draft) | `/.well-known/mcp/server-card.json` |
 | [RFC 8414 — Authorization Server Metadata](https://datatracker.ietf.org/doc/html/rfc8414) | `/.well-known/oauth-authorization-server` |
-| [RFC 9728 — OAuth Protected Resource Metadata](https://datatracker.ietf.org/doc/html/rfc9728) | `/.well-known/oauth-protected-resource` |
+| [RFC 9728 — OAuth Protected Resource Metadata](https://datatracker.ietf.org/doc/html/rfc9728) | `/.well-known/oauth-protected-resource/api/mcp` (also at `/.well-known/oauth-protected-resource`) |
 
 Key facts a client will read:
 
+- **Issuer:** `https://anon.li`
+- **Endpoints:** `/api/auth/oauth2/authorize`, `/api/auth/oauth2/token`,
+  `/api/auth/oauth2/revoke`; signing keys at `/api/auth/jwks`
 - **Grant types:** `authorization_code`, `refresh_token`
 - **PKCE:** required, S256 only
-- **Dynamic client registration:** [RFC 7591](https://datatracker.ietf.org/doc/html/rfc7591),
-  enabled at `/api/auth/mcp/register`
-- **Access tokens:** 1 hour
-- **Refresh tokens:** 14 days
+- **Client registration:** [Client ID Metadata Documents](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/client-registration)
+  (an HTTPS `client_id`), or [RFC 7591](https://datatracker.ietf.org/doc/html/rfc7591)
+  dynamic registration at `/api/auth/oauth2/register`. Redirect URIs must be
+  HTTPS, or `http://localhost` / `127.0.0.1` / `[::1]` for native clients.
+- **Resource indicator:** tokens are bound to `https://anon.li/api/mcp`
+  ([RFC 8707](https://www.rfc-editor.org/rfc/rfc8707)); clients that omit
+  `resource` get it filled in.
+- **Access tokens:** 1-hour signed JWTs
+- **Refresh tokens:** 14 days, rotated on every use (a retried refresh within
+  30 seconds receives the same response)
+- **Consent:** every authorization shows the anon.li consent screen; 2FA must be
+  completed first if it is enabled on the account. Granted apps are listed, and can be
+  revoked, under **Settings → Connected apps**
 
 ## Tools
 
-The server exposes twelve tools. Each call counts against the same monthly API
-quota as the REST API for your tier (see [Pricing](/pricing) for tier limits).
+The server exposes twelve tools. Alias, drop, and form tool calls count against
+the same monthly API quota as the REST API for your tier (see
+[Pricing](/pricing) for tier limits). The recipient tools (`list_recipients`,
+`add_recipient`) do not consume monthly quota; they are only rate limited.
 
 ### Aliases
 
@@ -124,38 +140,84 @@ The MCP server therefore lets an agent manage the *control plane* (which
 aliases exist, which recipients are verified, which drops are still alive)
 without ever touching the *content plane*.
 
-## Quota and rate limits
+## Errors
 
-MCP usage shares the per-tier monthly counter with REST and CLI usage. When you
-exceed it, tools return a structured error:
+A failed tool call is returned as a normal MCP tool **result** with
+`isError: true` — not as a JSON-RPC protocol error. The structured details are
+available in two places:
+
+- `_meta["anon.li/error"]` — machine-readable `{ code, message, ... }` for
+  clients that branch on error data.
+- The text content block — the message, followed by a JSON block with the
+  `code` and any extra fields. This is what most agent loops show the model.
 
 ```json
 {
-  "code": -32002,
-  "message": "Monthly API quota exceeded",
-  "data": {
-    "code": "QUOTA_EXCEEDED",
-    "quotaType": "alias",
-    "limit": 500,
-    "remaining": 0,
-    "resetAt": "2026-05-01T00:00:00.000Z"
+  "isError": true,
+  "content": [
+    {
+      "type": "text",
+      "text": "Monthly API quota exceeded\n\n{\n  \"code\": \"QUOTA_EXCEEDED\",\n  ..."
+    }
+  ],
+  "_meta": {
+    "anon.li/error": {
+      "code": "QUOTA_EXCEEDED",
+      "message": "Monthly API quota exceeded",
+      "quota_type": "alias",
+      "limit": 500,
+      "remaining": 0,
+      "reset_at": "2026-05-01T00:00:00.000Z"
+    }
   }
 }
 ```
 
-Per-tool rate limits also apply (`create_alias` is the most strict — it shares
-the same per-minute bucket as the REST endpoint). Errors arrive as
-`{ "code": -32003, "data": { "code": "RATE_LIMITED", "resetAt": "..." } }`.
+Error codes mirror the REST API's, so one error table covers both:
+
+| Code | Meaning | Extra fields |
+|------|---------|--------------|
+| `QUOTA_EXCEEDED` | Monthly API quota exhausted for this tool's bucket. | `quota_type` (`alias` / `drop` / `form`), `limit`, `remaining`, `reset_at` |
+| `RATE_LIMITED` | Per-tool rate limit hit — retry after `reset_at`. | `reset_at` |
+| `INSUFFICIENT_SCOPE` | The token lacks the scope this tool needs. Reconnect and approve it. | `required_scope`, `granted_scopes` |
+| `UPGRADE_REQUIRED` | A plan limit was reached (e.g. alias count). | `upgrade` (`scope`, `currentTier`, `suggestedTier`, ...) |
+| `ACCOUNT_BANNED` | The account is suspended. | |
+| `BAN_ALIAS_CREATION` | Alias creation is disabled for this account (`create_alias`). | |
+| `NOT_FOUND`, `VALIDATION_ERROR`, `FORBIDDEN`, `CONFLICT` | The request itself was rejected (unknown ID, bad input, insufficient org role, duplicate). | |
+| `INVALID_TOKEN`, `ACCOUNT_NOT_ACTIVE` | The token has no subject, or the account no longer exists. | |
+| `INTERNAL_ERROR` | Unexpected server error. The call was not retried — check its effect before repeating it. | |
+
+## Quota and rate limits
+
+MCP usage shares the per-tier monthly counter with REST and CLI usage (per
+bucket: alias tools use the alias quota, drop tools the drop quota, form tools
+the form quota). Recipient tools are not metered against the monthly quota.
+
+Per-tool rate limits also apply, sharing buckets with the matching REST
+endpoints:
+
+| Tools | Limit |
+|-------|-------|
+| `create_alias` | 60 per hour |
+| `list_aliases`, `toggle_alias`, `delete_alias` | 100 per minute |
+| `list_recipients`, `add_recipient` | 60 per hour |
+| `list_drops`, `list_forms` | 60 per minute |
+| `toggle_drop`, `delete_drop`, `toggle_form`, `delete_form` | 100 per hour |
 
 ## Account safety
 
 - **2FA aware.** If your account requires 2FA, the OAuth authorization step
   redirects through it before the consent screen.
-- **Ban aware.** If your account has alias-creation or upload bans applied
-  (e.g. due to abuse strikes), the relevant tools return a `FORBIDDEN` error
-  with a structured `code` instead of silently failing.
-- **Revocation.** Disconnecting the connector in Claude (or any MCP client)
-  revokes the access and refresh tokens immediately.
+- **Ban aware.** A suspended account gets `ACCOUNT_BANNED` from every tool, and
+  an account with alias creation disabled (e.g. due to abuse strikes) gets
+  `BAN_ALIAS_CREATION` from `create_alias`, instead of silently failing.
+- **Revocation.** To cut an app off from anon.li's side, open
+  [**Settings → Connected apps**](/dashboard/settings#connected-apps) and
+  choose **Revoke**. Its consent and refresh tokens are deleted, and any
+  access token it still holds is rejected on the next request. Reconnecting
+  later shows the consent screen again. Removing a connector inside Claude (or
+  another MCP client) does not necessarily revoke its grant with anon.li, so
+  use Connected apps to be sure.
 
 ## Need help?
 

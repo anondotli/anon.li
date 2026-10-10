@@ -23,6 +23,10 @@ vi.mock("@/lib/rate-limit", () => ({
     rateLimiters: {},
 }))
 
+// No session: keep the real better-auth instance (and its OAuth resource
+// seeding against the database) out of this test.
+vi.mock("@/auth", () => ({ auth: vi.fn().mockResolvedValue(null) }))
+
 vi.mock("@/lib/prisma", () => ({
     prisma: {
         drop: { findUnique: findDrop },

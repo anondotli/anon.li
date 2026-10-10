@@ -7,7 +7,9 @@ export const authClient = createAuthClient({
         magicLinkClient(),
         twoFactorClient({
             onTwoFactorRedirect: () => {
-                window.location.href = "/2fa"
+                // Keep the post-login destination; /2fa sanitizes it server-side.
+                const callbackUrl = new URLSearchParams(window.location.search).get("callbackUrl")
+                window.location.replace(callbackUrl ? `/2fa?callbackUrl=${encodeURIComponent(callbackUrl)}` : "/2fa")
             },
         }),
         organizationClient({

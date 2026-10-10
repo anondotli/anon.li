@@ -5,6 +5,7 @@
 
 import { NextResponse } from "next/server"
 
+import { apiError, ErrorCodes } from "@/lib/api-response"
 import { getClientIp } from "@/lib/rate-limit"
 import { withPolicy } from "@/lib/route-policy"
 import { DropService } from "@/lib/services/drop"
@@ -37,7 +38,7 @@ export const POST = withPolicy<RouteParams>(
         })
 
         if (!drop) {
-            return NextResponse.json({ error: "Drop not found" }, { status: 404 })
+            return apiError("Drop not found", ErrorCodes.NOT_FOUND, ctx.requestId, 404)
         }
 
         if (
@@ -48,11 +49,11 @@ export const POST = withPolicy<RouteParams>(
             || drop.formStagingId
             || drop.uploadTokens.length > 0
         ) {
-            return NextResponse.json({ error: "This drop is not available." }, { status: 404 })
+            return apiError("This drop is not available.", ErrorCodes.NOT_FOUND, ctx.requestId, 404)
         }
 
         if (drop.expiresAt && new Date() > drop.expiresAt) {
-            return NextResponse.json({ error: "This drop has expired." }, { status: 404 })
+            return apiError("This drop has expired.", ErrorCodes.NOT_FOUND, ctx.requestId, 404)
         }
 
         // Per-recipient access gate (zero-knowledge: token gates ciphertext only).
@@ -60,7 +61,7 @@ export const POST = withPolicy<RouteParams>(
             ctx.request.headers.get("x-drop-recipient") ?? new URL(ctx.request.url).searchParams.get("r")
         const access = await resolveDownloadAccess(dropId, drop.restrictToRecipients, recipientToken)
         if (!access.allowed) {
-            return NextResponse.json({ error: "This drop is not available." }, { status: 404 })
+            return apiError("This drop is not available.", ErrorCodes.NOT_FOUND, ctx.requestId, 404)
         }
         // Generate every URL before spending either allowance. Nothing is
         // returned until the subsequent atomic counter transaction commits.
@@ -74,7 +75,7 @@ export const POST = withPolicy<RouteParams>(
 
         const counted = await DropService.consumeDownload(dropId, access.recipientId)
         if (!counted) {
-            return NextResponse.json({ error: "Download limit reached." }, { status: 404 })
+            return apiError("Download limit reached.", ErrorCodes.NOT_FOUND, ctx.requestId, 404)
         }
 
         // Owner-facing access log: one event for the whole-drop (ZIP) download.

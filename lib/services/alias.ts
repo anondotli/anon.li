@@ -1,7 +1,7 @@
 
 import { z } from "zod"
 import { randomBytes } from "crypto"
-import { getPlanLimits, getEffectiveTier, assertOrgPlanActive } from "@/lib/limits"
+import { getPlanLimits, getEffectiveTier, assertOrgPlanActive, type UserSub } from "@/lib/limits"
 import { createLogger } from "@/lib/logger"
 import {
     getAliasById,
@@ -15,7 +15,8 @@ import { getOrgLimitContext } from "@/lib/data/auth"
 import { getDomains } from "@/lib/data/domain"
 import { getRecipientById, getDefaultRecipient, getRecipientByScopeAndEmail } from "@/lib/data/recipient"
 import { prisma } from "@/lib/prisma"
-import type { Alias, Recipient } from "@prisma/client"
+import { Prisma, type Recipient } from "@prisma/client"
+import { ErrorCodes } from "@/lib/api-response"
 import { ValidationError, NotFoundError, ForbiddenError, ConflictError, UpgradeRequiredError } from "@/lib/api-error-utils"
 import { LOCAL_PART_PATTERN } from "@/lib/validations/alias"
 
@@ -65,6 +66,105 @@ const RESERVED_ALIASES = new Set([
     "group", "groups", "mailing", "list", "lists",
 ]);
 
+/**
+ * Shared domains operated by anon.li. Reserved local parts (role addresses like
+ * admin@, abuse@) only protect these — on a user's own verified domain the user
+ * is the operator and may claim any local part.
+ */
+const SHARED_ALIAS_DOMAINS = new Set(["anon.li"])
+
+// Admin-managed additions (ReservedAlias table, edited in /admin/settings) are
+// cached briefly so alias creation doesn't hit the DB for the list every time.
+const RESERVED_ALIAS_CACHE_TTL_MS = 60_000
+let reservedAliasCache: { aliases: Set<string>; expiresAt: number } | null = null
+
+async function getAdminReservedAliases(): Promise<Set<string>> {
+    const now = Date.now()
+    if (reservedAliasCache && reservedAliasCache.expiresAt > now) {
+        return reservedAliasCache.aliases
+    }
+    const rows = await prisma.reservedAlias.findMany({ select: { alias: true } })
+    const aliases = new Set(rows.map((row) => row.alias.toLowerCase()))
+    reservedAliasCache = { aliases, expiresAt: now + RESERVED_ALIAS_CACHE_TTL_MS }
+    return aliases
+}
+
+/** Test hook: drop the cached admin reserved-alias list. */
+export function clearReservedAliasCache() {
+    reservedAliasCache = null
+}
+
+async function isReservedLocalPart(localPart: string, domain: string): Promise<boolean> {
+    if (!SHARED_ALIAS_DOMAINS.has(domain)) return false
+    const normalized = localPart.toLowerCase()
+    if (RESERVED_ALIASES.has(normalized)) return true
+    return (await getAdminReservedAliases()).has(normalized)
+}
+
+/** Message for ErrorCodes.ORG_KEY_GENERATION_MISMATCH on alias metadata writes. */
+const ORG_KEY_GENERATION_MISMATCH_MESSAGE = "Team encryption key changed — please retry"
+
+/**
+ * Org alias labels/notes are encrypted with the team's org vault key. Before
+ * storing new org ciphertext, lock the org row (serializing with a key
+ * rotation, which re-encrypts alias metadata under the same lock) and require
+ * the generation the client encrypted with to be the current one — otherwise a
+ * stale cached key would write a label nobody can ever decrypt. Mirrors the
+ * Form owner-key check in FormService.
+ */
+async function assertCurrentOrgKeyGeneration(
+    tx: Prisma.TransactionClient,
+    organizationId: string,
+    orgKeyGeneration: number | undefined,
+) {
+    const rows = await tx.$queryRaw<Array<{ orgKeyGeneration: number }>>`
+        SELECT "org_key_generation" AS "orgKeyGeneration"
+        FROM "organizations"
+        WHERE "id" = ${organizationId}
+        FOR UPDATE
+    `
+    const currentGeneration = rows[0]?.orgKeyGeneration ?? 0
+    if (currentGeneration < 1) {
+        throw new ValidationError("Team encryption key is not set up yet")
+    }
+    if (orgKeyGeneration !== currentGeneration) {
+        throw new ConflictError(ORG_KEY_GENERATION_MISMATCH_MESSAGE, ErrorCodes.ORG_KEY_GENERATION_MISMATCH)
+    }
+}
+
+/** Owner-facing refusal when re-enabling an alias an admin took down. */
+const ALIAS_TAKEN_DOWN_MESSAGE =
+    "This alias was disabled by anon.li for violating our terms of service and can't be re-enabled."
+
+/**
+ * Write an alias row; when the write re-enables it, the caller passes
+ * `takenDownAt: null` in `where`, so a concurrent admin takedown can't be
+ * undone — the conditional update matches nothing (P2025) → ForbiddenError.
+ */
+async function updateAliasRow(
+    client: Pick<Prisma.TransactionClient, "alias">,
+    args: Prisma.AliasUpdateArgs,
+    reactivating: boolean,
+) {
+    try {
+        return await client.alias.update(args)
+    } catch (error) {
+        if (reactivating && error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") {
+            throw new ForbiddenError(ALIAS_TAKEN_DOWN_MESSAGE)
+        }
+        throw error
+    }
+}
+
+/** True when an org-scope write stores (non-null) alias metadata ciphertext. */
+function writesOrgCiphertext(
+    scope: OwnerScope,
+    data: { encryptedLabel?: string | null; encryptedNote?: string | null },
+): scope is OwnerScope & { organizationId: string } {
+    return scope.organizationId !== null
+        && (typeof data.encryptedLabel === "string" || typeof data.encryptedNote === "string")
+}
+
 const createAliasSchema = z.object({
     localPart: z.string().optional(),
     domain: z.string().min(1, "Domain is required"),
@@ -94,7 +194,9 @@ export class AliasService {
     static async createAlias(scope: OwnerScope, data: {
         localPart?: string, domain: string, format?: "RANDOM" | "CUSTOM",
         recipientId?: string, recipientEmail?: string, recipientIds?: string[],
-        encryptedLabel?: string | null, encryptedNote?: string | null
+        encryptedLabel?: string | null, encryptedNote?: string | null,
+        /** Required with org-scope ciphertext: the team key generation used. */
+        orgKeyGeneration?: number
     }) {
         const result = createAliasSchema.safeParse(data)
         if (!result.success) {
@@ -127,8 +229,7 @@ export class AliasService {
             throw new ValidationError("No valid recipient available. Please add a recipient first.")
         }
 
-        const aliases = await dbGetAliases(scope)
-        localPart = await this._generateOrValidateAlias(user, aliases, domain, format, localPart)
+        localPart = await this._generateOrValidateAlias(scope, user, limitContext, domain, format, localPart)
 
         if (!localPart) throw new ValidationError("Failed to generate alias")
 
@@ -138,6 +239,10 @@ export class AliasService {
 
         // Use a serializable transaction to prevent TOCTOU race conditions
         return await prisma.$transaction(async (tx) => {
+            if (writesOrgCiphertext(scope, data)) {
+                await assertCurrentOrgKeyGeneration(tx, scope.organizationId, data.orgKeyGeneration)
+            }
+
             const existing = await tx.alias.findUnique({ where: { email } })
             if (existing) {
                 throw new ConflictError("Alias already taken on this domain")
@@ -262,13 +367,19 @@ export class AliasService {
     }
 
     private static async _generateOrValidateAlias(
+        scope: OwnerScope,
         user: UserWithSubscriptions,
-        aliases: Alias[],
+        limitContext: UserSub,
         domain: string,
         format: "RANDOM" | "CUSTOM",
         localPart?: string
     ) {
-        const { random: randomLimit, custom: customLimit } = getPlanLimits(user)
+        // Early-exit limit check (authoritative re-check is inside the create
+        // transaction). Limits come from the OWNING plan (the org's in org
+        // scope) and usage is a pooled DB count — never the member's own plan.
+        const { random: randomLimit, custom: customLimit } = getPlanLimits(limitContext)
+        const countFormat = (f: "RANDOM" | "CUSTOM") =>
+            prisma.alias.count({ where: { ...ownerWhere(scope), format: f } })
 
         if (format === "CUSTOM") {
             // Validate Local Part Format
@@ -283,16 +394,16 @@ export class AliasService {
                 throw new ValidationError("Username must be 64 characters or less")
             }
 
-            // Reserved Check
-            if (RESERVED_ALIASES.has(localPart.toLowerCase())) {
+            // Reserved Check (shared anon.li domains only)
+            if (await isReservedLocalPart(localPart, domain)) {
                 logger.info(`Reserved alias attempted`, { localPart, domain, userId: user.id });
                 throw new ValidationError(`This alias is reserved: "${localPart}"`)
             }
 
             // Limit Check
-            const currentCustomCount = aliases.filter((a) => a.format === "CUSTOM").length
+            const currentCustomCount = customLimit === -1 ? 0 : await countFormat("CUSTOM")
             if (customLimit !== -1 && currentCustomCount >= customLimit) {
-                const currentTier = getEffectiveTier(user)
+                const currentTier = getEffectiveTier(limitContext)
                 throw new UpgradeRequiredError(
                     `Custom alias limit reached (${customLimit}). Upgrade to add more.`,
                     {
@@ -307,9 +418,9 @@ export class AliasService {
             return localPart
         } else {
             // RANDOM
-            const currentRandomCount = aliases.filter((a) => a.format === "RANDOM").length
+            const currentRandomCount = randomLimit === -1 ? 0 : await countFormat("RANDOM")
             if (randomLimit !== -1 && currentRandomCount >= randomLimit) {
-                const currentTier = getEffectiveTier(user)
+                const currentTier = getEffectiveTier(limitContext)
                 throw new UpgradeRequiredError(
                     `Random alias limit reached (${randomLimit}). Upgrade to add more.`,
                     {
@@ -362,10 +473,16 @@ export class AliasService {
         // Toggling a shared org alias's forwarding affects the team → admin+.
         assertCanManage(alias, scope)
 
-        return await prisma.alias.update({
-            where: { id: aliasId },
+        // Pausing is always allowed; re-enabling is refused while an admin
+        // takedown is in force (conditional on takenDownAt in the write itself).
+        const reactivating = !alias.active
+        if (reactivating && alias.takenDownAt) {
+            throw new ForbiddenError(ALIAS_TAKEN_DOWN_MESSAGE)
+        }
+        return await updateAliasRow(prisma, {
+            where: reactivating ? { id: aliasId, takenDownAt: null } : { id: aliasId },
             data: { active: !alias.active }
-        })
+        }, reactivating)
     }
 
     static async deleteAlias(scope: OwnerScope, aliasId: string) {
@@ -387,12 +504,42 @@ export class AliasService {
             clearLegacyLabel?: boolean; clearLegacyNote?: boolean;
             recipientId?: string; recipientEmail?: string;
             recipientIds?: string[];
+            /** Idempotent set (not a toggle); applied atomically with the rest. */
+            active?: boolean;
+            /** Required with org-scope ciphertext: the team key generation used. */
+            orgKeyGeneration?: number;
         }
     ) {
         const alias = await getAliasById(aliasId, scope)
         if (!alias) {
             throw new NotFoundError("Alias not found")
         }
+
+        // Repointing a shared org alias's forwarding (or pausing it) affects the
+        // whole team → admin+, matching toggleAlias/deleteAlias. Label/note
+        // edits stay open to every member.
+        // `active` only counts when it actually changes, so full-object PATCH
+        // clients resending the current value can still edit labels as members.
+        const changesActive = data.active !== undefined && data.active !== alias.active
+        const changesRouting = data.recipientIds !== undefined
+            || data.recipientId !== undefined
+            || data.recipientEmail !== undefined
+            || changesActive
+        if (changesRouting) {
+            assertCanManage(alias, scope)
+        }
+
+        const activeUpdate = changesActive ? { active: data.active } : {}
+        // Owners can't re-enable an alias an admin took down (see toggleAlias).
+        const reactivating = changesActive && data.active === true
+        if (reactivating && alias.takenDownAt) {
+            throw new ForbiddenError(ALIAS_TAKEN_DOWN_MESSAGE)
+        }
+        const aliasWhere = reactivating ? { id: aliasId, takenDownAt: null } : { id: aliasId }
+        const checkOrgKey = writesOrgCiphertext(scope, data)
+            ? (tx: Prisma.TransactionClient) =>
+                assertCurrentOrgKeyGeneration(tx, scope.organizationId!, data.orgKeyGeneration)
+            : null
 
         // If updating recipients (array), replace the full list
         if (data.recipientIds !== undefined) {
@@ -402,6 +549,7 @@ export class AliasService {
             }
 
             return await prisma.$transaction(async (tx) => {
+                if (checkOrgKey) await checkOrgKey(tx)
                 // Replace join table rows
                 await tx.aliasRecipient.deleteMany({ where: { aliasId } })
                 await tx.aliasRecipient.createMany({
@@ -414,16 +562,17 @@ export class AliasService {
                 })
 
                 // Update alias: legacy recipientId + metadata
-                return await tx.alias.update({
-                    where: { id: aliasId },
+                return await updateAliasRow(tx, {
+                    where: aliasWhere,
                     data: {
                         recipientId: recipients[0]!.id,
+                        ...activeUpdate,
                         ...(data.encryptedLabel !== undefined && { encryptedLabel: data.encryptedLabel }),
                         ...(data.encryptedNote !== undefined && { encryptedNote: data.encryptedNote }),
                         ...(data.clearLegacyLabel && { legacyLabel: null }),
                         ...(data.clearLegacyNote && { legacyNote: null }),
                     },
-                })
+                }, reactivating)
             })
         }
 
@@ -435,6 +584,7 @@ export class AliasService {
             }
 
             return await prisma.$transaction(async (tx) => {
+                if (checkOrgKey) await checkOrgKey(tx)
                 // Update join table: replace all with single recipient
                 await tx.aliasRecipient.deleteMany({ where: { aliasId } })
                 await tx.aliasRecipient.create({
@@ -446,27 +596,36 @@ export class AliasService {
                     },
                 })
 
-                return await tx.alias.update({
-                    where: { id: aliasId },
+                return await updateAliasRow(tx, {
+                    where: aliasWhere,
                     data: {
                         ...(data.encryptedLabel !== undefined && { encryptedLabel: data.encryptedLabel }),
                         ...(data.encryptedNote !== undefined && { encryptedNote: data.encryptedNote }),
                         ...(data.clearLegacyLabel && { legacyLabel: null }),
                         ...(data.clearLegacyNote && { legacyNote: null }),
+                        ...activeUpdate,
                         recipientId: recipient.id,
                     },
-                })
+                }, reactivating)
             })
         }
 
-        return await prisma.alias.update({
-            where: { id: aliasId },
+        const update = {
+            where: aliasWhere,
             data: {
+                ...activeUpdate,
                 ...(data.encryptedLabel !== undefined && { encryptedLabel: data.encryptedLabel }),
                 ...(data.encryptedNote !== undefined && { encryptedNote: data.encryptedNote }),
                 ...(data.clearLegacyLabel && { legacyLabel: null }),
                 ...(data.clearLegacyNote && { legacyNote: null }),
             }
+        }
+        if (!checkOrgKey) {
+            return await updateAliasRow(prisma, update, reactivating)
+        }
+        return await prisma.$transaction(async (tx) => {
+            await checkOrgKey(tx)
+            return await updateAliasRow(tx, update, reactivating)
         })
     }
 
@@ -533,7 +692,10 @@ export class AliasService {
     /**
      * Validate an array of recipient IDs: all must belong to the user and be verified.
      */
-    private static async _validateRecipientIds(scope: OwnerScope, recipientIds: string[]): Promise<Recipient[]> {
+    private static async _validateRecipientIds(scope: OwnerScope, requestedIds: string[]): Promise<Recipient[]> {
+        // Dedupe (keeping first-occurrence order): a repeated id would otherwise
+        // hit the (aliasId, recipientId) unique index in createMany → 500.
+        const recipientIds = [...new Set(requestedIds)]
         if (recipientIds.length === 0) {
             throw new ValidationError("At least one recipient is required")
         }

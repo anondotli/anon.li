@@ -39,6 +39,9 @@ const updateAliasSchema = z.object({
     recipient_id: z.string().max(50).optional(),
     recipient_ids: z.array(z.string().max(50)).max(10).optional(),
     recipient_email: z.string().email().max(254).optional(),
+    // Required with encrypted_label/encrypted_note on team (org) aliases: the
+    // org vault key generation the ciphertext was made with.
+    org_key_generation: z.number().int().positive().optional(),
 }).strict()
 
 export const GET = withPolicy<RouteParams>(
@@ -117,11 +120,8 @@ export const PATCH = withPolicy<RouteParams>(
             recipient_id,
             recipient_ids,
             recipient_email,
+            org_key_generation,
         } = validation.data
-
-        if (active !== undefined && active !== existing.active) {
-            await AliasService.toggleAlias(scope, aliasId)
-        }
 
         const updateData: {
             encryptedLabel?: string | null
@@ -131,7 +131,15 @@ export const PATCH = withPolicy<RouteParams>(
             recipientId?: string
             recipientEmail?: string
             recipientIds?: string[]
+            active?: boolean
+            orgKeyGeneration?: number
         } = {}
+
+        // Idempotent set (not a read-then-toggle), applied in the same update as
+        // any recipient change — so it never commits before recipient validation.
+        if (active !== undefined) {
+            updateData.active = active
+        }
 
         if (encrypted_label !== undefined) {
             updateData.encryptedLabel = encrypted_label
@@ -148,6 +156,9 @@ export const PATCH = withPolicy<RouteParams>(
         }
         if (recipient_email !== undefined) {
             updateData.recipientEmail = recipient_email
+        }
+        if (org_key_generation !== undefined) {
+            updateData.orgKeyGeneration = org_key_generation
         }
         if (Object.keys(updateData).length > 0) {
             await AliasService.updateAlias(scope, aliasId, updateData)

@@ -64,6 +64,11 @@ vi.mock("@/lib/services/billing-downgrade", () => ({
     },
 }));
 
+// Reconciliation calls the real Stripe API; keep this route test hermetic.
+vi.mock("@/lib/services/subscription-sync", () => ({
+    reconcileStaleStripeSubscriptions: vi.fn().mockResolvedValue({ checked: 0, revoked: 0, refreshed: 0, errors: 0 }),
+}));
+
 vi.mock("@/lib/data/user", () => ({
     getCryptoRenewalReminderUsers: vi.fn().mockResolvedValue([]),
 }));

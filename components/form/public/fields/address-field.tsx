@@ -8,6 +8,7 @@ import {
     getAddressParts,
     enabledAddressParts,
     ADDRESS_PART_META,
+    ADDRESS_PART_MAX_LENGTH,
     type FormField,
     type AddressValue,
     type AddressPart,
@@ -75,6 +76,7 @@ export const AddressField = forwardRef<AddressHandle, Props>(function AddressFie
                     aria-label={partRequired ? `${meta.label} (required)` : meta.label}
                     aria-required={partRequired || undefined}
                     autoComplete={meta.autoComplete}
+                    maxLength={ADDRESS_PART_MAX_LENGTH[part]}
                     disabled={disabled}
                     aria-invalid={invalid || undefined}
                     aria-describedby={describedBy}

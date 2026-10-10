@@ -13,6 +13,9 @@ import { abortMultipartUpload } from "@/lib/storage"
 
 const SYSTEM_EMAIL_FROM = "anon.li <hi@anon.li>"
 
+// Legacy takedownDrop wrote disabledAt right after takenDownAt in one update.
+const LEGACY_TAKEDOWN_DISABLE_WINDOW_MS = 2000
+
 const logger = createLogger("AdminService")
 
 let _resend: Resend | null = null
@@ -70,16 +73,23 @@ export class AdminService {
             throw new NotFoundError("Drop not found")
         }
 
-        await prisma.drop.update({
-            where: { id: dropId },
+        // `takenDown` alone blocks every access path (getDropMetadata, the atomic
+        // download-count guard, the v1 download/file routes). Deliberately do NOT
+        // touch `disabled`/`disabledAt` — those record the OWNER's own revocation,
+        // and overwriting them would lose it on restore (mirrors takedownForm).
+        // Conditional on `takenDown: false` so a repeated takedown (double click,
+        // second report) is a no-op instead of a second strike toward auto-ban.
+        const { count } = await prisma.drop.updateMany({
+            where: { id: dropId, takenDown: false },
             data: {
                 takenDown: true,
                 takedownReason: reason,
-                takenDownAt: new Date(),
-                disabled: true,
-                disabledAt: new Date()
+                takenDownAt: new Date()
             }
         })
+        if (count === 0) {
+            return { violations: drop.user?.tosViolations ?? 0, banned: false, alreadyTakenDown: true }
+        }
 
         // If drop has owner, atomically increment violations and potentially ban
         if (drop.user) {
@@ -130,14 +140,18 @@ export class AdminService {
         // `disabledByUser`/`active` — those record the OWNER's intent, and
         // overwriting them here loses the value restoreForm would need to put
         // back (there is nowhere else it is preserved).
-        await prisma.form.update({
-            where: { id: formId },
+        // Conditional so a repeated takedown is a no-op, not a second strike.
+        const { count } = await prisma.form.updateMany({
+            where: { id: formId, takenDown: false },
             data: {
                 takenDown: true,
                 takedownReason: reason,
                 takenDownAt: new Date()
             }
         })
+        if (count === 0) {
+            return { violations: form.user?.tosViolations ?? 0, banned: false, alreadyTakenDown: true }
+        }
 
         // form.user is null for an org-owned form whose creating user was deleted
         // (userId SetNull). There's no individual to strike or notify in that case.
@@ -225,11 +239,19 @@ export class AdminService {
             throw new NotFoundError("Alias not found")
         }
 
-        // Deactivate the alias
-        await prisma.alias.update({
-            where: { id: alias.id },
-            data: { active: false }
+        // Deactivate the alias and stamp the takedown marker. Conditional on
+        // `takenDownAt: null` (not `active`) so a repeated takedown is a no-op
+        // instead of a second strike, while an owner who paused the alias
+        // beforehand still gets the strike.
+        const { count } = await prisma.alias.updateMany({
+            where: { id: alias.id, takenDownAt: null },
+            data: { active: false, takenDownAt: new Date() }
         })
+        if (count === 0) {
+            // Already taken down: no new strike, but make sure it stays off.
+            await prisma.alias.update({ where: { id: alias.id }, data: { active: false } })
+            return { violations: alias.user?.tosViolations ?? 0, banned: false, alreadyTakenDown: true }
+        }
 
         // Atomically increment violations on the user. alias.userId is null for an
         // org-owned alias whose creating user was deleted (userId SetNull) — no
@@ -484,14 +506,23 @@ export class AdminService {
     static async deleteDomain(domainId: string) {
         const domain = await prisma.domain.findUnique({
             where: { id: domainId },
-            select: { id: true, domain: true }
+            select: { id: true, domain: true, userId: true, organizationId: true }
         })
 
         if (!domain) {
             throw new NotFoundError("Domain not found")
         }
 
-        await prisma.domain.delete({ where: { id: domainId } })
+        // Alias.domain is a plain string (no FK), so the domain's aliases must be
+        // removed explicitly — scoped to the domain's owner, atomically with the
+        // domain row (mirrors DomainService.deleteDomain).
+        const ownerFilter = domain.organizationId
+            ? { organizationId: domain.organizationId }
+            : { userId: domain.userId, organizationId: null }
+        await prisma.$transaction([
+            prisma.alias.deleteMany({ where: { domain: domain.domain, ...ownerFilter } }),
+            prisma.domain.delete({ where: { id: domainId } }),
+        ])
 
         return { success: true }
     }
@@ -554,7 +585,7 @@ export class AdminService {
     static async restoreDrop(dropId: string) {
         const drop = await prisma.drop.findUnique({
             where: { id: dropId },
-            select: { id: true, takenDown: true, userId: true }
+            select: { id: true, takenDown: true, userId: true, disabled: true, disabledAt: true, takenDownAt: true }
         })
 
         if (!drop) {
@@ -565,15 +596,24 @@ export class AdminService {
             throw new ValidationError("Drop is not taken down")
         }
 
+        // Legacy takedowns also wrote disabled/disabledAt in the same update.
+        // A disable stamped within 2s of the takedown is that write, not the
+        // owner's — clear it too, or the restored drop would stay dead.
+        const legacyTakedownDisable = drop.disabled
+            && drop.disabledAt !== null
+            && drop.takenDownAt !== null
+            && Math.abs(drop.disabledAt.getTime() - drop.takenDownAt.getTime()) <= LEGACY_TAKEDOWN_DISABLE_WINDOW_MS
+
         await prisma.$transaction(async (tx) => {
             await tx.drop.update({
                 where: { id: dropId },
+                // Reverse only the takedown; `disabled` is the owner's own
+                // revocation and is no longer touched by takedownDrop.
                 data: {
                     takenDown: false,
                     takedownReason: null,
                     takenDownAt: null,
-                    disabled: false,
-                    disabledAt: null
+                    ...(legacyTakedownDisable ? { disabled: false, disabledAt: null } : {})
                 }
             })
 
@@ -625,9 +665,11 @@ export class AdminService {
             throw new NotFoundError("Alias not found")
         }
 
+        // Admin re-activation is the alias takedown restore: clear the marker
+        // so a future takedown counts as a new strike.
         await prisma.alias.update({
             where: { id: aliasId },
-            data: { active }
+            data: active ? { active, takenDownAt: null } : { active }
         })
 
         return { success: true }
@@ -876,6 +918,11 @@ export class AdminService {
             }
         })
 
+        // Drop this instance's cached list so the change applies immediately
+        // here (other instances pick it up within the cache TTL).
+        const { clearReservedAliasCache } = await import("@/lib/services/alias")
+        clearReservedAliasCache()
+
         return normalized.sort()
     }
 
@@ -960,11 +1007,12 @@ export class AdminService {
             const ownerCount = await prisma.member.count({ where: { organizationId, role: "owner" } })
             if (ownerCount <= 1) throw new ValidationError("Cannot remove the only owner of an organization")
         }
-        // Drop the member, their wrapped org-vault key, and flag key rotation
-        // (soft revocation, mirroring the dashboard remove-member flow).
+        // Drop the member, their wrapped org-vault key and org API keys, and flag
+        // key rotation (soft revocation, mirroring the dashboard remove-member flow).
         await prisma.$transaction([
             prisma.member.delete({ where: { organizationId_userId: { organizationId, userId } } }),
             prisma.organizationMemberKey.deleteMany({ where: { organizationId, userId } }),
+            prisma.apiKey.deleteMany({ where: { organizationId, userId } }),
             prisma.organization.update({
                 where: { id: organizationId },
                 data: { keyRotationRecommendedAt: new Date() },
@@ -1046,25 +1094,47 @@ export class AdminService {
     // ========================================================================
 
     static async setOauthAppDisabled(appId: string, disabled: boolean) {
-        const app = await prisma.oauthApplication.findUnique({ where: { id: appId }, select: { id: true } })
+        const app = await prisma.oauthClient.findUnique({ where: { id: appId }, select: { id: true, clientId: true } })
         if (!app) throw new NotFoundError("Application not found")
-        await prisma.oauthApplication.update({ where: { id: appId }, data: { disabled } })
+        if (disabled) {
+            // Disabling cuts off every grant. JWT access tokens are rejected
+            // immediately by the MCP endpoint's per-request grant check, refresh
+            // tokens are revoked so no new ones can be minted, and stored opaque
+            // access tokens are dropped. Consents are deleted too: users must
+            // reconnect after a re-enable anyway (their refresh tokens are gone),
+            // and without a consent no JWT issued before the disable (≤ 1 h
+            // lifetime) can come back to life when the client is re-enabled —
+            // the MCP grant check requires a consent older than the token.
+            await prisma.$transaction([
+                prisma.oauthClient.update({ where: { id: appId }, data: { disabled } }),
+                prisma.oauthRefreshToken.updateMany({
+                    where: { clientId: app.clientId, revoked: null },
+                    data: { revoked: new Date() },
+                }),
+                prisma.oauthAccessToken.deleteMany({ where: { clientId: app.clientId } }),
+                prisma.oauthConsent.deleteMany({ where: { clientId: app.clientId } }),
+            ])
+        } else {
+            await prisma.oauthClient.update({ where: { id: appId }, data: { disabled } })
+        }
         return { success: true }
     }
 
     static async deleteOauthApp(appId: string) {
-        const app = await prisma.oauthApplication.findUnique({
+        const app = await prisma.oauthClient.findUnique({
             where: { id: appId },
-            select: { id: true, clientId: true },
+            select: { id: true, clientDiscoveryId: true },
         })
         if (!app) throw new NotFoundError("Application not found")
-        // Access tokens and consents key off clientId (no FK relation), so revoke
-        // them explicitly when the application is deleted.
-        await prisma.$transaction([
-            prisma.oauthAccessToken.deleteMany({ where: { clientId: app.clientId } }),
-            prisma.oauthConsent.deleteMany({ where: { clientId: app.clientId } }),
-            prisma.oauthApplication.delete({ where: { id: appId } }),
-        ])
+        // A Client ID Metadata Document client is re-registered from its
+        // metadata URL on its next authorization request, so deleting it would
+        // not keep it out; disabling does.
+        if (app.clientDiscoveryId) {
+            throw new ValidationError("Client ID Metadata Document clients are re-registered automatically — disable this application instead of deleting it")
+        }
+        // Refresh/access tokens, consents and resource links reference the
+        // client by clientId with ON DELETE CASCADE.
+        await prisma.oauthClient.delete({ where: { id: appId } })
         return { success: true }
     }
 
@@ -1100,5 +1170,43 @@ export class AdminService {
         // Delete the form — submissions, owner key, and upload tokens cascade.
         await prisma.form.delete({ where: { id: formId } })
         return { success: true, attachedDropsDeleted: attachedDropIds.length }
+    }
+
+    /**
+     * Activate a paid crypto invoice that was held for review because a live
+     * Stripe subscription conflicted. Support confirms the card subscription is
+     * handled (canceled or set to cancel) before using this, so the conflict
+     * check is skipped; every other activation invariant still applies.
+     */
+    static async activateHeldCryptoPayment(paymentId: string) {
+        const { CRYPTO_NEEDS_REVIEW_STATUS } = await import("@/lib/crypto-payment-status")
+        const payment = await prisma.cryptoPayment.findUnique({
+            where: { id: paymentId },
+            select: {
+                id: true,
+                userId: true,
+                orderId: true,
+                product: true,
+                tier: true,
+                planPriceId: true,
+                priceAmount: true,
+                status: true,
+            },
+        })
+        if (!payment) {
+            throw new NotFoundError("Crypto payment not found")
+        }
+        if (payment.status !== CRYPTO_NEEDS_REVIEW_STATUS) {
+            throw new ValidationError("Only payments held for review can be activated")
+        }
+
+        const { activateCryptoPayment } = await import("@/lib/services/crypto-activation")
+        const outcome = await activateCryptoPayment(payment, { status: "finished" }, { ignoreConflict: true })
+        if (outcome.kind !== "activated") {
+            throw new ValidationError("The payment changed state and could not be activated")
+        }
+        const { flushPostHog } = await import("@/lib/posthog.server")
+        await flushPostHog()
+        return { userId: payment.userId, orderId: payment.orderId, periodEnd: outcome.periodEnd }
     }
 }

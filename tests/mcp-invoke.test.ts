@@ -246,14 +246,14 @@ describe("invokeTool", () => {
         expect(resultText(out)).not.toContain("connection pool")
     })
 
-    it("still propagates McpError as a protocol error", async () => {
+    it("still propagates ProtocolError as a protocol error", async () => {
         const { invokeTool } = await import("@/lib/mcp/invoke")
-        const { McpError, ErrorCode } = await import("@modelcontextprotocol/sdk/types.js")
+        const { ProtocolError, ProtocolErrorCode } = await import("@modelcontextprotocol/server")
         await expect(
             invokeTool({ userId: "user-1", clientId: "c" }, {}, async () => {
-                throw new McpError(ErrorCode.MethodNotFound, "nope")
+                throw new ProtocolError(ProtocolErrorCode.MethodNotFound, "nope")
             }),
-        ).rejects.toBeInstanceOf(McpError)
+        ).rejects.toBeInstanceOf(ProtocolError)
     })
 })
 

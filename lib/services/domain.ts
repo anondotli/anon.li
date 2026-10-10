@@ -9,8 +9,9 @@ import { getOrgLimitContext } from "@/lib/data/auth"
 import { getUserById } from "@/lib/data/user"
 import { generateDkimKeys } from "@/lib/dkim"
 import { createLogger } from "@/lib/logger"
-import { ValidationError, NotFoundError, ForbiddenError } from "@/lib/api-error-utils"
-import { ownerWhere, assertCanAccess, assertCanManage, type OwnerScope } from "@/lib/ownership"
+import { Prisma } from "@prisma/client"
+import { ValidationError, NotFoundError, ForbiddenError, ConflictError } from "@/lib/api-error-utils"
+import { ownerWhere, assertCanAccess, assertCanManage, isWithinScope, type OwnerScope } from "@/lib/ownership"
 import { encryptField } from "@/lib/field-encryption"
 import { audit } from "@/lib/services/audit"
 import { trackServerEvent } from "@/lib/posthog.server"
@@ -38,9 +39,34 @@ const domainSchema = z.object({
     domain: z.string().min(1).regex(/^[a-z0-9.-]+\.[a-z]{2,}$/, "Invalid domain format"),
 })
 
+type DomainReader = Pick<Prisma.TransactionClient, "domain">
+
+/**
+ * Reject a domain claim when the name is already VERIFIED by anyone (the proven
+ * owner keeps it) or already added in this scope. Unverified claims by other
+ * owners don't block — otherwise anyone could squat a name they don't control.
+ */
+async function assertDomainClaimable(db: DomainReader, scope: OwnerScope, domain: string) {
+    const existing = await db.domain.findFirst({
+        where: {
+            domain,
+            OR: [{ verified: true }, ownerWhere(scope)],
+        },
+        select: { verified: true, userId: true, organizationId: true },
+    })
+    if (!existing) return
+    if (isWithinScope(existing, scope)) {
+        throw new ConflictError("This domain is already added to your account")
+    }
+    throw new ConflictError("This domain is already verified by another account")
+}
+
 export class DomainService {
 
-    static async createDomain(scope: OwnerScope, domain: string) {
+    static async createDomain(scope: OwnerScope, rawDomain: string) {
+        // Domain names are case-insensitive; store and compare them lowercased.
+        const domain = rawDomain.trim().toLowerCase()
+
         // Validate domain format
         const result = domainSchema.safeParse({ domain })
         if (!result.success) {
@@ -48,8 +74,8 @@ export class DomainService {
             throw new ValidationError(message)
         }
 
-        // Block reserved domains
-        if (domain === "anon.li") {
+        // Block reserved domains (the shared apex and any of its subdomains)
+        if (domain === "anon.li" || domain.endsWith(".anon.li")) {
             throw new ValidationError("This domain is reserved and cannot be added")
         }
 
@@ -80,6 +106,9 @@ export class DomainService {
             throw new ForbiddenError(message)
         }
 
+        // Early-exit duplicate check (authoritative re-check is inside the transaction)
+        await assertDomainClaimable(prisma, scope, domain)
+
         // Generate DKIM keys outside the transaction (async I/O)
         const dkimKeys = await generateDkimKeys()
         const verificationToken = crypto.randomBytes(24).toString('hex')
@@ -93,6 +122,7 @@ export class DomainService {
                     : `Domain limit reached (${domainsLimit}). Upgrade to increase.`
                 throw new ForbiddenError(message)
             }
+            await assertDomainClaimable(tx, scope, domain)
             const encryptedPrivateKey = encryptField(dkimKeys.privateKey, "DKIM_ENCRYPTION_KEY")
 
             return tx.domain.create({
@@ -131,6 +161,14 @@ export class DomainService {
         // Cross-tenant guard: 404 out-of-scope domains rather than revealing them.
         assertCanAccess(domain, scope)
 
+        let dnsResult: {
+            verified: boolean
+            ownershipVerified: boolean
+            mxVerified: boolean
+            spfVerified: boolean
+            dkimVerified: boolean
+            dnsVerified: boolean
+        }
         try {
             // 1. MX Verification
             const mxRecords = await resolveMx(domain.domain).catch(() => [])
@@ -171,50 +209,7 @@ export class DomainService {
 
             const dnsVerified = hasMx && hasSpf && (domain.dkimPublicKey ? hasDkim : true)
             const verified = hasOwnership && dnsVerified
-
-            // Transaction: Claim ownership & Revoke others
-            await prisma.$transaction([
-                // 1. Verify this domain
-                prisma.domain.update({
-                    where: { id: domainId },
-                    data: {
-                        ownershipVerified: hasOwnership,
-                        mxVerified: hasMx,
-                        spfVerified: hasSpf,
-                        dkimVerified: hasDkim,
-                        dnsVerified,
-                        verified
-                    }
-                }),
-                // 2. If fully verified, revoke others with same domain name
-                ...(verified ? [
-                    prisma.domain.updateMany({
-                        where: {
-                            domain: domain.domain,
-                            id: { not: domainId },
-                            verified: true
-                        },
-                        data: {
-                            verified: false,
-                            ownershipVerified: false,
-                        }
-                    })
-                ] : [])
-            ])
-
-            logger.info("Domain verification completed", { userId: scope.userId, domainId, verified })
-
-            if (verified && scope.organizationId) {
-                void audit({
-                    action: "org.domain.verify",
-                    actorId: scope.userId,
-                    targetId: domainId,
-                    organizationId: scope.organizationId,
-                    metadata: { domain: domain.domain },
-                })
-            }
-
-            return {
+            dnsResult = {
                 verified,
                 ownershipVerified: hasOwnership,
                 mxVerified: hasMx,
@@ -222,11 +217,94 @@ export class DomainService {
                 dkimVerified: hasDkim,
                 dnsVerified
             }
-
         } catch (error) {
             logger.error("DNS lookup error during verification", error)
             throw new Error("Failed to verify DNS records. Please try again later.")
         }
+
+        const { verified } = dnsResult
+        // Track when a previously-verified domain loses verification so the
+        // stale-domain cleanup grants it a grace period (cron-domains.ts).
+        const unverifiedAt = verified
+            ? null
+            : domain.verified ? new Date() : domain.unverifiedAt
+
+        try {
+            // Transaction: revoke others, then claim ownership. The partial
+            // unique index (domain WHERE verified) allows only one verified row
+            // per name, so other owners' rows must be revoked BEFORE this one is
+            // marked verified. A concurrent verify of the same name by another
+            // owner surfaces as P2002 on that index.
+            await prisma.$transaction(async (tx) => {
+                if (verified) {
+                    // Proof of current DNS control supersedes a stale claim.
+                    const superseded = await tx.domain.findMany({
+                        where: { domain: domain.domain, id: { not: domainId }, verified: true },
+                        select: { id: true, userId: true, organizationId: true },
+                    })
+                    if (superseded.length > 0) {
+                        await tx.domain.updateMany({
+                            where: { id: { in: superseded.map((d) => d.id) }, verified: true },
+                            data: {
+                                verified: false,
+                                ownershipVerified: false,
+                                unverifiedAt: new Date(),
+                            },
+                        })
+                        // Stop routing mail for this domain to the previous
+                        // owner(s) right away instead of for the whole cleanup
+                        // grace period. Deactivate (reversible), don't delete;
+                        // nothing re-activates them automatically — if the old
+                        // owner re-verifies, they re-enable aliases themselves.
+                        for (const previous of superseded) {
+                            const sameOwner = previous.organizationId
+                                ? previous.organizationId === domain.organizationId
+                                : domain.organizationId === null && previous.userId === domain.userId
+                            if (sameOwner) continue
+                            await tx.alias.updateMany({
+                                where: previous.organizationId
+                                    ? { domain: domain.domain, organizationId: previous.organizationId }
+                                    : { domain: domain.domain, userId: previous.userId, organizationId: null },
+                                data: { active: false },
+                            })
+                        }
+                    }
+                }
+
+                // Record this domain's verification state
+                await tx.domain.update({
+                    where: { id: domainId },
+                    data: {
+                        ownershipVerified: dnsResult.ownershipVerified,
+                        mxVerified: dnsResult.mxVerified,
+                        spfVerified: dnsResult.spfVerified,
+                        dkimVerified: dnsResult.dkimVerified,
+                        dnsVerified: dnsResult.dnsVerified,
+                        verified,
+                        unverifiedAt,
+                    },
+                })
+            })
+        } catch (error) {
+            if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+                throw new ConflictError("This domain was just verified by another account. Please try again.")
+            }
+            throw error
+        }
+
+        logger.info("Domain verification completed", { userId: scope.userId, domainId, verified })
+
+        if (verified && scope.organizationId) {
+            void audit({
+                action: "org.domain.verify",
+                actorId: scope.userId,
+                targetId: domainId,
+                organizationId: scope.organizationId,
+                metadata: { domain: domain.domain },
+            })
+        }
+
+        return dnsResult
     }
 
     static async regenerateDkim(scope: OwnerScope, domainId: string) {
@@ -238,7 +316,8 @@ export class DomainService {
             throw new NotFoundError("Domain not found")
         }
 
-        assertCanAccess(domain, scope)
+        // Rotating DKIM breaks signing for the whole team until DNS is updated → admin+.
+        assertCanManage(domain, scope)
 
         const keys = await generateDkimKeys()
         const encryptedPrivateKey = encryptField(keys.privateKey, "DKIM_ENCRYPTION_KEY")

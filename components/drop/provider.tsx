@@ -35,12 +35,14 @@ export function FileDropProvider({ children, isRefreshing }: { children: React.R
     }, [isAllowedRoute])
 
     const handleDrop = React.useCallback(async (e: React.DragEvent | DragEvent) => {
+        // Any drop ends the drag, even one a local drop zone already handled;
+        // otherwise the overlay would stay up.
+        setIsDragging(false)
         // The upload drop zone handles its own event (including folders). Avoid
         // adding the same files a second time when that event bubbles to window.
         if (!isAllowedRoute || e.defaultPrevented) return
         e.preventDefault()
         e.stopPropagation()
-        setIsDragging(false)
 
         const dataTransfer = (e as React.DragEvent).dataTransfer || (e as DragEvent).dataTransfer
 

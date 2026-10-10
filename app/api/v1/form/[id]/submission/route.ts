@@ -42,6 +42,7 @@ export const GET = withPolicy<RouteParams>(
             created_at: s.createdAt.toISOString(),
             read_at: s.readAt?.toISOString() ?? null,
             has_attached_drop: s.hasAttachedDrop,
+            attached_drop_id: s.attachedDropId,
             ...(s.payload
                 ? {
                       ephemeral_pub_key: s.payload.ephemeralPubKey,

@@ -110,6 +110,13 @@ interface AddFileResult {
 }
 
 interface AddFileOptions {
+    /**
+     * True when the caller is authorized by a Form upload token rather than
+     * the owner's own session/API key. The owner's incomplete-drop guard is
+     * skipped so anonymous form visitors cannot exhaust (or be blocked by)
+     * the owner's personal upload allowance; form staging has its own cap.
+     */
+    tokenAuthorized?: boolean;
     quotaOverride?: {
         maxFileSize: number;
         storageLimit: bigint;
@@ -469,6 +476,22 @@ export interface AccessEventItem {
     recipientLabel: string | null;
 }
 
+/**
+ * Owner-visible standalone drops in a scope. Form attachments are managed from
+ * their response, not as standalone shares, so both staging and submitted
+ * attachment drops are hidden (and cannot be deleted out from under a
+ * submission from the drop dashboard).
+ */
+export function standaloneDropWhere(scope: OwnerScope) {
+    return {
+        ...ownerWhere(scope),
+        deletedAt: null,
+        formSubmission: null,
+        formStagingId: null,
+        uploadTokens: { none: { formId: { not: null } } },
+    } satisfies Prisma.DropWhereInput;
+}
+
 export class DropService {
     /**
      * Verify that the caller owns the drop (authenticated user match).
@@ -613,7 +636,8 @@ export class DropService {
                 notifyOnDownload: input.notifyOnDownload,
                 customKey: input.customKey,
             },
-            featureLimits
+            featureLimits,
+            effectiveTier,
         );
 
         const expiresAt = calculateExpiry(input.expiry, maxExpiry, effectiveTier);
@@ -716,11 +740,24 @@ export class DropService {
             throw new RateLimitError("Too many pending uploads for this drop");
         }
 
-        // Per-user incomplete-drop guard only applies to authenticated drops;
-        // guests are guarded by IP rate limits at the route layer.
-        if (scope) {
+        // Per-user incomplete-drop guard only applies to the owner's own
+        // authenticated uploads; guests are guarded by IP rate limits at the
+        // route layer and Form uploads by the per-form staging cap. Only count
+        // the caller's other standalone drops in this scope: Form staging /
+        // attachment drops are created under the owner's id by anonymous
+        // visitors, and the drop being uploaded must not count against itself.
+        if (scope && !options.tokenAuthorized) {
             const incompleteDrops = await prisma.drop.count({
-                where: { userId: scope.userId, uploadComplete: false, deletedAt: null }
+                where: {
+                    userId: scope.userId,
+                    organizationId: scope.organizationId ?? null,
+                    id: { not: input.dropId },
+                    uploadComplete: false,
+                    deletedAt: null,
+                    formSubmission: null,
+                    formStagingId: null,
+                    uploadTokens: { none: { formId: { not: null } } },
+                }
             });
             if (incompleteDrops >= MAX_INCOMPLETE_DROPS_PER_USER) {
                 throw new RateLimitError("Too many incomplete drops. Please complete or delete existing drops.");
@@ -1526,19 +1563,25 @@ export class DropService {
                     "@/components/email/file-downloaded"
                 );
 
-                await sendEmail({
+                const result = await sendEmail({
                     to: drop.user.email,
                     subject: "Your drop was accessed",
                     react: FileDownloadedEmail({
                         downloadCount: drop.downloads,
-                        downloadTime: new Date().toLocaleString(),
+                        // Server-local time is meaningless to the recipient;
+                        // render an explicit UTC timestamp (matches form emails).
+                        downloadTime: new Date().toUTCString(),
                     }),
                 });
 
-                await prisma.drop.update({
-                    where: { id: dropId },
-                    data: { notificationsSent: { increment: 1 } },
-                });
+                // Only count delivered notifications so a failed send can be
+                // retried on the next download instead of being silently lost.
+                if (result.success) {
+                    await prisma.drop.update({
+                        where: { id: dropId },
+                        data: { notificationsSent: { increment: 1 } },
+                    });
+                }
             } catch (error) {
                 logger.error("Failed to send download notification", error);
             }
@@ -1571,12 +1614,16 @@ export class DropService {
             // Guarded soft-delete: only set deletedAt if it's still null. This
             // prevents resetting the grace clock if a concurrent download also
             // reached the limit.
-            await prisma.$executeRaw`
+            const updated = await prisma.$executeRaw`
                 UPDATE "drops"
                 SET "deletedAt" = NOW()
                 WHERE "id" = ${drop.id}
                   AND "deletedAt" IS NULL
             `;
+
+            // Concurrent downloads that both hit the limit race here; only the
+            // one whose guarded UPDATE won notifies the owner.
+            if (updated !== 1) return;
 
             if (drop.user?.email) {
                 try {
@@ -1660,15 +1707,7 @@ export class DropService {
         const { limit = 50, offset = 0 } = options;
 
         const drops = await prisma.drop.findMany({
-            where: {
-                ...ownerWhere(scope),
-                deletedAt: null,
-                // Form attachments are managed from their response, not as
-                // standalone shares. Hide both staging and submitted drops.
-                formSubmission: null,
-                formStagingId: null,
-                uploadTokens: { none: { formId: { not: null } } },
-            },
+            where: standaloneDropWhere(scope),
             include: {
                 files: {
                     select: {
@@ -1686,13 +1725,7 @@ export class DropService {
         });
 
         const total = await prisma.drop.count({
-            where: {
-                ...ownerWhere(scope),
-                deletedAt: null,
-                formSubmission: null,
-                formStagingId: null,
-                uploadTokens: { none: { formId: { not: null } } },
-            },
+            where: standaloneDropWhere(scope),
         });
 
         return {
@@ -1809,9 +1842,11 @@ export class DropService {
             try {
                 const [{ sendDropSharedEmail }, sender] = await Promise.all([
                     import("@/lib/resend"),
-                    prisma.user.findUnique({ where: { id: scope.userId }, select: { name: true, email: true } }),
+                    prisma.user.findUnique({ where: { id: scope.userId }, select: { name: true } }),
                 ]);
-                const senderName = sender?.name || sender?.email || "Someone";
+                // Never fall back to the owner's login email: it would leak the
+                // account address to every recipient of a privacy product.
+                const senderName = sender?.name || "An anon.li user";
                 const base = process.env.NEXT_PUBLIC_APP_URL ?? "";
                 await Promise.allSettled(
                     result.map((r) =>

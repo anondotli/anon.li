@@ -2,7 +2,8 @@ import { auth } from "@/auth"
 import { getAuthUserState, getOrganizationSuspension } from "@/lib/data/auth"
 import { rateLimit, rateLimiters } from "@/lib/rate-limit"
 import { logError } from "@/lib/logger"
-import { UpgradeRequiredError, ValidationError, type UpgradeRequiredDetails } from "@/lib/api-error-utils"
+import { ApiError, UpgradeRequiredError, type UpgradeRequiredDetails } from "@/lib/api-error-utils"
+import { Prisma } from "@prisma/client"
 import { personalScope, orgScope, meetsMinRole, type OwnerScope, type OrgRole } from "@/lib/ownership"
 import { requiresTwoFactorChallenge, orgRequiresTwoFactorSetup } from "@/lib/access-policy"
 import { z } from "zod"
@@ -26,6 +27,38 @@ type AdminActionOptions<T> = {
   data?: unknown
 }
 
+/**
+ * Map a handler error to a user-facing ActionState. The app's typed ApiError
+ * subclasses (ValidationError, ConflictError, ForbiddenError, NotFoundError,
+ * UpgradeRequiredError, ...) carry deliberately user-facing messages; known
+ * Prisma races map to generic text; anything else is logged and hidden.
+ */
+function actionErrorState(scope: string, error: unknown): ActionState<never> {
+  if (error instanceof UpgradeRequiredError) {
+    return {
+      error: error.message,
+      code: error.code,
+      upgrade: error.details,
+    }
+  }
+  if (error instanceof ApiError) {
+    if (error.statusCode >= 500) {
+      logError(scope, "Operation failed", error)
+    }
+    return error.code ? { error: error.message, code: error.code } : { error: error.message }
+  }
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    if (error.code === "P2002") {
+      return { error: "That already exists" }
+    }
+    if (error.code === "P2034") {
+      return { error: "Please try again" }
+    }
+  }
+  logError(scope, "Operation failed", error)
+  return { error: "Operation failed" }
+}
+
 function parseActionData<T>(schema: z.ZodSchema<T> | undefined, data: unknown): { data: T } | { error: string } {
   if (schema) {
     const result = schema.safeParse(data)
@@ -46,7 +79,9 @@ export async function runAdminAction<T = void, R = unknown>(
     return { error: "Not authenticated" }
   }
 
-  if (requiresTwoFactorChallenge(session)) {
+  // Admin is 2FA-enforced: an admin must have 2FA enrolled AND verified for
+  // this session, not merely "not mid-challenge".
+  if (!session.user.twoFactorEnabled || requiresTwoFactorChallenge(session)) {
     return { error: "Two-factor authentication required" }
   }
 
@@ -64,8 +99,7 @@ export async function runAdminAction<T = void, R = unknown>(
     const result = await handler(validatedData, user.id)
     return { success: true, data: result }
   } catch (error) {
-    logError("AdminAction", "Operation failed", error)
-    return { error: "Operation failed" }
+    return actionErrorState("AdminAction", error)
   }
 }
 
@@ -105,19 +139,7 @@ export async function runSecureAction<T = void, R = unknown>(
     const result = await handler(validatedData, userId)
     return { success: true, data: result ?? undefined }
   } catch (error) {
-    if (error instanceof UpgradeRequiredError) {
-      return {
-        error: error.message,
-        code: error.code,
-        upgrade: error.details,
-      }
-    }
-    // ValidationError carries a user-facing "bad request" message by design.
-    if (error instanceof ValidationError) {
-      return { error: error.message }
-    }
-    logError("SecureAction", "Operation failed", error)
-    return { error: "Operation failed" }
+    return actionErrorState("SecureAction", error)
   }
 }
 
@@ -203,18 +225,6 @@ export async function runScopedAction<T = void, R = unknown>(
     const result = await handler(validatedData, scope)
     return { success: true, data: result ?? undefined }
   } catch (error) {
-    if (error instanceof UpgradeRequiredError) {
-      return {
-        error: error.message,
-        code: error.code,
-        upgrade: error.details,
-      }
-    }
-    // ValidationError carries a user-facing "bad request" message by design.
-    if (error instanceof ValidationError) {
-      return { error: error.message }
-    }
-    logError("ScopedAction", "Operation failed", error)
-    return { error: "Operation failed" }
+    return actionErrorState("ScopedAction", error)
   }
 }

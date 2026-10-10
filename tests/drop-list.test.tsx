@@ -184,6 +184,43 @@ describe("DropList", () => {
         )
     })
 
+    it("keeps the current list on screen while a refresh re-decrypts", async () => {
+        unwrapDropKey.mockImplementation(async (wrappedKey: string) => wrappedKey as unknown as CryptoKey)
+        fetchWrappedDropKeys.mockResolvedValueOnce([
+            { dropId: "drop-link", wrappedKey: "wrapped-link", vaultGeneration: 1 },
+        ])
+        const linkDrop = createDrop({
+            id: "drop-link",
+            files: [{ id: "file-link", encryptedName: "enc-link-name", size: "1", mimeType: "text/plain", iv: "ponmlkjihgfedcba" }],
+        })
+
+        const { DropList } = await import("@/components/drop/drop-list")
+        const { rerender, container } = render(<DropList initialDrops={[linkDrop]} storage={storage} />)
+        expect(await screen.findByText("link.txt")).toBeTruthy()
+
+        // Simulate router.refresh(): new server props whose key fetch is slow.
+        let releaseRefresh!: (value: unknown) => void
+        fetchWrappedDropKeys.mockImplementationOnce(() => new Promise((resolve) => {
+            releaseRefresh = resolve
+        }))
+        const goodDrop = createDrop({
+            id: "drop-good",
+            files: [{ id: "file-good", encryptedName: "enc-good-name", size: "1", mimeType: "text/plain", iv: "ponmlkjihgfedcba" }],
+        })
+        rerender(<DropList initialDrops={[linkDrop, goodDrop]} storage={storage} />)
+        await new Promise((resolve) => setTimeout(resolve, 10))
+
+        // No skeleton: the previous rows remain while the refresh decrypts.
+        expect(screen.getByText("link.txt")).toBeTruthy()
+        expect(container.querySelector(".animate-pulse")).toBeNull()
+
+        releaseRefresh([
+            { dropId: "drop-link", wrappedKey: "wrapped-link", vaultGeneration: 1 },
+            { dropId: "drop-good", wrappedKey: "wrapped-good", vaultGeneration: 1 },
+        ])
+        expect(await screen.findByText("good.txt")).toBeTruthy()
+    })
+
     it("keeps password-protected drops on the password flow and does not reveal the raw key", async () => {
         const origin = window.location.origin
         fetchWrappedDropKeys.mockResolvedValue([

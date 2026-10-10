@@ -26,6 +26,7 @@ vi.mock('@/lib/prisma', () => {
             update: vi.fn(),
         },
         subscription: {
+            count: vi.fn().mockResolvedValue(0),
             findFirst: vi.fn().mockResolvedValue(null),
             findMany: vi.fn().mockResolvedValue([]),
             create: vi.fn().mockResolvedValue({}),
@@ -52,14 +53,21 @@ vi.mock('@upstash/redis', () => ({
 }))
 
 const mockCancelDowngrade = vi.fn().mockResolvedValue(undefined)
+const mockHasActivePersonalSubscription = vi.fn().mockResolvedValue(false)
+const mockHandlePersonalSubscriptionLoss = vi.fn().mockResolvedValue(new Date())
+
+const mockFindConflictingStripeSubscription = vi.fn().mockResolvedValue(null)
 
 vi.mock('@/lib/services/subscription-sync', () => ({
     createCryptoSubscription: vi.fn().mockResolvedValue(undefined),
+    findConflictingStripeSubscription: (...args: unknown[]) => mockFindConflictingStripeSubscription(...args),
 }))
 
 vi.mock('@/lib/services/billing-downgrade', () => ({
     BillingDowngradeService: {
         cancelDowngrade: mockCancelDowngrade,
+        hasActivePersonalSubscription: mockHasActivePersonalSubscription,
+        handlePersonalSubscriptionLoss: mockHandlePersonalSubscriptionLoss,
     },
 }))
 
@@ -204,6 +212,7 @@ describe('NOWPayments IPN Webhook', () => {
         // Default: SET NX succeeds (claim acquired), DEL succeeds
         mockRedisSet.mockResolvedValue('OK')
         mockRedisDel.mockResolvedValue(1)
+        mockFindConflictingStripeSubscription.mockResolvedValue(null)
     })
 
     afterEach(() => {
@@ -498,12 +507,27 @@ describe('NOWPayments IPN Webhook', () => {
             })
         )
 
+        // The refunded order's subscription was still entitling, so its loss
+        // side effects are pending after the transaction.
+        ;(prisma.subscription.count as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce(1)
+        ;(prisma.subscription.findFirst as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ id: 'sub_row_refund' })
+        ;(prisma.user.findUnique as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+            id: 'user_test',
+            email: 'refund@example.com',
+        })
+
         const res = await POST(makeRequest(body))
 
         expect(res.status).toBe(200)
         expect(prisma.$transaction).toHaveBeenCalledWith(
             expect.any(Function),
             { isolationLevel: 'Serializable' }
+        )
+        // Revoking live access runs the personal-loss side effects.
+        expect(mockHandlePersonalSubscriptionLoss).toHaveBeenCalledWith(
+            'user_test',
+            'refund@example.com',
+            { notify: true },
         )
         expect(prisma.cryptoPayment.update).toHaveBeenCalledWith({
             where: { id: 'cp_refund' },
@@ -520,7 +544,34 @@ describe('NOWPayments IPN Webhook', () => {
                 cancelAtPeriodEnd: false,
             },
         })
+        // The pending marker is cleared only after the loss side effects ran.
+        expect(prisma.subscription.updateMany).toHaveBeenLastCalledWith({
+            where: { id: 'sub_row_refund', lossNotifiedAt: null },
+            data: { lossNotifiedAt: expect.any(Date) },
+        })
         expect(createCryptoSubscription).not.toHaveBeenCalled()
+    })
+
+    it('releases the refund IPN for retry when the loss side effects fail, keeping them pending', async () => {
+        const orderId = 'crypto_refund_retry'
+        ;(prisma.cryptoPayment.findUnique as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
+            makeCryptoPayment({ id: 'cp_refund_retry', nowPaymentId: 'payment_refund_retry', orderId, status: 'finished' })
+        )
+        ;(prisma.subscription.count as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce(1)
+        ;(prisma.subscription.findFirst as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ id: 'sub_row_retry' })
+        mockHandlePersonalSubscriptionLoss.mockRejectedValueOnce(new Error('db down'))
+
+        const res = await POST(makeRequest({
+            payment_id: 'payment_refund_retry',
+            payment_status: 'refunded',
+            order_id: orderId,
+        }))
+
+        expect(res.status).toBe(500)
+        expect(mockRedisDel).toHaveBeenCalledWith('nowpay:ipn:payment_refund_retry:refunded')
+        expect(prisma.subscription.updateMany).not.toHaveBeenCalledWith(expect.objectContaining({
+            data: { lossNotifiedAt: expect.any(Date) },
+        }))
     })
 
     it('should not let a stale success event restore a refunded entitlement', async () => {
@@ -671,5 +722,106 @@ describe('NOWPayments IPN Webhook', () => {
         expect(res.status).toBe(200)
         // Should NOT look up payment
         expect(prisma.cryptoPayment.findUnique).not.toHaveBeenCalled()
+    })
+
+    it('does not downgrade on a refund of a payment that granted no live entitlement', async () => {
+        const orderId = 'crypto_refund_inactive'
+        ;(prisma.cryptoPayment.findUnique as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
+            makeCryptoPayment({ id: 'cp_refund_inactive', nowPaymentId: 'payment_refund_inactive', orderId, status: 'underpaid' })
+        )
+        ;(prisma.subscription.count as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce(0)
+
+        const res = await POST(makeRequest({
+            payment_id: 'payment_refund_inactive',
+            payment_status: 'refunded',
+            order_id: orderId,
+        }))
+
+        expect(res.status).toBe(200)
+        expect(mockHandlePersonalSubscriptionLoss).not.toHaveBeenCalled()
+    })
+
+    it('does not downgrade on refund when another personal subscription stays active', async () => {
+        const orderId = 'crypto_refund_retained'
+        ;(prisma.cryptoPayment.findUnique as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
+            makeCryptoPayment({ id: 'cp_refund_retained', nowPaymentId: 'payment_refund_retained', orderId, status: 'finished' })
+        )
+        ;(prisma.subscription.count as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce(1)
+        mockHasActivePersonalSubscription.mockResolvedValueOnce(true)
+
+        const res = await POST(makeRequest({
+            payment_id: 'payment_refund_retained',
+            payment_status: 'refunded',
+            order_id: orderId,
+        }))
+
+        expect(res.status).toBe(200)
+        expect(mockHandlePersonalSubscriptionLoss).not.toHaveBeenCalled()
+    })
+
+    it('extends a renewal from the end of the running crypto period', async () => {
+        const orderId = 'crypto_renewal'
+        const runningEnd = new Date(Date.now() + 20 * 24 * 60 * 60 * 1000)
+        ;(prisma.cryptoPayment.findUnique as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
+            makeCryptoPayment({
+                id: 'cp_renewal',
+                nowPaymentId: 'payment_renewal',
+                orderId,
+                priceAmount: 6.99,
+                planPriceId: 'price_test_monthly',
+                status: 'confirming',
+            })
+        )
+        ;(prisma.subscription.findFirst as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+            currentPeriodEnd: runningEnd,
+        })
+
+        const res = await POST(makeRequest({
+            payment_id: 'payment_renewal',
+            payment_status: 'finished',
+            order_id: orderId,
+            price_amount: 6.99,
+        }))
+
+        expect(res.status).toBe(200)
+        expect(prisma.subscription.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+            where: expect.objectContaining({
+                userId: 'user_test',
+                organizationId: null,
+                provider: 'crypto',
+                status: 'active',
+                providerSubscriptionId: { not: `crypto_${orderId}` },
+            }),
+        }))
+        const subCall = (createCryptoSubscription as unknown as ReturnType<typeof vi.fn>).mock.calls.at(-1)!
+        const periodEnd = subCall[5] as Date
+        const daysPastRunningEnd = (periodEnd.getTime() - runningEnd.getTime()) / (24 * 60 * 60 * 1000)
+        expect(daysPastRunningEnd).toBeGreaterThanOrEqual(28)
+        expect(daysPastRunningEnd).toBeLessThanOrEqual(31)
+    })
+
+    it('holds a paid invoice for review instead of superseding a live Stripe subscription', async () => {
+        const orderId = 'crypto_conflict'
+        ;(prisma.cryptoPayment.findUnique as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
+            makeCryptoPayment({ id: 'cp_conflict', nowPaymentId: 'payment_conflict', orderId, status: 'confirming' })
+        )
+        mockFindConflictingStripeSubscription.mockResolvedValueOnce({ id: 'sub_row_stripe', status: 'past_due' })
+
+        const res = await POST(makeRequest({
+            payment_id: 'payment_conflict',
+            payment_status: 'finished',
+            order_id: orderId,
+        }))
+
+        expect(res.status).toBe(200)
+        expect(mockFindConflictingStripeSubscription).toHaveBeenCalledWith(expect.anything(), 'user_test')
+        expect(prisma.cryptoPayment.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+            where: expect.objectContaining({ id: 'cp_conflict' }),
+            data: expect.objectContaining({ status: 'needs_review' }),
+        }))
+        expect(createCryptoSubscription).not.toHaveBeenCalled()
+        expect(prisma.user.update).not.toHaveBeenCalled()
+        expect(mockCancelDowngrade).not.toHaveBeenCalled()
+        expect(mockSendCryptoConfirmation).not.toHaveBeenCalled()
     })
 })

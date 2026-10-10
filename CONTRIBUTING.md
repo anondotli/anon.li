@@ -10,7 +10,7 @@ Use Bun for dependency management and scripts.
 
 ### Prerequisites
 
-- Bun 1.3.5 or newer
+- Bun 1.4.3 or newer
 - Node.js 24
 - PostgreSQL
 - A private Cloudflare R2-compatible bucket

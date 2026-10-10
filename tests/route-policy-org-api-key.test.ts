@@ -15,6 +15,7 @@ const getOrganizationAccessState = vi.fn()
 const touchApiKeyLastUsed = vi.fn()
 const hashKey = vi.fn()
 const rateLimit = vi.fn()
+const memberFindUnique = vi.fn()
 
 vi.mock("@/auth", () => ({ auth }))
 vi.mock("@/lib/data/auth", () => ({
@@ -29,7 +30,7 @@ vi.mock("@/lib/api-rate-limit", () => ({
     createRateLimitHeaders: vi.fn().mockReturnValue(new Headers()),
 }))
 vi.mock("@/lib/rate-limit", () => ({ rateLimit, rateLimiters: { api: null } }))
-vi.mock("@/lib/prisma", () => ({ prisma: { user: { findUnique: vi.fn() } } }))
+vi.mock("@/lib/prisma", () => ({ prisma: { user: { findUnique: vi.fn() }, member: { findUnique: memberFindUnique } } }))
 
 const apiKeyReq = () =>
     new Request("https://x/api/v1/alias", { headers: { authorization: "Bearer ak_test" } })
@@ -41,6 +42,7 @@ beforeEach(() => {
     hashKey.mockReturnValue("hashed")
     touchApiKeyLastUsed.mockResolvedValue(undefined)
     getOrganizationAccessState.mockResolvedValue({ exists: true, suspended: false, subscribed: true })
+    memberFindUnique.mockResolvedValue({ id: "m1" })
 })
 
 describe("withPolicy — API key OwnerScope", () => {
@@ -66,6 +68,29 @@ describe("withPolicy — API key OwnerScope", () => {
         expect(scope!.userId).toBe("u1")
         expect(scope!.organizationId).toBe("org-9")
         expect(scope!.role).toBe("member")
+    })
+
+    it("org-owned key whose creator left the org → 401, handler never runs", async () => {
+        getAuthApiKeyRecord.mockResolvedValue({
+            id: "k1",
+            expiresAt: null,
+            organizationId: "org-9",
+            organizationSubscriptions: [],
+            user: baseUser,
+        })
+        memberFindUnique.mockResolvedValue(null)
+        const handler = vi.fn(async () => new Response("ok"))
+
+        const { withPolicy } = await import("@/lib/route-policy")
+        const response = await withPolicy({ auth: "api_key_or_session" }, handler)(apiKeyReq())
+
+        expect(response.status).toBe(401)
+        expect(handler).not.toHaveBeenCalled()
+        expect(memberFindUnique).toHaveBeenCalledWith(expect.objectContaining({
+            where: { organizationId_userId: { organizationId: "org-9", userId: "u1" } },
+        }))
+        // An explicit ak_ key must never fall back to the session cookie.
+        expect(auth).not.toHaveBeenCalled()
     })
 
     it("personal key → personal scope (no org context)", async () => {

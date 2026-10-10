@@ -38,6 +38,7 @@ import {
 } from "@/lib/services/form-upload"
 import { persistOwnedFormKey, type OwnerKeyOrgBinding } from "@/lib/vault/form-owner-keys"
 import { getFormOwnerEntitlements } from "@/lib/services/form-entitlements"
+import { markAttachmentDropForReaping } from "@/lib/services/form-attachment-drop"
 
 // 8 chars for new forms; legacy forms use 12. Both are accepted by the shared
 // FormId validator in lib/validations/form.ts.
@@ -162,6 +163,7 @@ interface SubmissionListItem {
     createdAt: Date
     readAt: Date | null
     hasAttachedDrop: boolean
+    attachedDropId: string | null
     /** Present only when listSubmissions is called with includePayload. */
     payload?: {
         ephemeralPubKey: string
@@ -283,6 +285,16 @@ async function countRecentOwnerSubmissions(
 
 function startOfCurrentUtcMonth(now = new Date()): Date {
     return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))
+}
+
+/** Read-only check of the owner-wide monthly cap (-1 = unlimited). */
+async function ownerUnderMonthlySubmissionCap(
+    owner: FormOwnerIdentity,
+    submissionsPerMonth: number,
+): Promise<boolean> {
+    if (submissionsPerMonth === -1) return true
+    const used = await countRecentOwnerSubmissions(prisma, owner, startOfCurrentUtcMonth())
+    return used < submissionsPerMonth
 }
 
 export class FormService {
@@ -531,6 +543,12 @@ export class FormService {
         const { limits: ownerLimits, subscribed } = await getFormOwnerEntitlements({ userId: form.userId, organizationId: form.organizationId })
         const effectiveHideBranding = form.hideBranding && ownerLimits.removeBranding
         const accepting = ownerCanAccept(form)
+        // Mirror assertAcceptingSubmissions so a capped form renders closed
+        // instead of failing only after the respondent fills it in.
+        const underSubmissionCap = !form.maxSubmissions || form.submissionsCount < form.maxSubmissions
+        const underMonthlyCap = !accepting || !underSubmissionCap || !form.active || form.disabledByUser
+            ? true
+            : await ownerUnderMonthlySubmissionCap(form, ownerLimits.submissionsPerMonth)
 
         return {
             id: form.id,
@@ -547,6 +565,8 @@ export class FormService {
                 && !form.disabledByUser
                 && subscribed
                 && accepting
+                && underSubmissionCap
+                && underMonthlyCap
                 && (!form.customKey || ownerLimits.customKey),
             hideBranding: effectiveHideBranding,
             closesAt: form.closesAt,
@@ -558,9 +578,14 @@ export class FormService {
     static async updateForm(formId: string, scope: OwnerScope, input: UpdateFormInput) {
         const form = await prisma.form.findUnique({ where: { id: formId } })
         if (!form || form.deletedAt) throw new NotFoundError("Form not found")
+        // Closing/capping a shared form or changing who can open it (password)
+        // affects the whole team, exactly like toggling it → admin+ in org context.
         const changesLifecycle = (
             (input.active !== undefined && input.active !== form.active)
             || (input.disabledByUser !== undefined && input.disabledByUser !== form.disabledByUser)
+            || (input.closesAt !== undefined && closesAtChanged(form.closesAt, input.closesAt))
+            || (input.maxSubmissions !== undefined && input.maxSubmissions !== form.maxSubmissions)
+            || (input.customKey !== undefined && (input.customKey !== form.customKey || input.customKey))
         )
         if (changesLifecycle) {
             assertCanManage(form, scope)
@@ -726,6 +751,8 @@ export class FormService {
                         }
                     }
                     logger.warn("Failed to delete attached drop for submission", { submissionId: sub.id, dropId: sub.attachedDropId, error: err })
+                    // The form delete unlinks it; soft-delete so cleanup reaps it.
+                    await markAttachmentDropForReaping(sub.attachedDropId)
                 }
             }
         }
@@ -930,9 +957,6 @@ export class FormService {
                     })
                 }
 
-                const dropRetentionExpiresAt = new Date(
-                    Date.now() + liveLimits.retentionDays * DAY_MS,
-                )
                 const drop = await tx.drop.updateMany({
                     where: {
                         id: payload.attachedDropId,
@@ -945,7 +969,12 @@ export class FormService {
                         takenDown: false,
                     },
                     data: {
-                        expiresAt: dropRetentionExpiresAt,
+                        // The attachment lives exactly as long as its submission:
+                        // FormCleanupService applies the owner's *current*
+                        // retention and deletes the drop with the submission, so
+                        // a submit-time expiry would wrongly outlive a downgrade
+                        // or cut short an upgrade.
+                        expiresAt: null,
                         formStagingId: null,
                     },
                 })
@@ -1037,6 +1066,7 @@ export class FormService {
                 createdAt: s.createdAt,
                 readAt: s.readAt,
                 hasAttachedDrop: s.attachedDropId !== null,
+                attachedDropId: s.attachedDropId,
                 ...(includePayload && "ephemeralPubKey" in s
                     ? {
                           payload: {
@@ -1140,9 +1170,12 @@ export class FormService {
                         await DropService.deleteDrop(sub.attachedDropId, personalScope(sub.form.userId))
                     } catch {
                         logger.warn("Failed to delete attached drop", { dropId: sub.attachedDropId, error: err })
+                        await markAttachmentDropForReaping(sub.attachedDropId)
                     }
                 } else {
                     logger.warn("Failed to delete attached drop", { dropId: sub.attachedDropId, error: err })
+                    // Deleting the submission unlinks it; soft-delete so cleanup reaps it.
+                    await markAttachmentDropForReaping(sub.attachedDropId)
                 }
             }
         }
@@ -1252,6 +1285,16 @@ type CustomKeyMaterial = {
     customKeyData?: string | null
     customKeyIv?: string | null
     customKeyVerifier?: string | null
+}
+
+/**
+ * Compare at minute precision: the builder round-trips closesAt through a
+ * datetime-local input, so an unchanged value may lose its seconds on save.
+ */
+function closesAtChanged(current: Date | null, next: string | null): boolean {
+    if (!current || !next) return Boolean(current) !== Boolean(next)
+    const minute = (time: number) => Math.floor(time / 60_000)
+    return minute(current.getTime()) !== minute(new Date(next).getTime())
 }
 
 function hasCustomKeyMaterial(input: CustomKeyMaterial): boolean {

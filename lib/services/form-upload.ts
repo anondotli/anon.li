@@ -2,7 +2,7 @@ import { getFormOwnerEntitlements } from "@/lib/services/form-entitlements";
 import { prisma } from "@/lib/prisma";
 import { UpgradeRequiredError, ValidationError } from "@/lib/api-error-utils";
 import { FormSchemaDoc, type FormField } from "@/lib/form-schema";
-import { getValidUploadTokenForRequest } from "@/lib/services/drop-upload-token";
+import { getValidUploadTokenForRequest, hashUploadToken } from "@/lib/services/drop-upload-token";
 import { PLAN_ENTITLEMENTS } from "@/config/plans";
 import { orgScope, personalScope, type OwnerScope } from "@/lib/ownership";
 import { plaintextSizeFromEncrypted } from "@/lib/drop-size";
@@ -337,4 +337,53 @@ export function validateAttachmentManifestAgainstSchema(
             throw new ValidationError(`"${field.label}" allows at most ${field.maxFiles} files`);
         }
     }
+}
+
+/**
+ * Revoke an abandoned Form upload with the capability the respondent holds,
+ * releasing its slot in the per-form staging cap and deleting the staging drop.
+ *
+ * Deleting the token is the linearization point against recordSubmission,
+ * which consumes the same token inside its transaction: whichever deletes it
+ * first wins, so a submission that already committed keeps its attachment and
+ * a revoked drop can never be attached afterwards. Returns false when the
+ * token is unknown, belongs to another form, or was already consumed.
+ */
+export async function revokeFormStagingUpload(formId: string, rawToken: string): Promise<boolean> {
+    if (!/^[A-Za-z0-9_-]{43}$/.test(rawToken)) return false;
+    const tokenHash = hashUploadToken(rawToken);
+    const token = await prisma.uploadToken.findUnique({
+        where: { tokenHash },
+        select: { dropId: true, formId: true },
+    });
+    if (!token || token.formId !== formId) return false;
+
+    const revoked = await prisma.uploadToken.deleteMany({
+        where: { tokenHash, formId, dropId: token.dropId },
+    });
+    if (revoked.count !== 1) return false;
+
+    const drop = await prisma.drop.findUnique({
+        where: { id: token.dropId },
+        select: {
+            id: true,
+            userId: true,
+            organizationId: true,
+            formStagingId: true,
+            deletedAt: true,
+            formSubmission: { select: { id: true } },
+        },
+    });
+    // Anything unexpected is left to the hourly staging cleanup, which reaps
+    // drops still marked with formStagingId once no live token covers them.
+    if (!drop || drop.deletedAt || drop.formSubmission || drop.formStagingId !== formId || !drop.userId) {
+        return true;
+    }
+
+    const { DropService } = await import("@/lib/services/drop");
+    const ownerScope = drop.organizationId
+        ? orgScope(drop.userId, drop.organizationId, "owner")
+        : personalScope(drop.userId);
+    await DropService.deleteDrop(drop.id, ownerScope);
+    return true;
 }

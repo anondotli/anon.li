@@ -7,7 +7,8 @@
  */
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-const { getAuthApiKeyRecord, touchApiKeyLastUsed, getAuthUserState, checkApiQuota, hashKey, auth } = vi.hoisted(() => ({
+const { getAuthApiKeyRecord, touchApiKeyLastUsed, getAuthUserState, checkApiQuota, hashKey, auth, memberFindUnique } = vi.hoisted(() => ({
+    memberFindUnique: vi.fn(),
     getAuthApiKeyRecord: vi.fn(),
     touchApiKeyLastUsed: vi.fn(),
     getAuthUserState: vi.fn(),
@@ -20,6 +21,7 @@ vi.mock("@/auth", () => ({ auth }))
 vi.mock("@/lib/data/auth", () => ({ getAuthApiKeyRecord, touchApiKeyLastUsed, getAuthUserState }))
 vi.mock("@/lib/api-rate-limit", () => ({ checkApiQuota }))
 vi.mock("@/lib/services/api-key", () => ({ ApiKeyService: { hashKey } }))
+vi.mock("@/lib/prisma", () => ({ prisma: { member: { findUnique: memberFindUnique } } }))
 
 import { validateApiKey } from "@/lib/api-auth"
 
@@ -31,6 +33,7 @@ beforeEach(() => {
     hashKey.mockReturnValue("hashed")
     touchApiKeyLastUsed.mockResolvedValue(undefined)
     checkApiQuota.mockResolvedValue(QUOTA_OK)
+    memberFindUnique.mockResolvedValue({ id: "member-1" })
 })
 
 describe("validateApiKey — org-scoped quota", () => {
@@ -69,6 +72,34 @@ describe("validateApiKey — org-scoped quota", () => {
 
         expect(res!.organizationId).toBe("org-9")
         expect(checkApiQuota).toHaveBeenCalledWith("org-9", { subscriptions: orgSubs, referralPlusUntil: null }, "alias")
+    })
+
+    it("rejects an org-owned key once its creator is no longer an org member", async () => {
+        getAuthApiKeyRecord.mockResolvedValue({
+            id: "key-2",
+            expiresAt: null,
+            organizationId: "org-9",
+            organizationSubscriptions: [],
+            user: { id: "user-1", banned: false, subscriptions: [], referralPlusUntil: null },
+        })
+        memberFindUnique.mockResolvedValue(null)
+
+        expect(await validateApiKey(req(), "alias")).toBeNull()
+        // Rejected before consuming the org's pooled quota.
+        expect(checkApiQuota).not.toHaveBeenCalled()
+    })
+
+    it("does not look up membership for personal keys", async () => {
+        getAuthApiKeyRecord.mockResolvedValue({
+            id: "key-1",
+            expiresAt: null,
+            organizationId: null,
+            organizationSubscriptions: null,
+            user: { id: "user-1", banned: false, subscriptions: [], referralPlusUntil: null },
+        })
+
+        expect(await validateApiKey(req(), "alias")).not.toBeNull()
+        expect(memberFindUnique).not.toHaveBeenCalled()
     })
 
     it("rejects a key whose owner is banned (org or not)", async () => {

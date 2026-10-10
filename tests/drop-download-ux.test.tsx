@@ -80,6 +80,45 @@ describe("Drop recipient download UX", () => {
         expect(screen.getByRole("button", { name: "Download b.bin" })).toBeTruthy()
     })
 
+    it("offers one whole-drop download for a limited drop too large to ZIP and warns per-file downloads spend the limit", () => {
+        const downloadAll = vi.fn()
+        render(
+            <DropDownloadView
+                drop={{
+                    id: "drop-1",
+                    title: "Large delivery",
+                    message: "line one\nline two",
+                    downloads: 0,
+                    maxDownloads: 1,
+                    expiresAt: null,
+                    hideBranding: true,
+                    files: [
+                        { id: "a", encryptedName: "a", decryptedName: "a.bin", size: 400_000_000, encryptedSize: 400_000_016, mimeType: "application/octet-stream", iv: "iv", chunkSize: 400_000_000, chunkCount: 1 },
+                        { id: "b", encryptedName: "b", decryptedName: "b.bin", size: 400_000_000, encryptedSize: 400_000_016, mimeType: "application/octet-stream", iv: "iv", chunkSize: 400_000_000, chunkCount: 1 },
+                    ],
+                }}
+                keyString="key"
+                recipientToken={null}
+                downloading={false}
+                downloadProgress={0}
+                currentFile={null}
+                downloadError={null}
+                clearDownloadError={vi.fn()}
+                downloadFile={vi.fn()}
+                downloadAll={downloadAll}
+                canDownloadAsZip={false}
+                canDownloadAllSeparately
+                isLimitedDrop
+                formatBytes={(size) => `${size} bytes`}
+            />,
+        )
+
+        fireEvent.click(screen.getByRole("button", { name: /download all files/i }))
+        expect(downloadAll).toHaveBeenCalledOnce()
+        expect(screen.getByText(/counts toward this link's download limit/i)).toBeTruthy()
+        expect(screen.getByText(/line one/).className).toContain("whitespace-pre-wrap")
+    })
+
     it("shows download failures inline without hiding the retry controls", () => {
         const clearDownloadError = vi.fn()
 

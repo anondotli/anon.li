@@ -23,6 +23,7 @@ function mockSubscription(overrides: Partial<Subscription> = {}): Subscription {
         currentPeriodStart: null,
         currentPeriodEnd: new Date(),
         cancelAtPeriodEnd: false,
+        lossNotifiedAt: null,
         createdAt: new Date(),
         updatedAt: new Date(),
         ...overrides,
@@ -80,9 +81,9 @@ describe('getUserSubscriptionPlan', () => {
         expiredDate.setDate(expiredDate.getDate() - 10) // 10 days ago, well past 1-day grace
 
         const { prisma } = await import('@/lib/prisma')
-        vi.mocked(prisma.subscription.findFirst).mockResolvedValue(mockSubscription({
-            currentPeriodEnd: expiredDate,
-        }))
+        vi.mocked(prisma.subscription.findFirst)
+            .mockResolvedValueOnce(mockSubscription({ currentPeriodEnd: expiredDate }))
+            .mockResolvedValueOnce(null) // no subscription in dunning
 
         const { getUserSubscriptionPlan } = await import('@/lib/subscription')
         const result = await getUserSubscriptionPlan({ id: 'user-1' })
@@ -124,5 +125,50 @@ describe('getUserSubscriptionPlan', () => {
         expect(result.tier).toBe('plus')
         expect(result.isPaid).toBe(true)
         expect(result.isCanceled).toBe(false)
+    })
+
+    it('surfaces a past_due Stripe subscription so the user can fix payment instead of re-subscribing', async () => {
+        const { prisma } = await import('@/lib/prisma')
+        vi.mocked(prisma.subscription.findFirst)
+            .mockResolvedValueOnce(null) // no entitling subscription
+            .mockResolvedValueOnce(mockSubscription({
+                status: 'past_due',
+                currentPeriodEnd: new Date(),
+            }))
+
+        const { getUserSubscriptionPlan } = await import('@/lib/subscription')
+        const result = await getUserSubscriptionPlan({ id: 'user-1' })
+
+        expect(prisma.subscription.findFirst).toHaveBeenLastCalledWith(expect.objectContaining({
+            where: expect.objectContaining({
+                provider: 'stripe',
+                status: 'past_due',
+                organizationId: null,
+                // Same dunning definition as the checkout guards.
+                lossNotifiedAt: null,
+                updatedAt: { gt: expect.any(Date) },
+            }),
+        }))
+        expect(result.isPaid).toBe(true)
+        expect(result.isExpired).toBe(true)
+        expect(result.provider).toBe('stripe')
+        expect(result.tier).toBe('plus')
+    })
+
+    it('reports the provider of the active subscription', async () => {
+        const futureDate = new Date()
+        futureDate.setDate(futureDate.getDate() + 30)
+
+        const { prisma } = await import('@/lib/prisma')
+        vi.mocked(prisma.subscription.findFirst).mockResolvedValueOnce(mockSubscription({
+            provider: 'crypto',
+            currentPeriodEnd: futureDate,
+        }))
+
+        const { getUserSubscriptionPlan } = await import('@/lib/subscription')
+        const result = await getUserSubscriptionPlan({ id: 'user-1' })
+
+        expect(result.provider).toBe('crypto')
+        expect(result.isExpired).toBe(false)
     })
 })

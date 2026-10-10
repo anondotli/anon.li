@@ -52,7 +52,7 @@ export function ApiKeyList({ apiKeys }: ApiKeyListProps) {
                                 <span className="text-xs px-1.5 py-0.5 rounded bg-destructive/10 text-destructive font-medium">Expired</span>
                             )}
                             {key.expiresAt && new Date(key.expiresAt) >= new Date() && (
-                                <span className="text-xs px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 font-medium">Expires {formatRelativeTime(key.expiresAt)}</span>
+                                <span className="text-xs px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 font-medium">Expires {formatRelativeTime(key.expiresAt)}</span>
                             )}
                         </div>
                         <div className="flex items-center gap-2 text-xs text-muted-foreground">

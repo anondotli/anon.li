@@ -85,15 +85,29 @@ export async function persistTrustedBrowser(vaultKey: CryptoKey, vaultGeneration
     })
 }
 
-export function signOutWithVaultCleanup(source: string) {
-    void clearTrustedBrowserState().catch(() => {
+/**
+ * Forget this browser's vault trust (capsule + device key) and tell other tabs
+ * to lock and leave. For flows where the server session is already gone (e.g.
+ * account deletion) and `authClient.signOut` would have nothing to revoke.
+ */
+export function clearVaultForSignOut(source: string): Promise<void> {
+    const cleared = clearTrustedBrowserState().catch(() => {
         // Best effort cleanup before sign-out.
     })
 
-    broadcastVaultMessage({
-        type: "SIGN_OUT",
-        timestamp: Date.now(),
-        source,
-    })
-    authClient.signOut({ fetchOptions: { onSuccess: () => { window.location.href = "/" } } })
+    try {
+        broadcastVaultMessage({
+            type: "SIGN_OUT",
+            timestamp: Date.now(),
+            source,
+        })
+    } catch {
+        // Cross-tab sync unavailable; other tabs lock on their next request.
+    }
+    return cleared
+}
+
+export function signOutWithVaultCleanup(source: string, redirectTo = "/") {
+    void clearVaultForSignOut(source)
+    authClient.signOut({ fetchOptions: { onSuccess: () => { window.location.replace(redirectTo) } } })
 }
