@@ -199,8 +199,9 @@ export function UserDetailClient({ user }: UserDetailClientProps) {
                 toast.error(result.error)
             } else {
                 toast.success("Account deleted")
-                router.refresh()
                 setShowDeleteDialog(false)
+                // The user no longer exists; refreshing this page would 404.
+                router.push("/admin/users")
             }
         } catch {
             toast.error("Failed to delete account")
@@ -247,7 +248,7 @@ export function UserDetailClient({ user }: UserDetailClientProps) {
                 </div>
 
                 <div className="flex gap-2">
-                    {isBanned ? (
+                    {isBanned && (
                         <Button
                             variant="outline"
                             onClick={handleUnban}
@@ -256,14 +257,16 @@ export function UserDetailClient({ user }: UserDetailClientProps) {
                             <CheckCircle className="h-4 w-4 mr-2" />
                             {loading ? "Processing..." : "Unban"}
                         </Button>
-                    ) : (
+                    )}
+                    {/* A partial ban (alias/upload) can be escalated to a full ban. */}
+                    {!user.banned && (
                         <Button
                             variant="outline"
                             onClick={() => setShowBanDialog(true)}
                             disabled={loading}
                         >
                             <Ban className="h-4 w-4 mr-2" />
-                            Ban
+                            {isBanned ? "Escalate ban" : "Ban"}
                         </Button>
                     )}
                     <Button

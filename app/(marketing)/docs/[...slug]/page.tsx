@@ -1,28 +1,30 @@
 import { getFile, getFiles } from "@/lib/mdx"
 import { MDXContent } from "@/components/shared/mdx-content"
-import { notFound } from "next/navigation"
-import { docsConfig } from "@/config/docs"
+import { notFound, permanentRedirect } from "next/navigation"
+import { docsConfig, getDocsHrefFromContentSlug, getDocsRouteSlugs } from "@/config/docs"
 import { buildOpenGraph } from "@/config/open-graph"
+import { extractHeadings } from "@/lib/heading-slug"
 import { DocsSidebar, DocsTableOfContents, DocsPagination, DocsBreadcrumb } from "@/components/marketing/docs"
 
 export async function generateStaticParams() {
     const files = await getFiles("docs")
-    return files.map((fileName) => ({
-        slug: fileName.replace(".mdx", "").split("/"),
-    }))
+    return getDocsRouteSlugs(files.map((fileName) => fileName.replace(/\.mdx$/, "")))
+        .map((slug) => ({ slug }))
 }
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string[] }> }) {
     const { slug } = await params
     const file = await getFile("docs", slug)
     if (!file) return {}
+    const canonicalUrl = `https://anon.li${getDocsHrefFromContentSlug(slug.join("/"))}`
     return {
         title: `${file.metadata.title as string} - Docs`,
         description: file.metadata.summary as string,
+        alternates: { canonical: canonicalUrl },
         openGraph: buildOpenGraph({
             title: file.metadata.title as string,
             description: (file.metadata.summary as string) ?? "anon.li documentation.",
-            url: `https://anon.li/docs/${slug.join("/")}`,
+            url: canonicalUrl,
         }),
     }
 }
@@ -65,7 +67,14 @@ export default async function DocPage({ params }: { params: Promise<{ slug: stri
         notFound()
     }
 
-    const currentPath = `/docs/${slug.join("/")}`
+    // `/docs/api/index` duplicates `/docs/api`, and `/docs/legal/privacy|terms`
+    // duplicate the canonical `/privacy` and `/terms` pages.
+    const requestedPath = `/docs/${slug.join("/")}`
+    const currentPath = getDocsHrefFromContentSlug(slug.join("/"))
+    if (currentPath !== requestedPath) {
+        permanentRedirect(currentPath)
+    }
+
     const flatDocs = getFlatDocs()
     const currentIndex = flatDocs.findIndex(d => d.href === currentPath)
     const prev = currentIndex > 0 ? flatDocs[currentIndex - 1] : undefined
@@ -83,7 +92,8 @@ export default async function DocPage({ params }: { params: Promise<{ slug: stri
                     />
 
                     {/* Main Content */}
-                    <main className="flex-1 min-w-0">
+                    {/* The marketing layout already provides <main>; avoid nesting. */}
+                    <div className="flex-1 min-w-0">
                         <article>
                             {/* Breadcrumb */}
                             <DocsBreadcrumb items={breadcrumbs} />
@@ -113,10 +123,10 @@ export default async function DocPage({ params }: { params: Promise<{ slug: stri
                             {/* Pagination */}
                             <DocsPagination prev={prev} next={next} />
                         </article>
-                    </main>
+                    </div>
 
                     {/* Table of Contents */}
-                    <DocsTableOfContents content={file.content} />
+                    <DocsTableOfContents headings={extractHeadings(file.content)} />
                 </div>
             </div>
         </div>

@@ -33,6 +33,13 @@ describe("getAliases pagination", () => {
         )
     })
 
+    it("breaks createdAt ties by id so offset pages are stable", async () => {
+        await getAliases(scope, { limit: 25, offset: 50 })
+        expect(aliasFindMany).toHaveBeenCalledWith(
+            expect.objectContaining({ orderBy: [{ createdAt: "desc" }, { id: "desc" }] })
+        )
+    })
+
     it("omits take/skip when no pagination options are given", async () => {
         await getAliases(scope)
         const arg = aliasFindMany.mock.calls[0]?.[0] as Record<string, unknown>

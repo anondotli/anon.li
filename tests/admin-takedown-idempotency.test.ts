@@ -84,12 +84,30 @@ describe("AdminService — drop takedown preserves the owner's disable flag", ()
             takenDownAt: new Date("2026-10-01T10:00:00.000Z"),
         })
 
+        db.drop.updateMany.mockResolvedValue({ count: 1 })
+
         await AdminService.restoreDrop("drop_1")
 
-        expect(db.drop.update).toHaveBeenCalledWith({
-            where: { id: "drop_1" },
+        expect(db.drop.updateMany).toHaveBeenCalledWith({
+            where: { id: "drop_1", takenDown: true },
             data: { takenDown: false, takedownReason: null, takenDownAt: null },
         })
+        expect(db.$executeRaw).toHaveBeenCalledTimes(1)
+    })
+
+    it("a concurrent restore that loses the race does not decrement strikes", async () => {
+        db.drop.findUnique.mockResolvedValue({
+            id: "drop_1",
+            takenDown: true,
+            userId: "user_1",
+            disabled: false,
+            disabledAt: null,
+            takenDownAt: new Date("2026-10-01T10:00:00.000Z"),
+        })
+        db.drop.updateMany.mockResolvedValue({ count: 0 })
+
+        await expect(AdminService.restoreDrop("drop_1")).rejects.toThrow(/not taken down/)
+        expect(db.$executeRaw).not.toHaveBeenCalled()
     })
 
     it("restore also clears a legacy takedown-written disable (stamped with the takedown)", async () => {
@@ -103,10 +121,12 @@ describe("AdminService — drop takedown preserves the owner's disable flag", ()
             takenDownAt,
         })
 
+        db.drop.updateMany.mockResolvedValue({ count: 1 })
+
         await AdminService.restoreDrop("drop_1")
 
-        expect(db.drop.update).toHaveBeenCalledWith({
-            where: { id: "drop_1" },
+        expect(db.drop.updateMany).toHaveBeenCalledWith({
+            where: { id: "drop_1", takenDown: true },
             data: { takenDown: false, takedownReason: null, takenDownAt: null, disabled: false, disabledAt: null },
         })
     })
@@ -164,24 +184,50 @@ describe("AdminService — takedowns are idempotent (one strike per takedown)", 
         expect(db.$queryRaw).toHaveBeenCalledTimes(1)
     })
 
-    it("alias: admin re-activation clears the takedown marker", async () => {
-        db.alias.findUnique.mockResolvedValue({ id: "alias_1", email: "a@anon.li" })
+    it("alias: admin re-activation clears the takedown marker and removes the strike", async () => {
+        db.alias.findUnique.mockResolvedValue({ id: "alias_1", email: "a@anon.li", userId: "user_1" })
+        db.alias.updateMany.mockResolvedValue({ count: 1 })
 
-        await AdminService.toggleAliasActive("alias_1", true)
+        const result = await AdminService.toggleAliasActive("alias_1", true)
 
-        expect(db.alias.update).toHaveBeenCalledWith({
-            where: { id: "alias_1" },
+        expect(db.alias.updateMany).toHaveBeenCalledWith({
+            where: { id: "alias_1", takenDownAt: { not: null } },
             data: { active: true, takenDownAt: null },
         })
+        expect(db.$executeRaw).toHaveBeenCalledTimes(1)
+        expect(result).toEqual({ success: true, restoredTakedown: true })
+    })
+
+    it("alias: re-activating an alias that was not taken down leaves strikes alone", async () => {
+        db.alias.findUnique.mockResolvedValue({ id: "alias_1", email: "a@anon.li", userId: "user_1" })
+        db.alias.updateMany.mockResolvedValue({ count: 0 })
+
+        const result = await AdminService.toggleAliasActive("alias_1", true)
+
+        expect(db.alias.update).toHaveBeenCalledWith({ where: { id: "alias_1" }, data: { active: true } })
+        expect(db.$executeRaw).not.toHaveBeenCalled()
+        expect(result).toEqual({ success: true, restoredTakedown: false })
+    })
+
+    it("alias: admin disable never touches the takedown marker or strikes", async () => {
+        db.alias.findUnique.mockResolvedValue({ id: "alias_1", email: "a@anon.li", userId: "user_1" })
+
+        await AdminService.toggleAliasActive("alias_1", false)
+
+        expect(db.alias.update).toHaveBeenCalledWith({ where: { id: "alias_1" }, data: { active: false } })
+        expect(db.alias.updateMany).not.toHaveBeenCalled()
+        expect(db.$executeRaw).not.toHaveBeenCalled()
     })
 })
 
 describe("AdminService.deleteDomain", () => {
     it("deletes the personal domain's aliases with the domain, atomically", async () => {
         db.domain.findUnique.mockResolvedValue({ id: "dom_1", domain: "example.com", userId: "user_1", organizationId: null })
+        db.alias.deleteMany.mockResolvedValue({ count: 4 })
 
-        await AdminService.deleteDomain("dom_1")
+        const result = await AdminService.deleteDomain("dom_1")
 
+        expect(result).toMatchObject({ domain: "example.com", aliasesDeleted: 4 })
         expect(db.$transaction).toHaveBeenCalledTimes(1)
         expect(db.alias.deleteMany).toHaveBeenCalledWith({
             where: { domain: "example.com", userId: "user_1", organizationId: null },
@@ -191,6 +237,7 @@ describe("AdminService.deleteDomain", () => {
 
     it("scopes alias deletion to the owning org for an org domain", async () => {
         db.domain.findUnique.mockResolvedValue({ id: "dom_2", domain: "org.example", userId: null, organizationId: "org_1" })
+        db.alias.deleteMany.mockResolvedValue({ count: 0 })
 
         await AdminService.deleteDomain("dom_2")
 

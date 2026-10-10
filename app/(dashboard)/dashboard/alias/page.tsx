@@ -37,7 +37,7 @@ export default async function DashboardPage() {
             <div className="flex flex-col gap-8">
                 <div className="flex flex-col gap-4 border-b border-border/40 pb-6 sm:flex-row sm:items-center sm:justify-between">
                     <div className="space-y-1">
-                        <h2 className="text-3xl font-medium tracking-tight font-serif">Aliases</h2>
+                        <h1 className="text-3xl font-medium tracking-tight font-serif">Aliases</h1>
                         <p className="text-muted-foreground font-light">Manage your private email aliases.</p>
                     </div>
                 </div>
@@ -139,7 +139,7 @@ export default async function DashboardPage() {
         <div className="flex flex-col gap-8">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-border/40 pb-6">
                 <div className="space-y-1">
-                    <h2 className="text-3xl font-medium tracking-tight font-serif">Aliases</h2>
+                    <h1 className="text-3xl font-medium tracking-tight font-serif">Aliases</h1>
                     <p className="text-muted-foreground font-light">Manage your private email aliases.</p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">

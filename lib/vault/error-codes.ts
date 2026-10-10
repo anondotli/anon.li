@@ -13,3 +13,6 @@ export const ORG_KEY_GENERATION_MISMATCH_CODE = "ORG_KEY_GENERATION_MISMATCH"
 
 /** 409: refusing to release the only remaining current-generation grant of an org vault key. */
 export const ORG_KEY_LAST_HOLDER_CODE = "ORG_KEY_LAST_HOLDER"
+
+/** 409: vault setup already succeeded (e.g. a retry after a lost response) — treat as done. */
+export const VAULT_ALREADY_CONFIGURED_CODE = "VAULT_ALREADY_CONFIGURED"

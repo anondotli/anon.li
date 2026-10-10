@@ -34,7 +34,7 @@ export default async function RecipientsPage() {
                                     <ArrowLeft className="h-4 w-4" />
                                 </Link>
                             </Button>
-                            <h2 className="text-2xl font-medium tracking-tight font-serif sm:text-3xl">Recipients</h2>
+                            <h1 className="text-2xl font-medium tracking-tight font-serif sm:text-3xl">Recipients</h1>
                         </div>
                     </div>
                 </div>
@@ -65,7 +65,7 @@ export default async function RecipientsPage() {
                                 <ArrowLeft className="h-4 w-4" />
                             </Link>
                         </Button>
-                        <h2 className="text-2xl font-medium tracking-tight font-serif sm:text-3xl">Recipients</h2>
+                        <h1 className="text-2xl font-medium tracking-tight font-serif sm:text-3xl">Recipients</h1>
                     </div>
                     <p className="pl-11 text-sm font-light text-muted-foreground sm:text-base">
                         Manage email addresses where your aliases forward to.

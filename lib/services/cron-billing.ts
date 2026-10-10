@@ -22,12 +22,16 @@ export async function handleBillingCron() {
     // flow in this same run's bookkeeping rather than a day later.
     const cryptoExpiry = await expireCryptoSubscriptions();
     const heldCryptoPayments = await recheckHeldCryptoPayments();
+    // Lapsed complimentary referral Plus has no provider signal; start its
+    // downgrade flow here, before scheduling picks up existing markers.
+    const referralPlusLapses = await processReferralPlusLapses(BillingDowngradeService);
     const scheduling = await BillingDowngradeService.processSchedulingBatch();
     const deletion = await BillingDowngradeService.processDeletionBatch();
     const cryptoReminders = await processCryptoRenewalReminders();
     const reconciliation = await reconcileSubscriptions();
 
     return {
+        referralPlusLapses,
         scheduling: { processed: scheduling.processed, errors: scheduling.errors },
         deletion: { processed: deletion.processed, errors: deletion.errors },
         cryptoExpiry,
@@ -35,6 +39,18 @@ export async function handleBillingCron() {
         cryptoReminders,
         reconciliation,
     };
+}
+
+/** Errors are swallowed so a failure here never blocks scheduling/deletion. */
+async function processReferralPlusLapses(
+    service: { processReferralPlusLapses: () => Promise<{ recorded: number; skipped: number; errors: number }> },
+) {
+    try {
+        return await service.processReferralPlusLapses();
+    } catch (error) {
+        logger.error("Referral Plus lapse processing failed", error);
+        return { error: "failed" as const };
+    }
 }
 
 /**

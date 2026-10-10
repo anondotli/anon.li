@@ -1,8 +1,13 @@
 import { beforeEach, describe, expect, it, vi, type Mock } from "vitest"
 import { AdminService } from "@/lib/services/admin"
 import { prisma } from "@/lib/prisma"
-import { ValidationError } from "@/lib/api-error-utils"
+import { ConflictError, ForbiddenError, ServiceUnavailableError, ValidationError } from "@/lib/api-error-utils"
 import { deleteDropFilesAndReleaseQuota } from "@/lib/services/drop-storage"
+
+const stripeMocks = vi.hoisted(() => ({ cancel: vi.fn(), retrieve: vi.fn() }))
+vi.mock("@/lib/stripe", () => ({
+    stripe: { subscriptions: { cancel: stripeMocks.cancel, retrieve: stripeMocks.retrieve } },
+}))
 
 vi.mock("resend", () => ({
     Resend: class {
@@ -26,6 +31,11 @@ vi.mock("@/lib/prisma", () => {
         oauthAccessToken: { deleteMany: vi.fn() },
         oauthConsent: { deleteMany: vi.fn() },
         form: { findUnique: vi.fn(), delete: vi.fn() },
+        subscription: { findMany: vi.fn(), update: vi.fn() },
+        recipient: { findUnique: vi.fn(), delete: vi.fn() },
+        alias: { count: vi.fn() },
+        domain: { findUnique: vi.fn(), findFirst: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
+        $queryRaw: vi.fn(),
         $transaction: vi.fn((arg: unknown) =>
             Array.isArray(arg) ? Promise.all(arg) : (arg as (tx: unknown) => unknown)(mock),
         ),
@@ -43,7 +53,7 @@ vi.mock("@/lib/services/drop-storage", () => ({
 
 vi.mock("@/lib/storage", () => ({ abortMultipartUpload: vi.fn() }))
 
-type MethodName = "findUnique" | "update" | "delete" | "deleteMany" | "createMany" | "findMany" | "count" | "updateMany"
+type MethodName = "findUnique" | "findFirst" | "update" | "delete" | "deleteMany" | "createMany" | "findMany" | "count" | "updateMany"
 type Model = Record<MethodName, Mock>
 const db = prisma as unknown as {
     organization: Model
@@ -60,11 +70,17 @@ const db = prisma as unknown as {
     oauthAccessToken: Model
     oauthConsent: Model
     form: Model
+    subscription: Model
+    recipient: Model
+    alias: Model
+    domain: Model
+    $queryRaw: Mock
     $transaction: Mock
 }
 
 beforeEach(() => {
     vi.clearAllMocks()
+    db.subscription.findMany.mockResolvedValue([])
 })
 
 describe("AdminService — organization management", () => {
@@ -119,6 +135,42 @@ describe("AdminService — organization management", () => {
         expect(deleteDropFilesAndReleaseQuota).toHaveBeenNthCalledWith(1, "drop_1")
         expect(deleteDropFilesAndReleaseQuota).toHaveBeenNthCalledWith(2, "drop_2")
         expect(result).toEqual({ success: true, orphanedFiles: 3 })
+    })
+
+    it("cancels the org's Stripe subscriptions before deleting anything", async () => {
+        db.organization.findUnique.mockResolvedValue({ id: "org_1" })
+        db.drop.findMany.mockResolvedValue([])
+        db.subscription.findMany.mockResolvedValue([{ id: "sub_local", providerSubscriptionId: "sub_stripe" }])
+        stripeMocks.cancel.mockResolvedValue({ status: "canceled" })
+
+        await AdminService.deleteOrganization("org_1")
+
+        expect(db.subscription.findMany).toHaveBeenCalledWith(expect.objectContaining({
+            where: expect.objectContaining({
+                organizationId: "org_1",
+                provider: "stripe",
+                status: { in: expect.arrayContaining(["active", "trialing", "past_due"]) },
+            }),
+        }))
+        expect(stripeMocks.cancel).toHaveBeenCalledWith("sub_stripe")
+        expect(db.subscription.update).toHaveBeenCalledWith({
+            where: { id: "sub_local" },
+            data: { status: "canceled", cancelAtPeriodEnd: false },
+        })
+        expect(stripeMocks.cancel.mock.invocationCallOrder[0]).toBeLessThan(
+            db.organization.delete.mock.invocationCallOrder[0]!,
+        )
+    })
+
+    it("does not delete the org when the Stripe cancellation can't be confirmed", async () => {
+        db.organization.findUnique.mockResolvedValue({ id: "org_1" })
+        db.subscription.findMany.mockResolvedValue([{ id: "sub_local", providerSubscriptionId: "sub_stripe" }])
+        stripeMocks.cancel.mockRejectedValue(new Error("Stripe is down"))
+        stripeMocks.retrieve.mockRejectedValue(new Error("Stripe is down"))
+
+        await expect(AdminService.deleteOrganization("org_1")).rejects.toBeInstanceOf(ServiceUnavailableError)
+        expect(deleteDropFilesAndReleaseQuota).not.toHaveBeenCalled()
+        expect(db.organization.delete).not.toHaveBeenCalled()
     })
 
     it("refuses to remove the only owner of an organization", async () => {
@@ -176,10 +228,116 @@ describe("AdminService — user editing", () => {
         await expect(AdminService.setUserStorageLimit("user_1", BigInt(-1))).rejects.toBeInstanceOf(ValidationError)
     })
 
-    it("sets ToS strikes to an explicit value", async () => {
+    it("sets ToS strikes to an explicit value without banning below 3", async () => {
         db.user.findUnique.mockResolvedValue({ id: "user_1" })
-        await AdminService.setUserStrikes("user_1", 2)
-        expect(db.user.update).toHaveBeenCalledWith({ where: { id: "user_1" }, data: { tosViolations: 2 } })
+        db.$queryRaw.mockResolvedValue([{ banned: false }])
+        const result = await AdminService.setUserStrikes("user_1", 2)
+        // Tagged template: [strings, value, autoBan, autoBan, userId]
+        const call = db.$queryRaw.mock.calls[0]!
+        expect(call).toContain(2)
+        expect(call).toContain(false)
+        expect(call).not.toContain(true)
+        expect(call).toContain("user_1")
+        expect(result).toEqual({ success: true, banned: false })
+    })
+
+    it("applies the automatic full ban when strikes are set to 3 or more", async () => {
+        db.user.findUnique.mockResolvedValue({ id: "user_1" })
+        db.$queryRaw.mockResolvedValue([{ banned: true }])
+        const result = await AdminService.setUserStrikes("user_1", 3)
+        const call = db.$queryRaw.mock.calls[0]!
+        expect(call).toContain(3)
+        expect(call).toContain(true)
+        expect(result).toEqual({ success: true, banned: true })
+    })
+
+    it("refuses to ban an admin account", async () => {
+        db.user.findUnique.mockResolvedValue({ id: "user_2", isAdmin: true, banned: false, banAliasCreation: false, banFileUpload: false, banReason: null })
+        await expect(AdminService.banUser("user_2", { full: true })).rejects.toBeInstanceOf(ForbiddenError)
+        expect(db.user.update).not.toHaveBeenCalled()
+    })
+
+    it("escalates a partial ban to a full ban, keeping existing flags", async () => {
+        db.user.findUnique.mockResolvedValue({ id: "user_2", isAdmin: false, banned: false, banAliasCreation: true, banFileUpload: false, banReason: "spam" })
+        await AdminService.banUser("user_2", { full: true, reason: "escalated" })
+        expect(db.user.update).toHaveBeenCalledWith({
+            where: { id: "user_2" },
+            data: { banned: true, banAliasCreation: true, banFileUpload: false, banReason: "escalated" },
+        })
+    })
+})
+
+describe("AdminService — recipients", () => {
+    it("refuses to delete a default recipient", async () => {
+        db.recipient.findUnique.mockResolvedValue({ id: "rcp_1", email: "a@b.c", isDefault: true })
+        await expect(AdminService.deleteRecipient("rcp_1")).rejects.toBeInstanceOf(ValidationError)
+        expect(db.recipient.delete).not.toHaveBeenCalled()
+    })
+
+    it("refuses to strand aliases that forward only to the recipient", async () => {
+        db.recipient.findUnique.mockResolvedValue({ id: "rcp_1", email: "a@b.c", isDefault: false })
+        db.alias.count.mockResolvedValue(2)
+        await expect(AdminService.deleteRecipient("rcp_1")).rejects.toThrow(/2 alias\(es\) forward only to it/)
+        expect(db.alias.count).toHaveBeenCalledWith({
+            where: {
+                OR: [
+                    { recipientId: "rcp_1" },
+                    {
+                        aliasRecipients: { some: { recipientId: "rcp_1" } },
+                        NOT: { aliasRecipients: { some: { recipientId: { not: "rcp_1" } } } },
+                    },
+                ],
+            },
+        })
+        expect(db.recipient.delete).not.toHaveBeenCalled()
+    })
+
+    it("clears catch-all references atomically with the delete", async () => {
+        db.recipient.findUnique.mockResolvedValue({ id: "rcp_1", email: "a@b.c", isDefault: false })
+        db.alias.count.mockResolvedValue(0)
+        db.domain.updateMany.mockResolvedValue({ count: 1 })
+        db.recipient.delete.mockResolvedValue({ id: "rcp_1" })
+
+        const result = await AdminService.deleteRecipient("rcp_1")
+
+        expect(db.$transaction).toHaveBeenCalled()
+        expect(db.domain.updateMany).toHaveBeenCalledWith({
+            where: { catchAllRecipientId: "rcp_1" },
+            data: { catchAllRecipientId: null },
+        })
+        expect(db.recipient.delete).toHaveBeenCalledWith({ where: { id: "rcp_1" } })
+        expect(result).toEqual({ success: true, catchAllDomainsCleared: 1 })
+    })
+})
+
+describe("AdminService — force-verify domain", () => {
+    it("refuses when another owner already holds the verified name", async () => {
+        db.domain.findUnique.mockResolvedValue({ id: "dom_1", domain: "example.com" })
+        db.domain.findFirst.mockResolvedValue({ id: "dom_2", user: { email: "other@example.org" }, organization: null })
+
+        await expect(AdminService.forceVerifyDomain("dom_1")).rejects.toThrow(/already verified by other@example.org \(domain dom_2\)/)
+        expect(db.domain.update).not.toHaveBeenCalled()
+    })
+
+    it("maps a lost race on the partial unique index to a ConflictError", async () => {
+        db.domain.findUnique.mockResolvedValue({ id: "dom_1", domain: "example.com" })
+        db.domain.findFirst.mockResolvedValue(null)
+        db.domain.update.mockRejectedValue(Object.assign(new Error("Unique constraint"), { code: "P2002" }))
+
+        await expect(AdminService.forceVerifyDomain("dom_1")).rejects.toBeInstanceOf(ConflictError)
+    })
+
+    it("verifies and clears the unverified marker when there is no conflict", async () => {
+        db.domain.findUnique.mockResolvedValue({ id: "dom_1", domain: "example.com" })
+        db.domain.findFirst.mockResolvedValue(null)
+        db.domain.update.mockResolvedValue({})
+
+        await AdminService.forceVerifyDomain("dom_1")
+
+        expect(db.domain.update).toHaveBeenCalledWith({
+            where: { id: "dom_1" },
+            data: expect.objectContaining({ verified: true, unverifiedAt: null }),
+        })
     })
 })
 

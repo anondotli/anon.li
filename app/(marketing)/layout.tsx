@@ -9,7 +9,9 @@ export default function MarketingLayout({
 }) {
     return (
         <LazyFileDropProvider>
-            <div className="flex flex-col min-h-screen bg-background text-foreground overflow-x-hidden">
+            {/* overflow-x-clip (not -hidden): hidden creates a scroll container,
+                which breaks position:sticky in descendants (docs sidebar/TOC). */}
+            <div className="flex flex-col min-h-screen bg-background text-foreground overflow-x-clip">
                 <SiteHeader />
                 <main id="main-content" className="flex-1 pt-16">
                     {children}

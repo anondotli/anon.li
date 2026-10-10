@@ -26,10 +26,14 @@ export default async function UsagePage() {
     const [aliasCounts, domainCount, formCount, recentSubmissions, formLimits] = await Promise.all([
         // Personal usage view: personal resources vs personal plan limits.
         // (Org/team usage belongs in a dedicated team-billing view.)
+        // Every count mirrors what enforcement counts against the same limit:
+        // all personal domains (verified or not — DomainService counts both),
+        // and form submissions in the current UTC calendar month (the monthly
+        // cap's window), not a rolling 30 days.
         countAliasesByFormat(scope),
-        prisma.domain.count({ where: { userId: user.id, organizationId: null, verified: true } }),
+        prisma.domain.count({ where: { userId: user.id, organizationId: null } }),
         FormService.countActiveForms(user.id),
-        FormService.countRecentSubmissionsForOwner(user.id),
+        FormService.countCurrentMonthSubmissions(scope),
         getFormLimitsAsync(user.id),
     ])
 
@@ -41,9 +45,10 @@ export default async function UsagePage() {
     const randomAliases = aliasCounts.random
     const customAliases = aliasCounts.custom
 
-    // Storage usage
+    // Storage usage. The per-user `storageLimit` column is an admin-granted
+    // floor; upload enforcement (getUserAndLimits) uses max(plan, grant).
     const storageUsed = Number(user.storageUsed)
-    const storageLimit = dropLimits.maxStorage
+    const storageLimit = Math.max(dropLimits.maxStorage, Number(user.storageLimit ?? 0))
 
     // Calculate percentages
     const randomPercent = aliasLimits.random === -1 ? 0 : Math.min((randomAliases / aliasLimits.random) * 100, 100)
@@ -58,7 +63,7 @@ export default async function UsagePage() {
     return (
         <div className="space-y-8">
             <div className="border-b border-border/40 pb-6">
-                <h3 className="text-3xl font-medium tracking-tight font-serif">Usage</h3>
+                <h1 className="text-3xl font-medium tracking-tight font-serif">Usage</h1>
                 <p className="text-sm text-muted-foreground font-light">
                     Monitor your usage against your plan limits.
                 </p>
@@ -141,7 +146,7 @@ export default async function UsagePage() {
                             <div>
                                 <CardTitle className="text-lg font-medium">Custom Domains</CardTitle>
                                 <CardDescription className="text-sm">
-                                    Verified domains for aliases
+                                    Domains added for aliases (verified or pending)
                                 </CardDescription>
                             </div>
                         </div>
@@ -245,7 +250,7 @@ export default async function UsagePage() {
                             <div>
                                 <CardTitle className="text-lg font-medium">Form Submissions</CardTitle>
                                 <CardDescription className="text-sm">
-                                    Rolling 30-day window
+                                    This calendar month (UTC)
                                 </CardDescription>
                             </div>
                         </div>

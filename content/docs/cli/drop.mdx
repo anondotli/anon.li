@@ -12,14 +12,14 @@ The `anonli drop` commands let you upload, download, and manage end-to-end encry
 Upload and encrypt files.
 
 ```bash
-anonli drop upload <path> [options]
+anonli drop upload [path] [options]
 ```
 
 **Arguments**
 
 | Argument | Description |
 |----------|-------------|
-| `<path>` | File or directory to upload. Use `-` to read from stdin. |
+| `[path]` | File or directory to upload. Omit it and pipe data in to upload from stdin (requires `--name`). |
 
 **Options**
 
@@ -27,14 +27,13 @@ anonli drop upload <path> [options]
 |------|-------------|
 | `-t, --title <text>` | Set an encrypted title for the drop |
 | `-m, --message <text>` | Attach an encrypted message |
-| `-e, --expiry <days>` | Expiration in days (default: 1) |
+| `-e, --expiry <days>` | Expiration in days, 1–30 (default: your plan's maximum; capped to your plan) |
 | `-n, --max-downloads <n>` | Limit number of downloads |
 | `-p, --password <pass>` | Password-protect the drop (requires Plus or Pro) |
-| `--name <name>` | File name when reading from stdin |
+| `--name <name>` | File name when reading from stdin (required for stdin uploads) |
 | `--notify` | Send email notification on download |
 | `--hide-branding` | Remove anon.li branding from the download page |
 | `--no-vault` | Do not store the owner key in your account vault |
-| `--json` | Output the share URL as JSON |
 
 **Examples**
 
@@ -43,7 +42,7 @@ anonli drop upload <path> [options]
 anonli drop upload ./report.pdf --expiry 7
 
 # Upload from stdin with a custom name
-cat backup.sql | anonli drop upload - --name backup.sql
+cat backup.sql | anonli drop upload --name backup.sql
 
 # Upload a directory with title and download limit
 anonli drop upload ./project --title "Project files" --max-downloads 5
@@ -90,6 +89,7 @@ Aliases: `anonli drop dl`
 | `-o, --output <dir>` | Output directory (default: current directory) |
 | `-k, --key <key>` | Decryption key (not needed if included in the URL) |
 | `-p, --password <pass>` | Password for protected drops |
+| `--recipient-token <token>` | Named-recipient access token, for drops restricted to named recipients (not needed if included in the URL) |
 | `--overwrite` | Overwrite existing files |
 | `--skip` | Skip existing files |
 
@@ -122,6 +122,8 @@ List your active file drops.
 ```bash
 anonli drop list [options]
 ```
+
+Aliases: `anonli drop ls`
 
 **Options**
 
@@ -179,8 +181,12 @@ Aliases: `anonli drop get`
 Permanently delete a drop.
 
 ```bash
-anonli drop delete <drop-id> [options]
+anonli drop delete <target> [options]
 ```
+
+Aliases: `anonli drop rm`
+
+`<target>` is a drop URL or drop ID.
 
 **Options**
 
@@ -204,17 +210,19 @@ Returns the new state (enabled or disabled). Disabled drops cannot be downloaded
 
 ## Share
 
-Reconstruct a shareable URL from a drop ID and key. No authentication required.
+Reconstruct a shareable URL for a drop.
 
 ```bash
-anonli drop share <drop-id> --key <key>
+anonli drop share <target> [--key <key>]
 ```
+
+`<target>` is a drop ID or URL. If no key is given (via `--key` or the URL fragment) and you are logged in, the CLI recovers the key from your vault after prompting for your vault password. Password-protected drops never put the key in the URL; share the password separately.
 
 **Options**
 
 | Flag | Description |
 |------|-------------|
-| `-k, --key <key>` | The decryption key (required) |
+| `-k, --key <key>` | The decryption key (the part after `#` in the original URL). Optional when logged in — recovered from your vault |
 
 **Example**
 

@@ -2,11 +2,11 @@
 
 Vercel registers the schedules in `vercel.json` on each production deployment. All times are UTC. On Hobby, an invocation may arrive at any point during the configured hour, so no job may depend on minute-level timing.
 
-Vercel Hobby allows at most three cron entries in `vercel.json`, so the daily workloads are consolidated behind a single aggregator that fans out to the dedicated job routes via internal HTTP calls. Each job still runs in its own function invocation with its own auth scope, Redis lock, `maxDuration`, and error reporting — the aggregator only sequences and reports. To add a new daily workload, add its route to `DAILY_JOBS` in `app/api/cron/daily/route.ts`; do not add a new `vercel.json` entry unless it genuinely needs an independent schedule.
+Vercel Hobby allows at most three cron entries in `vercel.json`, so the daily workloads are consolidated behind a single aggregator that fans out to the dedicated job routes via internal HTTP calls. Each job still runs in its own function invocation with its own auth scope, Redis lock, `maxDuration`, and error reporting — the aggregator only dispatches and reports. Jobs are dispatched **concurrently**, each bounded by a per-job timeout (`JOB_TIMEOUT_MS`, 270 s) that leaves headroom inside the aggregator's own 300 s budget; awaiting them one after another could exceed that budget and silently skip later jobs. A job that times out from the aggregator's point of view keeps running in its own invocation and is reported as `timed out` in the aggregator response. Jobs that touch the same rows (e.g. Drop deletion in billing and cleanup) claim them atomically, so concurrent dispatch is safe. To add a new daily workload, add its route to `DAILY_JOBS` in `app/api/cron/daily/route.ts`; do not add a new `vercel.json` entry unless it genuinely needs an independent schedule.
 
 | UTC schedule | Route | Responsibility |
 | --- | --- | --- |
-| Daily, 01:00 hour | `/api/cron/daily` | Aggregator; sequentially dispatches the jobs below |
+| Daily, 01:00 hour | `/api/cron/daily` | Aggregator; concurrently dispatches the jobs below (per-job timeout) |
 | Daily, via `/api/cron/daily` | `/api/cron/domains` | Remove stale unverified domains and rotate ownership re-verification batches |
 | Daily, via `/api/cron/daily` | `/api/cron/billing` | Downgrade lifecycle, crypto renewal reminders, and Stripe reconciliation |
 | Daily, via `/api/cron/daily` | `/api/cron/cleanup` | Drop, Form, orphaned-file, and expired-session cleanup; includes incomplete uploads |

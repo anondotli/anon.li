@@ -68,6 +68,12 @@ export async function validateApiKey(req: Request, quotaType?: ApiQuotaType): Pr
         if (!membership) {
             return null
         }
+        // Org-wide 2FA policy applies to org keys exactly as it does to
+        // sessions (orgRequiresTwoFactorSetup): while the org enforces 2FA, a
+        // key whose creator has not enrolled 2FA cannot act for the org.
+        if (apiKey.organizationEnforce2FA && !apiKey.user.twoFactorEnabled) {
+            return null
+        }
     }
 
     // Org-owned keys pool their monthly quota by org and resolve tier from the

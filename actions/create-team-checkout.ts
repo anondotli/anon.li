@@ -9,6 +9,7 @@ import { ValidationError } from "@/lib/api-error-utils"
 import { BUSINESS_PLAN } from "@/config/plans"
 import { prisma } from "@/lib/prisma"
 import { recentDunningWhere } from "@/lib/services/billing-dunning"
+import { activeTeamSubscriptionWhere } from "@/lib/subscription-entitlement"
 import { trackServerEvent } from "@/lib/posthog.server"
 
 interface TeamCheckoutParams {
@@ -48,10 +49,9 @@ export async function createTeamCheckoutSession(params: TeamCheckoutParams) {
             // is still live at Stripe; a second checkout would double-bill.
             const existing = await prisma.subscription.findFirst({
                 where: {
-                    organizationId,
                     OR: [
-                        { status: { in: ["active", "trialing"] }, currentPeriodEnd: { gt: new Date() } },
-                        recentDunningWhere(),
+                        activeTeamSubscriptionWhere(organizationId),
+                        { organizationId, ...recentDunningWhere() },
                     ],
                 },
                 select: { status: true },

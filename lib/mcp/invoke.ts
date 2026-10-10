@@ -1,4 +1,5 @@
 import { ProtocolError } from "@modelcontextprotocol/server"
+import type { z } from "zod"
 import { ApiError, ForbiddenError, NotFoundError, RateLimitError, ServiceUnavailableError, UpgradeRequiredError, ValidationError } from "@/lib/api-error-utils"
 import { checkApiQuota, type ApiQuotaType } from "@/lib/api-rate-limit"
 import { getAuthUserState } from "@/lib/data/auth"
@@ -11,9 +12,15 @@ import type { McpSession, McpUser } from "./types"
 const logger = createLogger("MCP")
 
 /** OAuth scopes that gate the MCP tools (the `offline_access` scope is not a gate). */
-type McpToolScope = "anon.li:aliases" | "anon.li:drops" | "anon.li:forms"
+export type McpToolScope = "anon.li:aliases" | "anon.li:drops" | "anon.li:forms"
 
-interface InvokeOptions {
+/** Raw tool arguments plus the schema that validates them inside the gate. */
+interface InvokeInput<A> {
+    schema: z.ZodType<A>
+    args: unknown
+}
+
+export interface InvokeOptions<A = undefined> {
     /**
      * OAuth scope the bearer token must carry to call this tool. Enforced
      * fail-closed: a token that lacks the scope is rejected before any work,
@@ -27,6 +34,34 @@ interface InvokeOptions {
     checkBan?: "alias" | "upload"
     /** Per-user per-tool rate limit. */
     rateLimit?: keyof typeof rateLimiters
+    /**
+     * Tool arguments, validated after the scope and rate-limit checks but
+     * before any ban lookup or quota charge. A validation failure returns
+     * `VALIDATION_ERROR` and is never charged against the monthly quota.
+     */
+    input?: InvokeInput<A>
+}
+
+function formatIssuePath(path: ReadonlyArray<PropertyKey>): string {
+    return path.length > 0 ? path.map(String).join(".") : "(arguments)"
+}
+
+/** Validate tool arguments into the structured VALIDATION_ERROR tool result. */
+function validateToolInput<A>(input: InvokeInput<A>): { ok: true; data: A } | { ok: false; error: ReturnType<typeof toolError> } {
+    const parsed = input.schema.safeParse(input.args ?? {})
+    if (parsed.success) return { ok: true, data: parsed.data }
+    const issues = parsed.error.issues.map((issue) => ({
+        path: formatIssuePath(issue.path),
+        message: issue.message,
+    }))
+    return {
+        ok: false,
+        error: toolError({
+            code: "VALIDATION_ERROR",
+            message: `Invalid arguments: ${issues.map((issue) => `${issue.path}: ${issue.message}`).join("; ")}`,
+            issues,
+        }),
+    }
 }
 
 /** Machine-readable error payload attached to every failed tool call. */
@@ -71,17 +106,20 @@ export function toolError(details: McpToolErrorDetails) {
 }
 
 /**
- * Run a tool handler behind the shared auth / ban / scope / quota / rate-limit
- * gate, and normalize every failure into a structured tool result.
+ * Run a tool handler behind the shared gate, and normalize every failure into a
+ * structured tool result. Order: subject → account state/ban → scope →
+ * per-tool rate limit → argument validation → feature ban → monthly quota →
+ * handler. The quota is charged last, so calls rejected earlier (missing
+ * scope, rate limited, invalid arguments, banned) never consume it.
  *
  * Returns either the handler's result or an `isError` result — never a business
  * error exception — so `outputSchema` validation is skipped by the SDK (it only
  * validates successful results) and clients get one consistent error surface.
  */
-export async function invokeTool<T>(
+export async function invokeTool<T, A = undefined>(
     session: McpSession,
-    opts: InvokeOptions,
-    handler: (user: McpUser) => Promise<T>,
+    opts: InvokeOptions<A>,
+    handler: (user: McpUser, args: A) => Promise<T>,
 ): Promise<T | ReturnType<typeof toolError>> {
     const userId = session.userId
     if (!userId) {
@@ -97,17 +135,6 @@ export async function invokeTool<T>(
         return toolError({ code: accountBan.code, message: accountBan.reason })
     }
 
-    if (opts.checkBan) {
-        const banFlags = await prisma.user.findUnique({
-            where: { id: userId },
-            select: { banFileUpload: true, banAliasCreation: true },
-        })
-        const scopeBan = banFlags && evaluateBan(banFlags, opts.checkBan)
-        if (scopeBan) {
-            return toolError({ code: scopeBan.code, message: scopeBan.reason })
-        }
-    }
-
     if (opts.scope) {
         const grantedScopes = new Set((session.scopes ?? "").split(/\s+/).filter(Boolean))
         if (!grantedScopes.has(opts.scope)) {
@@ -116,20 +143,6 @@ export async function invokeTool<T>(
                 message: `Token is missing the '${opts.scope}' scope. Reconnect the connector and approve this scope.`,
                 required_scope: opts.scope,
                 granted_scopes: Array.from(grantedScopes),
-            })
-        }
-    }
-
-    if (opts.quota) {
-        const quota = await checkApiQuota(userId, user, opts.quota)
-        if (!quota.success) {
-            return toolError({
-                code: "QUOTA_EXCEEDED",
-                message: "Monthly API quota exceeded",
-                quota_type: opts.quota,
-                limit: quota.limit,
-                remaining: Math.max(0, quota.remaining),
-                reset_at: quota.reset.toISOString(),
             })
         }
     }
@@ -152,11 +165,41 @@ export async function invokeTool<T>(
         }
     }
 
-    try {
-        return await handler({
-            id: userId,
-            subscriptions: user.subscriptions,
+    let args = undefined as A
+    if (opts.input) {
+        const validated = validateToolInput(opts.input)
+        if (!validated.ok) return validated.error
+        args = validated.data
+    }
+
+    if (opts.checkBan) {
+        const banFlags = await prisma.user.findUnique({
+            where: { id: userId },
+            select: { banFileUpload: true, banAliasCreation: true },
         })
+        const scopeBan = banFlags && evaluateBan(banFlags, opts.checkBan)
+        if (scopeBan) {
+            return toolError({ code: scopeBan.code, message: scopeBan.reason })
+        }
+    }
+
+    if (opts.quota) {
+        const quota = await checkApiQuota(userId, user, opts.quota)
+        if (!quota.success) {
+            return toolError({
+                code: "QUOTA_EXCEEDED",
+                message: "Monthly API quota exceeded",
+                quota_type: opts.quota,
+                limit: quota.limit,
+                remaining: Math.max(0, quota.remaining),
+                reset_at: quota.reset.toISOString(),
+            })
+        }
+    }
+
+    try {
+        const mcpUser: McpUser = { id: userId, subscriptions: user.subscriptions }
+        return await (opts.input ? handler(mcpUser, args) : (handler as (user: McpUser) => Promise<T>)(mcpUser))
     } catch (error) {
         if (error instanceof ProtocolError) throw error
         if (error instanceof UpgradeRequiredError) {

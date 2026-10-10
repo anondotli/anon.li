@@ -11,7 +11,8 @@ import { prisma } from "@/lib/prisma"
 import { eraseUserDrops } from "@/lib/services/erasure"
 import { purgePersonalVaultKeysOps } from "@/lib/vault/personal-purge"
 import { createLogger } from "@/lib/logger"
-import { ServiceUnavailableError } from "@/lib/api-error-utils"
+import type { Prisma } from "@prisma/client"
+import { ServiceUnavailableError, ValidationError } from "@/lib/api-error-utils"
 
 const logger = createLogger("DeletionService")
 
@@ -20,6 +21,63 @@ const BILLABLE_SUBSCRIPTION_STATUSES = ["active", "trialing", "past_due", "unpai
 
 function isStripeResourceMissing(error: unknown): boolean {
     return typeof error === "object" && error !== null && (error as { code?: unknown }).code === "resource_missing"
+}
+
+/**
+ * Immediately cancel every billable Stripe subscription matching `scope`, and
+ * record each cancellation locally so a retry doesn't call Stripe again.
+ * Throws ServiceUnavailableError(`failureMessage`) when a cancellation can't be
+ * confirmed, so the caller stops before deleting anything.
+ */
+async function cancelStripeSubscriptions(
+    scope: Prisma.SubscriptionWhereInput,
+    logContext: Record<string, unknown>,
+    failureMessage: string,
+): Promise<void> {
+    const subscriptions = await prisma.subscription.findMany({
+        where: {
+            ...scope,
+            provider: "stripe",
+            providerSubscriptionId: { not: null },
+            status: { in: BILLABLE_SUBSCRIPTION_STATUSES },
+        },
+        select: { id: true, providerSubscriptionId: true },
+    })
+    if (subscriptions.length === 0) return
+
+    // Loaded lazily: lib/stripe throws at import time without billing env.
+    const { stripe } = await import("@/lib/stripe")
+
+    for (const subscription of subscriptions) {
+        const providerSubscriptionId = subscription.providerSubscriptionId!
+        try {
+            await stripe.subscriptions.cancel(providerSubscriptionId)
+        } catch (error) {
+            // Already gone or already canceled on Stripe's side is fine.
+            const current = isStripeResourceMissing(error)
+                ? null
+                : await stripe.subscriptions.retrieve(providerSubscriptionId).catch(() => null)
+            const alreadyEnded = isStripeResourceMissing(error)
+                || current?.status === "canceled"
+                || current?.status === "incomplete_expired"
+            if (!alreadyEnded) {
+                logger.error("Failed to cancel Stripe subscription before deletion", error, {
+                    ...logContext,
+                    subscriptionId: subscription.id,
+                })
+                throw new ServiceUnavailableError(failureMessage)
+            }
+        }
+
+        await prisma.subscription.update({
+            where: { id: subscription.id },
+            data: { status: "canceled", cancelAtPeriodEnd: false },
+        })
+        logger.info("Canceled Stripe subscription before deletion", {
+            ...logContext,
+            subscriptionId: subscription.id,
+        })
+    }
 }
 
 export class DeletionService {
@@ -60,54 +118,25 @@ export class DeletionService {
      * erasing data and the request stays as a retry marker.
      */
     static async cancelPersonalStripeSubscriptions(userId: string): Promise<void> {
-        const subscriptions = await prisma.subscription.findMany({
-            where: {
-                userId,
-                organizationId: null,
-                provider: "stripe",
-                providerSubscriptionId: { not: null },
-                status: { in: BILLABLE_SUBSCRIPTION_STATUSES },
-            },
-            select: { id: true, providerSubscriptionId: true },
-        })
-        if (subscriptions.length === 0) return
+        await cancelStripeSubscriptions(
+            { userId, organizationId: null },
+            { userId },
+            "We couldn't cancel your active subscription, so your account was not deleted. Please try again or contact support.",
+        )
+    }
 
-        // Loaded lazily: lib/stripe throws at import time without billing env.
-        const { stripe } = await import("@/lib/stripe")
-
-        for (const subscription of subscriptions) {
-            const providerSubscriptionId = subscription.providerSubscriptionId!
-            try {
-                await stripe.subscriptions.cancel(providerSubscriptionId)
-            } catch (error) {
-                // Already gone or already canceled on Stripe's side is fine.
-                const current = isStripeResourceMissing(error)
-                    ? null
-                    : await stripe.subscriptions.retrieve(providerSubscriptionId).catch(() => null)
-                const alreadyEnded = isStripeResourceMissing(error)
-                    || current?.status === "canceled"
-                    || current?.status === "incomplete_expired"
-                if (!alreadyEnded) {
-                    logger.error("Failed to cancel Stripe subscription during account deletion", error, {
-                        userId,
-                        subscriptionId: subscription.id,
-                    })
-                    throw new ServiceUnavailableError(
-                        "We couldn't cancel your active subscription, so your account was not deleted. Please try again or contact support.",
-                    )
-                }
-            }
-
-            // Record it locally so a retry doesn't call Stripe again.
-            await prisma.subscription.update({
-                where: { id: subscription.id },
-                data: { status: "canceled", cancelAtPeriodEnd: false },
-            })
-            logger.info("Canceled personal Stripe subscription for account deletion", {
-                userId,
-                subscriptionId: subscription.id,
-            })
-        }
+    /**
+     * Cancel an ORGANIZATION's Stripe subscriptions immediately, before the org
+     * row (and with it the local Subscription rows, onDelete: Cascade) is
+     * deleted — otherwise Stripe keeps billing for a team that no longer exists.
+     * Throws if any cancellation can't be confirmed, so the org is not deleted.
+     */
+    static async cancelOrganizationStripeSubscriptions(organizationId: string): Promise<void> {
+        await cancelStripeSubscriptions(
+            { organizationId },
+            { organizationId },
+            "Couldn't cancel the organization's active Stripe subscription, so the organization was not deleted. Cancel it in Stripe or try again.",
+        )
     }
 
     /**
@@ -120,7 +149,7 @@ export class DeletionService {
         // pre-checks this to surface a friendlier message).
         const soleOwnerOrgs = await this.findSoleOwnerOrganizations(userId)
         if (soleOwnerOrgs.length > 0) {
-            throw new Error(
+            throw new ValidationError(
                 `Cannot delete account: sole owner of ${soleOwnerOrgs.map((o) => o.name).join(", ")}. Transfer ownership or delete the team first.`,
             )
         }

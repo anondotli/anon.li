@@ -27,33 +27,99 @@ import { abortMultipartUpload, deleteObject } from "@/lib/storage";
 import { deleteDropFilesAndReleaseQuota } from "@/lib/services/drop-storage";
 import { restoreGraceStampedDrops } from "@/lib/services/drop-grace";
 import { dunningSubscriptionWhere, isWithinDunningWindow, MAX_DUNNING_DAYS } from "@/lib/services/billing-dunning";
+import { entitlingSubscriptionWhere, isEntitlingSubscription } from "@/lib/subscription-entitlement";
 
 const logger = createLogger("BillingDowngrade");
 
+const ENTITLEMENT_SUBSCRIPTION_FIELDS = {
+    id: true,
+    status: true,
+    product: true,
+    tier: true,
+    currentPeriodEnd: true,
+} satisfies Prisma.SubscriptionSelect;
+
 /**
  * Everything getPlanLimits/getDropLimits need to resolve a user's CURRENT
- * personal entitlement: entitling personal subscriptions plus complimentary
- * referral Plus (which keeps Plus limits after a paid plan lapses).
+ * entitlement for their personal resources, exactly as live enforcement
+ * (lib/data/user.ts getUserById, lib/entitlements.ts) resolves it: entitling
+ * personal subscriptions, the subscriptions of every team the user belongs to
+ * (seat-based inheritance — a Business member keeps team-level limits on their
+ * personal resources), plus complimentary referral Plus. A function so the
+ * team-subscription period cut-off is evaluated per query.
  */
-const personalEntitlementSelect = {
-    referralPlusUntil: true,
-    subscriptions: {
-        where: {
-            organizationId: null,
-            status: { in: ["active", "trialing"] },
+function entitlementSelect() {
+    return {
+        referralPlusUntil: true,
+        subscriptions: {
+            where: {
+                organizationId: null,
+                status: { in: ["active", "trialing"] },
+            },
+            select: ENTITLEMENT_SUBSCRIPTION_FIELDS,
         },
-        select: {
-            id: true,
-            status: true,
-            product: true,
-            tier: true,
-            currentPeriodEnd: true,
+        memberships: {
+            select: {
+                organization: {
+                    select: {
+                        subscriptions: {
+                            where: entitlingSubscriptionWhere(),
+                            select: ENTITLEMENT_SUBSCRIPTION_FIELDS,
+                        },
+                    },
+                },
+            },
         },
-    },
-} satisfies Prisma.UserSelect;
+    } satisfies Prisma.UserSelect;
+}
+
+type EntitlementSubscription = {
+    status: string;
+    product: string;
+    tier: string;
+    currentPeriodEnd: Date | null;
+};
+
+type EntitlementRow = {
+    referralPlusUntil: Date | null;
+    subscriptions: EntitlementSubscription[];
+    memberships?: { organization: { subscriptions: EntitlementSubscription[] } }[] | null;
+};
+
+/** Team (org) subscriptions the user inherits through memberships. */
+function teamSubscriptionsOf(user: EntitlementRow): EntitlementSubscription[] {
+    return (user.memberships ?? []).flatMap((m) => m.organization?.subscriptions ?? []);
+}
+
+/** Limits context: personal + inherited team subscriptions + referral Plus. */
+function toLimitsContext(user: EntitlementRow | null) {
+    if (!user) return null;
+    return {
+        referralPlusUntil: user.referralPlusUntil,
+        subscriptions: [...user.subscriptions, ...teamSubscriptionsOf(user)],
+    };
+}
 
 function hasActiveReferralPlus(user: { referralPlusUntil: Date | null }): boolean {
     return Boolean(user.referralPlusUntil && user.referralPlusUntil.getTime() > Date.now());
+}
+
+/** Excess over a limit, where -1 means unlimited. */
+function excessOver(count: number, limit: number): number {
+    return limit === -1 ? 0 : Math.max(0, count - limit);
+}
+
+/**
+ * Users who inherit an entitling subscription from a team they belong to.
+ * Used to keep them out of the downgrade batches (they are not actionable while
+ * the team plan lasts, exactly like referral Plus holders).
+ */
+function noTeamEntitlementWhere(): Prisma.UserWhereInput {
+    return {
+        memberships: {
+            none: { organization: { subscriptions: { some: entitlingSubscriptionWhere() } } },
+        },
+    };
 }
 
 /**
@@ -163,7 +229,7 @@ export class BillingDowngradeService {
     static async cancelDowngrade(userId: string): Promise<void> {
         const entitlement = await prisma.user.findUnique({
             where: { id: userId },
-            select: personalEntitlementSelect,
+            select: entitlementSelect(),
         });
         const [, aliases, domains, recipients, restoredDrops] = await prisma.$transaction([
             prisma.user.update({
@@ -186,7 +252,7 @@ export class BillingDowngradeService {
             // far as the plan now in force allows (see restoreGraceStampedDrops).
             restoreGraceStampedDrops(
                 Prisma.sql`"userId" = ${userId} AND "organizationId" IS NULL`,
-                getDropLimits(entitlement).maxExpiry,
+                getDropLimits(toLimitsContext(entitlement)).maxExpiry,
             ),
         ]);
 
@@ -248,7 +314,7 @@ export class BillingDowngradeService {
     ): Promise<Date> {
         const dropExpiryDate = new Date(Date.now() + SUBSCRIPTION_GRACE_PERIOD_DAYS * DAY_MS);
 
-        await prisma.drop.updateMany({
+        const stampedDrops = await prisma.drop.updateMany({
             where: {
                 userId,
                 organizationId: null,
@@ -289,7 +355,10 @@ export class BillingDowngradeService {
                 const deletionDate = new Date(Date.now() + (DOWNGRADE_SCHEDULING_DELAY_DAYS + DOWNGRADE_DELETION_DELAY_DAYS) * DAY_MS);
 
                 const { sendDowngradeWarningEmail } = await import("@/lib/resend");
-                await sendDowngradeWarningEmail(email, excess, schedulingDate, deletionDate);
+                await sendDowngradeWarningEmail(email, excess, schedulingDate, deletionDate, {
+                    count: stampedDrops?.count ?? 0,
+                    expiresAt: dropExpiryDate,
+                });
             } else {
                 const { sendSubscriptionCanceledEmail } = await import("@/lib/resend");
                 await sendSubscriptionCanceledEmail(email, dropExpiryDate);
@@ -314,22 +383,85 @@ export class BillingDowngradeService {
         excessRecipients: number;
     }> {
         const [user, randomCount, customCount, domainCount, recipientCount] = await Promise.all([
-            prisma.user.findUnique({ where: { id: userId }, select: personalEntitlementSelect }),
+            prisma.user.findUnique({ where: { id: userId }, select: entitlementSelect() }),
             prisma.alias.count({ where: { userId, organizationId: null, format: "RANDOM" } }),
             prisma.alias.count({ where: { userId, organizationId: null, format: "CUSTOM" } }),
             prisma.domain.count({ where: { userId, organizationId: null } }),
             prisma.recipient.count({ where: { userId, organizationId: null } }),
         ]);
 
-        const limits = getPlanLimits(user);
-        const excessOf = (count: number, limit: number) => limit === -1 ? 0 : Math.max(0, count - limit);
+        const limits = getPlanLimits(toLimitsContext(user));
 
         return {
-            excessRandom: excessOf(randomCount, limits.random),
-            excessCustom: excessOf(customCount, limits.custom),
-            excessDomains: excessOf(domainCount, limits.domains),
-            excessRecipients: excessOf(recipientCount, limits.recipients),
+            excessRandom: excessOver(randomCount, limits.random),
+            excessCustom: excessOver(customCount, limits.custom),
+            excessDomains: excessOver(domainCount, limits.domains),
+            excessRecipients: excessOver(recipientCount, limits.recipients),
         };
+    }
+
+    /**
+     * Start the downgrade flow for users whose complimentary referral Plus has
+     * lapsed. A paid plan's loss is signalled by its provider; referral Plus has
+     * no such signal, so without this a referral-only user kept Plus-level
+     * resources forever after the window ended.
+     *
+     * Each lapse is handled once (`referralPlusLapseHandledAt`, cleared by every
+     * new referral grant). Users still entitled by a personal or team
+     * subscription are only stamped: their own plan's loss starts the flow.
+     */
+    static async processReferralPlusLapses(): Promise<{ recorded: number; skipped: number; errors: number }> {
+        const now = new Date();
+        const users = await prisma.user.findMany({
+            where: {
+                referralPlusUntil: { not: null, lte: now },
+                referralPlusLapseHandledAt: null,
+            },
+            select: { id: true, downgradedAt: true, ...entitlementSelect() },
+            take: 200,
+        });
+
+        let recorded = 0;
+        let skipped = 0;
+        let errors = 0;
+
+        for (const user of users) {
+            try {
+                const stillEntitled =
+                    user.subscriptions.some((sub) => isEntitlingSubscription(sub, now.getTime()))
+                    || teamSubscriptionsOf(user).length > 0;
+
+                if (!stillEntitled && !user.downgradedAt) {
+                    // recordDowngrade, additionally guarded on the window still
+                    // being lapsed so a referral grant racing this run wins.
+                    const result = await prisma.user.updateMany({
+                        where: { id: user.id, downgradedAt: null, referralPlusUntil: { lte: now } },
+                        data: { downgradedAt: now },
+                    });
+                    if (result.count > 0) {
+                        recorded++;
+                        logger.info("Recorded downgrade for lapsed referral Plus", { userId: user.id });
+                    } else {
+                        skipped++;
+                    }
+                } else {
+                    skipped++;
+                }
+
+                await prisma.user.updateMany({
+                    where: { id: user.id, referralPlusUntil: { lte: now }, referralPlusLapseHandledAt: null },
+                    data: { referralPlusLapseHandledAt: now },
+                });
+            } catch (error) {
+                errors++;
+                logger.error("Failed to handle lapsed referral Plus", error, { userId: user.id });
+            }
+        }
+
+        if (users.length > 0) {
+            logger.info("Referral Plus lapse batch complete", { recorded, skipped, errors });
+        }
+        return { recorded, skipped, errors };
     }
 
     // ─── Phase 2: Scheduling ───────────────────────────────────
@@ -346,7 +478,7 @@ export class BillingDowngradeService {
                 id: true,
                 email: true,
                 downgradedAt: true,
-                ...personalEntitlementSelect,
+                ...entitlementSelect(),
             },
         });
 
@@ -373,6 +505,15 @@ export class BillingDowngradeService {
             return;
         }
 
+        // A team the user belongs to still pays for an entitling plan, and live
+        // enforcement grants its limits on the user's personal resources too.
+        // Keep the marker (re-evaluated if they leave the team or it lapses)
+        // rather than scheduling resources the user is still entitled to.
+        if (teamSubscriptionsOf(user).length > 0) {
+            logger.info("Skipping scheduling — team subscription still entitles the user", { userId });
+            return;
+        }
+
         // Idempotency: skip if any resources already scheduled
         const [scheduledAliases, scheduledDomains, scheduledRecipients] = await Promise.all([
             prisma.alias.count({ where: { userId, organizationId: null, scheduledForRemovalAt: { not: null } } }),
@@ -386,7 +527,7 @@ export class BillingDowngradeService {
         }
 
         const now = new Date();
-        const limits = getPlanLimits(user);
+        const limits = getPlanLimits(toLimitsContext(user));
 
         // --- Read phase (outside transaction) ---
         const randomAliases = await prisma.alias.findMany({
@@ -398,8 +539,8 @@ export class BillingDowngradeService {
             select: { id: true },
         });
 
-        const excessRandomCount = Math.max(0, randomAliases.length - limits.random);
-        const excessCustomCount = Math.max(0, customAliases.length - limits.custom);
+        const excessRandomCount = excessOver(randomAliases.length, limits.random);
+        const excessCustomCount = excessOver(customAliases.length, limits.custom);
 
         const randomToSchedule = shuffleAndTake(randomAliases, excessRandomCount);
         const customToSchedule = shuffleAndTake(customAliases, excessCustomCount);
@@ -408,10 +549,16 @@ export class BillingDowngradeService {
             ...customToSchedule.map((a) => a.id),
         ];
 
-        const domainsToSchedule = await prisma.domain.findMany({
+        const personalDomains = await prisma.domain.findMany({
             where: { userId, organizationId: null },
             select: { id: true, domain: true },
         });
+        // Only the domains beyond the retained plan's allowance (all of them on
+        // free, whose allowance is 0).
+        const domainsToSchedule = shuffleAndTake(
+            personalDomains,
+            excessOver(personalDomains.length, limits.domains),
+        );
 
         const freeRecipientLimit = limits.recipients;
         const recipients = await prisma.recipient.findMany({
@@ -420,7 +567,7 @@ export class BillingDowngradeService {
             orderBy: { createdAt: "asc" },
         });
 
-        const excessRecipientCount = Math.max(0, recipients.length - freeRecipientLimit);
+        const excessRecipientCount = excessOver(recipients.length, freeRecipientLimit);
         let recipientIdsToSchedule: string[] = [];
 
         if (excessRecipientCount > 0) {
@@ -532,6 +679,10 @@ export class BillingDowngradeService {
                         status: { in: ["active", "trialing"] },
                     },
                 },
+                // Team members keep the team's limits on personal resources
+                // (live enforcement inherits org subscriptions); like referral
+                // Plus holders they are retried once that entitlement ends.
+                ...noTeamEntitlementWhere(),
                 // Referral Plus holders are retried once it lapses; selecting
                 // them daily would only crowd out actionable users.
                 OR: [
@@ -585,15 +736,16 @@ export class BillingDowngradeService {
             select: {
                 id: true,
                 email: true,
-                ...personalEntitlementSelect,
+                ...entitlementSelect(),
             },
         });
 
         if (!user) return;
 
-        const planLimits = getPlanLimits(user);
-        const dropLimits = getDropLimits(user);
-        const recipientLimit = getRecipientLimit(user);
+        const limitsContext = toLimitsContext(user);
+        const planLimits = getPlanLimits(limitsContext);
+        const dropLimits = getDropLimits(limitsContext);
+        const recipientLimit = getRecipientLimit(limitsContext);
 
         // --- Drop cleanup: delete excess storage (oldest first) ---
         const userRecord = await prisma.user.findUnique({
@@ -680,7 +832,7 @@ export class BillingDowngradeService {
 
         const domainLimit = planLimits.domains;
         const allDomains = await prisma.domain.count({ where: { userId, organizationId: null } });
-        const currentDomainExcess = Math.max(0, allDomains - domainLimit);
+        const currentDomainExcess = excessOver(allDomains, domainLimit);
 
         const scheduledDomains = await prisma.domain.findMany({
             where: { userId, organizationId: null, scheduledForRemovalAt: { not: null } },
@@ -694,7 +846,7 @@ export class BillingDowngradeService {
             where: { userId, organizationId: null },
             select: { id: true, isDefault: true },
         });
-        const currentRecipientExcess = Math.max(0, allRecipients.length - recipientLimit);
+        const currentRecipientExcess = excessOver(allRecipients.length, recipientLimit);
 
         const scheduledRecipients = await prisma.recipient.findMany({
             where: { userId, organizationId: null, scheduledForRemovalAt: { not: null } },
@@ -710,6 +862,10 @@ export class BillingDowngradeService {
         const survivingRecipients = allRecipients.filter((r) => !recipientIdsToDelete.includes(r.id));
         const fallbackRecipientId =
             (survivingRecipients.find((r) => r.isDefault) ?? survivingRecipients[0])?.id ?? null;
+
+        // Aliases removed because their custom domain was deleted. Counted in
+        // the transaction (after the explicit alias deletes, so no overlap).
+        let domainAliasesDeleted = 0;
 
         // --- Write phase (atomic transaction) ---
         await prisma.$transaction(async (tx) => {
@@ -733,13 +889,14 @@ export class BillingDowngradeService {
             if (domainsToDelete.length > 0) {
                 // Mirror DomainService.deleteDomain: a domain's aliases go with
                 // it, scoped to this user's personal resources.
-                await tx.alias.deleteMany({
+                const domainAliases = await tx.alias.deleteMany({
                     where: {
                         userId,
                         organizationId: null,
                         domain: { in: domainsToDelete.map((d) => d.domain) },
                     },
                 });
+                domainAliasesDeleted = domainAliases?.count ?? 0;
                 await tx.domain.deleteMany({
                     where: { id: { in: domainsToDelete.map((d) => d.id) } },
                 });
@@ -773,7 +930,7 @@ export class BillingDowngradeService {
         });
 
         // --- Post-transaction: send confirmation email ---
-        const aliasesDeleted = randomToDelete.length + customToDelete.length;
+        const aliasesDeleted = randomToDelete.length + customToDelete.length + domainAliasesDeleted;
         const domainsDeleted = domainsToDelete.length;
         const recipientsDeleted = recipientsToDelete.length;
         const sparedCount = aliasSparedIds.length + domainSparedIds.length + recipientSparedIds.length;

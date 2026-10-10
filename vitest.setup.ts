@@ -3,16 +3,16 @@ import { afterEach, vi } from 'vitest'
 // Prevent server-only from crashing in test environment
 vi.mock('server-only', () => ({}))
 
-// Mock @/lib/prisma globally - Bun's runner evaluates lib/prisma.ts before per-file
-// mocks can intercept, and Prisma 7 throws PrismaClientConstructorValidationError
-// when DATABASE_URL is absent (accelerateUrl: undefined). Per-file mocks override
+// Mock @/lib/prisma globally so any test that transitively imports it never
+// constructs a real client (Prisma 7 throws PrismaClientConstructorValidationError
+// when DATABASE_URL is absent) or opens a connection. Per-file mocks override
 // this stub with their specific implementations.
 vi.mock('@/lib/prisma', () => ({
   prisma: {},
 }))
 
-// Mock @/lib/resend globally - Bun's runner tries to statically resolve the .tsx
-// file's exports before per-file mocks can intercept, causing SyntaxError.
+// Mock @/lib/resend globally so tests that transitively import it never render
+// React Email templates or construct a Resend client. Per-file mocks override it.
 vi.mock('@/lib/resend', () => ({
   getResendClient: vi.fn(),
   sendWelcomeEmail: vi.fn().mockResolvedValue({ success: true }),
@@ -77,6 +77,9 @@ if (jsdomWindow) {
   }
 }
 
+// DOM shims below apply only to jsdom tests (`*.test.tsx` or files with a
+// `@vitest-environment jsdom` docblock); node-environment tests skip them.
+
 // Mock matchMedia
 if (typeof window !== 'undefined') {
   Object.defineProperty(window, 'matchMedia', {
@@ -95,8 +98,8 @@ if (typeof window !== 'undefined') {
 }
 
 // Mock ResizeObserver
-if (typeof global !== 'undefined') {
-  global.ResizeObserver = vi.fn().mockImplementation(() => ({
+if (typeof window !== 'undefined') {
+  globalThis.ResizeObserver = vi.fn().mockImplementation(() => ({
     observe: vi.fn(),
     unobserve: vi.fn(),
     disconnect: vi.fn(),

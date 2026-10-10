@@ -185,33 +185,51 @@ Returns `402 PAYMENT_REQUIRED` if the caller is over their active-form cap for t
     <code className="text-sm bg-secondary px-2 py-1 rounded">https://anon.li/api/v1/form/:id</code>
 </div>
 
-Returns public metadata needed to render the form and encrypt a submission. No authentication required. A disabled or closed form is returned with `active: false`; a taken-down form returns `410 Gone`.
+Returns public metadata needed to render the form and encrypt a submission. No authentication required; requests are rate-limited per IP. A disabled, closed, or over-quota form is returned with `active: false`; an unknown form returns `404`, and a taken-down form returns `410 Gone`.
+
+Unlike the authenticated endpoints, this response is **not** wrapped in a `data`/`meta` envelope — the form fields are returned at the top level.
 
 **Response**
 
 ```json
 {
-  "data": {
-    "id": "aB3x0Yz9Qw8t",
+  "id": "aB3x0Yz9Qw8t",
+  "title": "Whistleblower intake",
+  "description": null,
+  "schema": {
+    "version": 1,
     "title": "Whistleblower intake",
-    "description": null,
-    "schema": {
-      "version": 1,
-      "title": "Whistleblower intake",
-      "description": "A discreet intake form.",
-      "displayMode": "classic",
-      "fields": [ /* ... */ ],
-      "notifyOnSubmission": true
-    },
-    "field_count": 4,
-    "public_key": "<base64url>",
-    "allowFileUploads": false,
-    "hideBranding": false,
-    "customKey": false
+    "description": "A discreet intake form.",
+    "displayMode": "classic",
+    "fields": [ /* ... */ ],
+    "notifyOnSubmission": true
   },
-  "meta": { "request_id": "req_..." }
+  "field_count": 4,
+  "public_key": "<base64url>",
+  "custom_key": false,
+  "salt": null,
+  "custom_key_data": null,
+  "custom_key_iv": null,
+  "active": true,
+  "hide_branding": false,
+  "closes_at": null,
+  "allow_file_uploads": false,
+  "max_file_size_override": null
 }
 ```
+
+| Field | Type | Description |
+| :--- | :--- | :--- |
+| `schema` | object \| null | Form schema; `null` for password-protected forms until unlocked |
+| `field_count` | number | Number of fields in the schema (available even when `schema` is `null`) |
+| `public_key` | string | Owner's P-256 public key used to encrypt submissions |
+| `custom_key` | boolean | `true` if the form is password-protected |
+| `salt`, `custom_key_data`, `custom_key_iv` | string \| null | Password-witness material for password-protected forms |
+| `active` | boolean | Whether the form currently accepts submissions |
+| `hide_branding` | boolean | Whether anon.li branding is hidden (re-checked against the owner's current plan) |
+| `closes_at` | string \| null | ISO 8601 close time, if set |
+| `allow_file_uploads` | boolean | Whether file-upload fields can accept files |
+| `max_file_size_override` | number \| null | Per-form file size limit in bytes, if set |
 
 For a password-protected form, `schema` is `null`. Decrypt the password witness in the browser, then call `POST /form/:id/unlock` with `{ "customKeyProof": "..." }`. A successful response returns the schema; an invalid witness returns `403`. Never send the raw password.
 
@@ -224,7 +242,9 @@ For a password-protected form, `schema` is `null`. Decrypt the password witness 
     <code className="text-sm bg-secondary px-2 py-1 rounded">https://anon.li/api/v1/form/:id</code>
 </div>
 
-Partial update. Pass any subset of the fields accepted by `POST /api/v1/form`. Toggle the form on/off with `{ "disabledByUser": true }`.
+Partial update. Pass any subset of the fields accepted by `POST /api/v1/form` (or `?action=update`); set `{ "disabledByUser": true }` to disable the form. Returns `{ "id", "updated_at" }`.
+
+To flip the form's enabled state without a body, call `PATCH /api/v1/form/:id?action=toggle`; it returns `{ "disabled": true | false }`.
 
 ---
 

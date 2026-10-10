@@ -24,7 +24,8 @@ export async function getAliases(
     const { limit, offset } = options
     return await prisma.alias.findMany({
         where: ownerWhere(scope),
-        orderBy: { createdAt: "desc" },
+        // id breaks createdAt ties so offset pages never repeat or skip rows.
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         ...(limit !== undefined ? { take: limit } : {}),
         ...(offset !== undefined ? { skip: offset } : {}),
     })

@@ -6,6 +6,7 @@ import { AdminService } from "@/lib/services/admin"
 import { runAdminAction } from "@/lib/safe-action"
 import { createLogger } from "@/lib/logger"
 import { audit } from "@/lib/services/audit"
+import { ForbiddenError, ValidationError } from "@/lib/api-error-utils"
 
 const logger = createLogger("AdminActions")
 
@@ -46,6 +47,27 @@ const toggleAliasSchema = z.object({
 const reservedAliasesSchema = z.object({
     aliases: z.array(z.string().max(100)).max(1000),
 })
+
+type BanFlags = { full?: boolean; aliasCreation?: boolean; fileUpload?: boolean; reason?: string }
+
+/**
+ * The single ban path for admin actions (direct ban and report-driven ban):
+ * self-ban guard, admin-target guard (in AdminService.banUser), and the
+ * user.ban audit entry.
+ */
+async function banUserAsAdmin(adminId: string, userId: string, options: BanFlags, extraMetadata?: Record<string, unknown>) {
+    if (userId === adminId) {
+        throw new ForbiddenError("Cannot ban your own account")
+    }
+    await AdminService.banUser(userId, options)
+    await audit({
+        action: "user.ban",
+        actorId: adminId,
+        targetId: userId,
+        metadata: { full: options.full, aliasCreation: options.aliasCreation, fileUpload: options.fileUpload, reason: options.reason, ...extraMetadata },
+    })
+    logger.info("User banned", { adminId, userId, options: { full: options.full, aliasCreation: options.aliasCreation, fileUpload: options.fileUpload } })
+}
 
 // ============================================================================
 // Drop Actions
@@ -90,14 +112,12 @@ export async function banUser(
     return runAdminAction(
         { schema: banUserSchema, data: { userId, ...options } },
         async (validated, adminId) => {
-        if (validated.userId === adminId) {
-            throw new Error("Cannot ban your own account")
-        }
-
-        await AdminService.banUser(validated.userId, validated)
-
-        await audit({ action: "user.ban", actorId: adminId, targetId: validated.userId, metadata: { full: validated.full, aliasCreation: validated.aliasCreation, fileUpload: validated.fileUpload, reason: validated.reason } })
-        logger.info("User banned", { adminId, userId: validated.userId, options: { full: validated.full, aliasCreation: validated.aliasCreation, fileUpload: validated.fileUpload } })
+        await banUserAsAdmin(adminId, validated.userId, {
+            full: validated.full,
+            aliasCreation: validated.aliasCreation,
+            fileUpload: validated.fileUpload,
+            reason: validated.reason,
+        })
         revalidatePath(`/admin/users/${validated.userId}`)
         revalidatePath("/admin/users")
         return { success: true }
@@ -118,7 +138,7 @@ export async function unbanUser(userId: string) {
 export async function deleteUser(userId: string) {
     return runAdminAction({ schema: idOnlySchema, data: { id: userId } }, async (validated, adminId) => {
         if (validated.id === adminId) {
-            throw new Error("Cannot delete your own account")
+            throw new ForbiddenError("Cannot delete your own account")
         }
         const result = await AdminService.deleteUser(validated.id)
         await audit({ action: "user.delete_request", actorId: adminId, targetId: validated.id, metadata: { requestId: result.requestId } })
@@ -136,11 +156,12 @@ export async function deleteUser(userId: string) {
 
 export async function toggleAlias(aliasId: string, active: boolean) {
     return runAdminAction({ schema: toggleAliasSchema, data: { aliasId, active } }, async (validated, adminId) => {
-        await AdminService.toggleAliasActive(validated.aliasId, validated.active)
-        await audit({ action: "alias.update", actorId: adminId, targetId: validated.aliasId, metadata: { active: validated.active } })
+        const result = await AdminService.toggleAliasActive(validated.aliasId, validated.active)
+        await audit({ action: "alias.update", actorId: adminId, targetId: validated.aliasId, metadata: { active: validated.active, restoredTakedown: result.restoredTakedown } })
         logger.info("Alias toggled", { adminId, aliasId: validated.aliasId, active: validated.active })
         revalidatePath(`/admin/aliases/${validated.aliasId}`)
         revalidatePath("/admin/aliases")
+        revalidatePath("/admin/takedowns")
         return { success: true }
     })
 }
@@ -151,6 +172,7 @@ export async function deleteAlias(aliasId: string) {
         await audit({ action: "alias.delete", actorId: adminId, targetId: validated.id })
         logger.info("Alias deleted", { adminId, aliasId: validated.id })
         revalidatePath("/admin/aliases")
+        revalidatePath("/admin/takedowns")
         return { success: true }
     })
 }
@@ -172,8 +194,8 @@ export async function forceVerifyDomain(domainId: string) {
 
 export async function deleteDomain(domainId: string) {
     return runAdminAction({ schema: idOnlySchema, data: { id: domainId } }, async (validated, adminId) => {
-        await AdminService.deleteDomain(validated.id)
-        await audit({ action: "domain.delete", actorId: adminId, targetId: validated.id })
+        const result = await AdminService.deleteDomain(validated.id)
+        await audit({ action: "domain.delete", actorId: adminId, targetId: validated.id, metadata: { domain: result.domain, aliasesDeleted: result.aliasesDeleted } })
         logger.info("Domain deleted", { adminId, domainId: validated.id })
         revalidatePath("/admin/domains")
         return { success: true }
@@ -186,8 +208,8 @@ export async function deleteDomain(domainId: string) {
 
 export async function deleteRecipient(recipientId: string) {
     return runAdminAction({ schema: idOnlySchema, data: { id: recipientId } }, async (validated, adminId) => {
-        await AdminService.deleteRecipient(validated.id)
-        await audit({ action: "recipient.delete", actorId: adminId, targetId: validated.id })
+        const result = await AdminService.deleteRecipient(validated.id)
+        await audit({ action: "recipient.delete", actorId: adminId, targetId: validated.id, metadata: { catchAllDomainsCleared: result.catchAllDomainsCleared } })
         logger.info("Recipient deleted", { adminId, recipientId: validated.id })
         revalidatePath("/admin/recipients")
         return { success: true }
@@ -325,21 +347,41 @@ export async function updateReport(
         async (validated, adminId) => {
             const { report: reportData } = await AdminService.getReportWithContext(validated.reportId)
             const { serviceType, resourceId } = reportData
+            const actionTaken = validated.actionTaken || null
 
-            // Handle takedown action
-            if (validated.actionTaken === "takedown") {
+            // Side effects (takedown / warning / ban) run only when the action is
+            // new: re-saving a report (e.g. reviewed -> resolved, notes edit)
+            // must not re-send warnings, re-ban, or re-attempt a takedown.
+            const runSideEffects = actionTaken !== null
+                && actionTaken !== "none"
+                && (reportData.status === "pending" || actionTaken !== reportData.actionTaken)
+
+            if (runSideEffects && actionTaken === "takedown") {
                 const takedownReason = validated.takedownReason || validated.notes || "Reported content violation"
+                let result: { violations: number; banned: boolean; alreadyTakenDown?: boolean } | null = null
+                let auditAction: "drop.takedown" | "alias.takedown" | "form.takedown" | null = null
                 if (serviceType === "drop") {
-                    await AdminService.takedownDrop(resourceId, takedownReason)
+                    result = await AdminService.takedownDrop(resourceId, takedownReason)
+                    auditAction = "drop.takedown"
                 } else if (serviceType === "alias") {
-                    await AdminService.takedownAlias(resourceId)
+                    result = await AdminService.takedownAlias(resourceId)
+                    auditAction = "alias.takedown"
                 } else if (serviceType === "form") {
-                    await AdminService.takedownForm(resourceId, takedownReason)
+                    result = await AdminService.takedownForm(resourceId, takedownReason)
+                    auditAction = "form.takedown"
+                }
+                if (result && auditAction && !result.alreadyTakenDown) {
+                    await audit({
+                        action: auditAction,
+                        actorId: adminId,
+                        targetId: resourceId,
+                        metadata: { reason: takedownReason, reportId: validated.reportId, violations: result.violations, autoBanned: result.banned },
+                    })
+                    revalidatePath("/admin/takedowns")
                 }
             }
 
-            // Handle warning action
-            if (validated.actionTaken === "warning") {
+            if (runSideEffects && actionTaken === "warning") {
                 const userId = await AdminService.getResourceOwnerUserId(serviceType, resourceId)
                 if (userId) {
                     await AdminService.sendWarningEmail(userId, validated.notes || "Your content has been flagged for review.")
@@ -347,14 +389,15 @@ export async function updateReport(
                 }
             }
 
-            // Handle ban action
-            if (validated.actionTaken === "ban") {
+            if (runSideEffects && actionTaken === "ban") {
                 const userId = await AdminService.getResourceOwnerUserId(serviceType, resourceId)
                 if (userId) {
+                    const reason = validated.notes || "Banned due to abuse report"
                     const banOptions = serviceType === "drop" || serviceType === "form"
-                        ? { fileUpload: true, reason: validated.notes || "Banned due to abuse report" }
-                        : { aliasCreation: true, reason: validated.notes || "Banned due to abuse report" }
-                    await AdminService.banUser(userId, banOptions)
+                        ? { fileUpload: true, reason }
+                        : { aliasCreation: true, reason }
+                    await banUserAsAdmin(adminId, userId, banOptions, { reportId: validated.reportId })
+                    revalidatePath(`/admin/users/${userId}`)
                 }
             }
 
@@ -362,7 +405,7 @@ export async function updateReport(
                 validated.reportId,
                 validated.status,
                 validated.notes || "",
-                validated.actionTaken || null,
+                actionTaken,
                 adminId
             )
 
@@ -519,7 +562,7 @@ const warnUserSchema = z.object({ userId: idSchema, reason: reasonSchema })
 export async function setUserAdmin(userId: string, isAdmin: boolean) {
     return runAdminAction({ schema: setUserAdminSchema, data: { userId, isAdmin } }, async (validated, adminId) => {
         if (validated.userId === adminId && !validated.isAdmin) {
-            throw new Error("Cannot revoke your own admin access")
+            throw new ForbiddenError("Cannot revoke your own admin access")
         }
         await AdminService.setUserAdmin(validated.userId, validated.isAdmin)
         await audit({ action: "user.set_admin", actorId: adminId, targetId: validated.userId, metadata: { isAdmin: validated.isAdmin } })
@@ -552,8 +595,11 @@ export async function resetUser2FA(userId: string) {
 
 export async function setUserStrikes(userId: string, value: number) {
     return runAdminAction({ schema: setStrikesSchema, data: { userId, value } }, async (validated, adminId) => {
-        await AdminService.setUserStrikes(validated.userId, validated.value)
-        await audit({ action: "user.adjust_strikes", actorId: adminId, targetId: validated.userId, metadata: { value: validated.value } })
+        if (validated.userId === adminId && validated.value >= 3) {
+            throw new ValidationError("Cannot set 3 or more strikes on your own account (it would ban you)")
+        }
+        const result = await AdminService.setUserStrikes(validated.userId, validated.value)
+        await audit({ action: "user.adjust_strikes", actorId: adminId, targetId: validated.userId, metadata: { value: validated.value, banned: result.banned } })
         logger.info("User strikes set", { adminId, userId: validated.userId, value: validated.value })
         revalidatePath(`/admin/users/${validated.userId}`)
         revalidatePath("/admin/users")
@@ -620,6 +666,7 @@ export async function hardDeleteForm(formId: string) {
         await audit({ action: "form.delete", actorId: adminId, targetId: validated.id, metadata: { attachedDropsDeleted: result.attachedDropsDeleted } })
         logger.info("Form hard-deleted", { adminId, formId: validated.id, attachedDropsDeleted: result.attachedDropsDeleted })
         revalidatePath("/admin/forms")
+        revalidatePath("/admin/takedowns")
         revalidatePath("/admin/maintenance/storage")
         return { success: true }
     })

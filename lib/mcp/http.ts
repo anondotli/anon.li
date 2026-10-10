@@ -109,6 +109,15 @@ export function mcpMethodNotAllowed(): Response {
 const MCP_PROTECTED_RESOURCE_METADATA_PATH = `/.well-known/oauth-protected-resource${MCP_RESOURCE_PATH}`
 
 /**
+ * Absolute URL of the protected-resource metadata, stamped onto the verified
+ * `AuthInfo` so the SDK's per-tool `403 insufficient_scope` challenges point
+ * at the same document as the 401 challenge below.
+ */
+export function getMcpProtectedResourceMetadataUrl(): string {
+    return new URL(MCP_PROTECTED_RESOURCE_METADATA_PATH, getAppOrigin()).toString()
+}
+
+/**
  * `WWW-Authenticate` value for a rejected MCP request (RFC 6750 + RFC 9728).
  * `scope` tells the client what to request up front (MCP authorization spec),
  * and `error="invalid_token"` distinguishes an expired/revoked token — which a

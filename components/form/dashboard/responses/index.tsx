@@ -176,7 +176,13 @@ export function FormResponsesClient({
 
     const onToggle = () =>
         startTransition(async () => {
-            const result = await toggleFormAction(form.id)
+            let result: Awaited<ReturnType<typeof toggleFormAction>>
+            try {
+                result = await toggleFormAction(form.id)
+            } catch {
+                toast.error("Failed to update form. Please try again.")
+                return
+            }
             if (result.error) {
                 toast.error(result.error)
                 return
@@ -188,7 +194,13 @@ export function FormResponsesClient({
 
     const onDeleteForm = () =>
         startTransition(async () => {
-            const result = await deleteFormAction(form.id)
+            let result: Awaited<ReturnType<typeof deleteFormAction>>
+            try {
+                result = await deleteFormAction(form.id)
+            } catch {
+                toast.error("Failed to delete form. Please try again.")
+                return
+            }
             if (result.error) {
                 toast.error(result.error)
                 return

@@ -2,7 +2,9 @@ import { redirect } from "next/navigation"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { FREE_TEAM_MEMBER_LIMIT } from "@/lib/org-seats"
+import { activeTeamSubscriptionWhere } from "@/lib/subscription-entitlement"
 import { TeamManagement } from "@/components/dashboard/team/team-management"
+import { TeamCheckoutReturn } from "@/components/dashboard/team/team-checkout-return"
 
 export const metadata = {
     title: "Team",
@@ -20,11 +22,7 @@ export default async function TeamPage() {
     const [subscription, organization] = orgId
         ? await Promise.all([
               prisma.subscription.findFirst({
-                  where: {
-                      organizationId: orgId,
-                      status: { in: ["active", "trialing"] },
-                      currentPeriodEnd: { gt: new Date() },
-                  },
+                  where: activeTeamSubscriptionWhere(orgId),
                   orderBy: { seats: "desc" },
                   select: { seats: true, status: true, currentPeriodEnd: true, cancelAtPeriodEnd: true },
               }),
@@ -36,13 +34,17 @@ export default async function TeamPage() {
         : [null, null]
 
     return (
-        <TeamManagement
-            currentUserId={session.user.id}
-            plan={subscription}
-            seatLimit={subscription ? Math.max(subscription.seats, 1) : FREE_TEAM_MEMBER_LIMIT}
-            keyRotationRecommended={Boolean(organization?.keyRotationRecommendedAt)}
-            enforce2FA={Boolean(organization?.enforce2FA)}
-            keyGeneration={organization?.orgKeyGeneration ?? 0}
-        />
+        <>
+            {/* Stripe returns here (?success / ?canceled) from team checkout. */}
+            <TeamCheckoutReturn subscribed={Boolean(subscription)} />
+            <TeamManagement
+                currentUserId={session.user.id}
+                plan={subscription}
+                seatLimit={subscription ? Math.max(subscription.seats, 1) : FREE_TEAM_MEMBER_LIMIT}
+                keyRotationRecommended={Boolean(organization?.keyRotationRecommendedAt)}
+                enforce2FA={Boolean(organization?.enforce2FA)}
+                keyGeneration={organization?.orgKeyGeneration ?? 0}
+            />
+        </>
     )
 }

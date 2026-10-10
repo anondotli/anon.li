@@ -47,6 +47,9 @@ const serverEnvSchema = z.object({
 
     AUTH_SECRET: secret("AUTH_SECRET"),
     AUTH_RESEND_KEY: requiredString("AUTH_RESEND_KEY"),
+    // Sender domain (defaults to anon.li). Set to a domain verified in your own
+    // Resend account for local or self-hosted setups.
+    EMAIL_FROM_DOMAIN: optionalString,
 
     // Stripe
     STRIPE_SECRET_KEY: requiredString("STRIPE_SECRET_KEY"),
@@ -123,6 +126,10 @@ const serverEnvSchema = z.object({
     // Analytics & observability — PostHog (optional). The project token is read
     // from NEXT_PUBLIC_POSTHOG_KEY; this is the server (posthog-node) host.
     POSTHOG_HOST: z.preprocess(emptyToUndefined, httpsOrLoopbackUrl("POSTHOG_HOST").optional()),
+
+    // Growth emails (drip + power-user upsell) — optional comma-separated list
+    // of addresses that never receive them (e.g. staff / review accounts).
+    GROWTH_EMAIL_EXCLUDE: z.preprocess(emptyToUndefined, z.string().trim().max(4_096).optional()),
 }).superRefine((env, context) => {
     const pairs = [
         ["AUTH_GITHUB_ID", "AUTH_GITHUB_SECRET"],

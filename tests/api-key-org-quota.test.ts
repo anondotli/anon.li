@@ -114,4 +114,40 @@ describe("validateApiKey — org-scoped quota", () => {
         expect(await validateApiKey(req(), "alias")).toBeNull()
         expect(checkApiQuota).not.toHaveBeenCalled()
     })
+
+    describe("org-enforced 2FA", () => {
+        const orgKey = (twoFactorEnabled: boolean, organizationEnforce2FA: boolean) => ({
+            id: "key-4",
+            expiresAt: null,
+            organizationId: "org-9",
+            organizationSubscriptions: [{ status: "active", product: "business", tier: "pro", currentPeriodEnd: null }],
+            organizationEnforce2FA,
+            user: { id: "user-1", banned: false, twoFactorEnabled, subscriptions: [], referralPlusUntil: null },
+        })
+
+        it("rejects a team key whose creator lacks 2FA while the org enforces it", async () => {
+            getAuthApiKeyRecord.mockResolvedValue(orgKey(false, true))
+            expect(await validateApiKey(req(), "alias")).toBeNull()
+            expect(checkApiQuota).not.toHaveBeenCalled()
+        })
+
+        it("accepts the key once the creator has 2FA enabled", async () => {
+            getAuthApiKeyRecord.mockResolvedValue(orgKey(true, true))
+            expect(await validateApiKey(req(), "alias")).not.toBeNull()
+        })
+
+        it("does not require 2FA when the org does not enforce it", async () => {
+            getAuthApiKeyRecord.mockResolvedValue(orgKey(false, false))
+            expect(await validateApiKey(req(), "alias")).not.toBeNull()
+        })
+
+        it("never applies an org's policy to a personal key", async () => {
+            getAuthApiKeyRecord.mockResolvedValue({
+                ...orgKey(false, false),
+                organizationId: null,
+                organizationSubscriptions: null,
+            })
+            expect(await validateApiKey(req(), "alias")).not.toBeNull()
+        })
+    })
 })

@@ -163,11 +163,11 @@ Create a new drop container for uploading encrypted files.
 
 | Field | Type | Required | Description |
 | :--- | :--- | :--- | :--- |
-| `iv` | string | Yes | Base64-encoded initialization vector (12 bytes) |
-| `encryptedTitle` | string | No | Encrypted title (base64) |
-| `encryptedMessage` | string | No | Encrypted message (base64) |
-| `fileCount` | number | Yes | Number of files to upload |
-| `expiry` | number | No | Days until expiration |
+| `iv` | string | Yes | Drop metadata IV: 12 random bytes, base64url-encoded without padding (exactly 16 characters) |
+| `encryptedTitle` | string | No | Encrypted title (base64url, max 1024 chars) |
+| `encryptedMessage` | string | No | Encrypted message (base64url, max 4096 chars) |
+| `fileCount` | number | No | Number of files you intend to upload (1–50) |
+| `expiry` | number | No | Days until expiration (1–30, capped by your plan) |
 | `maxDownloads` | number | No | Max download count |
 | `ownerKey` | object | No | Wrapped owner key metadata for dashboard key recovery. Include `wrappedKey`, `vaultId`, and `vaultGeneration` from the caller's current vault. |
 
@@ -178,7 +178,7 @@ curl -X POST https://anon.li/api/v1/drop \
   -H "Authorization: Bearer ak_..." \
   -H "Content-Type: application/json" \
   -d '{
-    "iv": "base64_iv_here",
+    "iv": "q3J0VmZ4Y2Rl_WVo",
     "fileCount": 1,
     "expiry": 7,
     "maxDownloads": 10,
@@ -221,8 +221,8 @@ Add an encrypted file to an existing drop.
 | Field | Type | Required | Description |
 | :--- | :--- | :--- | :--- |
 | `size` | number | Yes | Encrypted file size in bytes, including one 16-byte AES-GCM tag per part |
-| `encryptedName` | string | Yes | Encrypted filename (base64) |
-| `iv` | string | Yes | File IV (base64, 12 bytes) |
+| `encryptedName` | string | Yes | Encrypted filename (base64url) |
+| `iv` | string | Yes | File base IV: 12 random bytes, base64url-encoded without padding (exactly 16 characters) |
 | `mimeType` | string | Yes | MIME type |
 | `chunkCount` | number | Yes | Number of encrypted parts (1–10,000) |
 | `chunkSize` | number | Yes | Plaintext bytes per full part; clients should target 50 MiB |
@@ -244,7 +244,7 @@ Add an encrypted file to an existing drop.
 
 ### Get Drop
 
-Get drop metadata and file info. No authentication is required - anyone with the drop ID can fetch encrypted metadata. Decryption requires the key from the share URL fragment.
+Get drop metadata and file info. No authentication is required - anyone with the drop ID can fetch encrypted metadata. Decryption requires the key from the share URL fragment. Returns `404` if the drop does not exist and `403` if it was removed for a policy violation.
 
 <div className="flex items-center gap-2 mt-6 mb-4">
     <span className="bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 px-3 py-1 rounded-md font-mono text-sm font-bold">GET</span>
@@ -301,6 +301,15 @@ Record a download event and get presigned download URLs for all files. This incr
 
 No authentication or request body is required.
 
+**Recipient-restricted drops**
+
+If the owner restricted downloads to named recipients, each recipient gets a per-recipient access token (43 base64url characters). Recipient share links carry it in the fragment as `#k=<key>&r=<token>`; keyless email notification links carry it as `/d/:id?r=<token>`. Send that token with the request, preferably in the `X-Drop-Recipient` header; the `?r=<token>` query parameter is accepted as a fallback. The token only gates access to the ciphertext and counts against that recipient's own download limit; it is not a decryption key. The same applies to `GET /api/v1/drop/:id/file/:fileId`.
+
+```bash
+curl -X POST https://anon.li/api/v1/drop/abc123xyz/download \
+  -H "X-Drop-Recipient: <recipient_token>"
+```
+
 **Response**
 
 ```json
@@ -316,6 +325,10 @@ No authentication or request body is required.
 The `downloadUrls` object maps each file ID to a presigned URL. These URLs are temporary and should be used immediately to fetch the encrypted file data.
 
 File previews use the same full-file encrypted bytes as downloads. Preview requests therefore count against the drop's download limit.
+
+**Errors**
+
+Every unavailable state returns `404 NOT_FOUND` so the endpoint does not reveal why a drop can't be downloaded: the drop doesn't exist, is disabled, removed, still uploading, expired, has reached its download limit, or is restricted to recipients and no valid recipient token was sent.
 
 ---
 
@@ -335,6 +348,30 @@ Delete a drop you own.
   "success": true
 }
 ```
+
+---
+
+### Toggle Drop
+
+Enable or disable a drop you own. Disabled drops cannot be downloaded but are kept, so you can re-enable them later.
+
+<div className="flex items-center gap-2 mt-6 mb-4">
+    <span className="bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400 px-3 py-1 rounded-md font-mono text-sm font-bold">PATCH</span>
+    <code className="text-sm bg-secondary px-2 py-1 rounded">https://anon.li/api/v1/drop/:id?action=toggle</code>
+</div>
+
+**Response**
+
+```json
+{
+  "success": true,
+  "disabled": true
+}
+```
+
+<Callout type="note" title="Standalone drops only">
+Delete and toggle act only on the standalone drops returned by `GET /api/v1/drop`. Drops that hold form-submission attachments, form-staging drops, and already-deleted drops return `404 NOT_FOUND`; they are managed through their form.
+</Callout>
 
 ---
 
@@ -659,9 +696,8 @@ const metadata = JSON.parse(metadataJson);
 | `400` | Bad Request - Missing required fields or invalid parameters |
 | `401` | Unauthorized - Invalid or missing API key |
 | `402` | Payment Required (`PAYMENT_REQUIRED`) - Plan limit reached (storage quota, file size, expiry, custom key). `error.details.upgrade` names the limit and the suggested plan |
-| `403` | Forbidden - Access denied, drop disabled or removed, or file uploads are banned |
-| `404` | Not Found - Drop doesn't exist |
-| `410` | Gone - Drop expired or download limit reached |
+| `403` | Forbidden - Access denied, drop removed for a policy violation (metadata), or file uploads are banned |
+| `404` | Not Found - Drop doesn't exist, or (for downloads) is disabled, expired, at its download limit, or restricted to recipients without a valid token |
 | `429` | Too Many Requests - Rate limit exceeded |
 | `500` | Internal Server Error |
 

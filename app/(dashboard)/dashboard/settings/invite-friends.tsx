@@ -10,7 +10,7 @@ import { toast } from "sonner"
 interface InviteFriendsProps {
     link: string
     successfulReferrals: number
-    /** ISO date string, or null if the user has no complimentary Plus. */
+    /** ISO date string, or null unless complimentary Plus is currently active. */
     plusUntil: string | null
     rewardDays: number
 }

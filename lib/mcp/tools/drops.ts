@@ -1,14 +1,15 @@
 import { z } from "zod"
 import type { McpServer } from "@modelcontextprotocol/server"
 import { DropService } from "@/lib/services/drop"
-import { invokeTool, toolResult } from "@/lib/mcp/invoke"
+import { toolResult } from "@/lib/mcp/invoke"
+import { registerMcpTool } from "@/lib/mcp/define-tool"
 import { personalScope } from "@/lib/ownership"
 import type { McpSession } from "@/lib/mcp/types"
 
 const dropId = z.string().trim().min(1).max(64).describe("Drop ID, as returned by list_drops")
 
 export function registerDropTools(server: McpServer, session: McpSession) {
-    server.registerTool(
+    registerMcpTool(server, session,
         "list_drops",
         {
             title: "List drops",
@@ -41,7 +42,8 @@ export function registerDropTools(server: McpServer, session: McpSession) {
                 })),
             }),
         },
-        async ({ limit, offset }) => invokeTool(session, { scope: "anon.li:drops", quota: "drop", rateLimit: "dropList" }, async (user) => {
+        { scope: "anon.li:drops", quota: "drop", rateLimit: "dropList" },
+        async ({ limit, offset }, user) => {
             const { drops, total } = await DropService.listDrops(personalScope(user.id), { limit, offset })
             return toolResult({
                 total,
@@ -58,40 +60,43 @@ export function registerDropTools(server: McpServer, session: McpSession) {
                     created_at: d.createdAt.toISOString(),
                 })),
             })
-        }),
+        },
     )
 
-    server.registerTool(
+    registerMcpTool(server, session,
         "toggle_drop",
         {
-            title: "Toggle drop",
-            description: "Disable or re-enable a drop. Disabled drops reject all downloads until toggled back on. Each call inverts the current state, so check `disabled` from list_drops first and do not repeat the call to \"make sure\". Returns the new state.",
+            title: "Set drop disabled state",
+            description: "Disable or re-enable a drop: `disabled: true` rejects all downloads, `disabled: false` restores access. Sets the given state (it does not flip), so repeating a call is safe. Returns the resulting state. Only standalone drops from list_drops are accepted; form attachments are managed with their form.",
             annotations: {
-                title: "Toggle drop",
+                title: "Set drop disabled state",
                 readOnlyHint: false,
                 destructiveHint: false,
-                idempotentHint: false,
+                idempotentHint: true,
                 openWorldHint: false,
             },
             inputSchema: z.object({
                 id: dropId,
+                disabled: z.boolean()
+                    .describe("Target state: true to block all downloads, false to allow them again"),
             }),
             outputSchema: z.object({
                 id: z.string(),
                 disabled: z.boolean(),
             }),
         },
-        async ({ id }) => invokeTool(session, { scope: "anon.li:drops", quota: "drop", rateLimit: "dropOps" }, async (user) => {
-            const disabled = await DropService.toggleDrop(id, personalScope(user.id))
-            return toolResult({ id, disabled })
-        }),
+        { scope: "anon.li:drops", quota: "drop", rateLimit: "dropOps" },
+        async ({ id, disabled }, user) => {
+            const state = await DropService.setDropDisabled(id, personalScope(user.id), disabled, { standaloneOnly: true })
+            return toolResult({ id, disabled: state })
+        },
     )
 
-    server.registerTool(
+    registerMcpTool(server, session,
         "delete_drop",
         {
             title: "Delete drop",
-            description: "Permanently delete a drop and all its files. Reclaims the storage quota. This cannot be undone. This tool is flagged destructive (annotations.destructiveHint): MCP clients request user approval before executing it, and fail the call with 'No approval received' — without contacting this server — if approval is denied or unavailable (e.g. headless sessions). Nothing is deleted in that case; approve the client's permission prompt, or allowlist this tool in the client's permissions for unattended use.",
+            description: "Permanently delete a drop and all its files. Reclaims the storage quota. This cannot be undone. Only standalone drops from list_drops are accepted; form attachments are deleted with their form submission. This tool is flagged destructive (annotations.destructiveHint): MCP clients request user approval before executing it, and fail the call with 'No approval received' — without contacting this server — if approval is denied or unavailable (e.g. headless sessions). Nothing is deleted in that case; approve the client's permission prompt, or allowlist this tool in the client's permissions for unattended use.",
             annotations: {
                 title: "Delete drop",
                 readOnlyHint: false,
@@ -107,9 +112,10 @@ export function registerDropTools(server: McpServer, session: McpSession) {
                 id: z.string(),
             }),
         },
-        async ({ id }) => invokeTool(session, { scope: "anon.li:drops", quota: "drop", rateLimit: "dropOps" }, async (user) => {
-            await DropService.deleteDrop(id, personalScope(user.id))
+        { scope: "anon.li:drops", quota: "drop", rateLimit: "dropOps" },
+        async ({ id }, user) => {
+            await DropService.deleteDrop(id, personalScope(user.id), { standaloneOnly: true })
             return toolResult({ deleted: true, id })
-        }),
+        },
     )
 }

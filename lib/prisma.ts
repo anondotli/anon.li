@@ -2,6 +2,7 @@ import "server-only";
 
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
+import { databaseSslOption } from "@/lib/database-ssl";
 
 const prismaClientSingleton = () => {
   const DATABASE_URL = process.env.DATABASE_URL;
@@ -12,9 +13,7 @@ const prismaClientSingleton = () => {
 
   const adapter = new PrismaPg({
     connectionString: DATABASE_URL,
-    ssl: {
-      rejectUnauthorized: false,
-    },
+    ssl: databaseSslOption(DATABASE_URL),
   });
 
   return new PrismaClient({ adapter });

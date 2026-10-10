@@ -57,8 +57,14 @@ const expiredInvoice = {
     payCurrency: "btc",
     createdAt: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000),
     status: "expired" as const,
-    user: { email: "user@example.com" },
+    user: {
+        email: "user@example.com",
+        subscriptions: [] as { id: string }[],
+        cryptoPayments: [] as { id: string; status: string; createdAt: Date }[],
+    },
 };
+
+const HOUR = 60 * 60 * 1000;
 
 describe("crypto recovery cron", () => {
     beforeEach(() => {
@@ -161,5 +167,73 @@ describe("crypto recovery cron", () => {
 
         expect(sendReminderEmail).not.toHaveBeenCalled();
         expect(result).toMatchObject({ remindersSent: 0, errors: 0 });
+    });
+
+    describe("skips users who converted or retried", () => {
+        const waitingInvoice = {
+            ...expiredInvoice,
+            id: "invoice-open",
+            status: "waiting" as const,
+            createdAt: new Date(Date.now() - 3 * HOUR),
+        };
+
+        it("does not remind a user with an active personal subscription", async () => {
+            getInvoices.mockResolvedValue([{
+                ...waitingInvoice,
+                user: { ...waitingInvoice.user, subscriptions: [{ id: "sub-1" }] },
+            }]);
+
+            const result = await handleCryptoRecoveryCron();
+
+            expect(sendReminderEmail).not.toHaveBeenCalled();
+            expect(result).toMatchObject({ remindersSent: 0, errors: 0 });
+        });
+
+        it("does not remind when a newer crypto payment already finished", async () => {
+            getInvoices.mockResolvedValue([{
+                ...waitingInvoice,
+                user: {
+                    ...waitingInvoice.user,
+                    cryptoPayments: [{ id: "invoice-paid", status: "finished", createdAt: new Date(Date.now() - HOUR) }],
+                },
+            }]);
+
+            await handleCryptoRecoveryCron();
+
+            expect(sendReminderEmail).not.toHaveBeenCalled();
+        });
+
+        it("still expires a converted user's stale waiting invoice but sends no expired email", async () => {
+            getInvoices.mockResolvedValue([{
+                ...expiredInvoice,
+                status: "waiting" as const,
+                user: { ...expiredInvoice.user, subscriptions: [{ id: "sub-1" }] },
+            }]);
+
+            const result = await handleCryptoRecoveryCron();
+
+            expect(expireInvoice).toHaveBeenCalledWith(expiredInvoice.id);
+            expect(sendExpiredEmail).not.toHaveBeenCalled();
+            expect(result).toMatchObject({ expired: 1, expiredEmailsSent: 0 });
+        });
+
+        it("only emails the newest waiting invoice per user", async () => {
+            const newest = { id: "invoice-newest", status: "waiting", createdAt: new Date(Date.now() - 3 * HOUR) };
+            const user = { ...waitingInvoice.user, cryptoPayments: [newest] };
+            getInvoices.mockResolvedValue([
+                { ...waitingInvoice, id: "invoice-older", createdAt: new Date(Date.now() - 5 * HOUR), user },
+                { ...waitingInvoice, id: newest.id, createdAt: newest.createdAt, user },
+            ]);
+
+            const result = await handleCryptoRecoveryCron();
+
+            expect(sendReminderEmail).toHaveBeenCalledTimes(1);
+            expect(sendReminderEmail).toHaveBeenCalledWith(
+                user.email,
+                expect.anything(),
+                `crypto-invoice-reminder/${newest.id}`,
+            );
+            expect(result).toMatchObject({ remindersSent: 1 });
+        });
     });
 });

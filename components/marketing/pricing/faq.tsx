@@ -35,10 +35,10 @@ const FAQ_CATEGORIES: FAQCategory[] = [
         description: "Plans, payments, and your account",
         items: [
             {
-                question: "What's the difference between Bundle, Alias, and Drop?",
+                question: "What's the difference between Bundle, Alias, Drop, and Form?",
                 answer: (
                     <>
-                        <strong>Bundle</strong> gives you access to both Alias and Drop features at a discounted price - best value if you want everything. <strong>Alias</strong> is for email aliasing only - create private addresses to protect your inbox. <strong>Drop</strong> is for encrypted file sharing. Choose what fits your needs.
+                        <strong>Bundle</strong> gives you Alias, Drop, and Form features at a discounted price - best value if you want everything. <strong>Alias</strong> is for email aliasing only - create private addresses to protect your inbox. <strong>Drop</strong> is for encrypted file sharing. <strong>Form</strong> is for end-to-end encrypted forms. Choose what fits your needs.
                     </>
                 )
             },
@@ -176,7 +176,7 @@ const FAQ_CATEGORIES: FAQCategory[] = [
         items: [
             {
                 question: "Do you offer an API?",
-                answer: "A full REST API covers aliases, domains, and drops. Free: 500 requests/month, Plus: 25,000, Pro: 100,000. Docs are in your dashboard."
+                answer: "A full REST API covers aliases, recipients, domains, drops, and forms, plus an MCP server for AI assistants. Monthly API-key requests per product: Free 500, Plus 25,000, Pro 100,000. See the API docs at anon.li/docs/api."
             },
             {
                 question: "Is there a browser extension?",

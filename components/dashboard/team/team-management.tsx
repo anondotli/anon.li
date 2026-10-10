@@ -110,6 +110,9 @@ export function TeamManagement({ currentUserId, plan, seatLimit, keyRotationReco
     // disappear immediately after a successful rotation (before refresh lands).
     const [rotationDone, setRotationDone] = useState(false)
     const showRotateBanner = keyRotationRecommended && !rotationDone
+    // Render-stable clock for invitation expiry (no impure Date.now() in render).
+    const [now] = useState(() => Date.now())
+    const [resendingInviteId, setResendingInviteId] = useState<string | null>(null)
 
     // Drop a stale override when the active org itself changes (e.g. the user
     // switches teams or to Personal via the header while on this page).
@@ -291,6 +294,33 @@ export function TeamManagement({ currentUserId, plan, seatLimit, keyRotationReco
         await refresh()
     }
 
+    // better-auth's `resend: true` refreshes a live invite's expiry and re-sends
+    // the email. An expired invite is invisible to that lookup, so it creates a
+    // fresh invitation instead — then retire the expired row so it isn't listed.
+    const resendInvite = async (invitation: { id: string; email: string; role: string }, expired: boolean) => {
+        setResendingInviteId(invitation.id)
+        try {
+            const { error } = await authClient.organization.inviteMember({
+                email: invitation.email,
+                role: invitation.role as Role,
+                resend: true,
+            })
+            if (error) {
+                toast.error(error.message || "Failed to resend invitation")
+                return
+            }
+            if (expired) {
+                await authClient.organization.cancelInvitation({ invitationId: invitation.id }).catch(() => undefined)
+            }
+            toast.success(`Invitation re-sent to ${invitation.email}`)
+            await refresh()
+        } catch {
+            toast.error("Failed to resend invitation")
+        } finally {
+            setResendingInviteId(null)
+        }
+    }
+
     const cancelInvite = async (invitationId: string) => {
         const { error } = await authClient.organization.cancelInvitation({ invitationId })
         if (error) {
@@ -307,7 +337,7 @@ export function TeamManagement({ currentUserId, plan, seatLimit, keyRotationReco
             <div className="flex flex-col gap-6 border-b border-border/40 pb-8 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-4">
                     <div className="space-y-1">
-                        <h2 className="font-serif text-3xl font-medium tracking-tight">{org.name}</h2>
+                        <h1 className="font-serif text-3xl font-medium tracking-tight">{org.name}</h1>
                         <p className="text-sm font-light text-muted-foreground">
                             {seatsUsed} {seatsUsed === 1 ? "member" : "members"} ·{" "}
                             {plan ? "Business plan" : "Free team"} · {seatLimit}{" "}
@@ -527,30 +557,48 @@ export function TeamManagement({ currentUserId, plan, seatLimit, keyRotationReco
                         </CardDescription>
                     </CardHeader>
                     <CardContent className="divide-y divide-border/60">
-                        {invitations.map((inv) => (
-                            <div key={inv.id} className="flex items-center justify-between gap-3 py-3">
-                                <div className="flex min-w-0 items-center gap-3">
-                                    <Avatar className="h-9 w-9">
-                                        <AvatarFallback className="text-xs font-medium text-muted-foreground">
-                                            {initials(null, inv.email)}
-                                        </AvatarFallback>
-                                    </Avatar>
-                                    <div className="min-w-0">
-                                        <p className="truncate text-sm">{inv.email}</p>
-                                        <p className="text-xs capitalize text-muted-foreground">{inv.role} · Pending</p>
+                        {invitations.map((inv) => {
+                            const expired = new Date(inv.expiresAt).getTime() <= now
+                            return (
+                                <div key={inv.id} className="flex items-center justify-between gap-3 py-3">
+                                    <div className="flex min-w-0 items-center gap-3">
+                                        <Avatar className="h-9 w-9">
+                                            <AvatarFallback className="text-xs font-medium text-muted-foreground">
+                                                {initials(null, inv.email)}
+                                            </AvatarFallback>
+                                        </Avatar>
+                                        <div className="min-w-0">
+                                            <p className="truncate text-sm">{inv.email}</p>
+                                            <p className="text-xs capitalize text-muted-foreground">
+                                                {inv.role} · {expired ? <span className="text-destructive">Expired</span> : "Pending"}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <div className="flex shrink-0 items-center gap-1">
+                                        {expired && (
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                disabled={resendingInviteId === inv.id}
+                                                onClick={() => resendInvite(inv, expired)}
+                                            >
+                                                {resendingInviteId === inv.id && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+                                                Resend
+                                            </Button>
+                                        )}
+                                        <ConfirmAction
+                                            title="Cancel invitation?"
+                                            description={`The invitation to ${inv.email} will be revoked. They won't be able to join with it.`}
+                                            confirmLabel="Cancel invitation"
+                                            onConfirm={() => cancelInvite(inv.id)}
+                                            ariaLabel="Cancel invitation"
+                                        >
+                                            <X className="h-4 w-4" />
+                                        </ConfirmAction>
                                     </div>
                                 </div>
-                                <ConfirmAction
-                                    title="Cancel invitation?"
-                                    description={`The invitation to ${inv.email} will be revoked. They won't be able to join with it.`}
-                                    confirmLabel="Cancel invitation"
-                                    onConfirm={() => cancelInvite(inv.id)}
-                                    ariaLabel="Cancel invitation"
-                                >
-                                    <X className="h-4 w-4" />
-                                </ConfirmAction>
-                            </div>
-                        ))}
+                            )
+                        })}
                     </CardContent>
                 </Card>
             )}

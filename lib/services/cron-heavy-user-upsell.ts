@@ -2,6 +2,7 @@ import { Redis } from "@upstash/redis";
 import { ALIAS_PLANS, BUNDLE_PLANS, PLAN_ENTITLEMENTS } from "@/config/plans";
 import { getHeavyFreeUsers } from "@/lib/data/user";
 import { createLogger } from "@/lib/logger";
+import { getGrowthEmailExcludeList } from "@/lib/growth-email-exclude";
 import { sendPowerUserUpsellEmail } from "@/lib/resend";
 
 const logger = createLogger("CronHeavyUserUpsell");
@@ -11,11 +12,6 @@ const MIN_EMAILS_FORWARDED = 15;
 const COOLDOWN_DAYS = 21;
 const MAX_PER_RUN = 50;
 const MIN_ACCOUNT_AGE_MS = 24 * 60 * 60 * 1000;
-const EXCLUDED_EMAILS = [
-    "anita.petek3@gmail.com",
-    "enej.grmek@osiria.net",
-    "mcp-review@anthropic.com",
-];
 
 let redis: Redis | null = null;
 
@@ -28,32 +24,49 @@ function getRedis(): Redis {
     return redis;
 }
 
+const PAGE_SIZE = MAX_PER_RUN * 4;
+const MAX_PAGES = 10;
+
+/**
+ * Streams candidates page by page. Users still inside their cooldown stay in
+ * the result set, so a single fixed page would eventually be all skips and
+ * starve everyone ranked below it; the page cap bounds the scan.
+ */
+async function* heavyCandidates() {
+    const createdBefore = new Date(Date.now() - MIN_ACCOUNT_AGE_MS);
+    for (let page = 0; page < MAX_PAGES; page++) {
+        const rows = await getHeavyFreeUsers({
+            minAliases: MIN_ALIASES,
+            minEmailsForwarded: MIN_EMAILS_FORWARDED,
+            excludeEmails: getGrowthEmailExcludeList(),
+            createdBefore,
+            limit: PAGE_SIZE,
+            offset: page * PAGE_SIZE,
+        });
+        yield* rows;
+        if (rows.length < PAGE_SIZE) return;
+    }
+}
+
 export async function handleHeavyUserUpsellCron(): Promise<{ sent: number; skipped: number; errors: number }> {
     const redisClient = getRedis();
-    const candidates = await getHeavyFreeUsers({
-        minAliases: MIN_ALIASES,
-        minEmailsForwarded: MIN_EMAILS_FORWARDED,
-        excludeEmails: EXCLUDED_EMAILS,
-        createdBefore: new Date(Date.now() - MIN_ACCOUNT_AGE_MS),
-        limit: MAX_PER_RUN * 4,
-    });
 
     // Anchor on the cheapest plan that removes their actual constraint — Alias
-    // Plus (more aliases) — and bill in EUR. The previous copy quoted the €6.99
-    // Bundle rendered as "$6.99": ~2.8x the price these alias-only power users
-    // need, in the wrong currency, which suppressed conversion. The Bundle is now
-    // offered as a secondary upsell inside the email rather than the headline.
+    // Plus (more aliases) — rather than the Bundle (~2.8x the price these
+    // alias-only power users need). The Bundle is offered as a secondary upsell
+    // inside the email. Prices are in USD, matching the pricing page, Stripe
+    // and crypto checkout.
     const suggestedTier = "plus" as const;
     const aliasLimit = PLAN_ENTITLEMENTS.alias[suggestedTier].random;
-    const eur = (n: number) => `€${n.toFixed(2)}/mo`;
-    const price = eur(ALIAS_PLANS[suggestedTier].price.monthly);
-    const bundlePrice = eur(BUNDLE_PLANS[suggestedTier].price.monthly);
+    const usd = (n: number) => `$${n.toFixed(2)}/mo`;
+    const price = usd(ALIAS_PLANS[suggestedTier].price.monthly);
+    const bundlePrice = usd(BUNDLE_PLANS[suggestedTier].price.monthly);
 
     let sent = 0;
     let skipped = 0;
     let errors = 0;
 
-    for (const user of candidates) {
+    for await (const user of heavyCandidates()) {
         if (sent >= MAX_PER_RUN) break;
 
         const dedupeKey = `power-user-upsell:${user.id}`;

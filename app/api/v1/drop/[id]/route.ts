@@ -74,7 +74,10 @@ export const DELETE = withPolicy<RouteParams>(
     async (ctx, routeContext) => {
         const { id: dropId } = await routeContext.params
 
-        await DropService.deleteDrop(dropId, scopeFromContext(ctx))
+        // The public API manages standalone drops only (matching GET /api/v1/drop):
+        // form attachment/staging drops belong to their form, and soft-deleted
+        // drops are gone — both answer 404.
+        await DropService.deleteDrop(dropId, scopeFromContext(ctx), { standaloneOnly: true })
 
         return NextResponse.json({ success: true })
     },
@@ -151,7 +154,7 @@ const toggleHandler = withPolicy<RouteParams>(
     },
     async (ctx, routeContext) => {
         const { id: dropId } = await routeContext.params
-        const disabled = await DropService.toggleDrop(dropId, scopeFromContext(ctx))
+        const disabled = await DropService.toggleDrop(dropId, scopeFromContext(ctx), { standaloneOnly: true })
 
         return NextResponse.json({ success: true, disabled })
     },

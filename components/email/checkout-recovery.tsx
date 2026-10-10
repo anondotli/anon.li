@@ -22,9 +22,12 @@ function capitalize(value: string): string {
  */
 export function CheckoutRecoveryEmail({ product, tier, unsubscribeUrl }: CheckoutRecoveryEmailProps) {
     const planName = product && tier ? `${capitalize(product)} ${capitalize(tier)}` : null;
-    const pricingUrl = product && tier
-        ? emailUrl(`/pricing?highlight=${product}_${tier}`)
-        : emailUrl("/pricing");
+    // Business (team) plans are sold from /business, not the personal pricing page.
+    const pricingUrl = product === "business"
+        ? emailUrl("/business")
+        : product && tier
+            ? emailUrl(`/pricing?highlight=${product}_${tier}`)
+            : emailUrl("/pricing");
 
     return (
         <EmailLayout

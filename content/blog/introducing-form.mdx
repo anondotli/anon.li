@@ -35,7 +35,7 @@ A few things we cared about getting right:
 - **Encrypted attachments.** A respondent can attach files — résumés, screenshots, evidence — and they ride the same Drop encryption pipeline: AES-256-GCM, in-browser, with the symmetric key sealed inside the submission ciphertext so only you can open it.
 - **Iframe embed.** Drop the form onto your own site without giving up the encryption guarantees. The public form path is the only path on anon.li that's intentionally embeddable cross-origin; everything else stays clickjacking-locked.
 - **Turnstile.** Public submissions are gated by Cloudflare Turnstile, even when the respondent happens to have an anon.li session. A respondent's login never becomes an abuse bypass against somebody else's form.
-- **API & MCP.** Every form operation — list, create, toggle, delete, read submissions — is available through the REST API and exposed as MCP tools, so AI agents and your own scripts can drive forms without special-casing.
+- **API & MCP.** Forms can be listed, created, updated, toggled, and deleted through the REST API, which also returns submissions as ciphertext for your own client to decrypt. The MCP server exposes `list_forms`, `toggle_form`, and `delete_form`, so AI agents can manage forms — but never read responses, which stay encrypted end to end.
 
 ## Plans
 

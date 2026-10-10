@@ -2,7 +2,8 @@ import { z } from "zod"
 import type { McpServer } from "@modelcontextprotocol/server"
 import { AliasService } from "@/lib/services/alias"
 import { resolveAlias } from "@/app/api/v1/alias/_utils"
-import { invokeTool, toolError, toolResult } from "@/lib/mcp/invoke"
+import { toolError, toolResult } from "@/lib/mcp/invoke"
+import { registerMcpTool } from "@/lib/mcp/define-tool"
 import { personalScope } from "@/lib/ownership"
 import { LOCAL_PART_PATTERN } from "@/lib/validations/alias"
 import type { McpSession } from "@/lib/mcp/types"
@@ -54,8 +55,33 @@ function toAliasFields(alias: {
     }
 }
 
+const createAliasInput = z.object({
+    domain: z.string().trim().toLowerCase().min(1).max(253).default("anon.li")
+        .describe("Domain for the alias: 'anon.li' (default) or one of the user's verified custom domains"),
+    format: z.enum(["random", "custom"]).optional()
+        .describe("'custom' uses `local_part`; 'random' generates the local part. Defaults to 'custom' when `local_part` is given, otherwise 'random'."),
+    local_part: z.string().trim().toLowerCase().max(64)
+        .regex(LOCAL_PART_PATTERN, "lowercase letters, numbers, and single dots only (not at start/end)")
+        .optional()
+        .describe("The address before the @ for a custom alias. Lowercase letters and numbers, with single dots as separators (e.g. 'jane.doe'); no leading, trailing, or consecutive dots. Not allowed with format 'random'."),
+    recipient_ids: z.array(z.string().min(1).max(50)).max(10).optional()
+        .describe("Recipient IDs to forward to. If omitted (and no recipient_email), uses the default recipient. Not allowed together with recipient_email."),
+    recipient_email: z.string().trim().toLowerCase().email().max(254).optional()
+        .describe("Alternative to recipient_ids: an existing verified recipient email address. Not allowed together with recipient_ids."),
+}).superRefine((args, ctx) => {
+    if (args.format === "random" && args.local_part !== undefined) {
+        ctx.addIssue({ code: "custom", path: ["local_part"], message: "local_part cannot be used with format 'random' — omit format or set it to 'custom'" })
+    }
+    if (args.format === "custom" && !args.local_part) {
+        ctx.addIssue({ code: "custom", path: ["local_part"], message: "local_part is required when format is 'custom'" })
+    }
+    if (args.recipient_ids !== undefined && args.recipient_email !== undefined) {
+        ctx.addIssue({ code: "custom", path: ["recipient_email"], message: "Pass either recipient_ids or recipient_email, not both" })
+    }
+})
+
 export function registerAliasTools(server: McpServer, session: McpSession) {
-    server.registerTool(
+    registerMcpTool(server, session,
         "list_aliases",
         {
             title: "List aliases",
@@ -82,7 +108,8 @@ export function registerAliasTools(server: McpServer, session: McpSession) {
                 })),
             }),
         },
-        async ({ limit, offset }) => invokeTool(session, { scope: "anon.li:aliases", quota: "alias", rateLimit: "api" }, async (user) => {
+        { scope: "anon.li:aliases", quota: "alias", rateLimit: "api" },
+        async ({ limit, offset }, user) => {
             const scope = personalScope(user.id)
             const [aliases, total] = await Promise.all([
                 AliasService.getAliases(scope, { limit, offset }),
@@ -97,15 +124,15 @@ export function registerAliasTools(server: McpServer, session: McpSession) {
                     last_email_at: a.lastEmailAt?.toISOString() ?? null,
                 })),
             })
-        }),
+        },
     )
 
-    server.registerTool(
+    registerMcpTool(server, session,
         "create_alias",
         {
             title: "Create alias",
             description:
-                "Create a new email alias. Use format=\"random\" to auto-generate the local part, or format=\"custom\" with `local_part`. Labels and notes cannot be set here (they are vault-encrypted client-side); the user can edit them from the anon.li web UI.",
+                "Create a new email alias. Pass `local_part` for a custom address (format defaults to \"custom\" when it is given), or omit it to auto-generate a random local part. Labels and notes cannot be set here (they are vault-encrypted client-side); the user can edit them from the anon.li web UI.",
             annotations: {
                 title: "Create alias",
                 readOnlyHint: false,
@@ -113,56 +140,45 @@ export function registerAliasTools(server: McpServer, session: McpSession) {
                 idempotentHint: false,
                 openWorldHint: false,
             },
-            inputSchema: z.object({
-                domain: z.string().trim().toLowerCase().min(1).max(253).default("anon.li")
-                    .describe("Domain for the alias: 'anon.li' (default) or one of the user's verified custom domains"),
-                format: z.enum(["random", "custom"]).default("random")
-                    .describe("'random' (default) generates the local part; 'custom' uses `local_part`"),
-                local_part: z.string().trim().toLowerCase().max(64)
-                    .regex(LOCAL_PART_PATTERN, "lowercase letters, numbers, and single dots only (not at start/end)")
-                    .optional()
-                    .describe("Required when format is 'custom'. Lowercase letters and numbers, with single dots as separators (e.g. 'jane.doe'); no leading, trailing, or consecutive dots."),
-                recipient_ids: z.array(z.string().min(1).max(50)).max(10).optional()
-                    .describe("Recipient IDs to forward to. If omitted, uses the default recipient."),
-                recipient_email: z.string().trim().toLowerCase().email().max(254).optional()
-                    .describe("Alternative to recipient_ids: an existing verified recipient email address."),
-            }),
+            inputSchema: createAliasInput,
             outputSchema: z.object(aliasShape),
         },
-        async (args) => invokeTool(session, {
+        {
             scope: "anon.li:aliases",
             quota: "alias",
             checkBan: "alias",
             rateLimit: "aliasCreate",
-        }, async (user) => {
-            if (args.format === "custom" && !args.local_part) {
-                return toolError({ code: "VALIDATION_ERROR", message: "local_part is required when format is 'custom'" })
-            }
+        },
+        async (args, user) => {
+            const custom = args.format === "custom" || (args.format === undefined && args.local_part !== undefined)
             const alias = await AliasService.createAlias(personalScope(user.id), {
                 domain: args.domain,
-                format: args.format === "custom" ? "CUSTOM" : "RANDOM",
-                localPart: args.format === "custom" ? args.local_part : undefined,
+                format: custom ? "CUSTOM" : "RANDOM",
+                localPart: custom ? args.local_part : undefined,
                 recipientIds: args.recipient_ids,
                 recipientEmail: args.recipient_email,
             })
             return toolResult(toAliasFields(alias))
-        }),
+        },
     )
 
-    server.registerTool(
+    registerMcpTool(server, session,
         "toggle_alias",
         {
-            title: "Toggle alias",
-            description: "Flip an alias between active (forwards mail) and inactive (silently discards). Each call inverts the current state, so check `active` from list_aliases first and do not repeat the call to \"make sure\". Returns the new state. Accepts either the alias ID or the full email address.",
+            title: "Set alias active state",
+            description: "Set whether an alias forwards mail: `active: true` forwards, `active: false` silently discards incoming mail. Sets the given state (it does not flip), so repeating a call is safe. Returns the resulting state. Accepts either the alias ID or the full email address. Re-activating an alias an administrator took down fails with FORBIDDEN.",
             annotations: {
-                title: "Toggle alias",
+                title: "Set alias active state",
                 readOnlyHint: false,
-                destructiveHint: false,
-                idempotentHint: false,
+                // Disabling an alias drops its incoming mail.
+                destructiveHint: true,
+                idempotentHint: true,
                 openWorldHint: false,
             },
             inputSchema: z.object({
                 id: aliasIdentifier,
+                active: z.boolean()
+                    .describe("Target state: true to forward mail, false to stop forwarding (mail is discarded)"),
             }),
             outputSchema: z.object({
                 id: z.string(),
@@ -170,21 +186,24 @@ export function registerAliasTools(server: McpServer, session: McpSession) {
                 active: z.boolean(),
             }),
         },
-        async ({ id }) => invokeTool(session, { scope: "anon.li:aliases", quota: "alias", rateLimit: "api" }, async (user) => {
-            const existing = await resolveAlias(normalizeAliasIdentifier(id), personalScope(user.id))
+        { scope: "anon.li:aliases", quota: "alias", rateLimit: "api" },
+        async ({ id, active }, user) => {
+            const scope = personalScope(user.id)
+            const existing = await resolveAlias(normalizeAliasIdentifier(id), scope)
             if (!existing) {
                 return toolError({ code: "NOT_FOUND", message: `No alias '${id}' on this account` })
             }
-            const updated = await AliasService.toggleAlias(personalScope(user.id), existing.id)
+            // Same idempotent set (and permissions/takedown guard) as REST PATCH.
+            const updated = await AliasService.updateAlias(scope, existing.id, { active })
             return toolResult({
                 id: updated.id,
                 email: updated.email,
                 active: updated.active,
             })
-        }),
+        },
     )
 
-    server.registerTool(
+    registerMcpTool(server, session,
         "delete_alias",
         {
             title: "Delete alias",
@@ -205,13 +224,14 @@ export function registerAliasTools(server: McpServer, session: McpSession) {
                 email: z.string(),
             }),
         },
-        async ({ id }) => invokeTool(session, { scope: "anon.li:aliases", quota: "alias", rateLimit: "api" }, async (user) => {
+        { scope: "anon.li:aliases", quota: "alias", rateLimit: "api" },
+        async ({ id }, user) => {
             const existing = await resolveAlias(normalizeAliasIdentifier(id), personalScope(user.id))
             if (!existing) {
                 return toolError({ code: "NOT_FOUND", message: `No alias '${id}' on this account` })
             }
             await AliasService.deleteAlias(personalScope(user.id), existing.id)
             return toolResult({ deleted: true, id: existing.id, email: existing.email })
-        }),
+        },
     )
 }

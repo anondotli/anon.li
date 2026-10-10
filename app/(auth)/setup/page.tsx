@@ -2,6 +2,8 @@ import { redirect } from "next/navigation"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { sanitizeAuthCallbackUrl } from "@/lib/safe-callback-url"
+import { getVaultSession } from "@/lib/vault/server"
+import { isVaultSessionFresh } from "@/lib/vault/session-freshness"
 import { SetupPasswordPageContent } from "./setup-password-content"
 
 export const metadata = {
@@ -46,10 +48,17 @@ export default async function SetupPasswordPage({ searchParams }: SetupPageProps
         redirect(callbackUrl)
     }
 
+    // POST /api/vault/setup only accepts a recently created session. Check up
+    // front so a stale session is offered "Sign in again" instead of failing
+    // only after the user has typed (and we've derived) a new vault password.
+    const vaultSession = await getVaultSession({ require2FA: false })
+    const sessionFresh = Boolean(vaultSession && isVaultSessionFresh(vaultSession.session.createdAt))
+
     return (
         <SetupPasswordPageContent
             callbackUrl={callbackUrl}
             hasCredentialPassword={Boolean(credentialAccount?.password)}
+            sessionFresh={sessionFresh}
         />
     )
 }

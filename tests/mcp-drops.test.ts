@@ -3,15 +3,17 @@
  */
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { personalScope } from "@/lib/ownership"
+import { fakeGate } from "./helpers/mcp-fake-gate"
 
 const listDrops = vi.fn()
 const toggleDrop = vi.fn()
+const setDropDisabled = vi.fn()
 const deleteDrop = vi.fn()
 
-const invokeTool = vi.fn(async (_session, _opts, handler) => handler({ id: "user-1" }))
+const invokeTool = vi.fn(fakeGate({ id: "user-1" }))
 
 vi.mock("@/lib/services/drop", () => ({
-    DropService: { listDrops, toggleDrop, deleteDrop },
+    DropService: { listDrops, toggleDrop, setDropDisabled, deleteDrop },
 }))
 
 vi.mock("@/lib/mcp/invoke", () => ({
@@ -52,7 +54,7 @@ const session = { userId: "user-1", clientId: "client-1" }
 describe("MCP drop tools", () => {
     beforeEach(() => {
         vi.clearAllMocks()
-        invokeTool.mockImplementation(async (_session, _opts, handler) => handler({ id: "user-1" }))
+        invokeTool.mockImplementation(fakeGate({ id: "user-1" }))
     })
 
     it("list_drops gates on anon.li:drops and exposes metadata only", async () => {
@@ -85,7 +87,7 @@ describe("MCP drop tools", () => {
         }
         expect(invokeTool).toHaveBeenCalledWith(
             session,
-            { scope: "anon.li:drops", quota: "drop", rateLimit: "dropList" },
+            expect.objectContaining({ scope: "anon.li:drops", quota: "drop", rateLimit: "dropList" }),
             expect.any(Function),
         )
         expect(listDrops).toHaveBeenCalledWith(personalScope("user-1"), { limit: 50, offset: 0 })
@@ -99,22 +101,38 @@ describe("MCP drop tools", () => {
         expect(drop).not.toHaveProperty("filenames")
     })
 
-    it("toggle_drop flips state and is scoped to drops", async () => {
-        toggleDrop.mockResolvedValueOnce(true)
+    it("toggle_drop sets the requested state on standalone drops only", async () => {
+        setDropDisabled.mockResolvedValue(false)
+        const server = makeServer()
+        const { registerDropTools } = await import("@/lib/mcp/tools/drops")
+        registerDropTools(server as never, session)
+
+        const tool = server.tools.get("toggle_drop")!
+        expect(tool.meta.annotations).toMatchObject({ idempotentHint: true, destructiveHint: false })
+        const out = (await tool.handler({ id: "d2", disabled: false })) as {
+            structuredContent: { id: string, disabled: boolean }
+        }
+        expect(invokeTool).toHaveBeenCalledWith(
+            session,
+            expect.objectContaining({ scope: "anon.li:drops", quota: "drop", rateLimit: "dropOps" }),
+            expect.any(Function),
+        )
+        expect(setDropDisabled).toHaveBeenCalledWith("d2", personalScope("user-1"), false, { standaloneOnly: true })
+        expect(toggleDrop).not.toHaveBeenCalled()
+        expect(out.structuredContent).toEqual({ id: "d2", disabled: false })
+    })
+
+    it("toggle_drop rejects a missing target state with VALIDATION_ERROR", async () => {
         const server = makeServer()
         const { registerDropTools } = await import("@/lib/mcp/tools/drops")
         registerDropTools(server as never, session)
 
         const out = (await server.tools.get("toggle_drop")!.handler({ id: "d2" })) as {
-            structuredContent: { id: string, disabled: boolean }
+            isError: boolean, _meta: Record<string, { code: string }>
         }
-        expect(invokeTool).toHaveBeenCalledWith(
-            session,
-            { scope: "anon.li:drops", quota: "drop", rateLimit: "dropOps" },
-            expect.any(Function),
-        )
-        expect(toggleDrop).toHaveBeenCalledWith("d2", personalScope("user-1"))
-        expect(out.structuredContent).toEqual({ id: "d2", disabled: true })
+        expect(out.isError).toBe(true)
+        expect(out._meta["anon.li/error"]!.code).toBe("VALIDATION_ERROR")
+        expect(setDropDisabled).not.toHaveBeenCalled()
     })
 
     it("delete_drop is flagged destructive and deletes by id", async () => {
@@ -127,7 +145,8 @@ describe("MCP drop tools", () => {
         expect(tool.meta.annotations).toMatchObject({ destructiveHint: true })
 
         const out = (await tool.handler({ id: "d3" })) as { structuredContent: { deleted: boolean } }
-        expect(deleteDrop).toHaveBeenCalledWith("d3", personalScope("user-1"))
+        // Form attachment/staging and soft-deleted drops are NOT_FOUND here.
+        expect(deleteDrop).toHaveBeenCalledWith("d3", personalScope("user-1"), { standaloneOnly: true })
         expect(out.structuredContent.deleted).toBe(true)
     })
 })

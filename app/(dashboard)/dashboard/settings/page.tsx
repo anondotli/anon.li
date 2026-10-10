@@ -60,7 +60,7 @@ export default async function SettingsPage() {
     return (
         <div className="space-y-8">
             <div className="border-b border-border/40 pb-6">
-                <h3 className="text-3xl font-medium tracking-tight font-serif">Settings</h3>
+                <h1 className="text-3xl font-medium tracking-tight font-serif">Settings</h1>
                 <p className="text-sm text-muted-foreground font-light">
                     Manage your account settings and preferences.
                 </p>
@@ -75,7 +75,7 @@ export default async function SettingsPage() {
                     <InviteFriends
                         link={referralLink}
                         successfulReferrals={referral.successfulReferrals}
-                        plusUntil={referral.plusUntil ? referral.plusUntil.toISOString() : null}
+                        plusUntil={referral.plusActive && referral.plusUntil ? referral.plusUntil.toISOString() : null}
                         rewardDays={REFERRAL_REWARD_DAYS}
                     />
                 </div>

@@ -492,6 +492,11 @@ export function standaloneDropWhere(scope: OwnerScope) {
     } satisfies Prisma.DropWhereInput;
 }
 
+export interface DropMutationOptions {
+    /** Only accept live standalone drops (see standaloneDropWhere); others are NOT_FOUND. */
+    standaloneOnly?: boolean;
+}
+
 export class DropService {
     /**
      * Verify that the caller owns the drop (authenticated user match).
@@ -1645,41 +1650,83 @@ export class DropService {
     }
 
     /**
-     * Toggle drop disabled state (revoke/restore access)
+     * Load a drop for an owner-side state change. Soft-deleted drops are never
+     * returned. With `standaloneOnly` (the public API and MCP surfaces) only
+     * drops visible in the standalone listing qualify: form attachment and
+     * staging drops are owned by their form and report NOT_FOUND here.
      */
-    static async toggleDrop(dropId: string, scope: OwnerScope): Promise<boolean> {
-        const drop = await prisma.drop.findUnique({
-            where: { id: dropId },
+    private static async findManageableDrop(
+        dropId: string,
+        scope: OwnerScope,
+        options: DropMutationOptions,
+    ) {
+        const drop = await prisma.drop.findFirst({
+            where: options.standaloneOnly
+                ? { id: dropId, ...standaloneDropWhere(scope) }
+                : { id: dropId, deletedAt: null },
+            select: { id: true, userId: true, organizationId: true, disabled: true },
         });
 
         if (!drop) {
             throw new NotFoundError("Drop not found");
         }
 
-        // Disabling a shared org drop affects the whole team → admin+ in org context.
+        // Disabling or deleting a shared org drop affects the whole team → admin+ in org context.
         assertCanManage(drop, scope);
+        return drop;
+    }
 
-        const newState = !drop.disabled;
-
+    private static async writeDisabled(dropId: string, disabled: boolean): Promise<void> {
         await prisma.drop.update({
             where: { id: dropId },
             data: {
-                disabled: newState,
-                disabledAt: newState ? new Date() : null,
+                disabled,
+                disabledAt: disabled ? new Date() : null,
             },
         });
+    }
 
+    /**
+     * Toggle drop disabled state (revoke/restore access)
+     */
+    static async toggleDrop(dropId: string, scope: OwnerScope, options: DropMutationOptions = {}): Promise<boolean> {
+        const drop = await DropService.findManageableDrop(dropId, scope, options);
+        const newState = !drop.disabled;
+        await DropService.writeDisabled(dropId, newState);
         return newState;
     }
 
     /**
-     * Delete a drop and all its files
+     * Set the drop's disabled state (idempotent counterpart of toggleDrop, same
+     * permissions). Re-sending the current state is a no-op write.
      */
-    static async deleteDrop(dropId: string, scope: OwnerScope): Promise<void> {
-        const drop = await prisma.drop.findUnique({
-            where: { id: dropId },
-            select: { id: true, userId: true, organizationId: true },
-        });
+    static async setDropDisabled(
+        dropId: string,
+        scope: OwnerScope,
+        disabled: boolean,
+        options: DropMutationOptions = {},
+    ): Promise<boolean> {
+        const drop = await DropService.findManageableDrop(dropId, scope, options);
+        if (drop.disabled !== disabled) {
+            await DropService.writeDisabled(dropId, disabled);
+        }
+        return disabled;
+    }
+
+    /**
+     * Delete a drop and all its files.
+     *
+     * Internal callers (form deletion/cleanup) pass no options and may hard-
+     * delete an already soft-deleted attachment drop. `standaloneOnly`
+     * restricts the call to live standalone drops for user-facing API surfaces.
+     */
+    static async deleteDrop(dropId: string, scope: OwnerScope, options: DropMutationOptions = {}): Promise<void> {
+        const drop = options.standaloneOnly
+            ? await DropService.findManageableDrop(dropId, scope, options)
+            : await prisma.drop.findUnique({
+                where: { id: dropId },
+                select: { id: true, userId: true, organizationId: true },
+            });
 
         if (!drop) {
             throw new NotFoundError("Drop not found");
@@ -1719,7 +1766,8 @@ export class DropService {
                     },
                 },
             },
-            orderBy: { createdAt: "desc" },
+            // id breaks createdAt ties so offset pages never repeat or skip rows.
+            orderBy: [{ createdAt: "desc" }, { id: "desc" }],
             take: limit,
             skip: offset,
         });

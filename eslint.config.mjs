@@ -25,6 +25,8 @@ export default defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
-    "anon-video/**",
+    // Gitignored local ops scripts; absent in CI, so linting them locally would
+    // make `bun run lint` disagree with CI.
+    "scripts/**",
   ]),
 ]);

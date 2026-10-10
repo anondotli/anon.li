@@ -25,7 +25,7 @@ import {
 } from "@/lib/services/audit"
 import { getOrgSeatLimit } from "@/lib/org-seats"
 import { validateOrganizationName } from "@/lib/validations/organization"
-import { rateLimit } from "@/lib/rate-limit"
+import { isRateLimitOutage, rateLimit } from "@/lib/rate-limit"
 import { trackServerEvent } from "@/lib/posthog.server"
 import { MCP_OAUTH_SCOPES, getMcpIssuer, getMcpResource } from "@/lib/mcp/oauth-metadata"
 import { purgePersonalVaultKeysOps } from "@/lib/vault/personal-purge"
@@ -33,9 +33,14 @@ import {
     mcpOAuthBeforeHook,
     organizationAfterHook,
     organizationBeforeHook,
-    revokeOrganizationMemberAccess,
+    rateLimitedAuthError,
     twoFactorSessionAfterHook,
 } from "@/lib/auth-hooks"
+import {
+    assertInvitationSeatAvailable,
+    prepareOrganizationDeletion,
+    revokeRemovedMemberAccess,
+} from "@/lib/org-lifecycle"
 
 const ACCOUNT_DELETION_PENDING_MESSAGE = "Account deletion is already in progress for this user."
 
@@ -114,6 +119,11 @@ export const auth = betterAuth({
         sendOnSignIn: true,
         sendVerificationEmail: async ({ user, url }) => {
             await sendAccountVerificationEmail(user.email, url)
+        },
+        // Email/password sign-ups are created unverified; welcome them once
+        // they prove the address (see databaseHooks.user.create.after).
+        afterEmailVerification: async (user) => {
+            if (user.email) await sendWelcomeEmail(user.email, user.id)
         },
     },
 
@@ -254,8 +264,9 @@ export const auth = betterAuth({
                     // a key rotation is recommended (full forward secrecy needs an
                     // admin to rotate, since the removed member could have cached the
                     // key). The team page reads keyRotationRecommendedAt to show the
-                    // banner; a successful rotation clears it.
-                    void revokeOrganizationMemberAccess(organization.id, member.userId).catch(() => {})
+                    // banner; a successful rotation clears it. Awaited so it can't be
+                    // cut off when the invocation ends; failures are logged inside.
+                    await revokeRemovedMemberAccess(organization.id, member.userId)
                 },
                 afterUpdateMemberRole: async ({ member, previousRole, organization }) => {
                     const actorId = (await resolveActorId()) ?? member.userId
@@ -267,6 +278,11 @@ export const auth = betterAuth({
                         to: member.role,
                     })
                 },
+                // A pending invitation reserves a seat (members + pending, unexpired
+                // invitations may not exceed the paid seats).
+                beforeCreateInvitation: async ({ organization }) => {
+                    await assertInvitationSeatAvailable(organization.id)
+                },
                 afterCreateInvitation: async ({ invitation, inviter, organization }) => {
                     recordInvitationSent({
                         inviterId: inviter.id,
@@ -276,16 +292,12 @@ export const auth = betterAuth({
                     })
                 },
                 beforeDeleteOrganization: async ({ organization }) => {
-                    // Erase org-owned Drop blobs from R2 BEFORE the delete cascade
-                    // removes the drop rows (afterDelete would lose the storage
-                    // keys). Best-effort: failed keys are tracked as orphaned files
-                    // for cron retry — never block org deletion on storage.
-                    try {
-                        const { eraseOrgDrops } = await import("@/lib/services/erasure")
-                        await eraseOrgDrops(organization.id)
-                    } catch {
-                        // Swallow; deletion proceeds, cron reaps any orphaned blobs.
-                    }
+                    // Cancel the team's Stripe subscription first (the delete fails
+                    // if that can't be confirmed — the cascade would otherwise drop
+                    // the only record of a still-billing subscription), then erase
+                    // org-owned Drop blobs from R2 BEFORE the cascade removes the
+                    // drop rows (afterDelete would lose the storage keys).
+                    await prepareOrganizationDeletion(organization.id)
                 },
             },
         }),
@@ -355,7 +367,11 @@ export const auth = betterAuth({
                     return undefined
                 },
                 after: async (user) => {
-                    if (user.email) await sendWelcomeEmail(user.email)
+                    // Only users created already-verified (OAuth, magic link)
+                    // are welcomed here; unverified email/password sign-ups get
+                    // it from emailVerification.afterEmailVerification, so an
+                    // unconfirmed (possibly mistyped/abusive) address is never mailed.
+                    if (user.email && user.emailVerified) await sendWelcomeEmail(user.email, user.id)
                     // Product analytics: authoritative signup event (client-side
                     // registration_started only captures intent).
                     trackServerEvent(user.id, "user_signed_up", undefined)
@@ -372,12 +388,6 @@ export const auth = betterAuth({
         // only covers /sign-in/magic-link, so these endpoints would otherwise be
         // unthrottled password / one-time-code oracles.
         before: createAuthMiddleware(async (ctx) => {
-            const tooManyRequests = (code: string) =>
-                APIError.from("TOO_MANY_REQUESTS", {
-                    message: "Too many attempts. Please try again later.",
-                    code,
-                })
-
             const targetEmail = () => {
                 const email = normalizeAuthEmail((ctx.body as { email?: unknown } | undefined)?.email)
                 return email ? authRateLimitIdentifier("target", email) : null
@@ -390,7 +400,9 @@ export const auth = betterAuth({
                 const results = await Promise.all(attempts.map(([type, identifier]) =>
                     identifier === undefined ? rateLimit(type) : rateLimit(type, identifier),
                 ))
-                if (results.some(Boolean)) throw tooManyRequests(code)
+                // Prefer reporting an outage: a 503 means the limit could not be checked.
+                const limited = results.find((r) => r && isRateLimitOutage(r)) ?? results.find(Boolean)
+                if (limited) throw rateLimitedAuthError(limited, code)
             }
 
             const resolveSession = async () => ctx.context.session ?? await getSessionFromCtx(ctx)
@@ -474,9 +486,8 @@ export const auth = betterAuth({
             // rotating the pending-2FA cookie. Covers the direct REST endpoints and
             // the server-action path (actions/two-factor.ts calls auth.api.verifyTOTP).
             if (ctx.path === "/two-factor/verify-totp" || ctx.path === "/two-factor/verify-backup-code") {
-                if (await rateLimit("twoFactorVerifyIp")) {
-                    throw tooManyRequests("TWO_FACTOR_RATE_LIMITED")
-                }
+                const limited = await rateLimit("twoFactorVerifyIp")
+                if (limited) throw rateLimitedAuthError(limited, "TWO_FACTOR_RATE_LIMITED")
             }
         }),
         after: createAuthMiddleware(async (ctx) => {

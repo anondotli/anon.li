@@ -151,7 +151,7 @@ export function BillingTables({
             <Card>
                 <CardHeader>
                     <CardTitle>Recent Crypto Payments</CardTitle>
-                    <CardDescription>Latest NOWPayments records.</CardDescription>
+                    <CardDescription>Payments held for review are always listed first, then the latest NOWPayments records.</CardDescription>
                 </CardHeader>
                 <CardContent>
                     <Table>

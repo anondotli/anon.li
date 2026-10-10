@@ -18,6 +18,19 @@ vi.mock("@/lib/prisma", () => ({
     },
 }))
 
+// Capture each tool's gate (scope + quota) without spinning up an MCP server.
+const registeredGates = vi.hoisted(() => [] as Array<{ name: string; gate: { scope: string; quota?: string } }>)
+vi.mock("@/lib/mcp/define-tool", () => ({
+    registerMcpTool: (_server: unknown, _session: unknown, name: string, _config: unknown, gate: { scope: string; quota?: string }) => {
+        registeredGates.push({ name, gate })
+    },
+}))
+vi.mock("@/lib/services/alias", () => ({ AliasService: {} }))
+vi.mock("@/lib/services/drop", () => ({ DropService: {} }))
+vi.mock("@/lib/services/form", () => ({ FormService: {} }))
+vi.mock("@/lib/services/recipient", () => ({ RecipientService: {} }))
+vi.mock("@/app/api/v1/alias/_utils", () => ({ resolveAlias: vi.fn() }))
+
 vi.mock("@/lib/rate-limit", () => ({
     rateLimiters: {
         aliasCreate: { limit: aliasCreateLimit },
@@ -182,6 +195,57 @@ describe("invokeTool", () => {
         expect(errorMeta(out)).toMatchObject({ code: "RATE_LIMITED", reset_at: new Date(reset).toISOString() })
     })
 
+    it("rate-limits before charging the monthly quota", async () => {
+        aliasCreateLimit.mockResolvedValueOnce({ success: false, limit: 60, remaining: 0, reset: Date.now() + 30_000 })
+        const { invokeTool } = await import("@/lib/mcp/invoke")
+        const out = await invokeTool(
+            { userId: "user-1", clientId: "c" },
+            { quota: "alias", rateLimit: "aliasCreate" },
+            async () => 1,
+        )
+        expect(errorMeta(out)).toMatchObject({ code: "RATE_LIMITED" })
+        expect(checkApiQuota).not.toHaveBeenCalled()
+    })
+
+    it("validates arguments into VALIDATION_ERROR without charging quota or checking bans", async () => {
+        const { z } = await import("zod")
+        const { invokeTool } = await import("@/lib/mcp/invoke")
+        const handler = vi.fn()
+        const out = await invokeTool(
+            { userId: "user-1", clientId: "c" },
+            {
+                quota: "alias",
+                checkBan: "alias",
+                rateLimit: "aliasCreate",
+                input: { schema: z.object({ limit: z.number().int().max(100) }), args: { limit: 1000 } },
+            },
+            handler,
+        )
+        expect(errorMeta(out)).toMatchObject({
+            code: "VALIDATION_ERROR",
+            issues: [{ path: "limit", message: expect.any(String) }],
+        })
+        expect(resultText(out)).toContain("limit")
+        expect(handler).not.toHaveBeenCalled()
+        expect(checkApiQuota).not.toHaveBeenCalled()
+        expect(findUnique).not.toHaveBeenCalled()
+        // Validation runs after the per-tool limiter, so spam is still throttled.
+        expect(aliasCreateLimit).toHaveBeenCalledWith("user-1")
+    })
+
+    it("passes parsed arguments (with schema defaults) to the handler", async () => {
+        const { z } = await import("zod")
+        const { invokeTool } = await import("@/lib/mcp/invoke")
+        const handler = vi.fn().mockResolvedValue("ok")
+        await invokeTool(
+            { userId: "user-1", clientId: "c" },
+            { quota: "alias", input: { schema: z.object({ limit: z.number().default(50) }), args: {} } },
+            handler,
+        )
+        expect(handler).toHaveBeenCalledWith(expect.objectContaining({ id: "user-1" }), { limit: 50 })
+        expect(checkApiQuota).toHaveBeenCalledTimes(1)
+    })
+
     it("does not fail closed when the limiter throws (Redis outage)", async () => {
         aliasCreateLimit.mockRejectedValueOnce(new Error("ECONNREFUSED"))
         const { invokeTool } = await import("@/lib/mcp/invoke")
@@ -265,5 +329,53 @@ describe("toolResult", () => {
             { type: "text", text: JSON.stringify({ id: "abc", count: 3 }, null, 2) },
         ])
         expect(out.structuredContent).toEqual({ id: "abc", count: 3 })
+    })
+})
+
+describe("per-product monthly quota", () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+        getAuthUserState.mockResolvedValue(baseUser)
+        checkApiQuota.mockResolvedValue({ success: true, limit: 500, remaining: 499, reset: new Date() })
+    })
+
+    it("charges the bucket of the tool's product, so its tier is resolved for that product", async () => {
+        const { invokeTool } = await import("@/lib/mcp/invoke")
+        for (const product of ["alias", "drop", "form"] as const) {
+            checkApiQuota.mockClear()
+            await invokeTool({ userId: "user-1", clientId: "c" }, { quota: product }, async () => "ok")
+            expect(checkApiQuota).toHaveBeenCalledWith("user-1", baseUser, product)
+        }
+    })
+
+    it("every metered tool declares the quota product matching its scope", async () => {
+        registeredGates.length = 0
+        const server = {} as never
+        const session = { userId: "user-1", clientId: "c" }
+        const [{ registerAliasTools }, { registerDropTools }, { registerFormTools }, { registerRecipientTools }] = await Promise.all([
+            import("@/lib/mcp/tools/aliases"),
+            import("@/lib/mcp/tools/drops"),
+            import("@/lib/mcp/tools/forms"),
+            import("@/lib/mcp/tools/recipients"),
+        ])
+        registerAliasTools(server, session)
+        registerDropTools(server, session)
+        registerFormTools(server, session)
+        registerRecipientTools(server, session)
+
+        const productForScope: Record<string, string> = {
+            "anon.li:aliases": "alias",
+            "anon.li:drops": "drop",
+            "anon.li:forms": "form",
+        }
+        expect(registeredGates.length).toBeGreaterThan(0)
+        for (const { name, gate } of registeredGates) {
+            // Recipient tools are unmetered, like the REST /recipient routes.
+            if (name.includes("recipient")) {
+                expect(gate.quota).toBeUndefined()
+                continue
+            }
+            expect({ name, quota: gate.quota }).toEqual({ name, quota: productForScope[gate.scope] })
+        }
     })
 })

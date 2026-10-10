@@ -26,26 +26,19 @@ const TEST_ONLY_VARS = new Set([
     "RESEND_API_KEY",
 ])
 
-// Variables only used in one-time setup scripts (not runtime)
-const SCRIPT_ONLY_VARS = new Set([
-    "CLOUDFLARE_ACCOUNT_ID",
-    "CLOUDFLARE_API_TOKEN",
-    "R2_CORS_ALLOWED_ORIGINS",
-    "BACKFILL_SIGNUPS",
-])
-
-const ALLOWLIST = new Set([...FRAMEWORK_VARS, ...TEST_ONLY_VARS, ...SCRIPT_ONLY_VARS])
+const ALLOWLIST = new Set([...FRAMEWORK_VARS, ...TEST_ONLY_VARS])
+// Build output, dependencies, tests, and gitignored local-only directories.
+// `scripts/` is gitignored (maintainers' local ops scripts): it is absent in CI,
+// so scanning it locally would make this test disagree with CI. ESLint
+// (eslint.config.mjs) and tsc (tsconfig*.json) ignore it for the same reason.
 const IGNORED_SOURCE_DIRS = new Set([
     ".git",
-    ".kilo",
     ".next",
-    "anon-video",
+    ".vercel",
     "build",
-    "cli",
-    "extension",
-    "haraka",
     "node_modules",
     "out",
+    "scripts",
     "tests",
 ])
 

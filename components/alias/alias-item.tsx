@@ -151,22 +151,30 @@ export function AliasItem({ alias, metadata, recipients = [], canManage = true }
 
     const handleToggle = () => {
         startTransition(async () => {
-            const result = await toggleAliasAction(alias.id)
-            if (result.error) {
-                toast.error(result.error)
-            } else {
-                toast.success(alias.active ? "Alias paused" : "Alias activated")
+            try {
+                const result = await toggleAliasAction(alias.id)
+                if (result.error) {
+                    toast.error(result.error)
+                } else {
+                    toast.success(alias.active ? "Alias paused" : "Alias activated")
+                }
+            } catch {
+                toast.error("Failed to update alias. Please try again.")
             }
         })
     }
 
     const handleDelete = () => {
         startTransition(async () => {
-            const result = await deleteAliasAction(alias.id)
-            if (result.error) {
-                toast.error(result.error)
-            } else {
-                toast.success("Alias deleted")
+            try {
+                const result = await deleteAliasAction(alias.id)
+                if (result.error) {
+                    toast.error(result.error)
+                } else {
+                    toast.success("Alias deleted")
+                }
+            } catch {
+                toast.error("Failed to delete alias. Please try again.")
             }
         })
     }
@@ -222,13 +230,17 @@ export function AliasItem({ alias, metadata, recipients = [], canManage = true }
             return
         }
         startTransition(async () => {
-            const result = await updateAliasAction(alias.id, { recipientIds: selectedRecipientIds })
-            if (result.error) {
-                toast.error(result.error)
-            } else {
-                toast.success("Forwarding address updated")
-                setIsEditingRecipient(false)
-                router.refresh()
+            try {
+                const result = await updateAliasAction(alias.id, { recipientIds: selectedRecipientIds })
+                if (result.error) {
+                    toast.error(result.error)
+                } else {
+                    toast.success("Forwarding address updated")
+                    setIsEditingRecipient(false)
+                    router.refresh()
+                }
+            } catch {
+                toast.error("Failed to update forwarding. Please try again.")
             }
         })
     }
@@ -240,7 +252,8 @@ export function AliasItem({ alias, metadata, recipients = [], canManage = true }
 
     return (
         <Collapsible open={isExpanded} onOpenChange={setIsExpanded}>
-            <div className="border rounded-xl bg-card overflow-hidden">
+            {/* ph-no-capture: the row renders alias + recipient addresses. */}
+            <div className="ph-no-capture border rounded-xl bg-card overflow-hidden">
                 {/* Main Row */}
                 <div className="p-4">
                     <div className="flex items-start gap-3">

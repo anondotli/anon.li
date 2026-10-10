@@ -85,7 +85,7 @@ export default async function TeamAuditPage() {
     return (
         <div className="flex flex-col gap-8">
             <div className="space-y-1 border-b border-border/40 pb-6">
-                <h2 className="text-3xl font-medium tracking-tight font-serif">Audit log</h2>
+                <h1 className="text-3xl font-medium tracking-tight font-serif">Audit log</h1>
                 <p className="text-muted-foreground font-light">
                     A record of administrative and security events in your team. Visible to owners and admins.
                 </p>

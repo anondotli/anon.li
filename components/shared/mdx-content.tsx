@@ -104,30 +104,20 @@ const components = {
             {...props}
         />
     ),
-    h2: (props: React.ComponentProps<"h2">) => {
-        const id = typeof props.children === 'string'
-            ? props.children.toLowerCase().replace(/[^a-z0-9\s-]/g, "").replace(/\s+/g, "-")
-            : undefined
-        return (
-            <h2
-                id={id}
-                className="mt-12 scroll-m-24 border-b pb-2 text-2xl font-semibold first:mt-0 font-serif"
-                {...props}
-            />
-        )
-    },
-    h3: (props: React.ComponentProps<"h3">) => {
-        const id = typeof props.children === 'string'
-            ? props.children.toLowerCase().replace(/[^a-z0-9\s-]/g, "").replace(/\s+/g, "-")
-            : undefined
-        return (
-            <h3
-                id={id}
-                className="mt-8 scroll-m-24 text-xl font-serif"
-                {...props}
-            />
-        )
-    },
+    // h2/h3 ids come from remarkHeadingIds (lib/heading-slug.ts) so they match
+    // the docs table of contents exactly.
+    h2: (props: React.ComponentProps<"h2">) => (
+        <h2
+            className="mt-12 scroll-m-24 border-b pb-2 text-2xl font-semibold first:mt-0 font-serif"
+            {...props}
+        />
+    ),
+    h3: (props: React.ComponentProps<"h3">) => (
+        <h3
+            className="mt-8 scroll-m-24 text-xl font-serif"
+            {...props}
+        />
+    ),
     h4: (props: React.ComponentProps<"h4">) => (
         <h4
             className="mt-8 scroll-m-20 text-lg font-semibold tracking-tight font-serif"
@@ -240,6 +230,9 @@ const components = {
 }
 
 import remarkGfm from "remark-gfm"
+import { remarkHeadingIds } from "@/lib/heading-slug"
+
+export const mdxRemarkPlugins = [remarkGfm, remarkHeadingIds]
 
 export function MDXContent({ source }: { source: string }) {
     return (
@@ -248,7 +241,7 @@ export function MDXContent({ source }: { source: string }) {
             components={components}
             options={{
                 mdxOptions: {
-                    remarkPlugins: [remarkGfm],
+                    remarkPlugins: mdxRemarkPlugins,
                 },
             }}
         />

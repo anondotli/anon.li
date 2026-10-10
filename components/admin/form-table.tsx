@@ -18,7 +18,8 @@ interface Form {
     maxSubmissions: number | null
     closesAt: Date | null
     createdAt: Date
-    user: { id: string; email: string }
+    // Null for an org-owned form whose creating user was deleted.
+    user: { id: string; email: string } | null
     _count: { submissions: number }
 }
 
@@ -52,7 +53,7 @@ export function FormTable({ forms, total, page, totalPages, search, filter }: Fo
         },
         {
             header: "Owner",
-            accessor: (form) => (
+            accessor: (form) => form.user ? (
                 <Link
                     href={`/admin/users/${form.user.id}`}
                     className="text-sm hover:underline"
@@ -60,6 +61,8 @@ export function FormTable({ forms, total, page, totalPages, search, filter }: Fo
                 >
                     {form.user.email}
                 </Link>
+            ) : (
+                <span className="text-sm text-muted-foreground">Org-owned</span>
             ),
         },
         {
@@ -68,7 +71,7 @@ export function FormTable({ forms, total, page, totalPages, search, filter }: Fo
                 <div className="flex flex-wrap gap-1">
                     {form.takenDown ? (
                         <Badge variant="destructive">Taken Down</Badge>
-                    ) : form.disabledByUser ? (
+                    ) : form.disabledByUser || !form.active ? (
                         <Badge variant="outline">Disabled</Badge>
                     ) : (
                         <Badge variant="secondary">Active</Badge>

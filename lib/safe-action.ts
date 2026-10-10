@@ -1,6 +1,6 @@
 import { auth } from "@/auth"
 import { getAuthUserState, getOrganizationSuspension } from "@/lib/data/auth"
-import { rateLimit, rateLimiters } from "@/lib/rate-limit"
+import { isRateLimitOutage, rateLimit, rateLimiters } from "@/lib/rate-limit"
 import { logError } from "@/lib/logger"
 import { ApiError, UpgradeRequiredError, type UpgradeRequiredDetails } from "@/lib/api-error-utils"
 import { Prisma } from "@prisma/client"
@@ -57,6 +57,12 @@ function actionErrorState(scope: string, error: unknown): ActionState<never> {
   }
   logError(scope, "Operation failed", error)
   return { error: "Operation failed" }
+}
+
+function rateLimitedActionMessage(limited: Response): string {
+  return isRateLimitOutage(limited)
+    ? "This is temporarily unavailable. Please try again shortly."
+    : "Too many requests. Please try again later."
 }
 
 function parseActionData<T>(schema: z.ZodSchema<T> | undefined, data: unknown): { data: T } | { error: string } {
@@ -127,7 +133,7 @@ export async function runSecureAction<T = void, R = unknown>(
   if (options.rateLimitKey) {
     const limited = await rateLimit(options.rateLimitKey, userId)
     if (limited) {
-      return { error: "Too many requests. Please try again later." }
+      return { error: rateLimitedActionMessage(limited) }
     }
   }
 
@@ -213,7 +219,7 @@ export async function runScopedAction<T = void, R = unknown>(
   if (options.rateLimitKey) {
     const limited = await rateLimit(options.rateLimitKey, userId)
     if (limited) {
-      return { error: "Too many requests. Please try again later." }
+      return { error: rateLimitedActionMessage(limited) }
     }
   }
 

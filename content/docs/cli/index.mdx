@@ -95,7 +95,7 @@ anonli config validate
 
 ## JSON Output
 
-Most commands support `--json` for machine-readable output, making the CLI easy to integrate into scripts and pipelines:
+These commands support `--json` for machine-readable output, making the CLI easy to integrate into scripts and pipelines: `alias list`, `alias stats`, `drop list`, `drop info`, `drop recipient list`/`add`, `recipient list`, `domain list`, `form list`, `form info`, `form submission list`/`get`, and `whoami`. Other commands (for example `drop upload` and `alias new`) do not accept `--json`:
 
 ```bash
 anonli alias list --json | jq '.[0].email'

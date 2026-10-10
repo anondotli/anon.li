@@ -50,7 +50,9 @@ interface FormDetailClientProps {
         deletedAt: Date | null
         createdAt: Date
         updatedAt: Date
-        user: { id: string; email: string; name: string | null; tosViolations: number }
+        // Null for an org-owned form whose creating user was deleted.
+        user: { id: string; email: string; name: string | null; tosViolations: number } | null
+        organizationId: string | null
         ownerKey: { id: string; vaultGeneration: number; createdAt: Date; updatedAt: Date } | null
         _count: { submissions: number }
     }
@@ -154,7 +156,7 @@ export function FormDetailClient({ form }: FormDetailClientProps) {
                     <div className="flex gap-2 mt-2">
                         {form.takenDown ? (
                             <Badge variant="destructive">Taken Down</Badge>
-                        ) : form.disabledByUser ? (
+                        ) : form.disabledByUser || !form.active ? (
                             <Badge variant="outline">Disabled</Badge>
                         ) : (
                             <Badge variant="secondary">Active</Badge>
@@ -259,19 +261,32 @@ export function FormDetailClient({ form }: FormDetailClientProps) {
                     <User className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                    <div className="flex items-center justify-between">
-                        <div>
-                            <p className="font-medium">{form.user.email}</p>
-                            <p className="text-sm text-muted-foreground">
-                                {form.user.name || "No name"} · {form.user.tosViolations} ToS violations
-                            </p>
+                    {form.user ? (
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <p className="font-medium">{form.user.email}</p>
+                                <p className="text-sm text-muted-foreground">
+                                    {form.user.name || "No name"} · {form.user.tosViolations} ToS violations
+                                </p>
+                            </div>
+                            <Button variant="outline" size="sm" asChild>
+                                <Link href={`/admin/users/${form.user.id}`}>
+                                    View User
+                                </Link>
+                            </Button>
                         </div>
-                        <Button variant="outline" size="sm" asChild>
-                            <Link href={`/admin/users/${form.user.id}`}>
-                                View User
-                            </Link>
-                        </Button>
-                    </div>
+                    ) : form.organizationId ? (
+                        <div className="flex items-center justify-between">
+                            <p className="text-sm text-muted-foreground">Org-owned (creating user was deleted)</p>
+                            <Button variant="outline" size="sm" asChild>
+                                <Link href={`/admin/organizations/${form.organizationId}`}>
+                                    View Organization
+                                </Link>
+                            </Button>
+                        </div>
+                    ) : (
+                        <p className="text-sm text-muted-foreground">No owner</p>
+                    )}
                 </CardContent>
             </Card>
 

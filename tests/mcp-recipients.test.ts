@@ -3,11 +3,12 @@
  */
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { personalScope } from "@/lib/ownership"
+import { fakeGate } from "./helpers/mcp-fake-gate"
 
 const getRecipients = vi.fn()
 const addRecipient = vi.fn()
 
-const invokeTool = vi.fn(async (_session, _opts, handler) => handler({ id: "user-1" }))
+const invokeTool = vi.fn(fakeGate({ id: "user-1" }))
 
 vi.mock("@/lib/services/recipient", () => ({
     RecipientService: { getRecipients, addRecipient },
@@ -51,10 +52,10 @@ const session = { userId: "user-1", clientId: "client-1" }
 describe("MCP recipient tools", () => {
     beforeEach(() => {
         vi.clearAllMocks()
-        invokeTool.mockImplementation(async (_session, _opts, handler) => handler({ id: "user-1" }))
+        invokeTool.mockImplementation(fakeGate({ id: "user-1" }))
     })
 
-    it("list_recipients gates on anon.li:aliases and reports verification + pgp flags", async () => {
+    it("list_recipients gates on anon.li:aliases, uses the read (api) rate-limit bucket, and reports verification + pgp flags", async () => {
         getRecipients.mockResolvedValueOnce([
             {
                 id: "r1",
@@ -86,7 +87,7 @@ describe("MCP recipient tools", () => {
         }
         expect(invokeTool).toHaveBeenCalledWith(
             session,
-            { scope: "anon.li:aliases", rateLimit: "recipientOps" },
+            expect.objectContaining({ scope: "anon.li:aliases", rateLimit: "api" }),
             expect.any(Function),
         )
         expect(getRecipients).toHaveBeenCalledWith(personalScope("user-1"))
@@ -106,7 +107,7 @@ describe("MCP recipient tools", () => {
         }
         expect(invokeTool).toHaveBeenCalledWith(
             session,
-            { scope: "anon.li:aliases", rateLimit: "recipientOps" },
+            expect.objectContaining({ scope: "anon.li:aliases", rateLimit: "recipientOps" }),
             expect.any(Function),
         )
         expect(addRecipient).toHaveBeenCalledWith(personalScope("user-1"), "new@example.com")

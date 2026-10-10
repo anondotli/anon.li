@@ -2,7 +2,12 @@ import { NextResponse, type NextRequest } from "next/server";
 import crypto from "crypto";
 import { getSessionCookie } from "better-auth/cookies";
 import { nanoid } from "nanoid";
-import { appendVaryHeader, createMarkdownRewriteUrl, shouldRewriteToMarkdown } from "@/lib/markdown-negotiation";
+import {
+    appendVaryHeader,
+    createMarkdownRewriteUrl,
+    MARKDOWN_REWRITE_HEADER,
+    shouldRewriteToMarkdown,
+} from "@/lib/markdown-negotiation";
 import { THEME_INIT_SCRIPT_SHA256 } from "@/lib/theme-init";
 
 const TURNSTILE_ORIGIN = "https://challenges.cloudflare.com"
@@ -17,9 +22,13 @@ const TWO_FACTOR_COOKIE_NAMES = ["better-auth.two_factor", "__Secure-better-auth
 const NEXT_THEMES_SCRIPT_SHA256 = "n46vPwSWuMC0W703pBofImv82Z26xo4LXymv0E9caPk="
 
 // Paths that render per-request and need a strict nonce-based CSP.
-// Everything else (marketing, blog, docs, public drop/form pages) is treated
-// as static-eligible and receives a relaxed-but-scoped CSP without nonce so
-// the HTML can be cached at the edge.
+// Everything else (marketing, blog, docs) is treated as static-eligible and
+// receives a relaxed-but-scoped CSP without nonce so the HTML can be cached at
+// the edge.
+// The public Drop (/d) and Form (/f, /embed/f) pages handle key material held
+// in the URL fragment, so they get the strict policy too. They already render
+// per request (route group app/(public) is force-dynamic), so a per-request
+// nonce costs nothing; /f stays embeddable via frame-ancestors below.
 const STRICT_CSP_PATH_PREFIXES = [
     "/api",
     "/dashboard",
@@ -32,6 +41,9 @@ const STRICT_CSP_PATH_PREFIXES = [
     "/verify-recipient",
     "/workspace",
     "/oauth",
+    "/d",
+    "/f",
+    "/embed/f",
 ] as const
 
 function pathNeedsStrictCsp(pathname: string): boolean {
@@ -174,8 +186,11 @@ export default async function proxy(req: NextRequest) {
     // carry the destination through /login and /2fa. Always overwritten here, so a
     // client-supplied value never survives (and consumers still sanitize it).
     requestHeaders.set("x-pathname", `${pathname}${req.nextUrl.search}`)
+    // Only the proxy may mark a request as a negotiated markdown rewrite.
+    requestHeaders.delete(MARKDOWN_REWRITE_HEADER)
 
     if (shouldRewriteToMarkdown(req)) {
+        requestHeaders.set(MARKDOWN_REWRITE_HEADER, "1")
         const response = NextResponse.rewrite(createMarkdownRewriteUrl(req), {
             request: {
                 headers: requestHeaders,
@@ -249,8 +264,11 @@ export default async function proxy(req: NextRequest) {
 // /api/health. These don't need CSP/nonce/CORS handling, and skipping them
 // avoids a per-request crypto.randomBytes + nanoid + CSP build that previously
 // ran on every uptime probe, sitemap fetch, robots fetch, and asset request.
+// Under /cli and /docs only the concrete static files in public/ are skipped —
+// the /blog, /docs and /cli pages themselves must still get CSP, X-Request-Id,
+// Vary, markdown negotiation and ?ref= capture.
 export const config = {
     matcher: [
-        '/((?!_next/static|_next/image|_next/data|favicon\\.ico|favicon-\\d+x\\d+\\.png|apple-touch-icon\\.png|android-chrome-\\d+x\\d+\\.png|icon-\\d+\\.png|og-image\\.png|noise\\.svg|site\\.webmanifest|canary\\.json|robots\\.txt|llms\\.txt|sitemap\\.xml|sitemap-\\d+\\.xml|fonts/.*|videos/.*|blog/.*|cli/.*|docs/.*|\\.well-known/.*|ingest/.*|api/health).*)',
+        '/((?!_next/static|_next/image|_next/data|favicon\\.ico|favicon-\\d+x\\d+\\.png|apple-touch-icon\\.png|android-chrome-\\d+x\\d+\\.png|icon-\\d+\\.png|og-image\\.png|noise\\.svg|(?:black|white)-square\\.svg|anonli\\.lottie|site\\.webmanifest|canary\\.json|robots\\.txt|llms\\.txt|sitemap\\.xml|sitemap-\\d+\\.xml|fonts/.*|videos/.*|cli/install\\.(?:sh|ps1)|docs/context7\\.json|\\.well-known/.*|ingest/.*|api/health).*)',
     ],
 };

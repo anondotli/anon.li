@@ -14,7 +14,7 @@ interface Domain {
     verified: boolean
 }
 
-export function DomainActions({ domain }: { domain: Domain }) {
+export function DomainActions({ domain, aliasCount }: { domain: Domain; aliasCount: number }) {
     const router = useRouter()
     const [showDeleteDialog, setShowDeleteDialog] = useState(false)
     const [showVerifyDialog, setShowVerifyDialog] = useState(false)
@@ -94,7 +94,7 @@ export function DomainActions({ domain }: { domain: Domain }) {
                 open={showDeleteDialog}
                 onOpenChange={setShowDeleteDialog}
                 title="Delete Domain"
-                description={`Are you sure you want to delete ${domain.domain}? This action cannot be undone. Aliases using this domain will remain but may stop working.`}
+                description={`Are you sure you want to delete ${domain.domain}? This also permanently deletes the owner's ${aliasCount} alias${aliasCount === 1 ? "" : "es"} on this domain. This action cannot be undone.`}
                 confirmLabel="Delete Domain"
                 onConfirm={handleDelete}
                 loading={loading}

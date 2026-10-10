@@ -1,12 +1,13 @@
 import { z } from "zod"
 import type { McpServer } from "@modelcontextprotocol/server"
 import { RecipientService } from "@/lib/services/recipient"
-import { invokeTool, toolResult } from "@/lib/mcp/invoke"
+import { toolResult } from "@/lib/mcp/invoke"
+import { registerMcpTool } from "@/lib/mcp/define-tool"
 import { personalScope } from "@/lib/ownership"
 import type { McpSession } from "@/lib/mcp/types"
 
 export function registerRecipientTools(server: McpServer, session: McpSession) {
-    server.registerTool(
+    registerMcpTool(server, session,
         "list_recipients",
         {
             title: "List recipients",
@@ -29,7 +30,10 @@ export function registerRecipientTools(server: McpServer, session: McpSession) {
                 })),
             }),
         },
-        async () => invokeTool(session, { scope: "anon.li:aliases", rateLimit: "recipientOps" }, async (user) => {
+        // Reads use the general API bucket (matches REST GET /api/v1/recipient);
+        // the tighter recipientOps bucket is for writes that send email.
+        { scope: "anon.li:aliases", rateLimit: "api" },
+        async (_args, user) => {
             const recipients = await RecipientService.getRecipients(personalScope(user.id))
             return toolResult({
                 total: recipients.length,
@@ -42,10 +46,10 @@ export function registerRecipientTools(server: McpServer, session: McpSession) {
                     created_at: r.createdAt.toISOString(),
                 })),
             })
-        }),
+        },
     )
 
-    server.registerTool(
+    registerMcpTool(server, session,
         "add_recipient",
         {
             title: "Add recipient",
@@ -69,7 +73,8 @@ export function registerRecipientTools(server: McpServer, session: McpSession) {
                 message: z.string(),
             }),
         },
-        async ({ email }) => invokeTool(session, { scope: "anon.li:aliases", rateLimit: "recipientOps" }, async (user) => {
+        { scope: "anon.li:aliases", rateLimit: "recipientOps" },
+        async ({ email }, user) => {
             const recipient = await RecipientService.addRecipient(personalScope(user.id), email)
             return toolResult({
                 id: recipient.id,
@@ -78,6 +83,6 @@ export function registerRecipientTools(server: McpServer, session: McpSession) {
                 verification_sent: true,
                 message: "Verification email sent. The recipient must click the link before this address can receive alias mail.",
             })
-        }),
+        },
     )
 }

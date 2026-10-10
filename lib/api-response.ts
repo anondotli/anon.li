@@ -162,6 +162,8 @@ export const ErrorCodes = {
     ORG_KEY_GENERATION_MISMATCH: "ORG_KEY_GENERATION_MISMATCH",
     // …or releasing a grant would leave no holder of the current org key.
     ORG_KEY_LAST_HOLDER: "ORG_KEY_LAST_HOLDER",
+    // …or vault setup was retried after it already succeeded (treat as done).
+    VAULT_ALREADY_CONFIGURED: "VAULT_ALREADY_CONFIGURED",
     GONE: "GONE",
     RATE_LIMITED: "RATE_LIMITED",
     PLAN_LIMIT_EXCEEDED: "PLAN_LIMIT_EXCEEDED",

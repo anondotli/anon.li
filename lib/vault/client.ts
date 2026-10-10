@@ -1,5 +1,6 @@
 "use client"
 
+import posthog from "posthog-js"
 import { authClient } from "@/lib/auth-client"
 import {
     arrayBufferToBase64Url,
@@ -103,6 +104,17 @@ export function clearVaultForSignOut(source: string): Promise<void> {
         })
     } catch {
         // Cross-tab sync unavailable; other tabs lock on their next request.
+    }
+
+    // Sign-out navigates with a full page load, so PostHogIdentify never sees
+    // the userId → null transition. Reset here so the next person on this
+    // browser is not attributed to the previous user's identified profile.
+    if (process.env.NEXT_PUBLIC_POSTHOG_KEY) {
+        try {
+            posthog.reset()
+        } catch {
+            // Analytics must never block sign-out.
+        }
     }
     return cleared
 }

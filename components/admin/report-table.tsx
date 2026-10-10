@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
-import { ChevronLeft, ChevronRight, ExternalLink, FileBox, Mail, Search } from "lucide-react"
+import { ChevronLeft, ChevronRight, ClipboardList, ExternalLink, FileBox, Mail, Search } from "lucide-react"
 import { formatDate, getReportStatusInfo, getReasonLabel } from "@/lib/format"
 
 interface Report {
@@ -32,7 +32,6 @@ interface Report {
     description: string
     contactEmail: string | null
     decryptionKey: string | null
-    reporterIp: string
     status: string
     priority?: string | null
     reviewNotes: string | null
@@ -72,7 +71,11 @@ export function ReportTable({ reports, total, page, totalPages, status, serviceT
 
     const updateParams = (key: string, value: string) => {
         const params = new URLSearchParams(searchParams.toString())
-        if (value && value !== "all") {
+        // A missing status means "pending" (the default), so "all" must be
+        // kept explicitly in the URL for the status filter.
+        if (key === "status" && value === "all") {
+            params.set(key, value)
+        } else if (value && value !== "all") {
             params.set(key, value)
         } else {
             params.delete(key)
@@ -124,6 +127,7 @@ export function ReportTable({ reports, total, page, totalPages, status, serviceT
                         <SelectItem value="all">All Types</SelectItem>
                         <SelectItem value="drop">Drop</SelectItem>
                         <SelectItem value="alias">Alias</SelectItem>
+                        <SelectItem value="form">Form</SelectItem>
                     </SelectContent>
                 </Select>
             </div>
@@ -163,6 +167,8 @@ export function ReportTable({ reports, total, page, totalPages, status, serviceT
                                         <div className="flex items-center gap-2">
                                             {report.serviceType === "drop" ? (
                                                 <FileBox className="h-4 w-4" />
+                                            ) : report.serviceType === "form" ? (
+                                                <ClipboardList className="h-4 w-4" />
                                             ) : (
                                                 <Mail className="h-4 w-4" />
                                             )}
@@ -173,6 +179,14 @@ export function ReportTable({ reports, total, page, totalPages, status, serviceT
                                         {report.serviceType === "drop" ? (
                                             <Link
                                                 href={`/admin/drops/${report.resourceId}`}
+                                                className="font-mono text-sm hover:underline"
+                                                onClick={(e) => e.stopPropagation()}
+                                            >
+                                                {report.resourceId.slice(0, 12)}...
+                                            </Link>
+                                        ) : report.serviceType === "form" ? (
+                                            <Link
+                                                href={`/admin/forms/${report.resourceId}`}
                                                 className="font-mono text-sm hover:underline"
                                                 onClick={(e) => e.stopPropagation()}
                                             >

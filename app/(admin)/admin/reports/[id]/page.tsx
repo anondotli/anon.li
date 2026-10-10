@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation"
 import { AdminService } from "@/lib/services/admin"
+import { NotFoundError } from "@/lib/api-error-utils"
 import { ReportReviewPage } from "@/components/admin/report-review-page"
 
 interface ReportDetailPageProps {
@@ -12,8 +13,10 @@ export default async function ReportDetailPage({ params }: ReportDetailPageProps
     let data
     try {
         data = await AdminService.getReportWithContext(id)
-    } catch {
-        notFound()
+    } catch (error) {
+        // Only a missing report is a 404; DB/decrypt failures must surface.
+        if (error instanceof NotFoundError) notFound()
+        throw error
     }
 
     return <ReportReviewPage data={data} />

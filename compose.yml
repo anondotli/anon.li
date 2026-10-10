@@ -1,0 +1,87 @@
+# Local development stack: PostgreSQL, S3-compatible storage standing in for
+# Cloudflare R2, and an Upstash-compatible Redis REST endpoint.
+#
+#   docker compose up -d        (or: podman compose up -d)
+#
+# See docs/local-development.md for the matching .env values. Every port binds to
+# 127.0.0.1 only, and every credential below is a throwaway local-only value.
+# Images are pinned by tag + digest, like the GitHub Actions in CI.
+
+name: anonli
+
+services:
+  postgres:
+    image: docker.io/library/postgres:17.11-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+    environment:
+      POSTGRES_USER: anonli
+      POSTGRES_PASSWORD: anonli
+      POSTGRES_DB: anonli
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U anonli -d anonli"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  # MinIO no longer publishes official container images; this is Chainguard's
+  # maintained MinIO build. The app's S3 clients use path-style addressing, which
+  # MinIO requires, and MinIO allows cross-origin browser requests by default.
+  minio:
+    image: cgr.dev/chainguard/minio:latest@sha256:7df55d002b698e4494a131b848dd553361bbe58b7e19f62d9623c29af1ba9ccf
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: anonli-local
+      MINIO_ROOT_PASSWORD: anonli-local-secret
+    ports:
+      - "127.0.0.1:9000:9000" # S3 API (R2_ENDPOINT)
+      - "127.0.0.1:9001:9001" # web console
+    volumes:
+      - minio-data:/data
+
+  # One-shot: creates the private Drop/Form bucket, then exits.
+  minio-init:
+    image: docker.io/amazon/aws-cli:2.37.2@sha256:e38214027df83cb6631adcf980a092a98d1d29788789bff2a0f424e87e3da8ed
+    depends_on:
+      - minio
+    environment:
+      AWS_ACCESS_KEY_ID: anonli-local
+      AWS_SECRET_ACCESS_KEY: anonli-local-secret
+      AWS_DEFAULT_REGION: us-east-1
+      BUCKET: anonli-local
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        for attempt in $$(seq 1 30); do
+          if aws --endpoint-url http://minio:9000 s3api head-bucket --bucket "$$BUCKET" >/dev/null 2>&1; then
+            echo "bucket $$BUCKET ready"; exit 0
+          fi
+          aws --endpoint-url http://minio:9000 s3api create-bucket --bucket "$$BUCKET" >/dev/null 2>&1 && continue
+          sleep 1
+        done
+        echo "MinIO did not become ready" >&2; exit 1
+    restart: "no"
+
+  redis:
+    image: docker.io/library/redis:8.10.1-alpine@sha256:ef216d85ec44f4fdf7c0e6df2d1757a4734ed32fbb278cabd3181b5a27353b79
+    volumes:
+      - redis-data:/data
+
+  # Upstash-compatible REST API in front of Redis (UPSTASH_REDIS_REST_URL).
+  redis-http:
+    image: docker.io/hiett/serverless-redis-http:0.0.10@sha256:65128347949bca511e448fd7238780d624573d74c22b79155a7563db19e9b678
+    depends_on:
+      - redis
+    environment:
+      SRH_MODE: env
+      SRH_TOKEN: anonli-local-redis-token
+      SRH_CONNECTION_STRING: redis://redis:6379
+    ports:
+      - "127.0.0.1:8079:80"
+
+volumes:
+  postgres-data:
+  minio-data:
+  redis-data:

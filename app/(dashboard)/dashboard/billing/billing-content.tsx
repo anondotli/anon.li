@@ -48,7 +48,7 @@ export function BillingContent({
         <div className="space-y-10 max-w-5xl">
             <div className="space-y-6">
                 <div>
-                    <h2 className="text-3xl font-medium tracking-tight font-serif mb-2">Billing</h2>
+                    <h1 className="text-3xl font-medium tracking-tight font-serif mb-2">Billing</h1>
                     <p className="text-muted-foreground font-light">
                         Manage your subscription and billing information.
                     </p>

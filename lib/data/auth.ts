@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma"
 import type { SubscriptionLike } from "@/lib/limits"
 import type { Prisma } from "@prisma/client"
+import { activeTeamSubscriptionWhere, entitlingSubscriptionWhere } from "@/lib/subscription-entitlement"
 
 interface AuthUserState {
     id: string
@@ -14,11 +15,13 @@ interface AuthUserState {
 
 interface AuthApiKeyRecord {
     id: string
-    user: Pick<AuthUserState, "id" | "banned" | "subscriptions" | "referralPlusUntil">
+    user: Pick<AuthUserState, "id" | "banned" | "subscriptions" | "referralPlusUntil" | "twoFactorEnabled">
     // Org-owned keys (organizationId set) meter quota against the org and resolve
     // tier from the org's subscriptions (Track G). null = personal key.
     organizationId: string | null
     organizationSubscriptions: SubscriptionLike[] | null
+    /** The owning org's 2FA policy (false for personal keys). */
+    organizationEnforce2FA: boolean
 }
 
 const ACTIVE_SUBSCRIPTION_FIELDS = {
@@ -36,10 +39,17 @@ const ACTIVE_PERSONAL_SUBSCRIPTION_SELECT = {
     select: ACTIVE_SUBSCRIPTION_FIELDS,
 } satisfies Prisma.User$subscriptionsArgs
 
-const ACTIVE_ORG_SUBSCRIPTION_SELECT = {
-    where: { status: { in: ["active", "trialing"] } },
-    select: ACTIVE_SUBSCRIPTION_FIELDS,
-} satisfies Prisma.Organization$subscriptionsArgs
+/**
+ * Entitling org (team) subscriptions — the shared definition from
+ * lib/subscription-entitlement (status AND period). A function so the period
+ * cut-off is computed per query.
+ */
+function activeOrgSubscriptionSelect() {
+    return {
+        where: entitlingSubscriptionWhere(),
+        select: ACTIVE_SUBSCRIPTION_FIELDS,
+    } satisfies Prisma.Organization$subscriptionsArgs
+}
 
 /**
  * Active subscriptions owned by an organization. Used to derive ORG-scope
@@ -56,7 +66,7 @@ export async function getOrgLimitContext(organizationId: string): Promise<{
         where: { id: organizationId },
         select: {
             storageUsed: true,
-            subscriptions: ACTIVE_ORG_SUBSCRIPTION_SELECT,
+            subscriptions: activeOrgSubscriptionSelect(),
         },
     })
     return {
@@ -75,7 +85,7 @@ export async function getOrgLimitContext(organizationId: string): Promise<{
  */
 export async function isOrgSubscribed(organizationId: string): Promise<boolean> {
     const sub = await prisma.subscription.findFirst({
-        where: { organizationId, status: { in: ["active", "trialing"] } },
+        where: activeTeamSubscriptionWhere(organizationId),
         select: { id: true },
     })
     return Boolean(sub)
@@ -102,7 +112,7 @@ export async function getOrganizationAccessState(
         select: {
             suspendedAt: true,
             subscriptions: {
-                where: { status: { in: ["active", "trialing"] } },
+                where: entitlingSubscriptionWhere(),
                 take: 1,
                 select: { id: true },
             },
@@ -179,7 +189,7 @@ export async function getAuthUserState(userId: string): Promise<AuthUserState | 
         const orgSubscriptions = await prisma.subscription.findMany({
             where: {
                 organizationId: { in: orgIds },
-                status: { in: ["active", "trialing"] },
+                ...entitlingSubscriptionWhere(),
             },
             select: ACTIVE_SUBSCRIPTION_FIELDS,
         })
@@ -196,17 +206,18 @@ export async function getAuthApiKeyRecord(keyHash: string): Promise<(AuthApiKeyR
             id: true,
             expiresAt: true,
             organizationId: true,
-            organization: { select: { subscriptions: ACTIVE_ORG_SUBSCRIPTION_SELECT } },
+            organization: { select: { enforce2FA: true, subscriptions: activeOrgSubscriptionSelect() } },
             user: {
                 select: {
                     id: true,
                     banned: true,
+                    twoFactorEnabled: true,
                     referralPlusUntil: true,
                     subscriptions: ACTIVE_PERSONAL_SUBSCRIPTION_SELECT,
                     memberships: {
                         select: {
                             organization: {
-                                select: { subscriptions: ACTIVE_ORG_SUBSCRIPTION_SELECT },
+                                select: { subscriptions: activeOrgSubscriptionSelect() },
                             },
                         },
                     },
@@ -233,6 +244,7 @@ export async function getAuthApiKeyRecord(keyHash: string): Promise<(AuthApiKeyR
         expiresAt: apiKey.expiresAt,
         organizationId: apiKey.organizationId,
         organizationSubscriptions: apiKey.organization?.subscriptions ?? null,
+        organizationEnforce2FA: Boolean(apiKey.organization?.enforce2FA),
         user: {
             ...user,
             subscriptions: [

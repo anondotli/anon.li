@@ -13,7 +13,7 @@ interface RecipientWithUser {
     pgpFingerprint: string | null
     scheduledForRemovalAt: Date | null
     createdAt: Date
-    user: { id: string; email: string; name: string | null }
+    user: { id: string; email: string; name: string | null } | null
     aliasCount: number
 }
 

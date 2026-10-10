@@ -10,7 +10,7 @@ import {
     type PaidTier,
     type Product,
 } from "@/config/plans"
-import { DAY_MS } from "@/lib/constants"
+import { isEntitlingSubscription, type EntitlementCheckable } from "@/lib/subscription-entitlement"
 import { UpgradeRequiredError, type UpgradeRequiredDetails } from "@/lib/api-error-utils"
 
 type DropFeatures = typeof DROP_FEATURES[keyof typeof DROP_FEATURES];
@@ -36,9 +36,7 @@ export type UserSub = { subscriptions?: SubscriptionLike[] | null; referralPlusU
 const TIER_RANK: Record<string, number> = { free: 0, plus: 1, pro: 2 }
 
 function isActive(sub: SubscriptionLike): boolean {
-    if (sub.status !== "active" && sub.status !== "trialing") return false
-    if (sub.currentPeriodEnd && sub.currentPeriodEnd.getTime() + DAY_MS < Date.now()) return false
-    return true
+    return isEntitlingSubscription(sub)
 }
 
 function hasActiveReferralPlus(user?: UserSub | null): boolean {
@@ -63,6 +61,15 @@ function resolveTierForProduct(user: UserSub | null | undefined, product: Produc
     return best
 }
 
+/**
+ * The tier a user holds for ONE product (bundle/business count for every
+ * product; referral Plus tops up). Use this — not {@link getEffectiveTier} —
+ * wherever a limit belongs to a specific product, e.g. a route's API quota.
+ */
+export function getProductTier(user: UserSub | null | undefined, product: Product): 'free' | PaidTier {
+    return resolveTierForProduct(user, product)
+}
+
 export function getPlanLimits(user?: UserSub | null): AliasEntitlements {
     const tier = resolveTierForProduct(user, 'alias')
     return tier === 'free' ? ALIAS_LIMITS.free : ALIAS_LIMITS[tier]
@@ -73,15 +80,18 @@ export function getPlanLimits(user?: UserSub | null): AliasEntitlements {
  * zero-capacity workspace: members create and manage resources on their personal
  * account until the team subscribes. Call this in the ORG branch of every
  * resource-creation path (alias/recipient/domain/drop/form) before checking the
- * numeric limit — getOrgLimitContext returns an empty `subscriptions` array for a
- * free team, which is the exact "no active Business plan" signal.
+ * numeric limit. The org is "subscribed" only while one of its rows passes the
+ * shared {@link isEntitlingSubscription} check (entitling status AND period not
+ * lapsed past the access grace) — the same definition the team page, seat limit
+ * and member entitlement inheritance use, so a lapsed-but-still-"active" row
+ * can't keep unlocking org creation.
  */
-export function assertOrgPlanActive(
-    orgCtx: { subscriptions: unknown[] },
+export function assertOrgPlanActive<S extends EntitlementCheckable>(
+    orgCtx: { subscriptions: S[] },
     resourceLabel: string,
     scope: UpgradeRequiredDetails["scope"],
 ): void {
-    if (orgCtx.subscriptions.length === 0) {
+    if (!orgCtx.subscriptions.some((sub) => isEntitlingSubscription(sub))) {
         throw new UpgradeRequiredError(
             `Your team needs a Business subscription to create team ${resourceLabel}. ` +
                 `Subscribe from the Team page, or switch to your personal account to manage your own.`,

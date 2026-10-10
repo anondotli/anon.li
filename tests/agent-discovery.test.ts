@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  */
-import { LATEST_PROTOCOL_VERSION } from "@modelcontextprotocol/server"
+import { SUPPORTED_PROTOCOL_VERSIONS } from "@modelcontextprotocol/server"
 import { describe, expect, it } from "vitest"
 
 import { API_CATALOG_PROFILE, HOMEPAGE_LINK_HEADER } from "@/config/agent-discovery"
@@ -84,7 +84,8 @@ describe("agent discovery", () => {
         await expect(response.json()).resolves.toEqual({
             $schema: "https://static.modelcontextprotocol.io/schemas/mcp-server-card/v1.json",
             version: "1.0",
-            protocolVersion: LATEST_PROTOCOL_VERSION,
+            protocolVersion: "2026-07-28",
+            supportedProtocolVersions: ["2026-07-28", ...SUPPORTED_PROTOCOL_VERSIONS],
             serverInfo: {
                 name: "anon.li",
                 version: "1.0.0",
@@ -97,8 +98,8 @@ describe("agent discovery", () => {
                 endpoint: "https://anon.li/api/mcp",
             },
             capabilities: {
-                // Matches what the SDK reports from initialize once tools exist.
-                tools: { listChanged: true },
+                // Fixed tool set on a stateless server: no list_changed notifications.
+                tools: { listChanged: false },
             },
         })
 

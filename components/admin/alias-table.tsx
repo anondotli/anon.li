@@ -30,7 +30,8 @@ interface Alias {
     lastEmailAt: Date | null
     scheduledForRemovalAt: Date | null
     createdAt: Date
-    user: { id: string; email: string }
+    // Null for an org-owned alias whose creating user was deleted.
+    user: { id: string; email: string } | null
     recipients: Array<{
         id: string
         email: string
@@ -86,7 +87,7 @@ export function AliasTable({ aliases, total, page, totalPages, search, filter }:
         },
         {
             header: "Owner",
-            accessor: (alias) => (
+            accessor: (alias) => alias.user ? (
                 <Link
                     href={`/admin/users/${alias.user.id}`}
                     className="text-sm hover:underline"
@@ -94,6 +95,8 @@ export function AliasTable({ aliases, total, page, totalPages, search, filter }:
                 >
                     {alias.user.email}
                 </Link>
+            ) : (
+                <span className="text-sm text-muted-foreground">Org-owned</span>
             )
         },
         {

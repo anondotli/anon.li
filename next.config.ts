@@ -48,6 +48,9 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     "/d/**": ["./assets/og/**"],
     "/f/**": ["./assets/og/**"],
+    // /warrant-canary revalidates (ISR) and re-reads public/canary.json at
+    // runtime to recompute staleness; ship the file with the function.
+    "/warrant-canary": ["./public/canary.json", "./public/canary.json.sig"],
   },
   // Reverse-proxy PostHog (EU) so analytics ingestion is first-party and
   // ad-blocker resistant; posthog-js points api_host at /ingest. Static/array

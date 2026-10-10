@@ -2,7 +2,7 @@ import "server-only"
 
 import { APIError } from "@better-auth/core/error"
 import { prisma } from "@/lib/prisma"
-import { rateLimit } from "@/lib/rate-limit"
+import { isRateLimitOutage, rateLimit } from "@/lib/rate-limit"
 import { getAuthUserState, getOrganizationSuspension } from "@/lib/data/auth"
 import { recordMemberRemoved } from "@/lib/services/audit"
 import { isSafeMcpRedirectUri, validateMcpClientRegistration } from "@/lib/mcp/client-registration"
@@ -51,11 +51,27 @@ function stringField(source: unknown, key: string): string | null {
     return typeof value === "string" && value.length > 0 ? value : null
 }
 
-function tooManyRequests(code: string) {
+/**
+ * The auth error for a {@link rateLimit} rejection: "too many attempts" when the
+ * caller hit the limit, but an honest "temporarily unavailable" (503) when a
+ * fail-closed limiter could not reach Redis.
+ */
+export function rateLimitedAuthError(limited: Response, code: string) {
+    if (isRateLimitOutage(limited)) {
+        return APIError.from("SERVICE_UNAVAILABLE", {
+            message: "This is temporarily unavailable. Please try again in a moment.",
+            code: "AUTH_TEMPORARILY_UNAVAILABLE",
+        })
+    }
     return APIError.from("TOO_MANY_REQUESTS", {
         message: "Too many attempts. Please try again later.",
         code,
     })
+}
+
+async function enforceRateLimit(type: Parameters<typeof rateLimit>[0], code: string): Promise<void> {
+    const limited = await rateLimit(type)
+    if (limited) throw rateLimitedAuthError(limited, code)
 }
 
 function forbidden(code: string, message: string) {
@@ -99,7 +115,7 @@ async function assertActiveVerifiedAccount(session: HookSession): Promise<{ twoF
 export async function mcpOAuthBeforeHook(ctx: AuthHookContext, resolveSession: ResolveHookSession): Promise<void> {
     switch (ctx.path) {
         case "/oauth2/register": {
-            if (await rateLimit("mcpRegister")) throw tooManyRequests("MCP_REGISTRATION_RATE_LIMITED")
+            await enforceRateLimit("mcpRegister", "MCP_REGISTRATION_RATE_LIMITED")
             const registrationError = validateMcpClientRegistration(ctx.body)
             if (registrationError) {
                 throw APIError.from("BAD_REQUEST", {
@@ -113,7 +129,7 @@ export async function mcpOAuthBeforeHook(ctx: AuthHookContext, resolveSession: R
             // Only the client-facing request; the post-consent re-dispatch runs
             // inside the consent request and was validated when it started.
             if (!requestPathname(ctx)?.endsWith("/oauth2/authorize")) return
-            if (await rateLimit("mcpOAuth")) throw tooManyRequests("MCP_AUTHORIZATION_RATE_LIMITED")
+            await enforceRateLimit("mcpOAuth", "MCP_AUTHORIZATION_RATE_LIMITED")
             if (!isSafeMcpRedirectUri(field(ctx.query, "redirect_uri"))) {
                 throw APIError.from("BAD_REQUEST", {
                     message: "Invalid or insecure redirect URI",
@@ -124,11 +140,11 @@ export async function mcpOAuthBeforeHook(ctx: AuthHookContext, resolveSession: R
         }
         case "/oauth2/token":
         case "/oauth2/revoke": {
-            if (await rateLimit("mcpToken")) throw tooManyRequests("MCP_TOKEN_RATE_LIMITED")
+            await enforceRateLimit("mcpToken", "MCP_TOKEN_RATE_LIMITED")
             return
         }
         case "/oauth2/consent": {
-            if (await rateLimit("mcpOAuth")) throw tooManyRequests("MCP_CONSENT_RATE_LIMITED")
+            await enforceRateLimit("mcpOAuth", "MCP_CONSENT_RATE_LIMITED")
             // A session that skipped its 2FA challenge (magic link, social) or a
             // banned account must not grant a third party access to the account.
             // No session at all is rejected by the endpoint's own middleware.

@@ -70,8 +70,11 @@ async function withStore<T>(
 export async function storeDeviceKey(key: CryptoKey): Promise<void> {
     if (!getVaultStorageSupport().indexedDb) return
 
+    // Best effort, and never awaited: Firefox answers persist() only after the
+    // user responds to a permission prompt, so awaiting it left vault setup and
+    // unlock stuck on "Saving…" until the prompt was noticed.
     try {
-        await navigator.storage?.persist?.()
+        void navigator.storage?.persist?.()?.catch(() => {})
     } catch {
         // Best effort only.
     }

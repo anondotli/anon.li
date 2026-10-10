@@ -55,6 +55,8 @@ export interface AliasDetails {
     id: string
     email: string
     active: boolean
+    /** Set by an admin abuse takedown; independent of the owner's `active`. */
+    takenDownAt: Date | null
     emailsReceived: number
     emailsBlocked: number
     createdAt: Date

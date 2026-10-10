@@ -46,8 +46,11 @@ vi.mock("@better-auth/mcp", () => ({
 
 const findOauthClient = vi.fn()
 
+/** The PostHog client the route sees; null = analytics not configured. */
+const posthogState = vi.hoisted(() => ({ client: null as unknown }))
+
 vi.mock("@/lib/posthog.server", () => ({
-    getPostHogClient: () => null,
+    getPostHogClient: () => posthogState.client,
     flushPostHog: async () => {},
 }))
 
@@ -104,6 +107,7 @@ const AliasService = {
     countAliases: vi.fn(async () => 1),
     createAlias: vi.fn(async () => aliasRow),
     toggleAlias: vi.fn(async () => ({ ...aliasRow, active: false })),
+    updateAlias: vi.fn(async () => ({ ...aliasRow, active: false })),
     deleteAlias: vi.fn(async () => aliasRow),
 }
 vi.mock("@/lib/services/alias", () => ({ AliasService }))
@@ -155,6 +159,7 @@ const DropService = {
         }],
     })),
     toggleDrop: vi.fn(async () => true),
+    setDropDisabled: vi.fn(async () => true),
     deleteDrop: vi.fn(async () => {}),
 }
 vi.mock("@/lib/services/drop", () => ({ DropService }))
@@ -180,6 +185,7 @@ const FormService = {
         }],
     })),
     toggleForm: vi.fn(async () => true),
+    setFormDisabled: vi.fn(async () => true),
     deleteForm: vi.fn(async () => {}),
 }
 vi.mock("@/lib/services/form", () => ({ FormService }))
@@ -192,17 +198,23 @@ async function route() {
     return import("@/app/api/mcp/route")
 }
 
+/** Status + challenge of every response the route produced (newest last). */
+const seenResponses: Array<{ status: number, wwwAuthenticate: string | null }> = []
+
 /** fetch() that dispatches straight into the Next.js route handlers. */
 async function routeFetch(input: string | URL | Request, init?: RequestInit): Promise<Response> {
     const request = new Request(input, init)
     const handlers = await route()
+    let response: Response
     switch (request.method) {
-        case "POST": return handlers.POST(request)
-        case "GET": return handlers.GET(request)
-        case "DELETE": return handlers.DELETE(request)
-        case "OPTIONS": return handlers.OPTIONS(request)
-        default: return new Response(null, { status: 405 })
+        case "POST": response = await handlers.POST(request); break
+        case "GET": response = handlers.GET(request); break
+        case "DELETE": response = handlers.DELETE(request); break
+        case "OPTIONS": response = handlers.OPTIONS(request); break
+        default: response = new Response(null, { status: 405 })
     }
+    seenResponses.push({ status: response.status, wwwAuthenticate: response.headers.get("www-authenticate") })
+    return response
 }
 
 interface E2eClient {
@@ -272,6 +284,8 @@ function rpc(body: unknown, headers: Record<string, string> = {}) {
 
 function resetMocks() {
         vi.clearAllMocks()
+        seenResponses.length = 0
+        posthogState.client = null
         grantClaims()
         findOauthClient.mockResolvedValue({ disabled: false, consents: [{ id: "consent-1" }] })
         getAuthUserState.mockResolvedValue({
@@ -331,7 +345,13 @@ describe.each(CLIENT_ERAS)("/api/mcp end to end — %s", (_label, connect) => {
                 // tool, so a write tool that omits it is shown as destructive.
                 expect(typeof tool.annotations?.destructiveHint, tool.name).toBe("boolean")
                 expect(typeof tool.annotations?.idempotentHint, tool.name).toBe("boolean")
-                expect(tool.annotations?.destructiveHint, tool.name).toBe(tool.name.startsWith("delete_"))
+                // Deletes, plus toggle_alias (disabling an alias drops its mail).
+                expect(tool.annotations?.destructiveHint, tool.name)
+                    .toBe(tool.name.startsWith("delete_") || tool.name === "toggle_alias")
+                // Toggles take a target state, so repeating one is safe.
+                if (tool.name.startsWith("toggle_")) {
+                    expect(tool.annotations?.idempotentHint, tool.name).toBe(true)
+                }
             }
 
             // Every input property is documented for the model.
@@ -350,15 +370,15 @@ describe.each(CLIENT_ERAS)("/api/mcp end to end — %s", (_label, connect) => {
             ["list_aliases", { limit: 10, offset: 0 }],
             ["create_alias", {}],
             ["create_alias", { format: "custom", local_part: "jane.doe" }],
-            ["toggle_alias", { id: "alias-1" }],
+            ["toggle_alias", { id: "alias-1", active: false }],
             ["delete_alias", { id: "JANE.DOE@ANON.LI" }],
             ["list_recipients", undefined],
             ["add_recipient", { email: "new@example.com" }],
             ["list_drops", undefined],
-            ["toggle_drop", { id: "drop1234" }],
+            ["toggle_drop", { id: "drop1234", disabled: true }],
             ["delete_drop", { id: "drop1234" }],
             ["list_forms", {}],
-            ["toggle_form", { id: "form1234" }],
+            ["toggle_form", { id: "form1234", disabled: true }],
             ["delete_form", { id: "form1234" }],
         ]
 
@@ -392,7 +412,7 @@ describe.each(CLIENT_ERAS)("/api/mcp end to end — %s", (_label, connect) => {
 
     it("resolves alias email addresses case-insensitively", async () => {
         const client = await connectClient()
-        const result = await client.callTool({ name: "toggle_alias", arguments: { id: "  Jane.Doe@Anon.LI " } })
+        const result = await client.callTool({ name: "toggle_alias", arguments: { id: "  Jane.Doe@Anon.LI ", active: true } })
         expect(result.isError).toBeFalsy()
         expect(resolveAlias).toHaveBeenCalledWith("jane.doe@anon.li", expect.anything())
         await client.close()
@@ -400,14 +420,30 @@ describe.each(CLIENT_ERAS)("/api/mcp end to end — %s", (_label, connect) => {
 
     it("returns structured tool errors (not protocol errors) for business failures", async () => {
         const client = await connectClient()
-        const missing = await client.callTool({ name: "toggle_alias", arguments: { id: "nope" } })
+        const missing = await client.callTool({ name: "toggle_alias", arguments: { id: "nope", active: true } })
         expect(missing.isError).toBe(true)
         expect(missing._meta?.["anon.li/error"]).toMatchObject({ code: "NOT_FOUND" })
+        await client.close()
+    })
 
-        grantClaims("anon.li:aliases")
-        const scoped = await client.callTool({ name: "list_drops", arguments: {} })
-        expect(scoped.isError).toBe(true)
-        expect(scoped._meta?.["anon.li/error"]).toMatchObject({ code: "INSUFFICIENT_SCOPE" })
+    it("answers a tool call outside the token's scopes with an HTTP 403 step-up challenge", async () => {
+        const client = await connectClient()
+        grantClaims("anon.li:aliases offline_access")
+        await expect(client.callTool({ name: "list_drops", arguments: {} })).rejects.toThrow()
+        expect(DropService.listDrops).not.toHaveBeenCalled()
+
+        const challenge = seenResponses.at(-1)!
+        expect(challenge.status).toBe(403)
+        expect(challenge.wwwAuthenticate).toContain('error="insufficient_scope"')
+        // Granted scopes plus the missing one, so re-authorizing keeps existing access.
+        expect(challenge.wwwAuthenticate).toContain('scope="anon.li:aliases offline_access anon.li:drops"')
+        expect(challenge.wwwAuthenticate).toContain(
+            'resource_metadata="https://anon.li/.well-known/oauth-protected-resource/api/mcp"',
+        )
+
+        // Tools within the granted scopes keep working on the same token.
+        const allowed = await client.callTool({ name: "list_aliases", arguments: {} })
+        expect(allowed.isError).toBeFalsy()
         await client.close()
     })
 
@@ -415,10 +451,59 @@ describe.each(CLIENT_ERAS)("/api/mcp end to end — %s", (_label, connect) => {
         const client = await connectClient()
         const result = await client.callTool({ name: "list_drops", arguments: { limit: 1000 } })
         expect(result.isError).toBe(true)
+        expect(result._meta?.["anon.li/error"]).toMatchObject({ code: "VALIDATION_ERROR" })
         expect(DropService.listDrops).not.toHaveBeenCalled()
         await client.close()
     })
 
+})
+
+describe("/api/mcp with PostHog analytics configured", () => {
+    beforeEach(() => {
+        resetMocks()
+    })
+
+    it.each(CLIENT_ERAS)("advertises the same tools/list as without analytics — %s", async (_label, connect) => {
+        const { PostHog } = await import("posthog-node")
+        const withoutClient = await connect()
+        const baseline = await withoutClient.listTools()
+        await withoutClient.close()
+
+        const sent: unknown[] = []
+        const posthog = new PostHog("phc_test", {
+            host: "https://posthog.invalid",
+            flushAt: 1000,
+            flushInterval: 0,
+            fetch: async (_url, options) => {
+                sent.push(options.body)
+                return { status: 200, text: async () => "{}", json: async () => ({}) }
+            },
+        })
+        const capture = vi.spyOn(posthog, "capture")
+        posthogState.client = posthog
+
+        const withClient = await connect()
+        const instrumented = await withClient.listTools()
+        await withClient.callTool({ name: "add_recipient", arguments: { email: "new@example.com" } })
+        await withClient.close()
+
+        expect(instrumented).toEqual(baseline)
+        for (const tool of instrumented.tools) {
+            const properties = Object.keys(tool.inputSchema.properties ?? {})
+            expect(properties, tool.name).not.toContain("conversation_id")
+            expect(properties, tool.name).not.toContain("llm_model")
+        }
+
+        // Instrumentation was live, yet no event carried tool arguments/results.
+        expect(capture).toHaveBeenCalled()
+        for (const [event] of capture.mock.calls) {
+            const properties = (event as { properties?: Record<string, unknown> }).properties ?? {}
+            expect(properties).not.toHaveProperty("$mcp_parameters")
+            expect(properties).not.toHaveProperty("$mcp_response")
+            expect(JSON.stringify(properties)).not.toContain("new@example.com")
+        }
+        await posthog.shutdown()
+    })
 })
 
 describe("/api/mcp HTTP behaviour", () => {

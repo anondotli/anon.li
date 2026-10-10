@@ -5,23 +5,21 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { Client } from "@modelcontextprotocol/client"
 import { InMemoryTransport, McpServer } from "@modelcontextprotocol/server"
 import { personalScope } from "@/lib/ownership"
+import { fakeGate } from "./helpers/mcp-fake-gate"
 
 const getAliases = vi.fn()
 const countAliases = vi.fn(async () => 1)
 const createAlias = vi.fn()
 const toggleAlias = vi.fn()
+const updateAlias = vi.fn()
 const deleteAlias = vi.fn()
 const resolveAlias = vi.fn()
 
-const invokeTool = vi.fn(async (_session, _opts, handler) => handler({
-    id: "user-1",
-    stripeSubscriptionId: null,
-    stripePriceId: null,
-    stripeCurrentPeriodEnd: null,
-}))
+const gateUser = { id: "user-1", subscriptions: [] }
+const invokeTool = vi.fn(fakeGate(gateUser))
 
 vi.mock("@/lib/services/alias", () => ({
-    AliasService: { getAliases, countAliases, createAlias, toggleAlias, deleteAlias },
+    AliasService: { getAliases, countAliases, createAlias, toggleAlias, updateAlias, deleteAlias },
 }))
 
 vi.mock("@/app/api/v1/alias/_utils", () => ({
@@ -72,12 +70,7 @@ const session = { userId: "user-1", clientId: "client-1" }
 describe("MCP alias tools", () => {
     beforeEach(() => {
         vi.clearAllMocks()
-        invokeTool.mockImplementation(async (_session, _opts, handler) => handler({
-            id: "user-1",
-            stripeSubscriptionId: null,
-            stripePriceId: null,
-            stripeCurrentPeriodEnd: null,
-        }))
+        invokeTool.mockImplementation(fakeGate(gateUser))
     })
 
     it("list_aliases counts against the alias quota and never leaks vault-encrypted fields", async () => {
@@ -105,7 +98,7 @@ describe("MCP alias tools", () => {
 
         expect(invokeTool).toHaveBeenCalledWith(
             session,
-            { scope: "anon.li:aliases", quota: "alias", rateLimit: "api" },
+            expect.objectContaining({ scope: "anon.li:aliases", quota: "alias", rateLimit: "api" }),
             expect.any(Function),
         )
         const alias = out.structuredContent.aliases[0] as Record<string, unknown>
@@ -139,7 +132,7 @@ describe("MCP alias tools", () => {
 
         expect(invokeTool).toHaveBeenCalledWith(
             session,
-            { scope: "anon.li:aliases", quota: "alias", checkBan: "alias", rateLimit: "aliasCreate" },
+            expect.objectContaining({ scope: "anon.li:aliases", quota: "alias", checkBan: "alias", rateLimit: "aliasCreate" }),
             expect.any(Function),
         )
         expect(createAlias).toHaveBeenCalledWith(personalScope("user-1"), {
@@ -169,20 +162,38 @@ describe("MCP alias tools", () => {
         }))
     })
 
-    it("toggle_alias resolves by id-or-email and returns the updated state", async () => {
-        resolveAlias.mockResolvedValueOnce({ id: "a4", email: "old@anon.li" })
-        toggleAlias.mockResolvedValueOnce({ id: "a4", email: "old@anon.li", active: false })
+    it("toggle_alias sets the requested state (REST PATCH semantics) after resolving id-or-email", async () => {
+        resolveAlias.mockResolvedValue({ id: "a4", email: "old@anon.li" })
+        updateAlias.mockResolvedValue({ id: "a4", email: "old@anon.li", active: false })
 
         const server = makeServer()
         const { registerAliasTools } = await import("@/lib/mcp/tools/aliases")
         registerAliasTools(server as never, session)
 
-        const out = (await server.tools.get("toggle_alias")!.handler({ id: "old@anon.li" })) as {
-            structuredContent: { active: boolean }
+        // Repeating the call converges on the same state instead of flipping back.
+        for (let i = 0; i < 2; i++) {
+            const out = (await server.tools.get("toggle_alias")!.handler({ id: "old@anon.li", active: false })) as {
+                structuredContent: { active: boolean }
+            }
+            expect(out.structuredContent.active).toBe(false)
         }
         expect(resolveAlias).toHaveBeenCalledWith("old@anon.li", personalScope("user-1"))
-        expect(toggleAlias).toHaveBeenCalledWith(personalScope("user-1"), "a4")
-        expect(out.structuredContent.active).toBe(false)
+        expect(updateAlias).toHaveBeenNthCalledWith(1, personalScope("user-1"), "a4", { active: false })
+        expect(updateAlias).toHaveBeenNthCalledWith(2, personalScope("user-1"), "a4", { active: false })
+        expect(toggleAlias).not.toHaveBeenCalled()
+    })
+
+    it("toggle_alias requires the target state and is annotated idempotent + destructive", async () => {
+        const server = makeServer()
+        const { registerAliasTools } = await import("@/lib/mcp/tools/aliases")
+        registerAliasTools(server as never, session)
+
+        const out = (await server.tools.get("toggle_alias")!.handler({ id: "a4" })) as {
+            isError: boolean, _meta: Record<string, { code: string }>
+        }
+        expect(out.isError).toBe(true)
+        expect(out._meta["anon.li/error"]!.code).toBe("VALIDATION_ERROR")
+        expect(resolveAlias).not.toHaveBeenCalled()
     })
 
     it("toggle_alias returns an isError result when the alias is unknown", async () => {
@@ -190,11 +201,47 @@ describe("MCP alias tools", () => {
         const server = makeServer()
         const { registerAliasTools } = await import("@/lib/mcp/tools/aliases")
         registerAliasTools(server as never, session)
-        const out = (await server.tools.get("toggle_alias")!.handler({ id: "missing" })) as {
+        const out = (await server.tools.get("toggle_alias")!.handler({ id: "missing", active: true })) as {
             isError: boolean
         }
         expect(out.isError).toBe(true)
-        expect(toggleAlias).not.toHaveBeenCalled()
+        expect(updateAlias).not.toHaveBeenCalled()
+    })
+
+    it("create_alias defaults to a custom alias when local_part is given without format", async () => {
+        createAlias.mockResolvedValueOnce({
+            id: "a6",
+            email: "jane@anon.li",
+            active: true,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+        })
+        const server = makeServer()
+        const { registerAliasTools } = await import("@/lib/mcp/tools/aliases")
+        registerAliasTools(server as never, session)
+        const out = (await server.tools.get("create_alias")!.handler({ local_part: "jane" })) as { isError?: boolean }
+        expect(out.isError).toBeFalsy()
+        expect(createAlias).toHaveBeenCalledWith(personalScope("user-1"), expect.objectContaining({
+            format: "CUSTOM",
+            localPart: "jane",
+        }))
+    })
+
+    it.each([
+        [{ format: "random", local_part: "jane" }, "local_part"],
+        [{ format: "custom" }, "local_part"],
+        [{ recipient_ids: ["r1"], recipient_email: "me@example.com" }, "recipient_email"],
+    ])("create_alias rejects contradictory arguments %j before any quota or service call", async (args, field) => {
+        const server = makeServer()
+        const { registerAliasTools } = await import("@/lib/mcp/tools/aliases")
+        registerAliasTools(server as never, session)
+        const out = (await server.tools.get("create_alias")!.handler(args)) as {
+            isError: boolean, content: Array<{ text: string }>, _meta: Record<string, { code: string }>
+        }
+        expect(out.isError).toBe(true)
+        expect(out._meta["anon.li/error"]!.code).toBe("VALIDATION_ERROR")
+        expect(out.content[0]!.text).toContain(field)
+        expect(createAlias).not.toHaveBeenCalled()
     })
 
     it("delete_alias resolves and deletes by id", async () => {
@@ -236,12 +283,7 @@ describe("MCP alias tools", () => {
 describe("MCP alias tools over a real in-memory transport", () => {
     beforeEach(() => {
         vi.clearAllMocks()
-        invokeTool.mockImplementation(async (_session, _opts, handler) => handler({
-            id: "user-1",
-            stripeSubscriptionId: null,
-            stripePriceId: null,
-            stripeCurrentPeriodEnd: null,
-        }))
+        invokeTool.mockImplementation(fakeGate(gateUser))
     })
 
     async function connectClient(): Promise<Client> {
@@ -274,15 +316,16 @@ describe("MCP alias tools over a real in-memory transport", () => {
         try {
             const invalid = ["bad-name", "under_score", ".leading", "trailing.", "double..dot", "spa ce"]
             for (const local_part of invalid) {
-                // The SDK client surfaces the -32602 input-validation error as an
-                // isError result; the point is the service layer is never reached.
+                // Validation runs in the gate, so the failure carries anon.li's
+                // VALIDATION_ERROR code; the service layer is never reached.
                 const out = await client.callTool({
                     name: "create_alias",
                     arguments: { format: "custom", local_part },
                 })
                 expect(out.isError).toBe(true)
+                expect(out._meta?.["anon.li/error"]).toMatchObject({ code: "VALIDATION_ERROR" })
                 const text = (out.content as Array<{ text?: string }>).map((c) => c.text ?? "").join(" ")
-                expect(text).toContain("Invalid arguments for tool create_alias")
+                expect(text).toContain("Invalid arguments")
                 expect(text).toContain("lowercase letters, numbers, and single dots only")
             }
             expect(createAlias).not.toHaveBeenCalled()
@@ -320,6 +363,7 @@ describe("MCP alias tools over a real in-memory transport", () => {
         try {
             const out = await client.callTool({ name: "create_alias", arguments: { format: "custom" } })
             expect(out.isError).toBe(true)
+            expect(out._meta?.["anon.li/error"]).toMatchObject({ code: "VALIDATION_ERROR" })
             expect(createAlias).not.toHaveBeenCalled()
         } finally {
             await client.close()

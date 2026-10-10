@@ -23,7 +23,7 @@ export default async function DomainDetailPage({
         notFound()
     }
 
-    const { domain, aliases } = data
+    const { domain, aliases, ownedAliasCount } = data
 
     return (
         <div className="space-y-8">
@@ -39,7 +39,7 @@ export default async function DomainDetailPage({
             <PageHeader
                 title={domain.domain}
                 description="Domain details and verification status"
-                actions={<DomainActions domain={domain} />}
+                actions={<DomainActions domain={{ id: domain.id, domain: domain.domain, verified: domain.verified }} aliasCount={ownedAliasCount} />}
             />
 
             <div className="grid gap-6 md:grid-cols-2">

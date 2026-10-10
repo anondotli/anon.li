@@ -1,0 +1,25 @@
+# Editor defaults that match the existing code. ESLint remains the source of
+# truth; this file only guides new edits and must not prompt a mass reformat.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+
+# Application source is predominantly 4-space indented.
+[*.{ts,tsx,js,jsx,mjs,cjs,css}]
+indent_size = 4
+
+# shadcn/ui primitives and the root tool configs keep their upstream 2-space style.
+[{components/ui/**,*.config.{ts,mjs},vitest.setup.ts}]
+indent_size = 2
+
+[*.{json,yml,yaml,toml,prisma}]
+indent_size = 2
+
+# Trailing double spaces are meaningful line breaks in Markdown.
+[*.{md,mdx}]
+trim_trailing_whitespace = false

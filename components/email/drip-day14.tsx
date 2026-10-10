@@ -19,7 +19,7 @@ export function DripDay14Email({ unsubscribeUrl }: DripDay14EmailProps) {
     return (
         <EmailLayout
             title="Free is great. Here's when Plus earns its keep."
-            preheader="Custom domains, PGP encryption, more aliases, bigger drops, private forms."
+            preheader="Custom domains, more aliases, bigger drops, private forms."
             unsubscribeUrl={unsubscribeUrl}
         >
             <EmailSimpleHeader
@@ -41,11 +41,6 @@ export function DripDay14Email({ unsubscribeUrl }: DripDay14EmailProps) {
                     icon="&#127760;"
                     title="Custom domains"
                     description="Route aliases through your own domain &mdash; up to 3 domains, branded forwarding."
-                />
-                <FeatureRow
-                    icon="&#128273;"
-                    title="PGP-encrypted forwarding"
-                    description="Attach your public key &mdash; inbound mail is encrypted before forwarding."
                 />
                 <FeatureRow
                     icon="&#128202;"

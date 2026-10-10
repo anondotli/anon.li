@@ -77,13 +77,19 @@ the same monthly API quota as the REST API for your tier (see
 [Pricing](/pricing) for tier limits). The recipient tools (`list_recipients`,
 `add_recipient`) do not consume monthly quota; they are only rate limited.
 
+The `toggle_*` tools take the **target state** (`active` for aliases,
+`disabled` for drops and forms) and set it, mirroring the REST `PATCH`
+semantics — repeating a call is safe and never flips the state back. List
+results are ordered newest first with a stable tie-breaker, so paging with
+`offset` never repeats or skips an item.
+
 ### Aliases
 
 | Tool | What it does |
 |------|--------------|
 | `list_aliases` | List the aliases on the account, newest first, 50 per page (`limit` up to 100, `offset` to page). Returns `total` plus `id`, `email`, `active`, forwarded/blocked counters, and timestamps. **Encrypted labels and notes are intentionally omitted** — they are vault-encrypted client-side and unreadable to a third-party client. |
-| `create_alias` | Create an alias. `format: "random"` auto-generates the local part; `format: "custom"` takes `local_part`. Optional `recipient_ids` or `recipient_email` chooses the forwarding destination — defaults to your primary recipient. Labels/notes cannot be set here; edit them from the web UI after creation. |
-| `toggle_alias` | Flip an alias between active and inactive. Accepts an alias ID **or** the full email address. |
+| `create_alias` | Create an alias. Pass `local_part` for a custom address (`format` defaults to `"custom"` when it is given); omit it — or pass `format: "random"` — to auto-generate the local part. `local_part` with `format: "random"` is rejected. Optional `recipient_ids` **or** `recipient_email` (not both) chooses the forwarding destination — defaults to your primary recipient. Labels/notes cannot be set here; edit them from the web UI after creation. |
+| `toggle_alias` | Set an alias's state: `active: true` forwards mail, `active: false` silently discards it. Accepts an alias ID **or** the full email address. Flagged destructive (disabling drops incoming mail) and idempotent. Re-activating an alias an administrator took down fails with `FORBIDDEN`. |
 | `delete_alias` | Permanently delete an alias. Future mail to that address is rejected. |
 
 ### Recipients
@@ -98,22 +104,27 @@ the same monthly API quota as the REST API for your tier (see
 | Tool | What it does |
 |------|--------------|
 | `list_drops` | List file drops with metadata only — size, expiry, downloads, max downloads, disabled/taken-down state. **Filenames and file contents are end-to-end encrypted** and cannot be returned through this API. |
-| `toggle_drop` | Disable or re-enable a drop. Disabled drops reject all downloads until toggled back on. |
+| `toggle_drop` | Set a drop's state: `disabled: true` rejects all downloads, `disabled: false` restores access. |
 | `delete_drop` | Permanently delete a drop and reclaim its storage quota. |
+
+`toggle_drop` and `delete_drop` act only on the standalone drops `list_drops`
+returns. Form attachments are managed with their form (`delete_form` removes
+them), and an already-deleted drop is gone — both return `NOT_FOUND`.
 
 ### Forms
 
 | Tool | What it does |
 |------|--------------|
 | `list_forms` | List your forms with metadata only — title, submission counts, max submissions, close date, active/disabled/taken-down state. **Submission contents are end-to-end encrypted** and cannot be returned through this API. |
-| `toggle_form` | Disable or re-enable a form. Disabled forms reject all new submissions until toggled back on. |
+| `toggle_form` | Set a form's state: `disabled: true` rejects all new submissions, `disabled: false` accepts them again. The result mirrors `disabled_by_user` from `list_forms`. |
 | `delete_form` | Permanently delete a form along with all its submissions and any attached file drops. |
 
 ## Scopes
 
 Tools are gated by OAuth scopes. The token your client receives carries a
-space-separated scope string; calling a tool without its scope returns an
-`INSUFFICIENT_SCOPE` error. Requesting no scope grants all of them.
+space-separated scope string; calling a tool without its scope is refused with
+an HTTP 403 step-up challenge (see [Missing scopes](#missing-scopes-step-up)).
+Requesting no scope grants all of them.
 
 | Scope | Grants |
 |-------|--------|
@@ -143,8 +154,9 @@ without ever touching the *content plane*.
 ## Errors
 
 A failed tool call is returned as a normal MCP tool **result** with
-`isError: true` — not as a JSON-RPC protocol error. The structured details are
-available in two places:
+`isError: true` — not as a JSON-RPC protocol error. This includes invalid
+arguments, which return `VALIDATION_ERROR` with an `issues` list. The
+structured details are available in two places:
 
 - `_meta["anon.li/error"]` — machine-readable `{ code, message, ... }` for
   clients that branch on error data.
@@ -179,13 +191,30 @@ Error codes mirror the REST API's, so one error table covers both:
 |------|---------|--------------|
 | `QUOTA_EXCEEDED` | Monthly API quota exhausted for this tool's bucket. | `quota_type` (`alias` / `drop` / `form`), `limit`, `remaining`, `reset_at` |
 | `RATE_LIMITED` | Per-tool rate limit hit — retry after `reset_at`. | `reset_at` |
-| `INSUFFICIENT_SCOPE` | The token lacks the scope this tool needs. Reconnect and approve it. | `required_scope`, `granted_scopes` |
-| `UPGRADE_REQUIRED` | A plan limit was reached (e.g. alias count). | `upgrade` (`scope`, `currentTier`, `suggestedTier`, ...) |
+| `INSUFFICIENT_SCOPE` | The token lacks the scope this tool needs. Reconnect and approve it. Normally answered at the HTTP layer instead (see below); this is the backstop. | `required_scope`, `granted_scopes` |
+| `UPGRADE_REQUIRED` | A plan limit was reached (e.g. alias count, recipient count). | `upgrade` (`scope`, `currentTier`, `suggestedTier`, ...) |
+| `VALIDATION_ERROR` | The arguments failed the tool's input schema (or the service rejected the input). | `issues` (`path`, `message`) for schema failures |
 | `ACCOUNT_BANNED` | The account is suspended. | |
 | `BAN_ALIAS_CREATION` | Alias creation is disabled for this account (`create_alias`). | |
-| `NOT_FOUND`, `VALIDATION_ERROR`, `FORBIDDEN`, `CONFLICT` | The request itself was rejected (unknown ID, bad input, insufficient org role, duplicate). | |
+| `NOT_FOUND`, `FORBIDDEN`, `CONFLICT` | The request itself was rejected (unknown ID, insufficient org role or admin takedown, duplicate). | |
 | `INVALID_TOKEN`, `ACCOUNT_NOT_ACTIVE` | The token has no subject, or the account no longer exists. | |
 | `INTERNAL_ERROR` | Unexpected server error. The call was not retried — check its effect before repeating it. | |
+
+### Missing scopes (step-up)
+
+Calling a tool whose scope the token lacks is refused before the tool runs
+with **HTTP 403** and a step-up challenge, on both the MCP 2026-07-28 and the
+2025-era transports:
+
+```
+WWW-Authenticate: Bearer error="insufficient_scope",
+  scope="anon.li:aliases offline_access anon.li:drops",
+  resource_metadata="https://anon.li/.well-known/oauth-protected-resource/api/mcp"
+```
+
+`scope` lists the scopes the token already has plus the missing one, so a
+client that re-authorizes with it keeps its existing access. `tools/list`
+still lists every tool, whatever the token's scopes.
 
 ## Quota and rate limits
 
@@ -193,14 +222,19 @@ MCP usage shares the per-tier monthly counter with REST and CLI usage (per
 bucket: alias tools use the alias quota, drop tools the drop quota, form tools
 the form quota). Recipient tools are not metered against the monthly quota.
 
+Checks run in this order: scope, per-tool rate limit, argument validation,
+ban checks, then the monthly quota. A call rejected by any earlier check —
+including one with invalid arguments — is **not** charged against the monthly
+quota.
+
 Per-tool rate limits also apply, sharing buckets with the matching REST
 endpoints:
 
 | Tools | Limit |
 |-------|-------|
 | `create_alias` | 60 per hour |
-| `list_aliases`, `toggle_alias`, `delete_alias` | 100 per minute |
-| `list_recipients`, `add_recipient` | 60 per hour |
+| `list_aliases`, `toggle_alias`, `delete_alias`, `list_recipients` | 100 per minute |
+| `add_recipient` | 60 per hour |
 | `list_drops`, `list_forms` | 60 per minute |
 | `toggle_drop`, `delete_drop`, `toggle_form`, `delete_form` | 100 per hour |
 

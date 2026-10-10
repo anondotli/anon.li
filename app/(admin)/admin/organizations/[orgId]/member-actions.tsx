@@ -47,15 +47,17 @@ export function MemberActions({
 }) {
     const { loading, run } = useRunner()
     const [showRemove, setShowRemove] = useState(false)
+    // Role change awaiting confirmation (null = no dialog).
+    const [pendingRole, setPendingRole] = useState<Role | null>(null)
 
     return (
         <div className="flex items-center justify-end gap-2">
             <Select
                 value={member.role}
                 disabled={loading}
-                onValueChange={(role) =>
-                    run(() => updateOrgMemberRole(organizationId, member.userId, role as Role), "Role updated")
-                }
+                onValueChange={(role) => {
+                    if (role !== member.role) setPendingRole(role as Role)
+                }}
             >
                 <SelectTrigger className="h-8 w-28">
                     <SelectValue />
@@ -76,6 +78,21 @@ export function MemberActions({
             >
                 <Trash2 className="h-4 w-4" />
             </Button>
+
+            <ConfirmDialog
+                open={pendingRole !== null}
+                onOpenChange={(open) => { if (!open) setPendingRole(null) }}
+                title="Change member role"
+                description={`Change ${member.email}'s role from ${member.role} to ${pendingRole ?? member.role}.`}
+                confirmLabel="Change role"
+                variant="default"
+                onConfirm={async () => {
+                    if (pendingRole === null) return
+                    const role = pendingRole
+                    await run(() => updateOrgMemberRole(organizationId, member.userId, role), "Role updated")
+                }}
+                loading={loading}
+            />
 
             <ConfirmDialog
                 open={showRemove}

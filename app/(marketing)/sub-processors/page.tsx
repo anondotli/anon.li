@@ -9,7 +9,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 /*
  * Sub-processors disclosure. Entries below are grounded in the services actually
  * configured in lib/env.ts + vercel.json (Stripe, NOWPayments, Cloudflare R2,
- * Cloudflare Turnstile, Upstash, Resend, Vercel, optional Google/GitHub OAuth).
+ * Cloudflare Turnstile, Upstash, Resend, Vercel, PostHog, optional Google/GitHub
+ * OAuth). Keep this list identical to section 4 of content/docs/legal/privacy.mdx.
  * REVIEW BEFORE PUBLISHING: confirm each provider, its purpose, and especially
  * data-residency regions (left general here) and bump LAST_UPDATED — this page
  * is a customer-facing commitment once live.
@@ -19,7 +20,7 @@ const TITLE = "Sub-processors — anon.li"
 const DESCRIPTION =
     "The third-party providers anon.li uses to operate the service, what each one processes, and why. Most never see your plaintext — end-to-end encrypted content stays encrypted."
 const URL = "https://anon.li/sub-processors"
-const LAST_UPDATED = "June 11, 2026"
+const LAST_UPDATED = "October 10, 2026"
 
 export const metadata: Metadata = {
     title: TITLE,
@@ -30,7 +31,7 @@ export const metadata: Metadata = {
 
 interface SubProcessor {
     name: string
-    category: "Payments" | "Infrastructure" | "Email" | "Security" | "Authentication"
+    category: "Payments" | "Infrastructure" | "Email" | "Security" | "Authentication" | "Analytics"
     purpose: string
     data: string
     href: string
@@ -61,6 +62,13 @@ const SUBPROCESSORS: SubProcessor[] = [
         href: "https://vercel.com/legal/privacy-policy",
     },
     {
+        name: "Cloudflare",
+        category: "Infrastructure",
+        purpose: "CDN, DDoS protection & DNS",
+        data: "IP addresses and traffic data needed to route and protect requests.",
+        href: "https://www.cloudflare.com/privacypolicy/",
+    },
+    {
         name: "Cloudflare R2",
         category: "Infrastructure",
         purpose: "Object storage for Drop & Form files",
@@ -85,9 +93,16 @@ const SUBPROCESSORS: SubProcessor[] = [
     {
         name: "Cloudflare Turnstile",
         category: "Security",
-        purpose: "Bot & abuse protection on sign-in",
+        purpose: "Bot & abuse protection on sign-in, guest uploads & form submissions",
         data: "Browser and network signals used to confirm a request comes from a human.",
         href: "https://www.cloudflare.com/privacypolicy/",
+    },
+    {
+        name: "PostHog",
+        category: "Analytics",
+        purpose: "Product analytics & error monitoring (EU region)",
+        data: "Pseudonymous usage events and sanitized error reports. No cookies, no session replay, URL fragments (Drop keys) stripped before sending.",
+        href: "https://posthog.com/privacy",
     },
     {
         name: "Google & GitHub",

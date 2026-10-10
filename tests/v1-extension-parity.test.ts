@@ -84,6 +84,8 @@ vi.mock("@/lib/limits", () => ({
     getDisplayPlanLimits,
     getDropLimits,
     getProductFromPriceId,
+    getProductTier: () => "plus",
+    getFormLimitsAsync: async () => ({ forms: 10, submissionsPerMonth: 1000 }),
 }))
 
 vi.mock("@/config/plans", () => ({
@@ -91,6 +93,16 @@ vi.mock("@/config/plans", () => ({
         free: 7,
         plus: 30,
         pro: 90,
+    },
+    ALIAS_LIMITS: { plus: { apiRequests: 5000 } },
+    DROP_LIMITS: { plus: { apiRequests: 5000 } },
+    FORM_LIMITS: { plus: { apiRequests: 5000 } },
+}))
+
+vi.mock("@/lib/services/form", () => ({
+    FormService: {
+        countActiveForms: async () => 0,
+        countCurrentMonthSubmissions: async () => 0,
     },
 }))
 
@@ -127,7 +139,7 @@ describe("extension parity routes", () => {
             apiRequests: 5000,
         })
         getDropLimits.mockReturnValue({
-            maxStorage: BigInt(1024 * 1024 * 1024),
+            maxStorage: 1024 * 1024 * 1024,
             maxFileSize: 250 * 1024 * 1024,
             features: {
                 customKey: true,

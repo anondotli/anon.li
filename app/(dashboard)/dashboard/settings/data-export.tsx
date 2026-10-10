@@ -6,6 +6,20 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { ClipboardList, Download, Loader2, FileJson, Mail, Globe, FileText, Key } from "lucide-react"
 import { toast } from "sonner"
 
+/**
+ * The export route (and its rate limiter) answer errors as `{ error: string }`,
+ * the limiter adding a friendlier `message`. Prefer `message`, then `error`.
+ */
+async function readExportError(res: Response): Promise<string> {
+    const body: unknown = await res.json().catch(() => null)
+    if (body && typeof body === "object") {
+        const { message, error } = body as { message?: unknown; error?: unknown }
+        if (typeof message === "string" && message) return message
+        if (typeof error === "string" && error) return error
+    }
+    return "Export failed"
+}
+
 export function DataExportSection() {
     const [loading, setLoading] = useState(false)
 
@@ -14,8 +28,7 @@ export function DataExportSection() {
         try {
             const res = await fetch("/api/user/export")
             if (!res.ok) {
-                const error = await res.json()
-                throw new Error(error.message || "Export failed")
+                throw new Error(await readExportError(res))
             }
 
             const blob = await res.blob()

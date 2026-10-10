@@ -4,6 +4,7 @@ import React from "react"
 import { Resend } from "resend"
 import { sanitizeEmailSubject, sanitizeEmailUserContent, sanitizeDomain } from "@/lib/utils"
 import { createLogger } from "@/lib/logger"
+import { emailFrom } from "@/lib/email-from"
 import { unsubscribeUrl as buildUnsubscribeUrl } from "@/lib/email-unsubscribe"
 
 // RFC 8058 one-click unsubscribe headers for growth emails.
@@ -17,6 +18,17 @@ function unsubscribeHeaders(userId: string) {
 }
 
 const logger = createLogger("Resend")
+
+/**
+ * Outside production, log sign-in/verification/reset links so a local setup
+ * can authenticate even when email delivery isn't configured.
+ */
+function logDevAuthLink(kind: string, email: string, url: string) {
+    if (process.env.NODE_ENV === "production") return
+    // Deliberately bypasses lib/logger: its redaction masks the token and the
+    // address, which would make the link useless. Never reached in production.
+    process.stdout.write(`[dev] ${kind} link for ${email}: ${url}\n`)
+}
 
 // Lazy initialization to avoid build errors when API key is not set
 let resendClient: Resend | null = null
@@ -32,16 +44,20 @@ function getResendClient(): Resend {
     return resendClient
 }
 
-export async function sendWelcomeEmail(email: string) {
+export async function sendWelcomeEmail(email: string, userId: string) {
     try {
         const resend = getResendClient()
         const { WelcomeEmail } = await import("@/components/email/welcome")
 
         const { data, error } = await resend.emails.send({
-            from: "anon.li <hi@anon.li>",
+            from: emailFrom(),
             to: email,
             subject: "Welcome to anon.li — your privacy toolkit is ready",
             react: React.createElement(WelcomeEmail),
+        }, {
+            // Sent from either the create hook or the verification hook; the
+            // key collapses any overlap (e.g. a double-clicked verify link).
+            idempotencyKey: `welcome/${userId}`,
         })
 
         if (error) {
@@ -57,12 +73,13 @@ export async function sendWelcomeEmail(email: string) {
 }
 
 export async function sendAccountVerificationEmail(email: string, url: string) {
+    logDevAuthLink("Email verification", email, url)
     try {
         const resend = getResendClient()
         const { AccountVerificationEmail } = await import("@/components/email/account-verification")
 
         const { data, error } = await resend.emails.send({
-            from: "anon.li <hi@anon.li>",
+            from: emailFrom(),
             to: email,
             subject: "Verify your anon.li email address",
             text: `Verify your email address to finish setting up your anon.li account.\n\n${url}\n\nIf you didn't create this account, you can ignore this email.`,
@@ -82,12 +99,13 @@ export async function sendAccountVerificationEmail(email: string, url: string) {
 }
 
 export async function sendPasswordResetEmail(email: string, url: string) {
+    logDevAuthLink("Password reset", email, url)
     try {
         const resend = getResendClient()
         const { PasswordResetEmail } = await import("@/components/email/password-reset")
 
         const { data, error } = await resend.emails.send({
-            from: "anon.li <hi@anon.li>",
+            from: emailFrom(),
             to: email,
             subject: "Reset your anon.li password",
             text: `Reset your anon.li password using the secure link below:\n\n${url}\n\nResetting your password makes previously encrypted vault data permanently inaccessible. After signing back in, you will need to create a new vault.\n\nIf you didn't request this, you can ignore this email.`,
@@ -117,7 +135,7 @@ export async function sendSubscriptionCanceledEmail(email: string, expiryDate: D
         })
 
         const { data, error } = await resend.emails.send({
-            from: "anon.li <hi@anon.li>",
+            from: emailFrom(),
             to: email,
             subject: "Your anon.li subscription has ended",
             react: React.createElement(SubscriptionCanceledEmail, { expiryDate: formattedDate }),
@@ -141,7 +159,7 @@ export async function sendPaymentActionRequiredEmail(email: string, paymentUrl: 
         const { PaymentActionRequiredEmail } = await import("@/components/email/payment-action-required")
 
         const { data, error } = await resend.emails.send({
-            from: "anon.li <billing@anon.li>",
+            from: emailFrom("billing"),
             to: email,
             subject: "Action Required: Complete your anon.li payment",
             text: `Your recent payment requires additional authentication.\n\nPlease complete your payment by visiting:\n${paymentUrl}\n\nThis is required to continue your anon.li subscription.\n\nIf you didn't make this purchase, please ignore this email.`,
@@ -166,7 +184,7 @@ export async function sendDropExpiringEmail(email: string, hoursRemaining: numbe
         const { FileExpiringEmail } = await import("@/components/email/file-expiring")
 
         const { data, error } = await resend.emails.send({
-            from: "anon.li <hi@anon.li>",
+            from: emailFrom(),
             to: email,
             subject: sanitizeEmailSubject(`Your drop expires soon`),
             react: React.createElement(FileExpiringEmail, { hoursRemaining }),
@@ -190,7 +208,7 @@ export async function sendDownloadLimitReachedEmail(email: string, downloads: nu
         const { DownloadLimitReachedEmail } = await import("@/components/email/download-limit")
 
         const { data, error } = await resend.emails.send({
-            from: "anon.li <hi@anon.li>",
+            from: emailFrom(),
             to: email,
             subject: sanitizeEmailSubject(`Download limit reached for a drop`),
             react: React.createElement(DownloadLimitReachedEmail, { downloads }),
@@ -215,7 +233,7 @@ export async function sendDomainDeletedEmail(email: string, domain: string) {
         const safeDomain = sanitizeDomain(domain)
 
         const { data, error } = await resend.emails.send({
-            from: "anon.li <hi@anon.li>",
+            from: emailFrom(),
             to: email,
             subject: sanitizeEmailSubject(`Domain "${safeDomain}" has been deleted`),
             react: React.createElement(DomainDeletedEmail, { domain: safeDomain }),
@@ -240,7 +258,7 @@ export async function sendDomainUnverifiedEmail(email: string, domain: string) {
         const safeDomain = sanitizeDomain(domain)
 
         const { data, error } = await resend.emails.send({
-            from: "anon.li <hi@anon.li>",
+            from: emailFrom(),
             to: email,
             subject: sanitizeEmailSubject(`Action Required: Verification lost for "${safeDomain}"`),
             react: React.createElement(DomainUnverifiedEmail, { domain: safeDomain }),
@@ -259,26 +277,27 @@ export async function sendDomainUnverifiedEmail(email: string, domain: string) {
 }
 
 export async function sendMagicLinkEmail(email: string, url: string, host: string) {
+    logDevAuthLink("Magic sign-in", email, url)
     try {
         const resend = getResendClient()
         const { MagicLinkEmail } = await import("@/components/email/magic-link")
 
         const { data, error } = await resend.emails.send({
-            from: "anon.li <hi@anon.li>",
+            from: emailFrom(),
             to: email,
             subject: `Sign in to ${host}`,
             text: `Sign in to ${host}\n${url}\n\n`,
             react: React.createElement(MagicLinkEmail, { url, host }),
         })
 
-        if (error) {
-            logger.error("Failed to send magic link email", error)
-            throw error
-        }
+        if (error) throw error
 
         return { success: true, data }
     } catch (error) {
         logger.error("Failed to send magic link email", error)
+        // Outside production the link is already on stdout (logDevAuthLink), so
+        // a local setup without working email can still sign in.
+        if (process.env.NODE_ENV !== "production") return { success: false, error }
         throw error
     }
 }
@@ -300,7 +319,7 @@ export async function sendOrganizationInvitationEmail(
         const safeInviterName = sanitizeEmailUserContent(inviterName)
 
         const { data, error } = await resend.emails.send({
-            from: "anon.li <hi@anon.li>",
+            from: emailFrom(),
             to: email,
             subject: sanitizeEmailSubject(`${safeInviterName} invited you to join ${safeOrgName} on anon.li`),
             text: `${safeInviterName} invited you to join ${safeOrgName} on anon.li.\nAccept the invitation: ${url}\n\n`,
@@ -343,7 +362,7 @@ export async function sendDropSharedEmail(
         const safeSender = sanitizeEmailUserContent(senderName)
 
         const { data, error } = await resend.emails.send({
-            from: "anon.li <hi@anon.li>",
+            from: emailFrom(),
             to: email,
             subject: sanitizeEmailSubject(`${safeSender} shared encrypted files with you`),
             text: `${safeSender} shared encrypted files with you on anon.li.\nOpen them: ${url}\n\n`,
@@ -369,7 +388,7 @@ interface SendEmailProps {
     from?: string;
 }
 
-export async function sendEmail({ to, subject, react, from = "anon.li <hi@anon.li>" }: SendEmailProps) {
+export async function sendEmail({ to, subject, react, from = emailFrom() }: SendEmailProps) {
     try {
         const resend = getResendClient()
 
@@ -399,7 +418,7 @@ export async function sendRecipientVerificationEmail(email: string, token: strin
         const verificationUrl = `${process.env.NEXT_PUBLIC_APP_URL}/verify-recipient?token=${token}`
 
         const { data, error } = await resend.emails.send({
-            from: "anon.li <hi@anon.li>",
+            from: emailFrom(),
             to: email,
             subject: "Verify your email address - anon.li",
             react: React.createElement(RecipientVerificationEmail, { verificationUrl, recipientEmail: email }),
@@ -422,6 +441,7 @@ export async function sendDowngradeWarningEmail(
     excess: { excessRandom: number; excessCustom: number; excessDomains: number; excessRecipients: number },
     schedulingDate: Date,
     deletionDate: Date,
+    drops?: { count: number; expiresAt: Date },
 ) {
     try {
         const resend = getResendClient()
@@ -429,7 +449,7 @@ export async function sendDowngradeWarningEmail(
         const formatDate = (d: Date) => d.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })
 
         const { data, error } = await resend.emails.send({
-            from: "anon.li <hi@anon.li>",
+            from: emailFrom(),
             to: email,
             subject: "Your anon.li account has been downgraded",
             react: React.createElement(DowngradeWarningEmail, {
@@ -439,6 +459,8 @@ export async function sendDowngradeWarningEmail(
                 excessRecipients: excess.excessRecipients,
                 schedulingDate: formatDate(schedulingDate),
                 deletionDate: formatDate(deletionDate),
+                dropsExpiring: drops?.count ?? 0,
+                dropExpiryDate: drops ? formatDate(drops.expiresAt) : undefined,
             }),
         })
 
@@ -465,7 +487,7 @@ export async function sendResourcesScheduledForRemovalEmail(
         const formattedDate = deletionDate.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })
 
         const { data, error } = await resend.emails.send({
-            from: "anon.li <hi@anon.li>",
+            from: emailFrom(),
             to: email,
             subject: "anon.li: Resources scheduled for removal",
             react: React.createElement(ResourcesScheduledRemovalEmail, {
@@ -497,7 +519,7 @@ export async function sendResourcesDeletedEmail(
         const { ResourcesDeletedEmail } = await import("@/components/email/resources-deleted")
 
         const { data, error } = await resend.emails.send({
-            from: "anon.li <hi@anon.li>",
+            from: emailFrom(),
             to: email,
             subject: "anon.li: Resources have been removed",
             react: React.createElement(ResourcesDeletedEmail, {
@@ -534,7 +556,7 @@ export async function sendCryptoPaymentConfirmationEmail(
         })
 
         const { data, error } = await resend.emails.send({
-            from: "anon.li <hi@anon.li>",
+            from: emailFrom(),
             to: email,
             subject: "Your anon.li crypto payment has been confirmed",
             react: React.createElement(CryptoPaymentConfirmationEmail, {
@@ -563,7 +585,7 @@ export async function sendDripDay1Email(email: string, userId: string) {
         const unsub = buildUnsubscribeUrl(userId)
 
         const { data, error } = await resend.emails.send({
-            from: "anon.li <hi@anon.li>",
+            from: emailFrom(),
             to: email,
             subject: "Create your first anon.li alias in 30 seconds",
             react: React.createElement(DripDay1Email, { unsubscribeUrl: unsub }),
@@ -591,7 +613,7 @@ export async function sendDripDay3Email(email: string, userId: string) {
         const unsub = buildUnsubscribeUrl(userId)
 
         const { data, error } = await resend.emails.send({
-            from: "anon.li <hi@anon.li>",
+            from: emailFrom(),
             to: email,
             subject: "Send a file with end-to-end encryption",
             react: React.createElement(DripDay3Email, { unsubscribeUrl: unsub }),
@@ -619,7 +641,7 @@ export async function sendDripDay7Email(email: string, userId: string) {
         const unsub = buildUnsubscribeUrl(userId)
 
         const { data, error } = await resend.emails.send({
-            from: "anon.li <hi@anon.li>",
+            from: emailFrom(),
             to: email,
             subject: "anon.li in your browser, terminal, and AI agent",
             react: React.createElement(DripDay7Email, { unsubscribeUrl: unsub }),
@@ -647,7 +669,7 @@ export async function sendDripDay14Email(email: string, userId: string) {
         const unsub = buildUnsubscribeUrl(userId)
 
         const { data, error } = await resend.emails.send({
-            from: "anon.li <hi@anon.li>",
+            from: emailFrom(),
             to: email,
             subject: "Free is great. Here's when Plus earns its keep.",
             react: React.createElement(DripDay14Email, { unsubscribeUrl: unsub }),
@@ -678,7 +700,7 @@ export async function sendCryptoInvoiceReminderEmail(
         const { CryptoInvoiceReminderEmail } = await import("@/components/email/crypto-invoice-reminder")
 
         const { data, error } = await resend.emails.send({
-            from: "anon.li <billing@anon.li>",
+            from: emailFrom("billing"),
             to: email,
             subject: "Your anon.li crypto payment is still pending",
             react: React.createElement(CryptoInvoiceReminderEmail, details),
@@ -708,7 +730,7 @@ export async function sendCryptoInvoiceExpiredEmail(
         const { CryptoInvoiceExpiredEmail } = await import("@/components/email/crypto-invoice-expired")
 
         const { data, error } = await resend.emails.send({
-            from: "anon.li <billing@anon.li>",
+            from: emailFrom("billing"),
             to: email,
             subject: "Your crypto invoice expired — finish with a card in 30 seconds",
             react: React.createElement(CryptoInvoiceExpiredEmail, details),
@@ -740,7 +762,7 @@ export async function sendPowerUserUpsellEmail(
         const planLabel = details.suggestedTier === "pro" ? "Pro" : "Plus"
         const unsub = buildUnsubscribeUrl(userId)
         const { data, error } = await resend.emails.send({
-            from: "anon.li <hi@anon.li>",
+            from: emailFrom(),
             to: email,
             subject: `You've forwarded ${details.emailsForwarded.toLocaleString()} emails — ${planLabel} lifts your limits`,
             react: React.createElement(PowerUserUpsellEmail, { ...details, unsubscribeUrl: unsub }),
@@ -771,9 +793,9 @@ export async function sendCryptoRenewalReminderEmail(
         const { CryptoRenewalReminderEmail } = await import("@/components/email/crypto-renewal-reminder")
 
         const { data, error } = await resend.emails.send({
-            from: "anon.li <hi@anon.li>",
+            from: emailFrom(),
             to: email,
-            subject: `Your anon.li plan expires in ${details.daysRemaining} days`,
+            subject: `Your anon.li plan expires in ${details.daysRemaining} ${details.daysRemaining === 1 ? "day" : "days"}`,
             react: React.createElement(CryptoRenewalReminderEmail, {
                 daysRemaining: details.daysRemaining,
                 product: details.product,
@@ -814,7 +836,7 @@ export async function sendCheckoutRecoveryEmail(
 
         const unsub = buildUnsubscribeUrl(userId)
         const { data, error } = await resend.emails.send({
-            from: "anon.li <hi@anon.li>",
+            from: emailFrom(),
             to: email,
             subject: "Everything OK? Your anon.li checkout expired",
             react: React.createElement(CheckoutRecoveryEmail, {

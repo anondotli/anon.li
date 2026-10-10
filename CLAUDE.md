@@ -20,15 +20,21 @@ Package manager is **Bun**. Always use `bun` / `bunx`, never npm/pnpm/yarn.
 - `bun run build` — runs `prisma generate` then `next build`
 - `bun run start` — serve production build
 - `bun run lint` — ESLint across the repo (source of truth for formatting)
+- `bun run typecheck` — Prisma + Next route typegen, then strict `tsc`
+- `bun run deadcode` — Knip (unused files, exports, dependencies)
+- `bun run audit` — dependency vulnerability audit (CI gate)
+- `bun run check` — lint + typecheck + deadcode + test + build (run before a PR)
 - `bun run test` — full Vitest suite once
 - `bun run test <pattern>` — run matching test files (e.g. `bun run test drop`)
 - `bun run test -t "<name>"` — run a single test by name
-- `bunx prisma generate` — regenerate Prisma client after schema edits
-- `bunx prisma db push` — sync schema to local DB (no migration file)
+- `bun run prisma:generate` — regenerate Prisma client after schema edits (`bun install` runs it via `postinstall`)
+- `bun run db:migrate:deploy` — apply committed migrations (local setup and production)
+- `bun run db:migrate --name <name>` — create + apply a migration after editing `prisma/schema.prisma`; commit it
+- `bun run db:push` — throwaway prototyping only: skips migration-only SQL (e.g. the partial unique index `domains_domain_verified_key`) and writes no migration history, so the DB can no longer take `db:migrate:deploy`
 
-> Tests are **Vitest** (jsdom env, `vitest.setup.ts`). Use `bun run test`, not bare `bun test` — the latter breaks JSDOM tests.
+> Tests are **Vitest** (`vitest.setup.ts`). `*.test.ts` runs in the `node` project, `*.test.tsx` in `jsdom`; a `.ts` test needing browser globals adds a `@vitest-environment jsdom` docblock. Use `bun run test`; bare `bun test` (Bun's runner) is blocked by a `bunfig.toml` preload that exits non-zero.
 
-Local dev needs PostgreSQL, Redis (Upstash), and a private Cloudflare R2 bucket configured. Copy `.env.example` to `.env`. Drop presigned URLs use `R2_ENDPOINT`, the account S3 API endpoint; never enable public bucket access because it bypasses application download controls.
+Local dev needs PostgreSQL, Redis (Upstash REST), and a private R2-compatible bucket; `compose.yml` provides local stand-ins — see `docs/local-development.md`. Copy `.env.example` to `.env`. Drop presigned URLs use `R2_ENDPOINT`, the account S3 API endpoint; never enable public bucket access because it bypasses application download controls.
 
 ## Stack
 
@@ -42,18 +48,18 @@ Requests flow through clearly separated layers — respect them when adding code
 
 - **`proxy.ts`** (Next.js middleware) — builds CSP per request. App routes (`/dashboard`, `/admin`, `/api`, auth pages) get a **strict nonce-based CSP**; marketing/blog/docs/public pages get a relaxed, cacheable CSP with no nonce so the HTML can be edge-cached. The `next-themes` SSR script hash is **pinned** in this file (`NEXT_THEMES_SCRIPT_SHA256`); if you change `<ThemeProvider>` props or bump `next-themes`, the browser reports the new hash to copy in. The `matcher` excludes static assets and `/api/health`.
 - **`app/`** — route groups: `(marketing)` (public, static-eligible), `(auth)`, `(dashboard)` (user app), `(admin)` (admin app, 2FA-enforced), `(public)` (e.g. drop/form download pages).
-- **`actions/`** — server actions. Wrap every action in the helpers from **`lib/safe-action.ts`** (`runAction` / `runAdminAction` etc.), which handle auth, the 2FA gate, Zod validation, and rate limiting. Don't hand-roll auth in an action.
+- **`actions/`** — server actions. Wrap every action in the helpers from **`lib/safe-action.ts`** (`runSecureAction` for session-only actions, `runScopedAction` for owned resources that may be personal or org-scoped, `runAdminAction` for admin), which handle auth, the 2FA gate, Zod validation, and rate limiting. Don't hand-roll auth in an action.
 - **`lib/services/`** — business logic (e.g. `drop.ts`, `alias.ts`, `admin.ts`, `form.ts`). Actions and API routes call into services; services own the DB writes and invariants. Both class-based services and plain-function modules exist by design — don't force-merge them.
 - **`lib/data/`** — read-side data access helpers (e.g. `getAuthUserState`, `getAuthApiKeyRecord`).
 - **`app/api/v1/`** — the **public REST API**, authenticated by API keys (`ak_...` Bearer tokens). Auth + quota live in `lib/api-auth.ts`. An invalid explicit `ak_` key must 401 — never silently fall back to session auth.
-- **`app/api/`** (non-v1) — internal/first-party endpoints: `auth/[...all]` (better-auth handler), `mcp` (MCP server), `vault/*` (E2EE key management), `webhooks/{stripe,nowpayments}`, `cron/*`, `abuse`, `billing`, `crypto`, `user`, `email`.
+- **`app/api/`** (non-v1) — internal/first-party endpoints: `auth/[...all]` (better-auth handler), `mcp` (MCP server), `vault/*` (E2EE key management), `webhooks/{stripe,nowpayments}`, `cron/*`, `abuse`, `billing`, `crypto`, `user`, `email`, `org/*` (team endpoints, e.g. export), `health` (+ `health/ready`).
 - **`config/`** — app configuration; `content/` — MDX blog/docs; `tests/` — broad tests (API route tests are sometimes colocated).
 
 ## Auth (better-auth, not NextAuth)
 
 Memory or older notes may say NextAuth — that is outdated. Auth is **better-auth**.
 
-- **`lib/auth.ts`** — the `betterAuth({...})` config (better-auth **1.7**) with plugins: `magicLink`, `emailAndPassword` (verification required), `twoFactor` (TOTP), `captcha` (Cloudflare Turnstile, enabled when `NEXT_PUBLIC_TURNSTILE_SITE_KEY` is set), `organization`, the MCP OAuth stack, and `nextCookies()` — which must stay the **last** plugin so `auth.api.*` calls in server actions persist their Set-Cookie.
+- **`lib/auth.ts`** — the `betterAuth({...})` config (better-auth **1.7**) with plugins: `magicLink`, `emailAndPassword` (verification required), `twoFactor` (TOTP), `captcha` (Cloudflare Turnstile — always on; `NEXT_PUBLIC_TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET_KEY` are both required by `lib/env.ts`; the plugin guards `/sign-in/magic-link`, while `lib/turnstile.ts` covers password-reset and recipient-verification actions, guest Drop creation, Form submit/upload-token, and abuse reports), `organization`, the MCP OAuth stack, and `nextCookies()` — which must stay the **last** plugin so `auth.api.*` calls in server actions persist their Set-Cookie.
 - **MCP OAuth** — `mcp()` from `@better-auth/mcp` (built on `@better-auth/oauth-provider`) + `cimd()` (`@better-auth/cimd`, Client ID Metadata Documents) + `jwt()` (signs access tokens; keys in the `jwks` table). Endpoints are `/api/auth/oauth2/{authorize,consent,token,register,revoke}` and `/api/auth/jwks`; the old `/api/auth/mcp/*` paths are aliased. Issuer is the bare origin; access tokens are JWTs bound to the resource `${origin}/api/mcp`. The consent page `/oauth/consent` doubles as the provider's login page and posts the signed `oauth_query` back. Request rewriting (forced `prompt=consent`, scope/`resource` normalization, DCR body normalization, 1.6-client auth shim) lives at the HTTP boundary in `app/api/auth/[...all]/route.ts` + `lib/mcp/oauth-request.ts` — **not** in a before-hook, because the consent endpoint re-dispatches authorize through the hooks. Validation/rate limits for those endpoints, the org-endpoint gate and the 2FA/leave after-hooks live in `lib/auth-hooks.ts`. `/api/mcp` verifies tokens with `requireMcpAuth`, checks the client isn't disabled on every request, and serves 2025-era clients (legacy leg) and MCP 2026-07-28 (`createMcpHandler`, `@modelcontextprotocol/server` v2). Upgrade/rollback runbook: `docs/runbooks/better-auth-1.7.md`.
 - **`lib/auth-session.ts`** — `getSession()` returns the app-shaped `AppSession` (adds `isAdmin`, `twoFactorEnabled`, `twoFactorVerified`). React-`cache`d.
 - **`auth.ts`** (repo root) — re-exports `getSession as auth`; this is what actions/api-auth import.

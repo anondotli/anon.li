@@ -16,6 +16,8 @@ const {
     abuseReportFindFirst,
     abuseReportCreate,
     dropFindUnique,
+    aliasFindFirst,
+    formFindUnique,
 } = vi.hoisted(() => ({
     rateLimit: vi.fn(),
     checkRateLimit: vi.fn(),
@@ -24,6 +26,8 @@ const {
     abuseReportFindFirst: vi.fn(),
     abuseReportCreate: vi.fn(),
     dropFindUnique: vi.fn(),
+    aliasFindFirst: vi.fn(),
+    formFindUnique: vi.fn(),
 }))
 
 vi.mock("@/lib/rate-limit", () => ({
@@ -41,8 +45,8 @@ vi.mock("@/lib/prisma", () => ({
             create: abuseReportCreate,
         },
         drop: { findUnique: dropFindUnique },
-        alias: { findFirst: vi.fn() },
-        form: { findUnique: vi.fn() },
+        alias: { findFirst: aliasFindFirst },
+        form: { findUnique: formFindUnique },
     },
 }))
 
@@ -173,5 +177,68 @@ describe("POST /api/abuse", () => {
             select: { id: true },
         })
         expect(checkRateLimit).toHaveBeenCalledWith({}, "resource:drop:shared-id")
+    })
+})
+
+describe("POST /api/abuse auto-resolve", () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+        getClientIp.mockResolvedValue("203.0.113.5")
+        rateLimit.mockResolvedValue(null)
+        checkRateLimit.mockResolvedValue(null)
+        abuseReportFindFirst.mockResolvedValue(null)
+        abuseReportCreate.mockResolvedValue({ id: "report-1" })
+    })
+
+    async function report(serviceType: "drop" | "alias" | "form", resourceId: string) {
+        const { POST } = await import("@/app/api/abuse/route")
+        const res = await POST(
+            new Request("http://localhost/api/abuse", {
+                method: "POST",
+                body: JSON.stringify({
+                    serviceType,
+                    resourceId,
+                    reason: "spam",
+                    description: "This is a sufficiently detailed abuse report.",
+                    turnstileToken: "verified-token",
+                }),
+                headers: { "content-type": "application/json" },
+            }),
+        )
+        expect(res.status).toBe(200)
+        return abuseReportCreate.mock.calls[0]![0].data.status as string
+    }
+
+    it("keeps a report pending when the owner merely paused their drop", async () => {
+        dropFindUnique.mockResolvedValue({ takenDown: false })
+        expect(await report("drop", "drop-1")).toBe("pending")
+        expect(dropFindUnique).toHaveBeenCalledWith(expect.objectContaining({ select: { takenDown: true } }))
+    })
+
+    it("auto-resolves a report for a drop staff already took down", async () => {
+        dropFindUnique.mockResolvedValue({ takenDown: true })
+        expect(await report("drop", "drop-1")).toBe("resolved")
+    })
+
+    it("keeps a report pending for an alias the owner deactivated", async () => {
+        aliasFindFirst.mockResolvedValue({ takenDownAt: null })
+        expect(await report("alias", "x@anon.li")).toBe("pending")
+        expect(aliasFindFirst).toHaveBeenCalledWith(expect.objectContaining({ select: { takenDownAt: true } }))
+    })
+
+    it("auto-resolves a report for an alias staff already took down", async () => {
+        aliasFindFirst.mockResolvedValue({ takenDownAt: new Date() })
+        expect(await report("alias", "x@anon.li")).toBe("resolved")
+    })
+
+    it("keeps a report pending for a form the owner disabled or deleted", async () => {
+        formFindUnique.mockResolvedValue({ takenDown: false })
+        expect(await report("form", "form-1")).toBe("pending")
+        expect(formFindUnique).toHaveBeenCalledWith(expect.objectContaining({ select: { takenDown: true } }))
+    })
+
+    it("auto-resolves a report for a form staff already took down", async () => {
+        formFindUnique.mockResolvedValue({ takenDown: true })
+        expect(await report("form", "form-1")).toBe("resolved")
     })
 })

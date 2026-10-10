@@ -19,6 +19,7 @@
     "bun": "^1.4.3"
   },
   "scripts": {
+    "postinstall": "DATABASE_URL=${DATABASE_URL:-postgresql://generate-only@localhost:5432/generate-only} bunx --no-install prisma generate",
     "dev": "next dev",
     "build": "bunx --no-install prisma generate && next build",
     "start": "next start",
@@ -104,7 +105,7 @@
     "@modelcontextprotocol/sdk": "^1.32.1",
     "@tailwindcss/postcss": "^4.3.3",
     "@testing-library/react": "^16.3.3",
-    "@types/node": "^26.6.5",
+    "@types/node": "~24",
     "@types/qrcode": "^1.5.6",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",

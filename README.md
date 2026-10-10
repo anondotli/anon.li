@@ -76,21 +76,24 @@ anon.li is an integration-backed application and deliberately fails fast when re
 | GitHub/Google OAuth | Optional login providers | No |
 | PostHog | Product analytics and error reporting | No |
 
+PostgreSQL, an S3-compatible stand-in for R2, and an Upstash-compatible Redis REST endpoint can run locally with `docker compose up -d` (or `podman compose`); see the [local development guide](docs/local-development.md) for the matching `.env` values, Turnstile test keys, Stripe CLI webhooks, and current limitations.
+
 ```bash
 git clone https://github.com/anondotli/anon.li.git
 cd anon.li
-bun install
+bun install            # also generates the Prisma client
 cp .env.example .env
 
-# Fill every required value in .env, then initialize the local database
-bun run prisma:generate
-bun run db:push
+# Fill every required value in .env, then apply the committed migrations
+bun run db:migrate:deploy
 
 # Start the development server
 bun dev
 ```
 
 Open `http://localhost:3000`. Blank optional provider variables are normalized as disabled; required variables are validated at startup. Use independent generated values for `AUTH_SECRET`, `CRON_SECRET`, `IP_HASH_PEPPER`, `REPORT_ENCRYPTION_KEY`, and `DKIM_ENCRYPTION_KEY` as documented in `.env.example`.
+
+When you change `prisma/schema.prisma`, create a migration with `bun run db:migrate --name concise_migration_name` and commit it. Avoid `bun run db:push` except on a throwaway database: it skips objects that exist only in migration SQL (such as the partial unique index `domains_domain_verified_key`) and leaves no migration history, so `db:migrate:deploy` can no longer be applied to that database.
 
 Before opening a pull request, run the same checks enforced by CI:
 

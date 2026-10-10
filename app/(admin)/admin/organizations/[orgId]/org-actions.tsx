@@ -34,6 +34,7 @@ export function OrgActions({ org }: OrgActionsProps) {
     const [showUnsuspend, setShowUnsuspend] = useState(false)
     const [showDelete, setShowDelete] = useState(false)
     const [showRotate, setShowRotate] = useState(false)
+    const [show2FA, setShow2FA] = useState(false)
     const [suspendReason, setSuspendReason] = useState("")
 
     const run = async (fn: () => Promise<{ error?: string }>, success: string, redirectTo?: string) => {
@@ -72,7 +73,7 @@ export function OrgActions({ org }: OrgActionsProps) {
                     variant="outline"
                     size="sm"
                     disabled={loading}
-                    onClick={() => run(() => setOrgEnforce2FA(org.id, !org.enforce2FA), org.enforce2FA ? "2FA enforcement disabled" : "2FA enforcement enabled")}
+                    onClick={() => setShow2FA(true)}
                 >
                     {org.enforce2FA ? <ShieldOff className="h-4 w-4" /> : <ShieldCheck className="h-4 w-4" />}
                     {org.enforce2FA ? "Disable 2FA" : "Enforce 2FA"}
@@ -138,6 +139,21 @@ export function OrgActions({ org }: OrgActionsProps) {
             />
 
             <ConfirmDialog
+                open={show2FA}
+                onOpenChange={setShow2FA}
+                title={org.enforce2FA ? "Stop enforcing 2FA" : "Enforce 2FA"}
+                description={org.enforce2FA
+                    ? `Members of “${org.name}” will no longer be required to use two-factor authentication.`
+                    : `Every member of “${org.name}” will be required to use two-factor authentication for org access.`}
+                confirmLabel={org.enforce2FA ? "Stop enforcing" : "Enforce 2FA"}
+                variant={org.enforce2FA ? "destructive" : "default"}
+                onConfirm={async () => {
+                    await run(() => setOrgEnforce2FA(org.id, !org.enforce2FA), org.enforce2FA ? "2FA enforcement disabled" : "2FA enforcement enabled")
+                }}
+                loading={loading}
+            />
+
+            <ConfirmDialog
                 open={showRotate}
                 onOpenChange={setShowRotate}
                 title="Recommend key rotation"
@@ -154,7 +170,7 @@ export function OrgActions({ org }: OrgActionsProps) {
                 open={showDelete}
                 onOpenChange={setShowDelete}
                 title="Delete organization"
-                description={`Permanently delete “${org.name}”, all of its members, invitations, and org-owned resources. Org-owned drop files are queued for storage cleanup. This cannot be undone.`}
+                description={`Permanently delete “${org.name}”, all of its members, invitations, and org-owned resources. Active Stripe subscriptions are canceled first (deletion stops if that fails). Org-owned drop files are queued for storage cleanup. This cannot be undone.`}
                 confirmLabel="Delete organization"
                 onConfirm={async () => {
                     await run(() => deleteOrganization(org.id), "Organization deleted", "/admin/organizations")

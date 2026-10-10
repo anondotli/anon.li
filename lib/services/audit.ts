@@ -3,59 +3,66 @@ import { createLogger } from "@/lib/logger"
 
 const logger = createLogger("Audit")
 
-type AuditAction =
-    | "api_key.create"
-    | "api_key.delete"
-    | "drop.takedown"
-    | "drop.restore"
-    | "drop.delete"
-    | "alias.takedown"
-    | "alias.update"
-    | "alias.delete"
-    | "form.takedown"
-    | "form.restore"
-    | "form.delete"
-    | "form.update"
-    | "domain.verify"
-    | "domain.delete"
-    | "recipient.delete"
-    | "user.ban"
-    | "user.unban"
-    | "user.delete_request"
-    | "user.set_admin"
-    | "user.set_storage_limit"
-    | "user.reset_2fa"
-    | "user.adjust_strikes"
-    | "oauth_app.update"
-    | "oauth_app.delete"
-    | "report.review"
-    | "report.resolve"
-    | "report.dismiss"
-    | "admin.warning_sent"
-    | "settings.reserved_aliases.update"
-    | "deletion.process"
-    | "deletion.complete"
-    | "storage.orphaned_cleanup"
-    | "billing.crypto_payment.activate"
-    | "auth.failed"
+/**
+ * Every audit action the app records. A static list (rather than a
+ * SELECT DISTINCT over audit_logs) also feeds the admin audit-log filter.
+ */
+export const AUDIT_ACTIONS = [
+    "api_key.create",
+    "api_key.delete",
+    "drop.takedown",
+    "drop.restore",
+    "drop.delete",
+    "alias.takedown",
+    "alias.update",
+    "alias.delete",
+    "form.takedown",
+    "form.restore",
+    "form.delete",
+    "form.update",
+    "domain.verify",
+    "domain.delete",
+    "recipient.delete",
+    "user.ban",
+    "user.unban",
+    "user.delete_request",
+    "user.set_admin",
+    "user.set_storage_limit",
+    "user.reset_2fa",
+    "user.adjust_strikes",
+    "oauth_app.update",
+    "oauth_app.delete",
+    "report.review",
+    "report.resolve",
+    "report.dismiss",
+    "admin.warning_sent",
+    "settings.reserved_aliases.update",
+    "deletion.process",
+    "deletion.complete",
+    "storage.orphaned_cleanup",
+    "billing.crypto_payment.activate",
+    "auth.failed",
     // Org-scoped events — always pass organizationId so they appear in the org trail.
-    | "org.member.add"
-    | "org.member.remove"
-    | "org.member.role_change"
-    | "org.invitation.send"
-    | "org.invitation.cancel"
-    | "org.domain.verify"
-    | "org.billing.seats_change"
-    | "org.billing.canceled"
-    | "org.vault.grant"
-    | "org.vault.rotate"
-    | "org.security.enforce_2fa_on"
-    | "org.security.enforce_2fa_off"
-    | "org.key_rotation.recommend"
-    | "org.suspend"
-    | "org.unsuspend"
-    | "org.delete"
-    | "org.data.export"
+    "org.member.add",
+    "org.member.remove",
+    "org.member.role_change",
+    "org.invitation.send",
+    "org.invitation.cancel",
+    "org.domain.verify",
+    "org.billing.seats_change",
+    "org.billing.canceled",
+    "org.vault.grant",
+    "org.vault.rotate",
+    "org.security.enforce_2fa_on",
+    "org.security.enforce_2fa_off",
+    "org.key_rotation.recommend",
+    "org.suspend",
+    "org.unsuspend",
+    "org.delete",
+    "org.data.export",
+] as const
+
+type AuditAction = (typeof AUDIT_ACTIONS)[number]
 
 interface AuditEntry {
     action: AuditAction

@@ -10,6 +10,8 @@ const mocks = vi.hoisted(() => ({
     auth: vi.fn(),
     broadcastVaultMessage: vi.fn(),
     getVaultStorageSupport: vi.fn(),
+    getVaultSession: vi.fn(),
+    signOutWithVaultCleanup: vi.fn(),
     persistTrustedBrowser: vi.fn(),
     push: vi.fn(),
     readVaultApiData: vi.fn(),
@@ -34,9 +36,24 @@ vi.mock("@/lib/prisma", () => ({
     },
 }))
 
-vi.mock("@/lib/vault/client", () => ({
-    persistTrustedBrowser: (...args: unknown[]) => mocks.persistTrustedBrowser(...args),
-    readVaultApiData: (...args: unknown[]) => mocks.readVaultApiData(...args),
+vi.mock("@/lib/vault/client", () => {
+    class VaultApiError extends Error {
+        readonly code: string
+        constructor(message: string, code: string) {
+            super(message)
+            this.code = code
+        }
+    }
+    return {
+        VaultApiError,
+        persistTrustedBrowser: (...args: unknown[]) => mocks.persistTrustedBrowser(...args),
+        readVaultApiData: (...args: unknown[]) => mocks.readVaultApiData(...args),
+        signOutWithVaultCleanup: (...args: unknown[]) => mocks.signOutWithVaultCleanup(...args),
+    }
+})
+
+vi.mock("@/lib/vault/server", () => ({
+    getVaultSession: (...args: unknown[]) => mocks.getVaultSession(...args),
 }))
 
 vi.mock("@/lib/vault/crypto", () => ({
@@ -119,6 +136,7 @@ describe("vault password setup", () => {
             vaultId: "vault-123",
         })
         mocks.persistTrustedBrowser.mockResolvedValue(undefined)
+        mocks.getVaultSession.mockResolvedValue({ session: { createdAt: new Date() } })
     })
 
     afterEach(() => {
@@ -162,5 +180,68 @@ describe("vault password setup", () => {
 
         expect(screen.queryByLabelText("Current password")).toBeNull()
         expect(body).not.toHaveProperty("currentPassword")
+    })
+
+    it("flags a stale session from the setup page up front", async () => {
+        const { default: SetupPasswordPage } = await import("@/app/(auth)/setup/page")
+
+        const fresh = await SetupPasswordPage({
+            searchParams: Promise.resolve({ callbackUrl: "/dashboard" }),
+        }) as React.ReactElement<{ sessionFresh: boolean }>
+        expect(fresh.props.sessionFresh).toBe(true)
+
+        mocks.getVaultSession.mockResolvedValueOnce({
+            session: { createdAt: new Date(Date.now() - 5 * 60 * 60 * 1000) },
+        })
+        const stale = await SetupPasswordPage({
+            searchParams: Promise.resolve({ callbackUrl: "/dashboard" }),
+        }) as React.ReactElement<{ sessionFresh: boolean }>
+        expect(stale.props.sessionFresh).toBe(false)
+    })
+
+    it("offers sign-in-again instead of the form for a stale session", async () => {
+        const { SetupPasswordPageContent } = await import("@/app/(auth)/setup/setup-password-content")
+        render(
+            <SetupPasswordPageContent callbackUrl="/dashboard" hasCredentialPassword={false} sessionFresh={false} />,
+        )
+
+        expect(screen.queryByLabelText("Vault password")).toBeNull()
+        fireEvent.click(screen.getByRole("button", { name: "Sign in again" }))
+        expect(mocks.signOutWithVaultCleanup).toHaveBeenCalledWith(
+            "setup-password-reauth",
+            `/login?callbackUrl=${encodeURIComponent("/setup?callbackUrl=%2Fdashboard")}`,
+        )
+    })
+
+    it("switches to sign-in-again when the server reports SESSION_NOT_FRESH", async () => {
+        const { VaultApiError } = await import("@/lib/vault/client")
+        mocks.readVaultApiData.mockRejectedValueOnce(new VaultApiError("stale", "SESSION_NOT_FRESH"))
+
+        await submitSetup(false)
+
+        expect(await screen.findByRole("button", { name: "Sign in again" })).toBeTruthy()
+        expect(mocks.push).not.toHaveBeenCalled()
+    })
+
+    it("treats a trusted-browser save failure after setup as success", async () => {
+        mocks.persistTrustedBrowser.mockRejectedValueOnce(new Error("IndexedDB unavailable"))
+
+        await submitSetup(false)
+
+        await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/dashboard"))
+        expect(mocks.setVaultRuntime).toHaveBeenCalled()
+        expect(screen.queryByText("IndexedDB unavailable")).toBeNull()
+    })
+
+    it("treats an already-configured retry as done", async () => {
+        const { VaultApiError } = await import("@/lib/vault/client")
+        mocks.readVaultApiData.mockRejectedValueOnce(
+            new VaultApiError("Vault security is already configured", "VAULT_ALREADY_CONFIGURED"),
+        )
+
+        await submitSetup(false)
+
+        await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/dashboard"))
+        expect(screen.queryByText("Vault security is already configured")).toBeNull()
     })
 })

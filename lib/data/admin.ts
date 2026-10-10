@@ -1,4 +1,4 @@
-import type { Prisma } from "@prisma/client"
+import { Prisma } from "@prisma/client"
 import { ADMIN_PAGE_SIZE } from "@/lib/admin/constants"
 import {
     STORAGE_LIMITS,
@@ -14,6 +14,9 @@ import {
 import { getDropLimits } from "@/lib/limits"
 import { FREE_TEAM_MEMBER_LIMIT } from "@/lib/org-seats"
 import { prisma } from "@/lib/prisma"
+import { safeDecryptReportKey } from "@/lib/report-crypto"
+import { AUDIT_ACTIONS } from "@/lib/services/audit"
+import { CRYPTO_NEEDS_REVIEW_STATUS } from "@/lib/crypto-payment-status"
 
 type SearchParams = { [key: string]: string | string[] | undefined }
 
@@ -55,7 +58,8 @@ type AdminAliasListRow = AliasRoutingInput & {
     lastEmailAt: Date | null
     scheduledForRemovalAt: Date | null
     createdAt: Date
-    user: SimpleUserRef
+    // Null for an org-owned alias whose creating user was deleted (SetNull).
+    user: SimpleUserRef | null
 }
 
 type AdminUserListRow = {
@@ -130,7 +134,8 @@ type AdminFormListRow = {
     closesAt: Date | null
     deletedAt: Date | null
     createdAt: Date
-    user: SimpleUserRef
+    // Null for an org-owned form whose creating user was deleted (SetNull).
+    user: SimpleUserRef | null
     _count: { submissions: number }
 }
 
@@ -158,7 +163,8 @@ type AdminFormDetailRow = {
     deletedAt: Date | null
     createdAt: Date
     updatedAt: Date
-    user: { id: string; email: string; name: string | null; tosViolations: number }
+    user: { id: string; email: string; name: string | null; tosViolations: number } | null
+    organizationId: string | null
     ownerKey: { id: string; vaultGeneration: number; createdAt: Date; updatedAt: Date } | null
     _count: { submissions: number }
 }
@@ -179,6 +185,7 @@ type AdminDomainRow = {
     catchAll: boolean
     catchAllRecipientId: string | null
     userId: string | null
+    organizationId: string | null
     scheduledForRemovalAt: Date | null
     createdAt: Date
     updatedAt: Date
@@ -193,12 +200,11 @@ type AdminRecipientRow = {
     pgpPublicKey: string | null
     pgpFingerprint: string | null
     pgpKeyName: string | null
-    userId: string
+    userId: string | null
     scheduledForRemovalAt: Date | null
     createdAt: Date
     updatedAt: Date
-    user: UserRef
-    _count: { aliases: number; aliasRecipients: number }
+    user: UserRef | null
 }
 
 type AdminApiKeyRow = {
@@ -211,15 +217,6 @@ type AdminApiKeyRow = {
     user: UserRef
 }
 
-type AdminTakedownDropRow = {
-    id: string
-    takedownReason: string | null
-    takenDownAt: Date | null
-    createdAt: Date
-    user: UserRef | null
-    _count: { files: number }
-}
-
 type AdminAliasDetailRow = AdminAliasListRow & {
     domain: string
     localPart: string
@@ -227,6 +224,7 @@ type AdminAliasDetailRow = AdminAliasListRow & {
     legacyNote: string | null
     encryptedLabel: string | null
     encryptedNote: string | null
+    takenDownAt: Date | null
     updatedAt: Date
 }
 
@@ -574,6 +572,11 @@ function parseFailedStorageKeys(value: string | null) {
     }
 }
 
+/** Escape LIKE/ILIKE wildcards so user search text matches literally. */
+function escapeLike(value: string) {
+    return value.replace(/[\\%_]/g, (char) => `\\${char}`)
+}
+
 function prismaPayload<T>(value: unknown): T {
     return value as T
 }
@@ -651,17 +654,24 @@ export async function getAdminUsers(params: { search?: string; filter?: string; 
     const filter = params.filter || "all"
     const page = parsePage(params.page)
 
-    const where: Prisma.UserWhereInput = {
-        ...(search && {
+    // Search and the "banned" filter are both OR groups — combine them under
+    // AND so one doesn't overwrite the other's `OR` key.
+    const orGroups: Prisma.UserWhereInput[] = []
+    if (search) {
+        orGroups.push({
             OR: [
                 { email: { contains: search, mode: "insensitive" } },
                 { name: { contains: search, mode: "insensitive" } },
                 { id: { contains: search } },
             ],
-        }),
-        ...(filter === "banned" && {
-            OR: [{ banned: true }, { banAliasCreation: true }, { banFileUpload: true }],
-        }),
+        })
+    }
+    if (filter === "banned") {
+        orGroups.push({ OR: [{ banned: true }, { banAliasCreation: true }, { banFileUpload: true }] })
+    }
+
+    const where: Prisma.UserWhereInput = {
+        ...(orGroups.length > 0 && { AND: orGroups }),
         ...(filter === "admin" && { isAdmin: true }),
         ...(filter === "active" && { banned: false, banAliasCreation: false, banFileUpload: false }),
         ...(filter === "deleting" && { deletionRequest: { isNot: null } }),
@@ -832,8 +842,11 @@ export async function getAdminForms(params: { search?: string; filter?: string; 
             ],
         }),
         ...(filter === "takendown" && { takenDown: true }),
-        ...(filter === "disabled" && { disabledByUser: true, takenDown: false }),
-        ...(filter === "active" && { disabledByUser: false, takenDown: false }),
+        // A form is closed by either the owner (`disabledByUser`) or the
+        // `active` flag (owner/admin toggle); FormService treats both as closed.
+        // AND-wrapped so this OR can't collide with the search OR above.
+        ...(filter === "disabled" && { takenDown: false, AND: [{ OR: [{ disabledByUser: true }, { active: false }] }] }),
+        ...(filter === "active" && { disabledByUser: false, active: true, takenDown: false }),
         ...(filter === "closed" && { closesAt: { lt: new Date() } }),
     }
 
@@ -904,6 +917,7 @@ export async function getAdminFormDetail(formId: string) {
             deletedAt: true,
             createdAt: true,
             updatedAt: true,
+            organizationId: true,
             user: {
                 select: { id: true, email: true, name: true, tosViolations: true },
             },
@@ -1011,7 +1025,6 @@ export async function getAdminRecipients(searchParams: SearchParams) {
             where,
             include: {
                 user: { select: { id: true, email: true, name: true } },
-                _count: { select: { aliases: true, aliasRecipients: true } },
             },
             orderBy: { createdAt: "desc" },
             skip: (page - 1) * ADMIN_PAGE_SIZE,
@@ -1020,10 +1033,28 @@ export async function getAdminRecipients(searchParams: SearchParams) {
         prisma.recipient.count({ where }),
     ])
 
+    // An alias can reference a recipient both via the legacy recipientId and
+    // an AliasRecipient routing row — count each alias once.
+    const recipientIds = recipients.map((recipient) => recipient.id)
+    const aliasCountRows = recipientIds.length > 0
+        ? await prisma.$queryRaw<Array<{ recipientId: string; count: bigint | number }>>`
+            SELECT t."recipientId", COUNT(DISTINCT t."aliasId") AS count
+            FROM (
+                SELECT "recipientId", "id" AS "aliasId" FROM "aliases"
+                WHERE "recipientId" IN (${Prisma.join(recipientIds)})
+                UNION
+                SELECT "recipientId", "aliasId" FROM "alias_recipients"
+                WHERE "recipientId" IN (${Prisma.join(recipientIds)})
+            ) t
+            GROUP BY t."recipientId"
+        `
+        : []
+    const aliasCounts = new Map(aliasCountRows.map((row) => [row.recipientId, Number(row.count)]))
+
     return {
         recipients: recipients.map((recipient) => ({
             ...recipient,
-            aliasCount: recipient._count.aliases + recipient._count.aliasRecipients,
+            aliasCount: aliasCounts.get(recipient.id) ?? 0,
         })),
         total,
         search,
@@ -1038,16 +1069,24 @@ export async function getAdminApiKeys(searchParams: SearchParams) {
     const filter = getStringParam(searchParams, "filter") || ""
     const now = new Date()
 
-    const where: Prisma.ApiKeyWhereInput = {
-        ...(search && {
+    // Search and the "active" filter are both OR groups — combine under AND.
+    const orGroups: Prisma.ApiKeyWhereInput[] = []
+    if (search) {
+        orGroups.push({
             OR: [
                 { keyPrefix: { contains: search, mode: "insensitive" } },
                 { label: { contains: search, mode: "insensitive" } },
                 { user: { email: { contains: search, mode: "insensitive" } } },
             ],
-        }),
+        })
+    }
+    if (filter === "active") {
+        orGroups.push({ OR: [{ expiresAt: null }, { expiresAt: { gte: now } }] })
+    }
+
+    const where: Prisma.ApiKeyWhereInput = {
+        ...(orGroups.length > 0 && { AND: orGroups }),
         ...(filter === "expired" && { expiresAt: { lt: now } }),
-        ...(filter === "active" && { OR: [{ expiresAt: null }, { expiresAt: { gte: now } }] }),
     }
 
     const [apiKeys, total] = await Promise.all([
@@ -1078,11 +1117,34 @@ export async function getAdminApiKeys(searchParams: SearchParams) {
     }
 }
 
+type AdminTakedownType = "drop" | "form" | "alias"
+
+export type AdminTakedownRow = {
+    type: AdminTakedownType
+    id: string
+    /** Drop id, form title, or alias address. */
+    label: string
+    reason: string | null
+    takenDownAt: Date | null
+    detail: string
+    user: UserRef | null
+}
+
+const TAKEDOWN_TYPES: AdminTakedownType[] = ["drop", "form", "alias"]
+
 export async function getAdminTakedowns(searchParams: SearchParams) {
     const search = sanitizeSearch(getStringParam(searchParams, "search"))
     const page = parsePage(getStringParam(searchParams, "page"))
+    const typeParam = getStringParam(searchParams, "type")
+    const type = TAKEDOWN_TYPES.includes(typeParam as AdminTakedownType) ? typeParam as AdminTakedownType : "all"
+    const types = type === "all" ? TAKEDOWN_TYPES : [type]
 
-    const where: Prisma.DropWhereInput = {
+    // Merging three paginated sources: each contributes its newest
+    // page * size rows, which always covers the merged page window.
+    const take = page * ADMIN_PAGE_SIZE
+    const userSelect = { select: { id: true, email: true, name: true } } as const
+
+    const dropWhere: Prisma.DropWhereInput = {
         takenDown: true,
         ...(search && {
             OR: [
@@ -1092,25 +1154,96 @@ export async function getAdminTakedowns(searchParams: SearchParams) {
             ],
         }),
     }
+    const formWhere: Prisma.FormWhereInput = {
+        takenDown: true,
+        ...(search && {
+            OR: [
+                { id: { contains: search, mode: "insensitive" } },
+                { title: { contains: search, mode: "insensitive" } },
+                { takedownReason: { contains: search, mode: "insensitive" } },
+                { user: { email: { contains: search, mode: "insensitive" } } },
+            ],
+        }),
+    }
+    const aliasWhere: Prisma.AliasWhereInput = {
+        takenDownAt: { not: null },
+        ...(search && {
+            OR: [
+                { email: { contains: search, mode: "insensitive" } },
+                { user: { email: { contains: search, mode: "insensitive" } } },
+            ],
+        }),
+    }
 
-    const [drops, total] = await Promise.all([
-        prismaPayload<Promise<AdminTakedownDropRow[]>>(prisma.drop.findMany({
-            where,
-            include: {
-                user: { select: { id: true, email: true, name: true } },
-                _count: { select: { files: true } },
-            },
-            orderBy: { takenDownAt: "desc" },
-            skip: (page - 1) * ADMIN_PAGE_SIZE,
-            take: ADMIN_PAGE_SIZE,
-        })),
-        prisma.drop.count({ where }),
+    const [drops, dropTotal, forms, formTotal, aliases, aliasTotal] = await Promise.all([
+        types.includes("drop")
+            ? prisma.drop.findMany({
+                where: dropWhere,
+                select: { id: true, takedownReason: true, takenDownAt: true, user: userSelect, _count: { select: { files: true } } },
+                orderBy: { takenDownAt: "desc" },
+                take,
+            })
+            : [],
+        types.includes("drop") ? prisma.drop.count({ where: dropWhere }) : 0,
+        types.includes("form")
+            ? prisma.form.findMany({
+                where: formWhere,
+                select: { id: true, title: true, takedownReason: true, takenDownAt: true, submissionsCount: true, user: userSelect },
+                orderBy: { takenDownAt: "desc" },
+                take,
+            })
+            : [],
+        types.includes("form") ? prisma.form.count({ where: formWhere }) : 0,
+        types.includes("alias")
+            ? prisma.alias.findMany({
+                where: aliasWhere,
+                select: { id: true, email: true, takenDownAt: true, active: true, user: userSelect },
+                orderBy: { takenDownAt: "desc" },
+                take,
+            })
+            : [],
+        types.includes("alias") ? prisma.alias.count({ where: aliasWhere }) : 0,
     ])
 
+    const rows: AdminTakedownRow[] = [
+        ...drops.map((drop) => ({
+            type: "drop" as const,
+            id: drop.id,
+            label: drop.id,
+            reason: drop.takedownReason,
+            takenDownAt: drop.takenDownAt,
+            detail: `${drop._count.files} file${drop._count.files === 1 ? "" : "s"}`,
+            user: drop.user,
+        })),
+        ...forms.map((form) => ({
+            type: "form" as const,
+            id: form.id,
+            label: form.title || form.id,
+            reason: form.takedownReason,
+            takenDownAt: form.takenDownAt,
+            detail: `${form.submissionsCount} submission${form.submissionsCount === 1 ? "" : "s"}`,
+            user: form.user,
+        })),
+        ...aliases.map((alias) => ({
+            type: "alias" as const,
+            id: alias.id,
+            label: alias.email,
+            // Alias takedowns don't store a reason; the linked report has it.
+            reason: null,
+            takenDownAt: alias.takenDownAt,
+            detail: alias.active ? "active" : "inactive",
+            user: alias.user,
+        })),
+    ]
+    rows.sort((a, b) => (b.takenDownAt?.getTime() ?? 0) - (a.takenDownAt?.getTime() ?? 0))
+
+    const total = dropTotal + formTotal + aliasTotal
+
     return {
-        drops,
+        takedowns: rows.slice((page - 1) * ADMIN_PAGE_SIZE, page * ADMIN_PAGE_SIZE),
         total,
         search,
+        type,
         ...getPageMetadata(total, page),
     }
 }
@@ -1133,14 +1266,32 @@ export async function getAdminReports(params: { status?: string; page?: string; 
         }),
     }
 
-    const priorityRank: Record<string, number> = { urgent: 0, high: 1, normal: 2, low: 3 }
+    // Priority-then-recency ordering must hold ACROSS pages, so it is done in
+    // SQL (Prisma can't ORDER BY a CASE): page the ids here, then load rows.
+    const conditions: Prisma.Sql[] = []
+    if (status !== "all") conditions.push(Prisma.sql`"status" = ${status}`)
+    if (serviceType && serviceType !== "all") conditions.push(Prisma.sql`"serviceType" = ${serviceType}`)
+    if (search) {
+        const like = `%${escapeLike(search)}%`
+        conditions.push(Prisma.sql`("resourceId" ILIKE ${like} OR "description" ILIKE ${like} OR "contactEmail" ILIKE ${like})`)
+    }
+    const whereSql = conditions.length > 0 ? Prisma.sql`WHERE ${Prisma.join(conditions, " AND ")}` : Prisma.empty
 
-    const [reports, total] = await Promise.all([
-        prisma.abuseReport.findMany({
-            where,
-            orderBy: { createdAt: "desc" },
-            skip: (page - 1) * ADMIN_PAGE_SIZE,
-            take: ADMIN_PAGE_SIZE,
+    const [idRows, total] = await Promise.all([
+        prisma.$queryRaw<Array<{ id: string }>>`
+            SELECT "id" FROM "abuse_reports"
+            ${whereSql}
+            ORDER BY CASE "priority" WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'low' THEN 3 ELSE 2 END,
+                "createdAt" DESC, "id" DESC
+            LIMIT ${ADMIN_PAGE_SIZE} OFFSET ${(page - 1) * ADMIN_PAGE_SIZE}
+        `,
+        prisma.abuseReport.count({ where }),
+    ])
+
+    const ids = idRows.map((row) => row.id)
+    const rows = ids.length > 0
+        ? await prisma.abuseReport.findMany({
+            where: { id: { in: ids } },
             select: {
                 id: true,
                 serviceType: true,
@@ -1149,7 +1300,7 @@ export async function getAdminReports(params: { status?: string; page?: string; 
                 description: true,
                 contactEmail: true,
                 decryptionKey: true,
-                reporterIp: true,
+                decryptionKeyEncrypted: true,
                 status: true,
                 priority: true,
                 reviewNotes: true,
@@ -1158,14 +1309,19 @@ export async function getAdminReports(params: { status?: string; page?: string; 
                 reviewedAt: true,
                 createdAt: true,
             },
-        }),
-        prisma.abuseReport.count({ where }),
-    ])
-
-    reports.sort((a, b) =>
-        (priorityRank[a.priority ?? "normal"] ?? 2) - (priorityRank[b.priority ?? "normal"] ?? 2) ||
-        b.createdAt.getTime() - a.createdAt.getTime()
-    )
+        })
+        : []
+    const byId = new Map(rows.map((row) => [row.id, row]))
+    // reporterIp is deliberately not loaded for the list; the detail page has it.
+    const reports = ids.flatMap((id) => {
+        const row = byId.get(id)
+        if (!row) return []
+        const { decryptionKeyEncrypted, decryptionKey, ...rest } = row
+        return [{
+            ...rest,
+            decryptionKey: decryptionKey && decryptionKeyEncrypted ? safeDecryptReportKey(decryptionKey) : decryptionKey,
+        }]
+    })
 
     return {
         reports,
@@ -1223,7 +1379,13 @@ export async function getAdminDomainDetail(domainId: string) {
         return null
     }
 
-    const [aliases, catchAllRecipient] = await Promise.all([
+    // Same owner scoping as AdminService.deleteDomain: these are the aliases a
+    // domain delete removes.
+    const ownedAliasWhere: Prisma.AliasWhereInput = domain.organizationId
+        ? { domain: domain.domain, organizationId: domain.organizationId }
+        : { domain: domain.domain, userId: domain.userId, organizationId: null }
+
+    const [aliases, catchAllRecipient, ownedAliasCount] = await Promise.all([
         prismaPayload<Promise<AdminDomainAliasRow[]>>(prisma.alias.findMany({
             where: { domain: domain.domain },
             include: { user: { select: { id: true, email: true } } },
@@ -1236,11 +1398,13 @@ export async function getAdminDomainDetail(domainId: string) {
                 select: { id: true, email: true, verified: true },
             })
             : Promise.resolve(null),
+        prisma.alias.count({ where: ownedAliasWhere }),
     ])
 
     return {
         domain: { ...domain, dkimPrivateKey: undefined, catchAllRecipient },
         aliases,
+        ownedAliasCount,
     }
 }
 
@@ -1573,7 +1737,7 @@ export async function getAdminAuditLogs(searchParams: SearchParams) {
         }),
     }
 
-    const [logs, total, actionRows] = await Promise.all([
+    const [logs, total] = await Promise.all([
         prismaPayload<Promise<AuditLogRow[]>>(prisma.auditLog.findMany({
             where,
             orderBy: { createdAt: "desc" },
@@ -1581,11 +1745,6 @@ export async function getAdminAuditLogs(searchParams: SearchParams) {
             take: ADMIN_PAGE_SIZE,
         })),
         prisma.auditLog.count({ where }),
-        prismaPayload<Promise<Array<{ action: string }>>>(prisma.auditLog.findMany({
-            distinct: ["action"],
-            select: { action: true },
-            orderBy: { action: "asc" },
-        })),
     ])
 
     const actorIds = [...new Set(logs.map((log) => log.actorId))]
@@ -1602,7 +1761,9 @@ export async function getAdminAuditLogs(searchParams: SearchParams) {
             ...log,
             actor: actorMap.get(log.actorId) ?? null,
         })),
-        actions: actionRows.map((row) => row.action),
+        // Static list: a DISTINCT over the whole audit_logs table on every page
+        // load doesn't scale.
+        actions: [...AUDIT_ACTIONS].sort(),
         total,
         search,
         action,
@@ -1631,7 +1792,17 @@ export async function getAdminBilling(searchParams: SearchParams) {
         }),
     }
 
-    const [subscriptions, total, cryptoPayments] = await Promise.all([
+    const cryptoSearch: Prisma.CryptoPaymentWhereInput | undefined = search
+        ? {
+            OR: [
+                { orderId: { contains: search, mode: "insensitive" } },
+                { nowPaymentId: { contains: search, mode: "insensitive" } },
+                { user: { email: { contains: search, mode: "insensitive" } } },
+            ],
+        }
+        : undefined
+
+    const [subscriptions, total, heldCryptoPayments, recentCryptoPayments] = await Promise.all([
         prismaPayload<Promise<AdminSubscriptionRow[]>>(prisma.subscription.findMany({
             where,
             include: {
@@ -1643,16 +1814,15 @@ export async function getAdminBilling(searchParams: SearchParams) {
             take: ADMIN_PAGE_SIZE,
         })),
         prisma.subscription.count({ where }),
+        // Payments held for review need an admin decision, so they are always
+        // listed (regardless of the recent-payments window), oldest first.
         prismaPayload<Promise<AdminCryptoPaymentRow[]>>(prisma.cryptoPayment.findMany({
-            where: search
-                ? {
-                    OR: [
-                        { orderId: { contains: search, mode: "insensitive" } },
-                        { nowPaymentId: { contains: search, mode: "insensitive" } },
-                        { user: { email: { contains: search, mode: "insensitive" } } },
-                    ],
-                }
-                : undefined,
+            where: { status: CRYPTO_NEEDS_REVIEW_STATUS, ...cryptoSearch },
+            include: { user: { select: { id: true, email: true, name: true } } },
+            orderBy: { createdAt: "asc" },
+        })),
+        prismaPayload<Promise<AdminCryptoPaymentRow[]>>(prisma.cryptoPayment.findMany({
+            where: { status: { not: CRYPTO_NEEDS_REVIEW_STATUS }, ...cryptoSearch },
             include: { user: { select: { id: true, email: true, name: true } } },
             orderBy: { createdAt: "desc" },
             take: 10,
@@ -1661,7 +1831,8 @@ export async function getAdminBilling(searchParams: SearchParams) {
 
     return {
         subscriptions,
-        cryptoPayments,
+        cryptoPayments: [...heldCryptoPayments, ...recentCryptoPayments],
+        heldCryptoPaymentCount: heldCryptoPayments.length,
         total,
         search,
         status,
@@ -1688,7 +1859,7 @@ export async function getAdminReferrals(searchParams: SearchParams) {
 
     const now = new Date()
 
-    const [referrals, total, totalReferrals, activePlus, distinctReferrers] = await Promise.all([
+    const [referrals, total, totalReferrals, activePlus, referrerCountRows] = await Promise.all([
         prismaPayload<Promise<AdminReferralRow[]>>(prisma.user.findMany({
             where,
             select: {
@@ -1707,10 +1878,10 @@ export async function getAdminReferrals(searchParams: SearchParams) {
         prisma.user.count({ where }),
         prisma.user.count({ where: { referredByUserId: { not: null } } }),
         prisma.user.count({ where: { referralPlusUntil: { gt: now } } }),
-        prisma.user.groupBy({
-            by: ["referredByUserId"],
-            where: { referredByUserId: { not: null } },
-        }),
+        // COUNT(DISTINCT) in SQL instead of materialising one row per referrer.
+        prisma.$queryRaw<Array<{ count: bigint | number }>>`
+            SELECT COUNT(DISTINCT "referred_by_user_id") AS count FROM "users" WHERE "referred_by_user_id" IS NOT NULL
+        `,
     ])
 
     return {
@@ -1719,7 +1890,7 @@ export async function getAdminReferrals(searchParams: SearchParams) {
         search,
         stats: {
             totalReferrals,
-            totalReferrers: distinctReferrers.length,
+            totalReferrers: Number(referrerCountRows[0]?.count ?? 0),
             activePlus,
         },
         ...getPageMetadata(total, page),

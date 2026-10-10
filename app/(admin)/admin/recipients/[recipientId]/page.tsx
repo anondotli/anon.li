@@ -37,7 +37,7 @@ export default async function RecipientDetailPage({
             <PageHeader
                 title={recipient.email}
                 description="Recipient details and linked aliases"
-                actions={<RecipientActions recipient={recipient} />}
+                actions={<RecipientActions recipient={{ id: recipient.id, email: recipient.email }} />}
             />
 
             <div className="grid gap-6 md:grid-cols-2">

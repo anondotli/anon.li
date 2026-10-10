@@ -49,7 +49,9 @@ export function ReviewActions({
             ? !!alias?.user
             : !!form?.user
     const isDropTakenDown = report.serviceType === "drop" && drop?.takenDown
-    const isAliasTakenDown = report.serviceType === "alias" && alias && !alias.active
+    // An owner-paused alias (active: false) can still be taken down; only the
+    // takedown marker means it already was.
+    const isAliasTakenDown = report.serviceType === "alias" && !!alias?.takenDownAt
     const isFormTakenDown = report.serviceType === "form" && form?.takenDown
 
     return (

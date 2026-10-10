@@ -81,11 +81,6 @@ export function PowerUserUpsellEmail({
                     description="Bring your own domain for branded aliases like me@yourdomain.com."
                 />
                 <FeatureRow
-                    icon="&#128274;"
-                    title="PGP-encrypted forwarding"
-                    description="Attach your public key and have inbound mail encrypted before it reaches your inbox."
-                />
-                <FeatureRow
                     icon="&#128230;"
                     title={`Need Drop & Forms too? Go Bundle — ${bundlePrice}`}
                     description={`Bundle ${planLabel} adds encrypted file sharing and private forms on top of everything above. Upgrade anytime — start with Alias ${planLabel} below.`}

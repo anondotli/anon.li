@@ -74,11 +74,12 @@ describe("markdown negotiation", () => {
             }),
         )
 
-        const { GET } = await import("@/app/__markdown/route")
+        const { GET } = await import("@/app/%5F%5Fmarkdown/route")
         const response = await GET(new Request("http://localhost/__markdown?target=%2Fdocs%2Fapi", {
             headers: {
                 Accept: "text/markdown",
                 cookie: "session=abc123",
+                "x-markdown-rewrite": "1",
             },
         }))
 
@@ -98,5 +99,45 @@ describe("markdown negotiation", () => {
         expect(body).toContain("# Developer API")
         expect(body).toContain("[Alias API](http://localhost/docs/api/alias)")
         expect(body).toContain("```")
+        // Negotiated responses at the public URL stay indexable.
+        expect(response.headers.get("x-robots-tag")).toBeNull()
+    })
+
+    it("marks direct hits on the internal converter path as noindex", async () => {
+        vi.spyOn(globalThis, "fetch").mockResolvedValue(
+            new Response("<html><body><main><h1>Docs</h1></main></body></html>", {
+                headers: { "content-type": "text/html" },
+            }),
+        )
+
+        const { GET } = await import("@/app/%5F%5Fmarkdown/route")
+        const response = await GET(new Request("http://localhost/__markdown?target=%2Fdocs"))
+
+        expect(response.status).toBe(200)
+        expect(response.headers.get("x-robots-tag")).toBe("noindex, nofollow")
+    })
+
+    it.each([
+        "/\\evil.example/",
+        "//evil.example/",
+        "https://evil.example/",
+        "/__markdown?target=%2Fdocs",
+        "",
+    ])("rejects unsafe markdown target %j without fetching", async (target) => {
+        const fetchMock = vi.spyOn(globalThis, "fetch")
+
+        const { GET } = await import("@/app/%5F%5Fmarkdown/route")
+        const response = await GET(new Request(`http://localhost/__markdown?target=${encodeURIComponent(target)}`))
+
+        expect(response.status).toBe(400)
+        expect(fetchMock).not.toHaveBeenCalled()
+    })
+
+    it("never rewrites requests for the internal converter path", async () => {
+        const response = await proxy(new NextRequest("http://localhost/__markdown?target=%2Fdocs", {
+            headers: { Accept: "text/markdown" },
+        }))
+
+        expect(response.headers.get("x-middleware-rewrite")).toBeNull()
     })
 })

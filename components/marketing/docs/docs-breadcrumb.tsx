@@ -10,12 +10,13 @@ interface DocsBreadcrumbProps {
 
 export function DocsBreadcrumb({ items }: DocsBreadcrumbProps) {
     return (
-        <nav className="flex items-center gap-1.5 text-sm text-muted-foreground mb-6">
+        <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-sm text-muted-foreground mb-6">
             <Link
                 href="/docs"
+                aria-label="Documentation home"
                 className="flex items-center hover:text-foreground transition-colors"
             >
-                <Home className="h-3.5 w-3.5" />
+                <Home className="h-3.5 w-3.5" aria-hidden="true" />
             </Link>
 
             {items.map((item, index) => (

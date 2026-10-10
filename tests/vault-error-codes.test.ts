@@ -10,6 +10,7 @@ import {
     ORG_KEY_GENERATION_MISMATCH_CODE,
     ORG_KEY_LAST_HOLDER_CODE,
     ROTATION_DATA_CHANGED_CODE,
+    VAULT_ALREADY_CONFIGURED_CODE,
 } from "@/lib/vault/error-codes"
 import { SESSION_NOT_FRESH_ERROR_CODE } from "@/lib/vault/session-freshness"
 import { CIPHERTEXT_HASH_PATTERN, hashCiphertext, hashNullableCiphertext } from "@/lib/vault/ciphertext-hash"
@@ -20,6 +21,7 @@ describe("vault client error codes", () => {
         expect(ORG_KEY_GENERATION_MISMATCH_CODE).toBe(ErrorCodes.ORG_KEY_GENERATION_MISMATCH)
         expect(ORG_KEY_LAST_HOLDER_CODE).toBe(ErrorCodes.ORG_KEY_LAST_HOLDER)
         expect(SESSION_NOT_FRESH_ERROR_CODE).toBe(ErrorCodes.SESSION_NOT_FRESH)
+        expect(VAULT_ALREADY_CONFIGURED_CODE).toBe(ErrorCodes.VAULT_ALREADY_CONFIGURED)
     })
 })
 

@@ -15,6 +15,7 @@ const { auth, getAuthUserState, getOrganizationSuspension, rateLimit, prisma, st
     rateLimit: vi.fn(),
     prisma: {
         member: { count: vi.fn() },
+        invitation: { count: vi.fn().mockResolvedValue(0) },
         subscription: { findFirst: vi.fn() },
     },
     stripe: {
@@ -85,6 +86,20 @@ describe("updateOrgSeats", () => {
         const result = await updateOrgSeats({ seats: 2 })
 
         expect(result.error).toMatch(/5 members/)
+        expect(stripe.subscriptions.update).not.toHaveBeenCalled()
+    })
+
+    it("counts pending, unexpired invitations as reserved seats", async () => {
+        setSession("owner")
+        prisma.member.count.mockResolvedValue(3)
+        prisma.invitation.count.mockResolvedValueOnce(2)
+
+        const result = await updateOrgSeats({ seats: 4 })
+
+        expect(result.error).toMatch(/3 members and 2 pending invitations/)
+        expect(prisma.invitation.count).toHaveBeenCalledWith({
+            where: { organizationId: expect.any(String), status: "pending", expiresAt: { gt: expect.any(Date) } },
+        })
         expect(stripe.subscriptions.update).not.toHaveBeenCalled()
     })
 

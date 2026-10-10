@@ -17,7 +17,9 @@ Use Bun for dependencies and scripts.
 - `bun run deadcode` checks for unused files, dependencies, and exports with Knip.
 - `bun run test` runs the Vitest suite once.
 - `bun run check` runs every local quality gate, including a production build.
-- `bunx prisma generate` refreshes Prisma client code; `bunx prisma db push` syncs the local schema.
+- `bun run db:migrate:deploy` applies the committed migrations (local setup and production); `bun run db:migrate --name <name>` creates a migration after a schema edit. `bun run prisma:generate` refreshes the Prisma client (`bun install` runs it too).
+- Avoid `bun run db:push` except on a throwaway database: it skips migration-only SQL such as the partial unique index `domains_domain_verified_key` and leaves no migration history.
+- `docker compose up -d` starts local PostgreSQL, MinIO (R2), and a Redis REST endpoint; see `docs/local-development.md`.
 
 ## Coding Style & Naming Conventions
 
@@ -25,7 +27,7 @@ Write TypeScript with strict types; avoid `any`. Use the `@/` path alias for rep
 
 ## Testing Guidelines
 
-Vitest runs in `jsdom` with setup from `vitest.setup.ts`. Name tests `*.test.ts` or `*.test.tsx` and place broad tests in `tests/`; colocated route tests are also used for API handlers. Add focused coverage for changed behavior, especially authentication, billing, vault, crypto, storage, rate limiting, and API validation paths. Run `bun run check` before submitting changes.
+Tests run on Vitest (`bun run test`; bare `bun test` is blocked) with setup from `vitest.setup.ts`. `*.test.ts` runs in Node and `*.test.tsx` in jsdom; a `.ts` test that needs browser globals adds a `@vitest-environment jsdom` docblock. Name tests `*.test.ts` or `*.test.tsx` and place broad tests in `tests/`; colocated route tests are also used for API handlers. Add focused coverage for changed behavior, especially authentication, billing, vault, crypto, storage, rate limiting, and API validation paths. Run `bun run check` before submitting changes.
 
 ## Commit & Pull Request Guidelines
 
@@ -37,7 +39,7 @@ Copy `.env.example` to `.env` for local setup, but never commit secrets. Local d
 
 <!-- BEGIN:nextjs-agent-rules -->
 
-# This is NOT the Next.js you know
+## This is NOT the Next.js you know
 
 This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
 

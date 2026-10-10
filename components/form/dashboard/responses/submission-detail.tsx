@@ -85,6 +85,8 @@ export function SubmissionDetail({
             }
             toast.success("Submission deleted")
             onDelete(meta.id)
+        } catch {
+            toast.error("Failed to delete submission. Please try again.")
         } finally {
             setIsDeleting(false)
             setShowDeleteDialog(false)

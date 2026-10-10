@@ -62,6 +62,11 @@ export function ResourcesScheduledRemovalEmail({
                     items={aliases.map((a) => `${a.email} (${a.format.toLowerCase()})`)}
                 />
                 <ResourceSection title="Domains" items={domains} />
+                {domains.length > 0 && (
+                    <p style={{ margin: "-8px 0 16px", fontSize: "13px", lineHeight: 1.6, color: emailColors.textLight }}>
+                        All aliases on a removed domain are deleted along with it.
+                    </p>
+                )}
                 <ResourceSection title="Recipients" items={recipients} />
             </InfoBox>
             <ContentRow padding="0 48px 16px">

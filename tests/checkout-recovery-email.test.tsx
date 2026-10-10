@@ -27,6 +27,13 @@ describe("CheckoutRecoveryEmail", () => {
         expect(cta.getAttribute("href")).toContain("/pricing?highlight=form_pro")
     })
 
+    it("links an abandoned Business (team) checkout to the Business page", () => {
+        render(<CheckoutRecoveryEmail product="business" tier="pro" />)
+
+        const cta = screen.getByText("Continue with Business Pro")
+        expect(cta.getAttribute("href")).toMatch(/\/business$/)
+    })
+
     it("falls back to generic copy and the plain pricing page when the plan is unresolved", () => {
         render(<CheckoutRecoveryEmail product={null} tier={null} />)
 

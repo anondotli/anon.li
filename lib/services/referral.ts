@@ -9,6 +9,13 @@ const logger = createLogger("Referral")
 
 /** Free Plus days granted to BOTH parties per successful referral. */
 export const REFERRAL_REWARD_DAYS = 7
+/**
+ * Ceiling on stacked complimentary Plus: a grant never pushes
+ * referralPlusUntil beyond now + this many days. Bounds what a referral farm
+ * (many throwaway sign-ups on one code) can extract — ~13 referrals' worth —
+ * while still letting a genuine referrer bank a meaningful runway.
+ */
+export const REFERRAL_PLUS_MAX_DAYS = 90
 /** A referral can only be claimed within this window after the account is created. */
 const REFERRAL_CLAIM_WINDOW_DAYS = 30
 /** Unambiguous alphabet (no 0/O/1/I) for human-shareable codes. */
@@ -75,11 +82,14 @@ async function getOrCreateReferralCode(userId: string): Promise<string> {
 }
 
 /**
- * Extend a user's complimentary Plus window by `days`, never shortening it.
+ * Extend a user's complimentary Plus window by `days`, never shortening it and
+ * never pushing it past now + {@link REFERRAL_PLUS_MAX_DAYS}.
  * Done as a single atomic SQL statement so concurrent claims for the SAME
  * referrer can't lose each other's grant (read-modify-write under READ COMMITTED
- * would otherwise drop a stacked reward). `GREATEST(..., now())` is the
- * never-shorten guard; `make_interval` adds the days server-side.
+ * would otherwise drop a stacked reward). `GREATEST(..., now())` anchors the
+ * extension at the later of the current expiry and now, `LEAST(...)` applies the
+ * stacking cap, and the outer `GREATEST(existing, ...)` is the never-shorten
+ * guard (a window granted before the cap existed is left as-is).
  */
 async function extendReferralPlus(
     tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0],
@@ -88,8 +98,14 @@ async function extendReferralPlus(
 ): Promise<void> {
     await tx.$executeRaw`
         UPDATE "users"
-        SET "referral_plus_until" =
-            GREATEST(COALESCE("referral_plus_until", now()), now()) + make_interval(days => ${days}::int)
+        SET "referral_plus_until" = GREATEST(
+            COALESCE("referral_plus_until", now()),
+            LEAST(
+                GREATEST(COALESCE("referral_plus_until", now()), now()) + make_interval(days => ${days}::int),
+                now() + make_interval(days => ${REFERRAL_PLUS_MAX_DAYS}::int)
+            )
+        ),
+        "referral_plus_lapse_handled_at" = NULL
         WHERE "id" = ${userId}
     `
 }
@@ -116,26 +132,30 @@ export async function claimReferral(userId: string, rawCode: string | null): Pro
 
     const referrer = await prisma.user.findUnique({
         where: { referralCode: code },
-        select: { id: true },
+        select: { id: true, banned: true },
     })
-    if (!referrer) return { status: "invalid_code" }
+    // A banned account's code is dead: no attribution and no reward for either
+    // side, so a banned abuser can't keep farming Plus through new sign-ups.
+    if (!referrer || referrer.banned) return { status: "invalid_code" }
     if (referrer.id === user.id) return { status: "self_referral" }
 
+    let claimed = false
     try {
         await prisma.$transaction(async (tx) => {
-            // Re-check inside the transaction to keep claiming idempotent under races.
-            const fresh = await tx.user.findUnique({
-                where: { id: userId },
-                select: { referredByUserId: true, referralClaimedAt: true },
-            })
-            if (fresh?.referredByUserId || fresh?.referralClaimedAt) return
-
-            await tx.user.update({
-                where: { id: userId },
+            // Compare-and-set: only the request that flips the referee from
+            // unclaimed to claimed may grant rewards. A read-then-update re-check
+            // is not enough under READ COMMITTED — two parallel claims both read
+            // "unclaimed", and the loser's update simply waits for the winner's
+            // row lock and then overwrites, granting both parties twice.
+            const attribution = await tx.user.updateMany({
+                where: { id: userId, referredByUserId: null, referralClaimedAt: null },
                 data: { referredByUserId: referrer.id, referralClaimedAt: new Date() },
             })
+            if (attribution.count !== 1) return
+
             await extendReferralPlus(tx, userId, REFERRAL_REWARD_DAYS)
             await extendReferralPlus(tx, referrer.id, REFERRAL_REWARD_DAYS)
+            claimed = true
         })
     } catch (error) {
         // A genuine failure (deadlock, connection blip) — surface it as transient
@@ -145,6 +165,7 @@ export async function claimReferral(userId: string, rawCode: string | null): Pro
         return { status: "error" }
     }
 
+    if (!claimed) return { status: "already_claimed" }
     return { status: "claimed", rewardDays: REFERRAL_REWARD_DAYS }
 }
 
@@ -164,9 +185,10 @@ export async function getReferralRewardPreview(
 
     const referrer = await prisma.user.findUnique({
         where: { referralCode: code },
-        select: { id: true },
+        select: { id: true, banned: true },
     })
-    if (!referrer) return null
+    // Mirrors claimReferral: a banned referrer's code earns nothing.
+    if (!referrer || referrer.banned) return null
 
     return { rewardDays: REFERRAL_REWARD_DAYS }
 }

@@ -27,7 +27,7 @@ export function SubscriptionCanceledEmail({ expiryDate }: SubscriptionCanceledEm
             </InfoBox>
             <ContentRow padding="0 48px 32px">
                 <p style={{ margin: 0, fontSize: "15px", lineHeight: 1.7, color: emailColors.textMuted, textAlign: "center" }}>
-                    Restore your Pro features by updating your payment method before the deadline.
+                    Renew your plan before the deadline to keep your paid features and files.
                 </p>
             </ContentRow>
             <EmailCTA href={emailUrl("/dashboard/billing")} text="Renew Subscription" />

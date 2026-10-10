@@ -1,6 +1,7 @@
 import { MetadataRoute } from "next"
 import { getAllFilesFrontMatter, FrontMatter } from "@/lib/mdx"
 import { comparisons } from "@/config/comparisons"
+import { getDocsRouteSlugs } from "@/config/docs"
 
 interface BlogPost extends FrontMatter {
     publishedAt?: string
@@ -17,8 +18,10 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
         priority: 0.7,
     }))
 
-    const docEntries = docs.map((doc) => ({
-        url: `https://anon.li/docs/${doc.slug}`,
+    // `x/index` docs are served at `/docs/x`; legal docs with their own page
+    // (/privacy, /terms) are listed once below under that canonical URL.
+    const docEntries = getDocsRouteSlugs(docs.map((doc) => doc.slug)).map((slug) => ({
+        url: `https://anon.li/docs/${slug.join("/")}`,
         lastModified: new Date().toISOString(),
         changeFrequency: "monthly" as const,
         priority: 0.8,
@@ -54,6 +57,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
         { path: "/privacy", priority: 0.4, changeFrequency: "yearly" as const },
         { path: "/terms", priority: 0.4, changeFrequency: "yearly" as const },
         { path: "/sub-processors", priority: 0.4, changeFrequency: "yearly" as const },
+        { path: "/report", priority: 0.3, changeFrequency: "yearly" as const },
     ].map((route) => ({
         url: `https://anon.li${route.path}`,
         lastModified: new Date().toISOString(),

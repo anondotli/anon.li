@@ -25,6 +25,7 @@ vi.mock("@/lib/resend", () => ({ sendCryptoRenewalReminderEmail: mocks.sendCrypt
 vi.mock("@/lib/prisma", () => ({ prisma: { cryptoPayment: { findMany: mocks.cryptoPaymentFindMany } } }))
 vi.mock("@/lib/services/billing-downgrade", () => ({
     BillingDowngradeService: {
+        processReferralPlusLapses: vi.fn().mockResolvedValue({ recorded: 0, skipped: 0, errors: 0 }),
         processSchedulingBatch: vi.fn().mockResolvedValue({ processed: 0, errors: 0 }),
         processDeletionBatch: vi.fn().mockResolvedValue({ processed: 0, errors: 0 }),
     },
@@ -121,5 +122,26 @@ describe("getRecoverableCryptoInvoices", () => {
         }))
         // Deduplicated and capped at the limit.
         expect(result.map((r) => r.id)).toEqual(["old_1", "old_2", "new_1", "new_2"])
+    })
+})
+
+describe("billing cron referral Plus lapses", () => {
+    it("starts the downgrade flow for lapsed referral Plus before scheduling", async () => {
+        const { BillingDowngradeService } = await import("@/lib/services/billing-downgrade")
+        const order: string[] = []
+        vi.mocked(BillingDowngradeService.processReferralPlusLapses).mockImplementationOnce(async () => {
+            order.push("lapses")
+            return { recorded: 2, skipped: 0, errors: 0 }
+        })
+        vi.mocked(BillingDowngradeService.processSchedulingBatch).mockImplementationOnce(async () => {
+            order.push("scheduling")
+            return { processed: 0, errors: 0 }
+        })
+        mocks.getCryptoRenewalReminderUsers.mockResolvedValue([])
+
+        const result = await handleBillingCron()
+
+        expect(order).toEqual(["lapses", "scheduling"])
+        expect(result.referralPlusLapses).toEqual({ recorded: 2, skipped: 0, errors: 0 })
     })
 })

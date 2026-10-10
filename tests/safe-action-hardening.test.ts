@@ -12,7 +12,11 @@ const { auth, getAuthUserState, getOrganizationSuspension, rateLimit, logError }
 
 vi.mock("@/auth", () => ({ auth }))
 vi.mock("@/lib/data/auth", () => ({ getAuthUserState, getOrganizationSuspension }))
-vi.mock("@/lib/rate-limit", () => ({ rateLimit, rateLimiters: {} }))
+vi.mock("@/lib/rate-limit", () => ({
+    rateLimit,
+    rateLimiters: {},
+    isRateLimitOutage: (limited: Response) => limited.status === 503,
+}))
 vi.mock("@/lib/logger", () => ({ logError }))
 
 import { runAdminAction, runScopedAction } from "@/lib/safe-action"
@@ -64,6 +68,24 @@ describe("runAdminAction — admin is 2FA-enforced", () => {
     it("runs for an enrolled, verified admin", async () => {
         const result = await runAdminAction({}, async () => "ok")
         expect(result).toEqual({ success: true, data: "ok" })
+    })
+})
+
+describe("rate-limited actions", () => {
+    it("says too many requests when the caller hit the limit", async () => {
+        rateLimit.mockResolvedValue(new Response(null, { status: 429 }))
+        const handler = vi.fn()
+        const result = await runScopedAction({ rateLimitKey: "aliasCreate" }, handler)
+        expect(result).toEqual({ error: "Too many requests. Please try again later." })
+        expect(handler).not.toHaveBeenCalled()
+    })
+
+    it("says temporarily unavailable when a fail-closed limiter is down", async () => {
+        rateLimit.mockResolvedValue(new Response(null, { status: 503 }))
+        const handler = vi.fn()
+        const result = await runScopedAction({ rateLimitKey: "aliasCreate" }, handler)
+        expect(result).toEqual({ error: "This is temporarily unavailable. Please try again shortly." })
+        expect(handler).not.toHaveBeenCalled()
     })
 })
 

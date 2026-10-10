@@ -39,7 +39,7 @@ export default async function AliasDetailPage({
             <PageHeader
                 title={alias.email}
                 description="Alias details and statistics"
-                actions={<AliasActions alias={alias} />}
+                actions={<AliasActions alias={{ id: alias.id, email: alias.email, active: alias.active, takenDown: alias.takenDownAt !== null }} />}
             />
 
             <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">

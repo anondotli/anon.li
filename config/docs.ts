@@ -141,3 +141,30 @@ export function getDocsContentSlugCandidatesFromHref(href: string): string[] {
 
     return [slug, `${slug}/index`]
 }
+
+/**
+ * Canonical public URL for a content/docs slug (file path without `.mdx`):
+ * `api/index` → `/docs/api`, and legal documents that have their own
+ * top-level page (`legal/privacy` → `/privacy`) map to that page.
+ */
+export function getDocsHrefFromContentSlug(contentSlug: string): string {
+    const routeEntry = Object.entries(docsRouteToContentSlug).find(([, slug]) => slug === contentSlug)
+    if (routeEntry) return routeEntry[0]
+
+    if (contentSlug === "index") return "/docs"
+    const withoutIndex = contentSlug.replace(/\/index$/, "")
+    return `/docs/${withoutIndex}`
+}
+
+/**
+ * Catch-all params for the docs pages that should be served under /docs/...
+ * Excludes `/index` duplicates and docs canonically served elsewhere.
+ */
+export function getDocsRouteSlugs(contentSlugs: string[]): string[][] {
+    const routes = new Set<string>()
+    for (const contentSlug of contentSlugs) {
+        const href = getDocsHrefFromContentSlug(contentSlug)
+        if (href.startsWith("/docs/")) routes.add(href.slice("/docs/".length))
+    }
+    return [...routes].map((route) => route.split("/"))
+}

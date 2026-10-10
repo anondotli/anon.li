@@ -99,7 +99,13 @@ export function FormListClient({ forms: initialForms }: { forms: FormListItemSer
     const [now] = useState(() => Date.now())
 
     const onToggle = async (id: string) => {
-        const result = await toggleFormAction(id)
+        let result: Awaited<ReturnType<typeof toggleFormAction>>
+        try {
+            result = await toggleFormAction(id)
+        } catch {
+            toast.error("Failed to update form. Please try again.")
+            return
+        }
         if (result.error) {
             toast.error(result.error)
             return
@@ -115,7 +121,13 @@ export function FormListClient({ forms: initialForms }: { forms: FormListItemSer
     }
 
     const onDelete = async (id: string) => {
-        const result = await deleteFormAction(id)
+        let result: Awaited<ReturnType<typeof deleteFormAction>>
+        try {
+            result = await deleteFormAction(id)
+        } catch {
+            toast.error("Failed to delete form. Please try again.")
+            return
+        }
         if (result.error) {
             toast.error(result.error)
             return

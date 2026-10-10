@@ -6,15 +6,19 @@ import { AbuseWarningEmail } from "@/components/email/abuse-warning"
 import { ReportResolvedEmail } from "@/components/email/report-resolved"
 import type { Prisma } from "@prisma/client"
 import { createLogger } from "@/lib/logger"
-import { NotFoundError, ValidationError } from "@/lib/api-error-utils"
+import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "@/lib/api-error-utils"
 import { safeDecryptReportKey } from "@/lib/report-crypto"
 import { deleteDropFilesAndReleaseQuota, type ClaimedDropFile } from "@/lib/services/drop-storage"
 import { abortMultipartUpload } from "@/lib/storage"
+import { emailFrom } from "@/lib/email-from"
 
-const SYSTEM_EMAIL_FROM = "anon.li <hi@anon.li>"
+const SYSTEM_EMAIL_FROM = emailFrom()
 
 // Legacy takedownDrop wrote disabledAt right after takenDownAt in one update.
 const LEGACY_TAKEDOWN_DISABLE_WINDOW_MS = 2000
+
+/** ToS strikes at which an account is automatically fully banned. */
+const AUTO_BAN_STRIKES = 3
 
 const logger = createLogger("AdminService")
 
@@ -49,8 +53,8 @@ export class AdminService {
         const result = await prisma.$queryRaw<{ tosViolations: number; banned: boolean }[]>`
             UPDATE "users"
             SET "tosViolations" = "tosViolations" + 1,
-                "banned" = CASE WHEN "tosViolations" + 1 >= 3 THEN true ELSE "banned" END,
-                "banReason" = CASE WHEN "tosViolations" + 1 >= 3 AND "banned" = false
+                "banned" = CASE WHEN "tosViolations" + 1 >= ${AUTO_BAN_STRIKES} THEN true ELSE "banned" END,
+                "banReason" = CASE WHEN "tosViolations" + 1 >= ${AUTO_BAN_STRIKES} AND "banned" = false
                     THEN 'Automatic ban: 3 ToS violations reached'
                     ELSE "banReason" END
             WHERE "id" = ${userId}
@@ -98,7 +102,7 @@ export class AdminService {
             // Send takedown notification email
             if (drop.user.email) {
                 try {
-                    await getResend().emails.send({
+                    const { error } = await getResend().emails.send({
                         from: SYSTEM_EMAIL_FROM,
                         to: drop.user.email,
                         subject: "Your anon.li drop was removed",
@@ -109,6 +113,8 @@ export class AdminService {
                             isBanned: shouldBan
                         })
                     })
+                    // Resend reports API failures in the result, not by throwing.
+                    if (error) logger.error("Failed to send takedown email", error, { dropId })
                 } catch (error) {
                     logger.error("Failed to send takedown email", error)
                 }
@@ -164,7 +170,7 @@ export class AdminService {
 
             if (form.user.email) {
                 try {
-                    await getResend().emails.send({
+                    const { error } = await getResend().emails.send({
                         from: SYSTEM_EMAIL_FROM,
                         to: form.user.email,
                         subject: "Your anon.li form was removed",
@@ -176,6 +182,7 @@ export class AdminService {
                             isBanned: shouldBan
                         })
                     })
+                    if (error) logger.error("Failed to send form takedown email", error, { formId })
                 } catch (error) {
                     logger.error("Failed to send form takedown email", error)
                 }
@@ -203,14 +210,19 @@ export class AdminService {
             // Reverse only the takedown. `disabledByUser`/`active` belong to the
             // owner and are no longer clobbered by takedownForm, so leaving them
             // alone preserves a form the owner had deliberately closed.
-            await tx.form.update({
-                where: { id: formId },
+            // Conditional on `takenDown: true` so two concurrent restores can't
+            // both decrement the owner's strike count.
+            const { count } = await tx.form.updateMany({
+                where: { id: formId, takenDown: true },
                 data: {
                     takenDown: false,
                     takedownReason: null,
                     takenDownAt: null
                 }
             })
+            if (count !== 1) {
+                throw new ValidationError("Form is not taken down")
+            }
 
             // form.userId is null for an org-owned form whose creating user was
             // deleted (userId SetNull) — no individual to un-strike, and an
@@ -271,12 +283,13 @@ export class AdminService {
         if (!user?.email) return
 
         try {
-            await getResend().emails.send({
+            const { error } = await getResend().emails.send({
                 from: SYSTEM_EMAIL_FROM,
                 to: user.email,
                 subject: "Policy Warning - anon.li",
                 react: AbuseWarningEmail({ reason })
             })
+            if (error) logger.error("Failed to send warning email", error, { userId })
         } catch (error) {
             logger.error("Failed to send warning email", error)
         }
@@ -292,11 +305,15 @@ export class AdminService {
                 banAliasCreation: true,
                 banFileUpload: true,
                 banReason: true,
+                isAdmin: true,
             }
         })
 
         if (!user) {
             throw new NotFoundError("User not found")
+        }
+        if (user.isAdmin) {
+            throw new ForbiddenError("Cannot ban an admin account. Revoke admin access first.")
         }
 
         // OR-merge new flags with existing to avoid overwriting existing bans
@@ -439,7 +456,7 @@ export class AdminService {
         if (!report?.contactEmail) return
 
         try {
-            await getResend().emails.send({
+            const { error } = await getResend().emails.send({
                 from: SYSTEM_EMAIL_FROM,
                 to: report.contactEmail,
                 subject: status === "resolved"
@@ -447,6 +464,7 @@ export class AdminService {
                     : "Your abuse report has been reviewed",
                 react: ReportResolvedEmail({ status })
             })
+            if (error) logger.error("Failed to send reporter notification email", error, { reportId })
         } catch (error) {
             logger.error("Failed to send reporter notification email", error)
         }
@@ -519,12 +537,12 @@ export class AdminService {
         const ownerFilter = domain.organizationId
             ? { organizationId: domain.organizationId }
             : { userId: domain.userId, organizationId: null }
-        await prisma.$transaction([
+        const [aliasResult] = await prisma.$transaction([
             prisma.alias.deleteMany({ where: { domain: domain.domain, ...ownerFilter } }),
             prisma.domain.delete({ where: { id: domainId } }),
         ])
 
-        return { success: true }
+        return { success: true, domain: domain.domain, aliasesDeleted: aliasResult.count }
     }
 
     static async forceVerifyDomain(domainId: string) {
@@ -537,17 +555,48 @@ export class AdminService {
             throw new NotFoundError("Domain not found")
         }
 
-        await prisma.domain.update({
-            where: { id: domainId },
-            data: {
-                verified: true,
-                ownershipVerified: true,
-                mxVerified: true,
-                spfVerified: true,
-                dnsVerified: true,
-                dkimVerified: true
-            }
+        // The partial unique index "domains_domain_verified_key" allows one
+        // verified row per name. DomainService.verifyDomain supersedes another
+        // owner's verified claim only on fresh DNS proof; an admin force-verify
+        // carries no such proof, so it refuses instead of silently revoking the
+        // other owner (and deactivating their aliases).
+        const conflict = await prisma.domain.findFirst({
+            where: { domain: domain.domain, verified: true, id: { not: domainId } },
+            select: {
+                id: true,
+                user: { select: { email: true } },
+                organization: { select: { name: true } },
+            },
         })
+        if (conflict) {
+            const owner = conflict.organization
+                ? `organization "${conflict.organization.name}"`
+                : conflict.user?.email ?? "another owner"
+            throw new ConflictError(
+                `${domain.domain} is already verified by ${owner} (domain ${conflict.id}). Delete that claim first, or let the rightful owner re-verify via DNS.`,
+            )
+        }
+
+        try {
+            await prisma.domain.update({
+                where: { id: domainId },
+                data: {
+                    verified: true,
+                    ownershipVerified: true,
+                    mxVerified: true,
+                    spfVerified: true,
+                    dnsVerified: true,
+                    dkimVerified: true,
+                    unverifiedAt: null,
+                }
+            })
+        } catch (error) {
+            // Lost a race with another owner's verification on the partial index.
+            if ((error as { code?: unknown } | null)?.code === "P2002") {
+                throw new ConflictError(`${domain.domain} was just verified by another owner. Reload and review the conflict.`)
+            }
+            throw error
+        }
 
         return { success: true }
     }
@@ -555,16 +604,50 @@ export class AdminService {
     static async deleteRecipient(recipientId: string) {
         const recipient = await prisma.recipient.findUnique({
             where: { id: recipientId },
-            select: { id: true, email: true }
+            select: { id: true, email: true, isDefault: true }
         })
 
         if (!recipient) {
             throw new NotFoundError("Recipient not found")
         }
 
-        await prisma.recipient.delete({ where: { id: recipientId } })
+        // Same safety rules as RecipientService.deleteRecipient: never remove
+        // the owner's default recipient, and never strand aliases. An alias is
+        // stranded when it still uses this recipient as its legacy single
+        // recipient, or when this is its only routing recipient
+        // (AliasRecipient rows cascade with the recipient).
+        if (recipient.isDefault) {
+            throw new ValidationError("Cannot delete a default recipient. Set another recipient as the owner's default first.")
+        }
 
-        return { success: true }
+        const strandedAliases = await prisma.alias.count({
+            where: {
+                OR: [
+                    { recipientId },
+                    {
+                        aliasRecipients: { some: { recipientId } },
+                        NOT: { aliasRecipients: { some: { recipientId: { not: recipientId } } } },
+                    },
+                ],
+            },
+        })
+        if (strandedAliases > 0) {
+            throw new ValidationError(
+                `Cannot delete recipient: ${strandedAliases} alias(es) forward only to it. Reassign or delete those aliases first.`,
+            )
+        }
+
+        // Domain.catchAllRecipientId is a plain column (no FK) — clear it so
+        // catch-all routing doesn't point at a deleted recipient.
+        const [catchAll] = await prisma.$transaction([
+            prisma.domain.updateMany({
+                where: { catchAllRecipientId: recipientId },
+                data: { catchAllRecipientId: null },
+            }),
+            prisma.recipient.delete({ where: { id: recipientId } }),
+        ])
+
+        return { success: true, catchAllDomainsCleared: catchAll.count }
     }
 
     static async revokeApiKey(keyId: string) {
@@ -605,8 +688,10 @@ export class AdminService {
             && Math.abs(drop.disabledAt.getTime() - drop.takenDownAt.getTime()) <= LEGACY_TAKEDOWN_DISABLE_WINDOW_MS
 
         await prisma.$transaction(async (tx) => {
-            await tx.drop.update({
-                where: { id: dropId },
+            // Conditional on `takenDown: true` so two concurrent restores can't
+            // both decrement the owner's strike count.
+            const { count } = await tx.drop.updateMany({
+                where: { id: dropId, takenDown: true },
                 // Reverse only the takedown; `disabled` is the owner's own
                 // revocation and is no longer touched by takedownDrop.
                 data: {
@@ -616,6 +701,9 @@ export class AdminService {
                     ...(legacyTakedownDisable ? { disabled: false, disabledAt: null } : {})
                 }
             })
+            if (count !== 1) {
+                throw new ValidationError("Drop is not taken down")
+            }
 
             // Decrement strikes on the user (clamp to >= 0)
             if (drop.userId) {
@@ -658,21 +746,42 @@ export class AdminService {
     static async toggleAliasActive(aliasId: string, active: boolean) {
         const alias = await prisma.alias.findUnique({
             where: { id: aliasId },
-            select: { id: true, email: true }
+            select: { id: true, email: true, userId: true }
         })
 
         if (!alias) {
             throw new NotFoundError("Alias not found")
         }
 
+        if (!active) {
+            await prisma.alias.update({ where: { id: aliasId }, data: { active } })
+            return { success: true, restoredTakedown: false }
+        }
+
         // Admin re-activation is the alias takedown restore: clear the marker
-        // so a future takedown counts as a new strike.
-        await prisma.alias.update({
-            where: { id: aliasId },
-            data: active ? { active, takenDownAt: null } : { active }
+        // (so a future takedown counts as a new strike) and remove the strike,
+        // mirroring restoreDrop/restoreForm. The conditional updateMany makes
+        // the strike decrement happen only when THIS call cleared a takedown.
+        const restoredTakedown = await prisma.$transaction(async (tx) => {
+            const { count } = await tx.alias.updateMany({
+                where: { id: aliasId, takenDownAt: { not: null } },
+                data: { active: true, takenDownAt: null },
+            })
+            if (count === 0) {
+                await tx.alias.update({ where: { id: aliasId }, data: { active: true } })
+                return false
+            }
+            if (alias.userId) {
+                await tx.$executeRaw`
+                    UPDATE "users"
+                    SET "tosViolations" = GREATEST("tosViolations" - 1, 0)
+                    WHERE "id" = ${alias.userId}
+                `
+            }
+            return true
         })
 
-        return { success: true }
+        return { success: true, restoredTakedown }
     }
 
     static async getReportWithContext(reportId: string) {
@@ -793,6 +902,7 @@ export class AdminService {
                     id: true,
                     email: true,
                     active: true,
+                    takenDownAt: true,
                     emailsReceived: true,
                     emailsBlocked: true,
                     createdAt: true,
@@ -954,6 +1064,12 @@ export class AdminService {
         const org = await prisma.organization.findUnique({ where: { id: organizationId }, select: { id: true } })
         if (!org) throw new NotFoundError("Organization not found")
 
+        // Stop billing first: the org's Subscription rows cascade with the org,
+        // which would otherwise leave Stripe charging a deleted team. Throws
+        // (and nothing is deleted) if a cancellation can't be confirmed.
+        const { DeletionService } = await import("@/lib/services/deletion")
+        await DeletionService.cancelOrganizationStripeSubscriptions(organizationId)
+
         // Enqueue R2 blob cleanup for org-owned drops BEFORE the cascade delete
         // removes their DropFile rows (Drop.organization is onDelete: Cascade),
         // otherwise the blobs orphan with no OrphanedFile record to reap them.
@@ -1085,8 +1201,20 @@ export class AdminService {
         if (value < 0) throw new ValidationError("Strike count cannot be negative")
         const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } })
         if (!user) throw new NotFoundError("User not found")
-        await prisma.user.update({ where: { id: userId }, data: { tosViolations: value } })
-        return { success: true }
+        // Same rule as _applyViolationStrike: reaching 3 strikes is a full ban.
+        // Lowering strikes never lifts an existing ban (use unban for that).
+        const autoBan = value >= AUTO_BAN_STRIKES
+        const result = await prisma.$queryRaw<{ banned: boolean }[]>`
+            UPDATE "users"
+            SET "tosViolations" = ${value},
+                "banned" = CASE WHEN ${autoBan} THEN true ELSE "banned" END,
+                "banReason" = CASE WHEN ${autoBan} AND "banned" = false
+                    THEN 'Automatic ban: 3 ToS violations reached'
+                    ELSE "banReason" END
+            WHERE "id" = ${userId}
+            RETURNING "banned"
+        `
+        return { success: true, banned: result[0]?.banned ?? false }
     }
 
     // ========================================================================

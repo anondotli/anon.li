@@ -82,7 +82,7 @@ describe("/api/email/unsubscribe route", () => {
         }));
     });
 
-    it("GET with a valid token flips the flag and returns 200 HTML", async () => {
+    it("GET with a valid token renders a confirmation form without mutating", async () => {
         const token = await buildUnsubscribeToken("user_abc");
 
         const { GET } = await import("@/app/api/email/unsubscribe/route");
@@ -94,10 +94,52 @@ describe("/api/email/unsubscribe route", () => {
         expect(res.status).toBe(200);
         expect(res.headers.get("Content-Type")).toContain("text/html");
         expect(res.headers.get("Cache-Control")).toBe("private, no-store");
+        const html = await res.text();
+        // Link scanners prefetch GETs: the click alone must not unsubscribe.
+        expect(userUpdate).not.toHaveBeenCalled();
+        expect(html).toContain('<form method="post" action="/api/email/unsubscribe">');
+        expect(html).toContain(`name="token" value="${token}"`);
+        // Strict CSP on /api: the page must work without any script.
+        expect(html).not.toContain("<script");
+    });
+
+    it("POST from the confirmation form flips the flag and returns an HTML page", async () => {
+        const token = await buildUnsubscribeToken("user_abc");
+
+        const { POST } = await import("@/app/api/email/unsubscribe/route");
+        const body = new URLSearchParams({ token });
+        const req = new Request("https://anon.li/api/email/unsubscribe", {
+            method: "POST",
+            headers: {
+                Accept: "text/html,application/xhtml+xml",
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+            body,
+        }) as unknown as import("next/server").NextRequest;
+        (req as unknown as { nextUrl: URL }).nextUrl = new URL(req.url);
+
+        const res = await POST(req);
+        expect(res.status).toBe(200);
+        expect(res.headers.get("Content-Type")).toContain("text/html");
+        expect(await res.text()).toContain("Unsubscribed");
         expect(userUpdate).toHaveBeenCalledWith({
             where: { id: "user_abc" },
             data: { dripUnsubscribed: true },
         });
+    });
+
+    it("POST with a forged token is rejected", async () => {
+        const { POST } = await import("@/app/api/email/unsubscribe/route");
+        const req = new Request("https://anon.li/api/email/unsubscribe", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams({ token: "user_abc.forged" }),
+        }) as unknown as import("next/server").NextRequest;
+        (req as unknown as { nextUrl: URL }).nextUrl = new URL(req.url);
+
+        const res = await POST(req);
+        expect(res.status).toBe(400);
+        expect(userUpdate).not.toHaveBeenCalled();
     });
 
     it("GET with an invalid token returns 400 and does not touch the DB", async () => {
@@ -116,6 +158,8 @@ describe("/api/email/unsubscribe route", () => {
         const { POST } = await import("@/app/api/email/unsubscribe/route");
         const req = new Request(`https://anon.li/api/email/unsubscribe?token=${encodeURIComponent(token)}`, {
             method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: "List-Unsubscribe=One-Click",
         }) as unknown as import("next/server").NextRequest;
         (req as unknown as { nextUrl: URL }).nextUrl = new URL(req.url);
 

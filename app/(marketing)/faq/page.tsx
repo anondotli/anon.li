@@ -111,7 +111,7 @@ export default function FAQPage() {
                         No. We only receive encrypted data. Without the encryption key (which stays in your browser and share link), the data is indistinguishable from random noise. Even filenames are encrypted.
                     </FAQItem>
                     <FAQItem value="need-account" question="Do I need an account to share files?">
-                        You need a free account to upload and manage drops. Recipients still download with only the shared link and never need an account.
+                        No. You can upload without an account as a guest: up to 5 files and 100 MB per drop, kept for up to 3 days. A free account raises those limits and lets you manage, disable, and delete your drops later. Recipients download with only the shared link and never need an account.
                     </FAQItem>
                     <FAQItem value="file-expiry" question="How long do files stay available?">
                         It depends on your plan. Free accounts get up to 3 days, Plus gets 7 days, and Pro gets 30 days. After expiry, files are automatically deleted from our servers.
@@ -162,7 +162,7 @@ export default function FAQPage() {
                         New submissions trigger an account-email notification. It never includes any encrypted response content - only that a new response arrived.
                     </FAQItem>
                     <FAQItem value="form-abuse" question="How do you prevent abuse and spam?">
-                        Forms support optional Cloudflare Turnstile challenges, password protection, submission caps, and closing dates. You can throttle who can submit and shut a form down at any time without losing previously decrypted responses.
+                        Every public submission must pass a Cloudflare Turnstile bot check. On top of that, forms support password protection, submission caps, and closing dates. You can throttle who can submit and shut a form down at any time without losing previously decrypted responses.
                     </FAQItem>
                 </Accordion>
             </section>

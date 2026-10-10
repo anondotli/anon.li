@@ -54,6 +54,10 @@ export function ReportAbuseForm() {
     const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
     const [turnstileRequested, setTurnstileRequested] = useState(false);
     const [turnstileRenderKey, setTurnstileRenderKey] = useState(0);
+    // Auto-submit once the challenge passes, except right after a server error:
+    // the retry must wait for an explicit click, or an always-failing request
+    // would loop through auto-solving challenges.
+    const [submitAfterVerify, setSubmitAfterVerify] = useState(true);
     const { copied, copy } = useClipboard();
 
     const [error, setError] = useState<string | null>(null);
@@ -98,6 +102,7 @@ export function ReportAbuseForm() {
 
         const tokenForSubmit = verifiedTurnstileToken ?? turnstileToken;
         if (!tokenForSubmit) {
+            setSubmitAfterVerify(true);
             setTurnstileRequested(true);
             return;
         }
@@ -134,6 +139,11 @@ export function ReportAbuseForm() {
             setSubmitted(true);
         } catch (err) {
             setError(err instanceof Error ? err.message : "Failed to submit report. Please try again.");
+            // Turnstile tokens are single-use and the server already consumed
+            // this one: get a fresh challenge so a retry can succeed.
+            setSubmitAfterVerify(false);
+            resetTurnstile();
+            setTurnstileRequested(true);
         } finally {
             setIsSubmitting(false);
         }
@@ -142,7 +152,7 @@ export function ReportAbuseForm() {
     const handleTurnstileVerify = (token: string) => {
         setTurnstileToken(token);
         setTurnstileRequested(false);
-        void submitReport(token);
+        if (submitAfterVerify) void submitReport(token);
     };
 
     const handleSubmit = (e: React.FormEvent) => {

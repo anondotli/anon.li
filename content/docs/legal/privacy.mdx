@@ -2,7 +2,7 @@
 title: Privacy Policy
 summary: How we handle and protect your data at anon.li
 description: How we handle and protect your data at anon.li
-lastUpdated: "2026-04-17"
+lastUpdated: "2026-10-10"
 ---
 
 ## 1. Introduction
@@ -18,7 +18,7 @@ We adhere to the principle of data minimization. We only collect the information
 ### 2.1. Account Information
 
 - **Email Address**: Required for authentication, sending system notifications (e.g., verification, password reset, and magic links), and as the destination for forwarded emails.
-- **Subscription Data**: We process payment information through our third-party provider, Stripe. We do not store full credit card numbers on our servers.
+- **Subscription Data**: We process payment information through our third-party providers: Stripe for card payments and NOWPayments for cryptocurrency payments. We do not store full credit card numbers on our servers.
 
 ### 2.2. Service Data (Alias and Drop)
 
@@ -44,7 +44,7 @@ We adhere to the principle of data minimization. We only collect the information
 We use your information solely to:
 
 - **Provide the Service**: Create aliases, forward emails, facilitate encrypted file sharing, and manage your account.
-- **Process Payments**: Handle subscriptions and billing through Stripe.
+- **Process Payments**: Handle subscriptions and billing through Stripe and, for cryptocurrency payments, NOWPayments.
 - **Ensure Security**: Monitor for abuse, prevent spam, enforce rate limits, and protect our infrastructure.
 - **Communicate**: Send essential service updates, security alerts, and login notifications.
 
@@ -57,11 +57,17 @@ We share data only with trusted partners necessary for operation. All partners a
 | Provider | Purpose | Data Processed | Location |
 | :--- | :--- | :--- | :--- |
 | **Stripe** | Payment processing & subscription management | Payment details, email | USA (PCI compliant) |
+| **NOWPayments** | Cryptocurrency payments | Crypto invoice and transaction data for orders paid in cryptocurrency | See provider |
+| **Vercel** | Application hosting & serverless compute | Request metadata and operational logs | See provider |
 | **Resend** | Transactional emails (login links, notifications) | Email address | USA |
 | **Cloudflare** | CDN, DDoS protection, DNS | IP addresses, traffic data | Global |
 | **Cloudflare R2** | Encrypted file storage | Encrypted file data only | Global |
+| **Cloudflare Turnstile** | Bot & abuse protection (sign-in, guest uploads, form submissions) | Browser and network signals | Global |
 | **Upstash** | Rate limiting | Anonymized request data | Global |
 | **PostHog** | Product analytics & error monitoring | Pseudonymous usage events & sanitized error reports (no cookies, no session replay, no Drop keys/PII) | EU |
+| **Google & GitHub** | Optional social sign-in (OAuth) | Account email and basic profile, only if you sign in with them | See provider |
+
+The same list is maintained at [anon.li/sub-processors](/sub-processors).
 
 ## 5. Data Retention
 

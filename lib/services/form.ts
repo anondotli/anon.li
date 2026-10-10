@@ -466,7 +466,8 @@ export class FormService {
         const [forms, total] = await Promise.all([
             prisma.form.findMany({
                 where,
-                orderBy: { createdAt: "desc" },
+                // id breaks createdAt ties so offset pages never repeat or skip rows.
+                orderBy: [{ createdAt: "desc" }, { id: "desc" }],
                 take: limit,
                 skip: offset,
             }),
@@ -692,6 +693,25 @@ export class FormService {
             data: { disabledByUser: next },
         })
         return next
+    }
+
+    /**
+     * Set `disabledByUser` (idempotent counterpart of toggleForm, same
+     * permissions). Re-sending the current state is a no-op write.
+     */
+    static async setFormDisabled(formId: string, scope: OwnerScope, disabled: boolean): Promise<boolean> {
+        const form = await prisma.form.findUnique({ where: { id: formId } })
+        if (!form || form.deletedAt) throw new NotFoundError("Form not found")
+        // Disabling a shared org form affects the team → admin+ in org context.
+        assertCanManage(form, scope)
+
+        if (form.disabledByUser !== disabled) {
+            await prisma.form.update({
+                where: { id: formId },
+                data: { disabledByUser: disabled },
+            })
+        }
+        return disabled
     }
 
     static async deleteForm(formId: string, scope: OwnerScope): Promise<void> {
@@ -1044,7 +1064,7 @@ export class FormService {
         const [submissions, total] = await Promise.all([
             prisma.formSubmission.findMany({
                 where,
-                orderBy: { createdAt: "desc" },
+                orderBy: [{ createdAt: "desc" }, { id: "desc" }],
                 take: limit,
                 skip: offset,
                 select: {
@@ -1196,14 +1216,6 @@ export class FormService {
     static async countActiveForms(userId: string) {
         // Personal forms only — org forms count against the org, not the user.
         return prisma.form.count({ where: { userId, organizationId: null, deletedAt: null } })
-    }
-
-    static async countRecentSubmissionsForOwner(userId: string, windowDays = 30): Promise<number> {
-        return countRecentOwnerSubmissions(
-            prisma,
-            { userId, organizationId: null },
-            new Date(Date.now() - windowDays * DAY_MS),
-        )
     }
 
     static async countRecentSubmissions(scope: OwnerScope, windowDays = 30): Promise<number> {

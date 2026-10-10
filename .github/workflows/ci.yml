@@ -40,6 +40,23 @@ jobs:
       REPORT_ENCRYPTION_KEY: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
       DKIM_ENCRYPTION_KEY: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 
+    services:
+      # Throwaway database used only to prove the committed migrations apply
+      # cleanly and match prisma/schema.prisma. Pinned by digest like the actions.
+      postgres:
+        image: postgres:17.11-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: anonli
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d anonli"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -49,15 +66,24 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 24
+          node-version-file: .node-version
 
       - name: Set up Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
-          bun-version: 1.4.3
+          # Reads the "packageManager" field so CI and local stay on one version.
+          bun-version-file: package.json
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      - name: Apply database migrations
+        run: bunx --no-install prisma migrate deploy
+
+      # Fails (exit 2) when the migrated database differs from schema.prisma,
+      # i.e. a schema edit was committed without its migration.
+      - name: Check migrations match schema
+        run: bunx --no-install prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code
 
       - name: Audit dependencies
         run: bun run audit

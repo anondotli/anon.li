@@ -640,6 +640,26 @@ describe("BillingDowngradeService", () => {
             expect(resend.sendSubscriptionCanceledEmail).toHaveBeenCalledWith("u@example.com", expect.any(Date));
         });
 
+        it("tells an over-limit user how many drops got the grace expiry and when", async () => {
+            const resend = await import("@/lib/resend");
+            mockDropUpdateMany.mockResolvedValue({ count: 3 });
+            mockUserUpdateMany.mockResolvedValue({ count: 1 });
+            mockUserFindUnique.mockResolvedValue({ referralPlusUntil: null, subscriptions: [] });
+            mockAliasCount.mockResolvedValue(500);
+            mockDomainCount.mockResolvedValue(0);
+            mockRecipientCount.mockResolvedValue(0);
+
+            const expiry = await BillingDowngradeService.handlePersonalSubscriptionLoss("user_1", "u@example.com", { notify: true });
+
+            expect(resend.sendDowngradeWarningEmail).toHaveBeenCalledWith(
+                "u@example.com",
+                expect.objectContaining({ excessRandom: expect.any(Number) }),
+                expect.any(Date),
+                expect.any(Date),
+                { count: 3, expiresAt: expiry },
+            );
+        });
+
         function executedSql() {
             const [strings, ...values] = mockExecuteRaw.mock.calls[0]!;
             return Prisma.sql(strings as string[], ...(values as unknown[]));
@@ -791,6 +811,22 @@ describe("BillingDowngradeService", () => {
             expect(aliasDeleteOrder).toBeLessThan(domainDeleteOrder);
         });
 
+        it("counts a removed domain's aliases in the deletion email", async () => {
+            const resend = await import("@/lib/resend");
+            setupFreeUser();
+            mockDomainCount.mockResolvedValue(1);
+            mockDomainFindMany.mockResolvedValue([{ id: "d_1", domain: "example.com" }]);
+            mockRecipientFindMany.mockResolvedValue([]);
+            mockAliasDeleteMany.mockResolvedValueOnce({ count: 4 });
+
+            await BillingDowngradeService.deleteScheduledForUser("user_1");
+
+            expect(resend.sendResourcesDeletedEmail).toHaveBeenCalledWith(
+                "test@example.com",
+                expect.objectContaining({ aliasesDeleted: 4, domainsDeleted: 1 }),
+            );
+        });
+
         it("repoints aliases routed to a deleted recipient before deleting it", async () => {
             setupFreeUser();
             mockDomainCount.mockResolvedValue(0);
@@ -908,6 +944,193 @@ describe("BillingDowngradeService", () => {
                 where: { id: "user_1" },
                 data: { downgradedAt: expect.any(Date) },
             });
+        });
+    });
+    describe("team-subscription entitlement (matches live enforcement)", () => {
+        const teamSub = { id: "org_sub", status: "active", product: "business", tier: "pro", currentPeriodEnd: new Date(Date.now() + 20 * 86400000) };
+
+        it("resolves excess with inherited team subscriptions included", async () => {
+            mockUserFindUnique.mockResolvedValue({
+                referralPlusUntil: null,
+                subscriptions: [],
+                memberships: [{ organization: { subscriptions: [teamSub] } }],
+            });
+            mockAliasCount.mockResolvedValue(0);
+            mockDomainCount.mockResolvedValue(0);
+            mockRecipientCount.mockResolvedValue(0);
+
+            await BillingDowngradeService.calculateExcess("user_1");
+
+            expect(mockGetPlanLimitsImpl).toHaveBeenCalledWith({ referralPlusUntil: null, subscriptions: [teamSub] });
+        });
+
+        it("does not schedule a team member's personal resources and keeps the marker", async () => {
+            mockUserFindUnique.mockResolvedValue({
+                id: "user_1",
+                email: "test@example.com",
+                downgradedAt: new Date(Date.now() - 30 * 86400000),
+                referralPlusUntil: null,
+                subscriptions: [],
+                memberships: [{ organization: { subscriptions: [teamSub] } }],
+            });
+
+            await BillingDowngradeService.scheduleExcessForUser("user_1");
+
+            expect(mockAliasFindMany).not.toHaveBeenCalled();
+            expect(mockTransaction).not.toHaveBeenCalled();
+            expect(mockUserUpdate).not.toHaveBeenCalled();
+        });
+
+        it("excludes members of an entitled team from the scheduling batch", async () => {
+            mockUserFindMany.mockResolvedValue([]);
+
+            await BillingDowngradeService.processSchedulingBatch();
+
+            const where = mockUserFindMany.mock.calls[0]![0].where;
+            expect(where.memberships).toEqual({
+                none: {
+                    organization: {
+                        subscriptions: {
+                            some: expect.objectContaining({ status: { in: ["active", "trialing"] } }),
+                        },
+                    },
+                },
+            });
+        });
+
+        it("spares scheduled resources the team plan still covers at deletion time", async () => {
+            mockUserFindUnique
+                .mockResolvedValueOnce({
+                    id: "user_1",
+                    email: "test@example.com",
+                    referralPlusUntil: null,
+                    subscriptions: [],
+                    memberships: [{ organization: { subscriptions: [teamSub] } }],
+                })
+                .mockResolvedValueOnce({ storageUsed: BigInt(0) });
+            // Pro-like limits via the team: unlimited random aliases.
+            mockGetPlanLimitsImpl.mockReturnValue({ random: -1, custom: 100, domains: 10, apiRequests: 0, recipients: 10 });
+            mockGetRecipientLimitImpl.mockReturnValue(10);
+            mockAliasCount.mockResolvedValueOnce(50).mockResolvedValueOnce(2);
+            mockAliasFindMany
+                .mockResolvedValueOnce([{ id: "r1" }, { id: "r2" }])
+                .mockResolvedValueOnce([]);
+            mockDomainCount.mockResolvedValue(2);
+            mockDomainFindMany.mockResolvedValue([{ id: "d1", domain: "a.com" }]);
+            mockRecipientFindMany
+                .mockResolvedValueOnce([{ id: "rec1", isDefault: true }])
+                .mockResolvedValueOnce([]);
+
+            await BillingDowngradeService.deleteScheduledForUser("user_1");
+
+            expect(mockAliasDeleteMany).not.toHaveBeenCalled();
+            expect(mockDomainDeleteMany).not.toHaveBeenCalled();
+            expect(mockAliasUpdateMany).toHaveBeenCalledWith({
+                where: { id: { in: ["r1", "r2"] } },
+                data: { scheduledForRemovalAt: null },
+            });
+        });
+
+        it("schedules only excess domains, and nothing for an unlimited allowance", async () => {
+            mockUserFindUnique.mockResolvedValue({
+                id: "user_1",
+                email: "test@example.com",
+                downgradedAt: new Date(Date.now() - 30 * 86400000),
+                referralPlusUntil: null,
+                subscriptions: [],
+            });
+            mockGetPlanLimitsImpl.mockReturnValue({ random: -1, custom: 10, domains: 1, apiRequests: 0, recipients: 5 });
+            mockAliasCount.mockResolvedValue(0);
+            mockDomainCount.mockResolvedValue(0);
+            mockRecipientCount.mockResolvedValue(0);
+            mockAliasFindMany
+                .mockResolvedValueOnce(Array.from({ length: 30 }, (_, i) => ({ id: `random_${i}` })))
+                .mockResolvedValueOnce([])
+                .mockResolvedValueOnce([]);
+            mockDomainFindMany.mockResolvedValue([
+                { id: "d1", domain: "a.com" },
+                { id: "d2", domain: "b.com" },
+            ]);
+            mockDomainUpdateMany.mockResolvedValue({ count: 1 });
+            mockRecipientFindMany.mockResolvedValue([]);
+
+            await BillingDowngradeService.scheduleExcessForUser("user_1");
+
+            // Unlimited random aliases: none scheduled.
+            expect(mockAliasUpdateMany).not.toHaveBeenCalled();
+            const domainCall = mockDomainUpdateMany.mock.calls[0]![0];
+            expect(domainCall.where.id.in).toHaveLength(1);
+        });
+    });
+
+    describe("processReferralPlusLapses", () => {
+        const lapsed = new Date(Date.now() - 86400000);
+
+        it("selects only lapsed, not-yet-handled referral Plus windows", async () => {
+            mockUserFindMany.mockResolvedValue([]);
+
+            await BillingDowngradeService.processReferralPlusLapses();
+
+            expect(mockUserFindMany).toHaveBeenCalledWith(expect.objectContaining({
+                where: {
+                    referralPlusUntil: { not: null, lte: expect.any(Date) },
+                    referralPlusLapseHandledAt: null,
+                },
+            }));
+        });
+
+        it("records a downgrade for a referral-only user and stamps the lapse handled", async () => {
+            mockUserFindMany.mockResolvedValue([
+                { id: "user_1", downgradedAt: null, referralPlusUntil: lapsed, subscriptions: [], memberships: [] },
+            ]);
+            mockUserUpdateMany.mockResolvedValue({ count: 1 });
+
+            const result = await BillingDowngradeService.processReferralPlusLapses();
+
+            expect(result).toEqual({ recorded: 1, skipped: 0, errors: 0 });
+            expect(mockUserUpdateMany).toHaveBeenCalledWith({
+                where: { id: "user_1", downgradedAt: null, referralPlusUntil: { lte: expect.any(Date) } },
+                data: { downgradedAt: expect.any(Date) },
+            });
+            expect(mockUserUpdateMany).toHaveBeenCalledWith({
+                where: { id: "user_1", referralPlusUntil: { lte: expect.any(Date) }, referralPlusLapseHandledAt: null },
+                data: { referralPlusLapseHandledAt: expect.any(Date) },
+            });
+        });
+
+        it("does not downgrade users still entitled by a personal or team plan, but stamps them", async () => {
+            mockUserFindMany.mockResolvedValue([
+                {
+                    id: "personal", downgradedAt: null, referralPlusUntil: lapsed, memberships: [],
+                    subscriptions: [{ status: "active", product: "bundle", tier: "plus", currentPeriodEnd: new Date(Date.now() + 5 * 86400000) }],
+                },
+                {
+                    id: "team", downgradedAt: null, referralPlusUntil: lapsed, subscriptions: [],
+                    memberships: [{ organization: { subscriptions: [{ status: "active", product: "business", tier: "pro", currentPeriodEnd: null }] } }],
+                },
+            ]);
+            mockUserUpdateMany.mockResolvedValue({ count: 1 });
+
+            const result = await BillingDowngradeService.processReferralPlusLapses();
+
+            expect(result).toEqual({ recorded: 0, skipped: 2, errors: 0 });
+            for (const call of mockUserUpdateMany.mock.calls) {
+                expect(call[0].data).not.toHaveProperty("downgradedAt");
+            }
+            expect(mockUserUpdateMany).toHaveBeenCalledTimes(2);
+        });
+
+        it("keeps an existing downgrade marker instead of restarting it", async () => {
+            mockUserFindMany.mockResolvedValue([
+                { id: "user_1", downgradedAt: new Date(Date.now() - 3 * 86400000), referralPlusUntil: lapsed, subscriptions: [], memberships: [] },
+            ]);
+            mockUserUpdateMany.mockResolvedValue({ count: 1 });
+
+            const result = await BillingDowngradeService.processReferralPlusLapses();
+
+            expect(result.recorded).toBe(0);
+            expect(mockUserUpdateMany).toHaveBeenCalledTimes(1);
+            expect(mockUserUpdateMany.mock.calls[0]![0].data).toHaveProperty("referralPlusLapseHandledAt");
         });
     });
 });

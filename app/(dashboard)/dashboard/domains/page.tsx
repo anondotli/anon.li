@@ -27,7 +27,7 @@ export default async function DomainsPage() {
         return (
             <div className="flex flex-col gap-8">
                 <div className="border-b border-border/40 pb-6">
-                    <h2 className="text-3xl font-medium tracking-tight font-serif">Domains</h2>
+                    <h1 className="text-3xl font-medium tracking-tight font-serif">Domains</h1>
                     <p className="text-muted-foreground font-light">Manage your custom domains.</p>
                 </div>
                 <TeamWorkspaceLocked resource="domains" />
@@ -64,7 +64,7 @@ export default async function DomainsPage() {
         <div className="flex flex-col gap-8">
             <div className="flex items-center justify-between border-b border-border/40 pb-6">
                 <div className="space-y-1">
-                    <h2 className="text-3xl font-medium tracking-tight font-serif">Domains</h2>
+                    <h1 className="text-3xl font-medium tracking-tight font-serif">Domains</h1>
                     <p className="text-muted-foreground font-light">Manage your custom domains.</p>
                 </div>
                 <AddDomainDialog />

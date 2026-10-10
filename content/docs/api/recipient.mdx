@@ -65,11 +65,17 @@ curl https://anon.li/api/v1/recipient \
       "created_at": "2026-02-15T10:00:00.000Z"
     }
   ],
-  "total": 2,
-  "limit": 2,
-  "offset": 0
+  "meta": {
+    "request_id": "req_abc123",
+    "total": 2,
+    "limit": 2,
+    "offset": 0,
+    "has_more": false
+  }
 }
 ```
+
+All recipients are returned in one response; pagination fields live under `meta`.
 
 ---
 
@@ -199,7 +205,7 @@ curl -X PATCH https://anon.li/api/v1/recipient/rec_def456 \
 
 ### Delete Recipient
 
-Remove a recipient. Aliases currently forwarding to this recipient will fall back to the default recipient.
+Remove a recipient. You cannot delete your default recipient, or a recipient that still has aliases forwarding to it — set another default or reassign/remove those aliases first. Both cases return `400 VALIDATION_ERROR`.
 
 <div className="flex items-center gap-2 mt-6 mb-4">
     <span className="bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 px-3 py-1 rounded-md font-mono text-sm font-bold">DELETE</span>
@@ -352,9 +358,9 @@ See the [Alias API](/docs/api/alias) for the full alias update endpoint document
 
 | Status | Description |
 | :--- | :--- |
-| `400` | Bad Request - Invalid parameters |
+| `400` | Bad Request - Invalid parameters, deleting the default recipient, or deleting a recipient with active aliases |
 | `401` | Unauthorized - Invalid or missing API key |
-| `403` | Forbidden - Plan limit reached |
+| `402` | Payment Required (`PAYMENT_REQUIRED`) - Recipient limit for your plan reached; `error.details.upgrade` names the limit and suggested plan |
 | `404` | Not Found - Recipient doesn't exist |
 | `409` | Conflict - Recipient email already exists |
 | `429` | Too Many Requests - Rate limit exceeded |

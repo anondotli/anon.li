@@ -12,6 +12,8 @@ interface Alias {
     id: string
     email: string
     active: boolean
+    /** Set when the alias was disabled by an abuse takedown. */
+    takenDown: boolean
 }
 
 export function AliasActions({ alias }: { alias: Alias }) {
@@ -91,7 +93,9 @@ export function AliasActions({ alias }: { alias: Alias }) {
                 description={
                     alias.active
                         ? `This will stop forwarding emails to ${alias.email}. The alias will remain reserved.`
-                        : `This will resume forwarding emails to ${alias.email}.`
+                        : alias.takenDown
+                            ? `This restores ${alias.email} from its abuse takedown: forwarding resumes and the owner's ToS strike for it is removed.`
+                            : `This will resume forwarding emails to ${alias.email}.`
                 }
                 confirmLabel={alias.active ? "Disable" : "Enable"}
                 variant={alias.active ? "destructive" : "default"}

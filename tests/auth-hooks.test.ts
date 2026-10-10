@@ -19,7 +19,11 @@ const h = vi.hoisted(() => ({
     },
 }))
 
-vi.mock("@/lib/rate-limit", () => ({ rateLimit: h.rateLimit, rateLimiters: {} }))
+vi.mock("@/lib/rate-limit", () => ({
+    rateLimit: h.rateLimit,
+    rateLimiters: {},
+    isRateLimitOutage: (limited: Response) => limited.status === 503,
+}))
 vi.mock("@/lib/data/auth", () => ({
     getAuthUserState: h.getAuthUserState,
     getOrganizationSuspension: h.getOrganizationSuspension,
@@ -112,6 +116,13 @@ describe("mcpOAuthBeforeHook", () => {
         const error = await rejection(mcpOAuthBeforeHook(ctx(path), sessionResolver()))
         expect(error.body?.code).toBe("MCP_TOKEN_RATE_LIMITED")
         expect(h.rateLimit).toHaveBeenCalledWith("mcpToken")
+    })
+
+    it("reports a limiter outage on /oauth2/token as 503", async () => {
+        h.rateLimit.mockResolvedValue(new Response(null, { status: 503 }))
+        const error = await rejection(mcpOAuthBeforeHook(ctx("/oauth2/token"), sessionResolver()))
+        expect(error.statusCode).toBe(503)
+        expect(error.body?.code).toBe("AUTH_TEMPORARILY_UNAVAILABLE")
     })
 
     it("lets a verified, active account consent", async () => {

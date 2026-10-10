@@ -49,6 +49,8 @@ export function UserManagePanel({ user }: UserManagePanelProps) {
     const [storageGb, setStorageGb] = useState(() => (Number(user.storageLimitGrant) / GB).toString())
     const [strikes, setStrikes] = useState(user.tosViolations.toString())
     const [showReset2FA, setShowReset2FA] = useState(false)
+    // Pending admin-flag change awaiting confirmation (null = no dialog).
+    const [pendingAdmin, setPendingAdmin] = useState<boolean | null>(null)
     const [showWarn, setShowWarn] = useState(false)
     const [warnReason, setWarnReason] = useState("")
 
@@ -83,7 +85,7 @@ export function UserManagePanel({ user }: UserManagePanelProps) {
             toast.error("Enter a valid strike count")
             return
         }
-        void run(() => setUserStrikes(user.id, value), "Strikes updated")
+        void run(() => setUserStrikes(user.id, value), value >= 3 ? "Strikes updated — account banned" : "Strikes updated")
     }
 
     const handleWarn = async () => {
@@ -114,9 +116,7 @@ export function UserManagePanel({ user }: UserManagePanelProps) {
                     <Switch
                         checked={user.isAdmin}
                         disabled={loading}
-                        onCheckedChange={(checked) =>
-                            run(() => setUserAdmin(user.id, checked), checked ? "Admin access granted" : "Admin access revoked")
-                        }
+                        onCheckedChange={(checked) => setPendingAdmin(checked)}
                     />
                 </div>
 
@@ -149,7 +149,9 @@ export function UserManagePanel({ user }: UserManagePanelProps) {
                 {/* Strikes */}
                 <div className="space-y-2">
                     <Label htmlFor="strikes" className="font-medium">ToS strikes</Label>
-                    <p className="text-sm text-muted-foreground">Auto-ban triggers at 3 strikes.</p>
+                    <p className="text-sm text-muted-foreground">
+                        Setting 3 or more strikes applies a full ban, like an automatic strike would. Lowering strikes does not lift an existing ban.
+                    </p>
                     <div className="flex gap-2">
                         <Input
                             id="strikes"
@@ -180,6 +182,23 @@ export function UserManagePanel({ user }: UserManagePanelProps) {
                     )}
                 </div>
             </CardContent>
+
+            <ConfirmDialog
+                open={pendingAdmin !== null}
+                onOpenChange={(open) => { if (!open) setPendingAdmin(null) }}
+                title={pendingAdmin ? "Grant admin access" : "Revoke admin access"}
+                description={pendingAdmin
+                    ? `Give ${user.email} full access to this admin panel, including bans, deletions and billing actions.`
+                    : `Remove ${user.email}'s access to this admin panel.`}
+                confirmLabel={pendingAdmin ? "Grant admin" : "Revoke admin"}
+                variant={pendingAdmin ? "destructive" : "default"}
+                onConfirm={async () => {
+                    if (pendingAdmin === null) return
+                    const next = pendingAdmin
+                    await run(() => setUserAdmin(user.id, next), next ? "Admin access granted" : "Admin access revoked")
+                }}
+                loading={loading}
+            />
 
             <ConfirmDialog
                 open={showReset2FA}

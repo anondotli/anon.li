@@ -52,12 +52,19 @@ curl https://anon.li/api/v1/domain \
       "mx_verified": true,
       "spf_verified": true,
       "dkim_verified": true,
-      "verification_token": "anon_abc123def456",
-      "dkim_public_key": "MIIBIjANBgkq...",
+      "verification_token": "3f9c2a7e51b04d8c96e1a0b7d2c4f68e9a1b3c5d7e9f0a2b",
+      "dkim_public_key": "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkq...\n-----END PUBLIC KEY-----\n",
       "dkim_selector": "default",
       "created_at": "2026-01-15T10:00:00.000Z"
     }
-  ]
+  ],
+  "meta": {
+    "request_id": "req_abc123",
+    "total": 1,
+    "limit": 1,
+    "offset": 0,
+    "has_more": false
+  }
 }
 ```
 
@@ -65,7 +72,7 @@ curl https://anon.li/api/v1/domain \
 
 ### Add Domain
 
-Add a new custom domain to your account.
+Add a new custom domain to your account. A DKIM key pair is generated automatically, so the response already includes `dkim_public_key` and `dkim_selector`. Custom domains require a Plus or Pro plan; adding a domain beyond your plan's limit returns `403`.
 
 <div className="flex items-center gap-2 mt-6 mb-4">
     <span className="bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-3 py-1 rounded-md font-mono text-sm font-bold">POST</span>
@@ -99,10 +106,13 @@ curl -X POST https://anon.li/api/v1/domain \
     "mx_verified": false,
     "spf_verified": false,
     "dkim_verified": false,
-    "verification_token": "anon_abc123def456",
-    "dkim_public_key": null,
-    "dkim_selector": null,
+    "verification_token": "3f9c2a7e51b04d8c96e1a0b7d2c4f68e9a1b3c5d7e9f0a2b",
+    "dkim_public_key": "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkq...\n-----END PUBLIC KEY-----\n",
+    "dkim_selector": "default",
     "created_at": "2026-01-15T10:00:00.000Z"
+  },
+  "meta": {
+    "request_id": "req_abc123"
   }
 }
 ```
@@ -127,7 +137,7 @@ curl https://anon.li/api/v1/domain/domain_xyz123 \
 
 **Response**
 
-The response includes a `dns_records` object showing the required DNS records for verification.
+The response includes the full domain object plus a `dns_records` object listing every DNS record required for verification, including the DKIM record.
 
 ```json
 {
@@ -139,12 +149,15 @@ The response includes a `dns_records` object showing the required DNS records fo
     "mx_verified": false,
     "spf_verified": false,
     "dkim_verified": false,
-    "verification_token": "anon_abc123def456",
+    "verification_token": "3f9c2a7e51b04d8c96e1a0b7d2c4f68e9a1b3c5d7e9f0a2b",
+    "dkim_public_key": "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkq...\n-----END PUBLIC KEY-----\n",
+    "dkim_selector": "default",
+    "created_at": "2026-01-15T10:00:00.000Z",
     "dns_records": {
       "ownership": {
         "type": "TXT",
         "host": "mail.example.com",
-        "value": "anon.li=anon_abc123def456"
+        "value": "anon.li=3f9c2a7e51b04d8c96e1a0b7d2c4f68e9a1b3c5d7e9f0a2b"
       },
       "mx": {
         "type": "MX",
@@ -157,8 +170,15 @@ The response includes a `dns_records` object showing the required DNS records fo
         "host": "mail.example.com",
         "value": "v=spf1 include:anon.li ~all"
       },
-      "dkim": null
+      "dkim": {
+        "type": "TXT",
+        "host": "default._domainkey.mail.example.com",
+        "value": "v=DKIM1; k=rsa; p=MIIBIjANBgkq..."
+      }
     }
+  },
+  "meta": {
+    "request_id": "req_abc123"
   }
 }
 ```
@@ -167,7 +187,7 @@ The response includes a `dns_records` object showing the required DNS records fo
 
 ### Verify Domain
 
-Check DNS records and update the domain's verification status.
+Check DNS records and update the domain's verification status. A domain is `verified` only when the ownership TXT, MX, SPF, **and DKIM** records all resolve correctly. `dns_verified` reports whether the mail-routing records (MX, SPF, DKIM) are correct, independent of ownership.
 
 <div className="flex items-center gap-2 mt-6 mb-4">
     <span className="bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-3 py-1 rounded-md font-mono text-sm font-bold">POST</span>
@@ -192,26 +212,34 @@ curl -X POST https://anon.li/api/v1/domain/domain_xyz123/verify \
     "ownership_verified": true,
     "mx_verified": true,
     "spf_verified": true,
-    "dkim_verified": false
+    "dkim_verified": true,
+    "dns_verified": true
+  },
+  "meta": {
+    "request_id": "req_abc123"
   }
 }
 ```
 
 ---
 
-### Get DKIM Records
+### Regenerate DKIM Key
 
-Retrieve or generate DKIM key configuration for a domain.
+Generate a new DKIM key pair for a domain and return the new DKIM DNS record.
 
 <div className="flex items-center gap-2 mt-6 mb-4">
-    <span className="bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 px-3 py-1 rounded-md font-mono text-sm font-bold">GET</span>
+    <span className="bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-3 py-1 rounded-md font-mono text-sm font-bold">POST</span>
     <code className="text-sm bg-secondary px-2 py-1 rounded">https://anon.li/api/v1/domain/:id/dkim</code>
 </div>
+
+<Callout type="warning" title="This replaces your existing DKIM key">
+Regenerating invalidates the DKIM TXT record currently published in your DNS and resets `dkim_verified` to `false`. Because DKIM is required for verification, the domain will not pass verification again until you publish the new record and call the verify endpoint. To read the current DKIM record without rotating it, use `GET /api/v1/domain/:id` (`dns_records.dkim`).
+</Callout>
 
 **Example Request**
 
 ```bash
-curl https://anon.li/api/v1/domain/domain_xyz123/dkim \
+curl -X POST https://anon.li/api/v1/domain/domain_xyz123/dkim \
   -H "Authorization: Bearer ak_..."
 ```
 
@@ -220,12 +248,17 @@ curl https://anon.li/api/v1/domain/domain_xyz123/dkim \
 ```json
 {
   "data": {
+    "id": "domain_xyz123",
+    "domain": "mail.example.com",
     "dkim_selector": "default",
     "dkim_record": {
       "type": "TXT",
       "host": "default._domainkey.mail.example.com",
       "value": "v=DKIM1; k=rsa; p=MIIBIjANBgkq..."
     }
+  },
+  "meta": {
+    "request_id": "req_abc123"
   }
 }
 ```
@@ -254,6 +287,9 @@ curl -X DELETE https://anon.li/api/v1/domain/domain_xyz123 \
 {
   "data": {
     "deleted": true
+  },
+  "meta": {
+    "request_id": "req_abc123"
   }
 }
 ```
@@ -266,14 +302,14 @@ curl -X DELETE https://anon.li/api/v1/domain/domain_xyz123 \
 | :--- | :--- | :--- |
 | `id` | string | Unique domain identifier |
 | `domain` | string | The domain name |
-| `verified` | boolean | All DNS records verified |
+| `verified` | boolean | Ownership, MX, SPF, and DKIM records all verified |
 | `ownership_verified` | boolean | TXT ownership record verified |
 | `mx_verified` | boolean | MX record verified |
 | `spf_verified` | boolean | SPF record verified |
 | `dkim_verified` | boolean | DKIM record verified |
 | `verification_token` | string | Token for ownership TXT record |
-| `dkim_public_key` | string \| null | DKIM public key |
-| `dkim_selector` | string \| null | DKIM selector |
+| `dkim_public_key` | string \| null | DKIM public key (PEM). Generated automatically when the domain is added |
+| `dkim_selector` | string \| null | DKIM selector (`default`) |
 | `created_at` | string | ISO 8601 creation timestamp |
 
 ---
@@ -281,10 +317,11 @@ curl -X DELETE https://anon.li/api/v1/domain/domain_xyz123 \
 ## Verification Workflow
 
 1. **Add your domain** - `POST /api/v1/domain`
-2. **Get DNS records** - `GET /api/v1/domain/:id` to see the required TXT, MX, and SPF records
-3. **Configure DNS** - Add the records to your DNS provider
+2. **Get DNS records** - `GET /api/v1/domain/:id` to see the required ownership TXT, MX, SPF, and DKIM records in `dns_records`
+3. **Configure DNS** - Add all four records to your DNS provider. DKIM is required: a domain without a valid DKIM record does not verify
 4. **Verify** - `POST /api/v1/domain/:id/verify` to check your configuration
-5. **Set up DKIM** (optional) - `GET /api/v1/domain/:id/dkim` to get the DKIM TXT record, add it to DNS, then verify again
+
+Only call `POST /api/v1/domain/:id/dkim` if you need to rotate the DKIM key; it replaces the published key and you must update DNS and verify again.
 
 <div className="bg-muted/50 border rounded-lg p-4 mt-6">
     <p className="font-medium">DNS propagation</p>
@@ -297,8 +334,10 @@ curl -X DELETE https://anon.li/api/v1/domain/domain_xyz123 \
 
 | Status | Code | Description |
 | :--- | :--- | :--- |
-| `400` | `VALIDATION_ERROR` | Invalid domain format |
+| `400` | `VALIDATION_ERROR` | Invalid domain format, or a reserved domain (`anon.li` and its subdomains) |
 | `401` | `UNAUTHORIZED` | Invalid or missing API key |
+| `402` | `PAYMENT_REQUIRED` | Team workspace without an active Business plan |
+| `403` | `FORBIDDEN` | Custom domains not included in your plan, or domain limit reached |
 | `404` | `NOT_FOUND` | Domain not found |
-| `409` | `CONFLICT` | Domain already exists |
+| `409` | `CONFLICT` | Domain already added to your account, or already verified by another account |
 | `429` | `RATE_LIMITED` | Too many requests |

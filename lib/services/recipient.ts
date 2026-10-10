@@ -1,7 +1,7 @@
 import { z } from "zod"
 import { randomBytes } from "crypto"
 import * as openpgp from "openpgp"
-import { getRecipientLimit, assertOrgPlanActive } from "@/lib/limits"
+import { getRecipientLimit, assertOrgPlanActive, getEffectiveTier } from "@/lib/limits"
 import { getOrgLimitContext } from "@/lib/data/auth"
 import {
     getRecipientsWithAliasCount,
@@ -23,7 +23,7 @@ import { Prisma } from "@prisma/client"
 import { getUserById } from "@/lib/data/user"
 import { sendRecipientVerificationEmail } from "@/lib/resend"
 import { createLogger } from "@/lib/logger"
-import { NotFoundError, ValidationError, ConflictError } from "@/lib/api-error-utils"
+import { NotFoundError, ValidationError, ConflictError, UpgradeRequiredError } from "@/lib/api-error-utils"
 import { ownerWhere, personalScope, assertCanManage, type OwnerScope } from "@/lib/ownership"
 
 const logger = createLogger("RecipientService")
@@ -118,7 +118,16 @@ export class RecipientService {
             const currentCount = await tx.recipient.count({ where: ownerWhere(scope) })
             const limit = getRecipientLimit(limitContext)
             if (currentCount >= limit) {
-                throw new ValidationError(`Recipient limit reached (${limit}). Upgrade to add more.`)
+                // A plan limit, not bad input: 402 UPGRADE_REQUIRED (REST) /
+                // UPGRADE_REQUIRED (MCP), like the alias and domain limits.
+                const currentTier = getEffectiveTier(limitContext)
+                throw new UpgradeRequiredError(`Recipient limit reached (${limit}). Upgrade to add more.`, {
+                    scope: "alias_recipients",
+                    currentTier,
+                    suggestedTier: currentTier === "free" ? "plus" : "pro",
+                    currentValue: currentCount,
+                    limitValue: limit,
+                })
             }
 
             try {
@@ -142,13 +151,19 @@ export class RecipientService {
             }
         }, { isolationLevel: "Serializable" })
 
-        // Send verification email
+        // Send verification email. The helper reports failure via
+        // `{ success: false }` rather than throwing, so check both paths.
+        let sent = false
         try {
-            await sendRecipientVerificationEmail(normalizedEmail, verificationToken)
+            const result = await sendRecipientVerificationEmail(normalizedEmail, verificationToken)
+            sent = result.success
         } catch (error) {
-            // If email fails, delete the recipient and throw
-            await deleteRecipientById(recipient.id, scope)
             logger.error("Failed to send verification email", error)
+        }
+        if (!sent) {
+            // Roll back so the user can retry instead of being stuck with an
+            // unverifiable pending recipient.
+            await deleteRecipientById(recipient.id, scope)
             throw new ValidationError("Failed to send verification email. Please try again.")
         }
 
@@ -177,8 +192,11 @@ export class RecipientService {
             verificationExpiry,
         })
 
-        // Send verification email
-        await sendRecipientVerificationEmail(recipient.email, verificationToken)
+        // Send verification email; surface delivery failure to the caller.
+        const result = await sendRecipientVerificationEmail(recipient.email, verificationToken)
+        if (!result.success) {
+            throw new ValidationError("Failed to send verification email. Please try again.")
+        }
 
         return { success: true }
     }

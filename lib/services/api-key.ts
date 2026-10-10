@@ -1,8 +1,9 @@
 import crypto from "crypto"
 import { createApiKeyRecord, deleteApiKeyById, getApiKeyById } from "@/lib/data/api-key"
 import { getUserById } from "@/lib/data/user"
-import { NotFoundError } from "@/lib/api-error-utils"
-import { assertCanAccess, assertCanManage, type OwnerScope } from "@/lib/ownership"
+import { ApiError, NotFoundError } from "@/lib/api-error-utils"
+import { assertCanAccess, assertCanManage, isOrgScope, type OwnerScope } from "@/lib/ownership"
+import { isOrgSubscribed } from "@/lib/data/auth"
 
 export class ApiKeyService {
 
@@ -18,6 +19,17 @@ export class ApiKeyService {
     static async createWithMetadata(scope: OwnerScope, label: string, expiresAt?: Date) {
         const user = await getUserById(scope.userId)
         if (!user) throw new NotFoundError("User not found")
+
+        // Team keys require a paid team — the same gate the REST create route
+        // applies via `organizationAccess: "subscribed"`, enforced here so the
+        // dashboard action (and any other caller) cannot bypass it.
+        if (isOrgScope(scope) && !(await isOrgSubscribed(scope.organizationId))) {
+            throw new ApiError(
+                "An active Business subscription is required for this organization.",
+                402,
+                "PAYMENT_REQUIRED",
+            )
+        }
 
         const normalizedLabel = label.trim() || "My API Key"
 

@@ -9,6 +9,7 @@ import { hashIp } from "@/lib/ip-hash";
 import { Resend } from "resend";
 import { ReportConfirmationEmail } from "@/components/email/report-confirmation";
 import crypto from "crypto";
+import { emailFrom } from "@/lib/email-from";
 
 let _resend: Resend | null = null;
 function getResend(): Resend {
@@ -185,30 +186,33 @@ export async function POST(req: Request) {
         // Determine priority
         const priority = getReportPriority(data.reason);
 
-        // Check if resource is already taken down / disabled for auto-resolve
+        // Auto-resolve only when staff have ALREADY taken the resource down.
+        // An owner's own pause (drop disabled, alias inactive, form disabled or
+        // deleted by its owner) is reversible by the very party being reported,
+        // so it must never close the report: pause, get auto-resolved, unpause.
         let autoResolved = false;
         if (data.serviceType === "drop") {
             const drop = await prisma.drop.findUnique({
                 where: { id: normalizedResourceId },
-                select: { takenDown: true, disabled: true },
+                select: { takenDown: true },
             });
-            if (drop?.takenDown || drop?.disabled) {
+            if (drop?.takenDown) {
                 autoResolved = true;
             }
         } else if (data.serviceType === "alias") {
             const alias = await prisma.alias.findFirst({
                 where: { email: normalizedResourceId },
-                select: { active: true },
+                select: { takenDownAt: true },
             });
-            if (alias && !alias.active) {
+            if (alias?.takenDownAt) {
                 autoResolved = true;
             }
         } else if (data.serviceType === "form") {
             const form = await prisma.form.findUnique({
                 where: { id: normalizedResourceId },
-                select: { takenDown: true, disabledByUser: true, deletedAt: true },
+                select: { takenDown: true },
             });
-            if (form?.takenDown || form?.disabledByUser || form?.deletedAt) {
+            if (form?.takenDown) {
                 autoResolved = true;
             }
         }
@@ -228,7 +232,7 @@ export async function POST(req: Request) {
                 reporterIp: ipHash,
                 status: autoResolved ? "resolved" : "pending",
                 ...(autoResolved && {
-                    reviewNotes: "Auto-resolved: resource was already taken down or disabled at time of report.",
+                    reviewNotes: "Auto-resolved: resource was already taken down at time of report.",
                 }),
             },
         });
@@ -236,12 +240,16 @@ export async function POST(req: Request) {
         // Send confirmation email to reporter if email provided
         if (data.contactEmail) {
             try {
-                await getResend().emails.send({
-                    from: "anon.li <hi@anon.li>",
+                const { error: sendError } = await getResend().emails.send({
+                    from: emailFrom(),
                     to: data.contactEmail,
                     subject: "Abuse Report Received - anon.li",
                     react: ReportConfirmationEmail({ trackingToken }),
                 });
+                // Resend reports API failures in the result, not by throwing.
+                if (sendError) {
+                    logger.error("Failed to send report confirmation email", sendError);
+                }
             } catch (emailError) {
                 logger.error("Failed to send report confirmation email", emailError);
             }

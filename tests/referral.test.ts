@@ -10,7 +10,7 @@ vi.mock("@/lib/prisma", () => ({
 }))
 
 import { prisma } from "@/lib/prisma"
-import { claimReferral, getReferralRewardPreview, normalizeReferralCode, REFERRAL_REWARD_DAYS } from "@/lib/services/referral"
+import { claimReferral, getReferralRewardPreview, normalizeReferralCode, REFERRAL_PLUS_MAX_DAYS, REFERRAL_REWARD_DAYS } from "@/lib/services/referral"
 import { getUserAndLimits } from "@/lib/drop-utils"
 
 const prismaMock = prisma as unknown as {
@@ -117,8 +117,13 @@ describe("getReferralRewardPreview", () => {
         expect(await getReferralRewardPreview("ABCD1234")).toBeNull()
     })
 
+    it("does not promise a reward for a banned referrer's code", async () => {
+        prismaMock.user.findUnique.mockResolvedValueOnce({ id: "referrer", banned: true })
+        expect(await getReferralRewardPreview("ABCD1234")).toBeNull()
+    })
+
     it("previews the reward when the code maps to a real referrer", async () => {
-        prismaMock.user.findUnique.mockResolvedValueOnce({ id: "referrer" })
+        prismaMock.user.findUnique.mockResolvedValueOnce({ id: "referrer", banned: false })
         // Normalizes before lookup, so a messy URL value still resolves.
         expect(await getReferralRewardPreview("abcd-1234")).toEqual({ rewardDays: REFERRAL_REWARD_DAYS })
         expect(prismaMock.user.findUnique).toHaveBeenCalledWith(
@@ -169,15 +174,12 @@ describe("claimReferral", () => {
     it("attributes and rewards both parties on a valid claim", async () => {
         prismaMock.user.findUnique
             .mockResolvedValueOnce({ id: "referee", referredByUserId: null, referralClaimedAt: null, createdAt: new Date() })
-            .mockResolvedValueOnce({ id: "referrer" })
+            .mockResolvedValueOnce({ id: "referrer", banned: false })
 
-        const txUpdate = vi.fn().mockResolvedValue({})
+        const txUpdateMany = vi.fn().mockResolvedValue({ count: 1 })
         const txExecuteRaw = vi.fn().mockResolvedValue(1)
         const tx = {
-            user: {
-                findUnique: vi.fn().mockResolvedValue({ referredByUserId: null, referralClaimedAt: null }),
-                update: txUpdate,
-            },
+            user: { updateMany: txUpdateMany },
             $executeRaw: txExecuteRaw,
         }
         prismaMock.$transaction.mockImplementation(async (cb: (t: typeof tx) => unknown) => cb(tx))
@@ -185,26 +187,76 @@ describe("claimReferral", () => {
         const result = await claimReferral("referee", "abcd-1234")
         expect(result).toEqual({ status: "claimed", rewardDays: REFERRAL_REWARD_DAYS })
 
-        // Attribution is a single user.update; the two Plus grants go through the
-        // atomic $executeRaw path (one per party), each for the reward window.
-        expect(txUpdate).toHaveBeenCalledTimes(1)
-        expect(txUpdate).toHaveBeenCalledWith(expect.objectContaining({
-            where: { id: "referee" },
+        // Attribution is a guarded compare-and-set; the two Plus grants go
+        // through the atomic $executeRaw path (one per party).
+        expect(txUpdateMany).toHaveBeenCalledTimes(1)
+        expect(txUpdateMany).toHaveBeenCalledWith(expect.objectContaining({
+            where: { id: "referee", referredByUserId: null, referralClaimedAt: null },
             data: expect.objectContaining({ referredByUserId: "referrer" }),
         }))
         expect(txExecuteRaw).toHaveBeenCalledTimes(2)
-        // Each grant interpolates the reward-day count and a distinct target id.
+        // Each grant interpolates the reward-day count, the stacking cap, and a
+        // distinct target id.
         for (const call of txExecuteRaw.mock.calls) {
             expect(call).toContain(REFERRAL_REWARD_DAYS)
+            expect(call).toContain(REFERRAL_PLUS_MAX_DAYS)
+            expect((call[0] as TemplateStringsArray).join("?")).toMatch(/LEAST\(/)
         }
         const targets = txExecuteRaw.mock.calls.map((c) => c[c.length - 1])
         expect(targets).toEqual(expect.arrayContaining(["referee", "referrer"]))
     })
 
+    it("grants rewards exactly once when the same referee claims in parallel", async () => {
+        // Both requests pass the pre-transaction read (the referee looks
+        // unclaimed to each), then race into the transaction.
+        prismaMock.user.findUnique.mockImplementation(async (args: { where: { id?: string; referralCode?: string } }) =>
+            args.where.referralCode
+                ? { id: "referrer", banned: false }
+                : { id: "referee", referredByUserId: null, referralClaimedAt: null, createdAt: new Date() },
+        )
+
+        // Simulate the row-level compare-and-set: the first guarded update
+        // flips the row, every later one matches zero rows.
+        let referee = { referredByUserId: null as string | null, referralClaimedAt: null as Date | null }
+        const txExecuteRaw = vi.fn().mockResolvedValue(1)
+        const tx = {
+            user: {
+                updateMany: vi.fn(async (args: { where: { referredByUserId: null; referralClaimedAt: null }; data: typeof referee }) => {
+                    await Promise.resolve()
+                    if (referee.referredByUserId !== null || referee.referralClaimedAt !== null) return { count: 0 }
+                    referee = { ...args.data }
+                    return { count: 1 }
+                }),
+            },
+            $executeRaw: txExecuteRaw,
+        }
+        prismaMock.$transaction.mockImplementation(async (cb: (t: typeof tx) => unknown) => cb(tx))
+
+        const results = await Promise.all([
+            claimReferral("referee", "ABCD1234"),
+            claimReferral("referee", "ABCD1234"),
+            claimReferral("referee", "ABCD1234"),
+        ])
+
+        expect(results.filter((r) => r.status === "claimed")).toHaveLength(1)
+        expect(results.filter((r) => r.status === "already_claimed")).toHaveLength(2)
+        // Exactly one grant per party — not one per racing request.
+        expect(txExecuteRaw).toHaveBeenCalledTimes(2)
+    })
+
+    it("treats a banned referrer's code as invalid and grants nothing", async () => {
+        prismaMock.user.findUnique
+            .mockResolvedValueOnce({ id: "referee", referredByUserId: null, referralClaimedAt: null, createdAt: new Date() })
+            .mockResolvedValueOnce({ id: "referrer", banned: true })
+
+        expect(await claimReferral("referee", "ABCD1234")).toEqual({ status: "invalid_code" })
+        expect(prismaMock.$transaction).not.toHaveBeenCalled()
+    })
+
     it("returns error (not already_claimed) when the transaction throws", async () => {
         prismaMock.user.findUnique
             .mockResolvedValueOnce({ id: "referee", referredByUserId: null, referralClaimedAt: null, createdAt: new Date() })
-            .mockResolvedValueOnce({ id: "referrer" })
+            .mockResolvedValueOnce({ id: "referrer", banned: false })
         prismaMock.$transaction.mockRejectedValue(new Error("deadlock"))
 
         // A transient failure must stay non-terminal so the caller keeps the

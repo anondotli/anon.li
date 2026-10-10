@@ -36,10 +36,10 @@ const db = prisma as unknown as {
     $transaction: Mock
 }
 
-function firstFormUpdateData(): Record<string, unknown> {
-    const call = db.form.update.mock.calls[0]
-    if (!call) throw new Error("prisma.form.update was never called")
-    return call[0].data
+function firstFormRestoreCall(): { where: Record<string, unknown>; data: Record<string, unknown> } {
+    const call = db.form.updateMany.mock.calls[0]
+    if (!call) throw new Error("prisma.form.updateMany was never called")
+    return call[0]
 }
 
 beforeEach(() => {
@@ -79,7 +79,9 @@ describe("AdminService — form takedown / restore", () => {
 
         await AdminService.restoreForm("form_1")
 
-        const data = firstFormUpdateData()
+        const { where, data } = firstFormRestoreCall()
+        // Conditional so concurrent restores can't double-decrement strikes.
+        expect(where).toEqual({ id: "form_1", takenDown: true })
         expect(data).toEqual({ takenDown: false, takedownReason: null, takenDownAt: null })
     })
 
@@ -94,7 +96,7 @@ describe("AdminService — form takedown / restore", () => {
 
         await expect(AdminService.restoreForm("form_1")).resolves.toEqual({ success: true })
 
-        expect(db.form.update).toHaveBeenCalledTimes(1)
+        expect(db.form.updateMany).toHaveBeenCalledTimes(1)
         expect(db.$executeRaw).not.toHaveBeenCalled()
     })
 
@@ -121,7 +123,20 @@ describe("AdminService — form takedown / restore", () => {
 
         await expect(AdminService.restoreForm("form_1"))
             .rejects.toMatchObject({ name: "ValidationError" })
-        expect(db.form.update).not.toHaveBeenCalled()
+        expect(db.form.updateMany).not.toHaveBeenCalled()
+    })
+
+    it("does not decrement strikes when a concurrent restore already won", async () => {
+        db.form.findUnique.mockResolvedValue({
+            id: "form_1",
+            takenDown: true,
+            userId: "user_1",
+        })
+        db.form.updateMany.mockResolvedValue({ count: 0 })
+
+        await expect(AdminService.restoreForm("form_1"))
+            .rejects.toMatchObject({ name: "ValidationError" })
+        expect(db.$executeRaw).not.toHaveBeenCalled()
     })
 
     it("strikes nothing for an org form with no surviving creator on takedown", async () => {

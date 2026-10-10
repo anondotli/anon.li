@@ -84,6 +84,10 @@ model User {
   referrals         User[]    @relation("UserReferrals")
   referralPlusUntil DateTime? @map("referral_plus_until")
   referralClaimedAt DateTime? @map("referral_claimed_at")
+  // Set by the billing cron once a lapsed referral Plus window has entered the
+  // downgrade flow, so the lapse is handled exactly once. Cleared by every new
+  // referral grant (a fresh window gets its own lapse handling).
+  referralPlusLapseHandledAt DateTime? @map("referral_plus_lapse_handled_at")
 
   @@index([referredByUserId])
   @@map("users")

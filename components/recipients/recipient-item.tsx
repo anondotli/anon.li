@@ -61,34 +61,46 @@ export function RecipientItem({ recipient }: RecipientItemProps) {
 
     const handleSetDefault = async () => {
         startTransition(async () => {
-            const result = await setDefaultRecipient(recipient.id)
-            if (result.error) {
-                toast.error(result.error)
-            } else {
-                toast.success("Default recipient updated")
+            try {
+                const result = await setDefaultRecipient(recipient.id)
+                if (result.error) {
+                    toast.error(result.error)
+                } else {
+                    toast.success("Default recipient updated")
+                }
+            } catch {
+                toast.error("Failed to update default recipient. Please try again.")
             }
         })
     }
 
     const handleResendVerification = async () => {
         startTransition(async () => {
-            const result = await resendVerificationAction(recipient.id)
-            if (result.error) {
-                toast.error(result.error)
-            } else {
-                toast.success("Verification email sent")
+            try {
+                const result = await resendVerificationAction(recipient.id)
+                if (result.error) {
+                    toast.error(result.error)
+                } else {
+                    toast.success("Verification email sent")
+                }
+            } catch {
+                toast.error("Failed to send verification email. Please try again.")
             }
         })
     }
 
     const handleDelete = async () => {
         startTransition(async () => {
-            const result = await deleteRecipientAction(recipient.id)
-            if (result.error) {
-                toast.error(result.error)
-            } else {
-                toast.success("Recipient deleted")
-                setIsDeleteDialogOpen(false)
+            try {
+                const result = await deleteRecipientAction(recipient.id)
+                if (result.error) {
+                    toast.error(result.error)
+                } else {
+                    toast.success("Recipient deleted")
+                    setIsDeleteDialogOpen(false)
+                }
+            } catch {
+                toast.error("Failed to delete recipient. Please try again.")
             }
         })
     }
@@ -100,7 +112,8 @@ export function RecipientItem({ recipient }: RecipientItemProps) {
     return (
         <>
             <Collapsible open={isExpanded} onOpenChange={setIsExpanded}>
-                <div className="border rounded-xl bg-card overflow-hidden">
+                {/* ph-no-capture: the row renders the recipient's real address. */}
+                <div className="ph-no-capture border rounded-xl bg-card overflow-hidden">
                     <div className="p-4 transition-colors hover:bg-muted/50">
                         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
                             {/* Email info */}

@@ -72,11 +72,22 @@ export async function updateOrgSeats(input: z.infer<typeof updateSeatsSchema>): 
             if (!isOrgScope(scope)) throw new Error("Organization context required")
             const { organizationId } = scope
 
-            const memberCount = await prisma.member.count({ where: { organizationId } })
+            // Pending, unexpired invitations reserve seats too: shrinking below
+            // members + outstanding invites would let those invites be accepted
+            // into seats nobody is paying for (or fail unpredictably later).
+            const [memberCount, pendingInvitations] = await Promise.all([
+                prisma.member.count({ where: { organizationId } }),
+                prisma.invitation.count({
+                    where: { organizationId, status: "pending", expiresAt: { gt: new Date() } },
+                }),
+            ])
+            const reserved = memberCount + pendingInvitations
             const seats = Math.max(validated.seats, 1)
-            if (seats < memberCount) {
+            if (seats < reserved) {
                 throw new ValidationError(
-                    `Your team has ${memberCount} members. Remove members before reducing below ${memberCount} seats.`,
+                    pendingInvitations > 0
+                        ? `Your team has ${memberCount} members and ${pendingInvitations} pending invitation${pendingInvitations === 1 ? "" : "s"}. Cancel invitations or remove members before reducing below ${reserved} seats.`
+                        : `Your team has ${memberCount} members. Remove members before reducing below ${memberCount} seats.`,
                 )
             }
 

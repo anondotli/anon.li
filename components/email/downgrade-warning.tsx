@@ -9,6 +9,9 @@ interface DowngradeWarningEmailProps {
     excessRecipients: number;
     schedulingDate: string;
     deletionDate: string;
+    /** Unlimited-expiry drops given a grace expiry by this downgrade. */
+    dropsExpiring?: number;
+    dropExpiryDate?: string;
 }
 
 export function DowngradeWarningEmail({
@@ -18,6 +21,8 @@ export function DowngradeWarningEmail({
     excessRecipients,
     schedulingDate,
     deletionDate,
+    dropsExpiring = 0,
+    dropExpiryDate,
 }: DowngradeWarningEmailProps) {
     const items: string[] = [];
     if (excessRandom > 0) items.push(`${excessRandom} random alias${excessRandom !== 1 ? "es" : ""}`);
@@ -61,6 +66,12 @@ export function DowngradeWarningEmail({
                     <strong style={{ color: emailColors.text }}>{deletionDate}</strong> unless you renew your subscription.
                     {" "}Form responses older than the free-plan retention window may also be removed after that date.
                 </p>
+                {dropsExpiring > 0 && dropExpiryDate && (
+                    <p style={{ margin: "0 0 16px", fontSize: "15px", lineHeight: 1.7, color: emailColors.textMuted, textAlign: "center" }}>
+                        {dropsExpiring} drop{dropsExpiring !== 1 ? "s" : ""} without an expiry will now expire on{" "}
+                        <strong style={{ color: emailColors.text }}>{dropExpiryDate}</strong> unless you renew.
+                    </p>
+                )}
             </ContentRow>
             <EmailCTA href={emailUrl("/dashboard/billing")} text="Renew Subscription" />
             <ContentRow padding="24px 48px 0">

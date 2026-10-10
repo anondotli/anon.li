@@ -15,6 +15,8 @@ Create a new email alias.
 anonli alias new [options]
 ```
 
+Aliases: `anonli alias create`
+
 **Options**
 
 | Flag | Description |
@@ -24,7 +26,8 @@ anonli alias new [options]
 | `-d, --domain <domain>` | Domain to use (default: `anon.li`) |
 | `-l, --label <text>` | Add a vault-encrypted label |
 | `--note <text>` | Add a vault-encrypted private note |
-| `--recipient <id>` | Forward to a specific recipient ID |
+| `--recipient <email>` | Forward to the recipient with this email address |
+| `--recipient-id <id>` | Forward to this recipient ID (repeat for multiple, max 10) |
 
 Custom alias names must match `^[a-z0-9][a-z0-9._+\-]{0,61}[a-z0-9]$` (2–63 characters, alphanumeric with `.`, `_`, `+`, `-`).
 
@@ -52,6 +55,8 @@ List all your aliases.
 ```bash
 anonli alias list [options]
 ```
+
+Aliases: `anonli alias ls`
 
 **Options**
 
@@ -128,6 +133,9 @@ Aliases: `anonli alias edit`
 | `--note <text>` | Update the vault-encrypted private note |
 | `--clear-label` | Clear the encrypted label |
 | `--clear-note` | Clear the encrypted private note |
+| `--recipient <email>` | Forward to the recipient with this email address |
+| `--recipient-id <id>` | Forward to this recipient ID (repeat for multiple, max 10) |
+| `--clear-recipients` | Remove all recipients (forward to your default recipient) |
 
 At least one option is required. `--enable` and `--disable` are mutually exclusive. Metadata updates use your vault password interactively and never send plaintext labels or notes to the API.
 
@@ -154,6 +162,8 @@ Permanently delete an alias.
 ```bash
 anonli alias delete <alias> [options]
 ```
+
+Aliases: `anonli alias rm`
 
 **Arguments**
 

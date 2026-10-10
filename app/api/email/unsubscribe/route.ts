@@ -9,9 +9,13 @@ const logger = createLogger("EmailUnsubscribe");
  * One-click unsubscribe for growth emails (drip + power-user upsell).
  *
  * Supports two forms:
- *  - GET  — user clicks the link in the email footer → HTML confirmation page.
- *  - POST — RFC 8058 one-click from native mail clients via the
- *           `List-Unsubscribe-Post: List-Unsubscribe=One-Click` header.
+ *  - GET  — user clicks the link in the email footer → HTML page asking them
+ *           to confirm. GET never mutates state: mail-security link scanners
+ *           prefetch every URL in an email and would otherwise unsubscribe
+ *           users who never clicked.
+ *  - POST — the confirmation form's submit, or RFC 8058 one-click from native
+ *           mail clients via the `List-Unsubscribe-Post:
+ *           List-Unsubscribe=One-Click` header. This is the only mutation.
  *
  * Transactional emails (billing, auth, abuse) are not gated on this flag.
  */
@@ -34,7 +38,33 @@ async function unsubscribe(token: string | null): Promise<{ ok: boolean; message
     }
 }
 
-function htmlPage(title: string, message: string, ok: boolean): string {
+function escapeHtml(value: string): string {
+    return value
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+}
+
+const HTML_HEADERS = {
+    "Cache-Control": "private, no-store",
+    "Content-Type": "text/html; charset=utf-8",
+};
+
+/**
+ * Confirmation step: a plain same-origin form POST (no script, so it works
+ * under the strict nonce CSP that covers /api).
+ */
+function confirmBody(token: string): string {
+    return `<p>Stop receiving anon.li tips and product emails? You'll still receive billing and security notifications.</p>
+        <form method="post" action="/api/email/unsubscribe">
+            <input type="hidden" name="token" value="${escapeHtml(token)}">
+            <button type="submit">Unsubscribe</button>
+        </form>`;
+}
+
+function htmlPage(title: string, body: string, ok: boolean): string {
     return `<!doctype html>
 <html lang="en">
 <head>
@@ -47,13 +77,16 @@ function htmlPage(title: string, message: string, ok: boolean): string {
     h1 { margin: 0 0 16px; font-size: 22px; font-weight: 500; color: ${ok ? "#22c55e" : "#ef4444"}; }
     p { margin: 0; font-size: 15px; line-height: 1.6; color: #b4b3b0; }
     a { color: #faf8f5; text-decoration: underline; }
+    form { margin: 24px 0 0; }
+    button { padding: 10px 24px; font-size: 15px; font-family: inherit; color: #121110; background: #faf8f5; border: 0; border-radius: 8px; cursor: pointer; }
+    .back { margin-top: 24px; }
 </style>
 </head>
 <body>
     <div class="card">
         <h1>${title}</h1>
-        <p>${message}</p>
-        <p style="margin-top:24px"><a href="https://anon.li">Back to anon.li</a></p>
+        ${body}
+        <p class="back"><a href="https://anon.li">Back to anon.li</a></p>
     </div>
 </body>
 </html>`;
@@ -61,19 +94,25 @@ function htmlPage(title: string, message: string, ok: boolean): string {
 
 export async function GET(req: NextRequest) {
     const token = req.nextUrl.searchParams.get("token");
-    const result = await unsubscribe(token);
-    const title = result.ok ? "Unsubscribed" : "Couldn't unsubscribe";
-    return new NextResponse(htmlPage(title, result.message, result.ok), {
-        status: result.ok ? 200 : 400,
-        headers: {
-            "Cache-Control": "private, no-store",
-            "Content-Type": "text/html; charset=utf-8",
-        },
+    // Validate only; the mutation happens on the confirmation POST.
+    const valid = token ? verifyUnsubscribeToken(token) !== null : false;
+    if (!token || !valid) {
+        const message = token ? "This unsubscribe link is invalid or tampered." : "Missing unsubscribe token.";
+        return new NextResponse(htmlPage("Couldn't unsubscribe", `<p>${message}</p>`, false), {
+            status: 400,
+            headers: HTML_HEADERS,
+        });
+    }
+
+    return new NextResponse(htmlPage("Unsubscribe from emails", confirmBody(token), true), {
+        status: 200,
+        headers: HTML_HEADERS,
     });
 }
 
 export async function POST(req: NextRequest) {
-    // RFC 8058: token may arrive in query string or form body.
+    // RFC 8058: token arrives in the query string (body is
+    // `List-Unsubscribe=One-Click`); the confirmation form sends it in the body.
     let token = req.nextUrl.searchParams.get("token");
     if (!token) {
         try {
@@ -86,6 +125,17 @@ export async function POST(req: NextRequest) {
     }
 
     const result = await unsubscribe(token);
+
+    // A person submitting the confirmation form gets a page back; mail
+    // clients performing one-click get JSON.
+    if (req.headers.get("accept")?.includes("text/html")) {
+        const title = result.ok ? "Unsubscribed" : "Couldn't unsubscribe";
+        return new NextResponse(htmlPage(title, `<p>${result.message}</p>`, result.ok), {
+            status: result.ok ? 200 : 400,
+            headers: HTML_HEADERS,
+        });
+    }
+
     return NextResponse.json(
         { success: result.ok, message: result.message },
         {

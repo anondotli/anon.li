@@ -6,6 +6,7 @@ import { NextResponse } from "next/server";
 import { headers } from "next/headers";
 import { createLogger } from "@/lib/logger";
 import { isIP } from "node:net";
+import { isLoopbackRedisUrl, withStockRedisScripts } from "@/lib/local-redis";
 
 const logger = createLogger("RateLimit");
 
@@ -16,8 +17,13 @@ export const redis = new Redis({
   token: process.env.UPSTASH_REDIS_REST_TOKEN!,
 });
 
+// The compose.yml stand-in (serverless-redis-http → stock Redis) rejects the
+// Upstash-only Lua flags @upstash/ratelimit uses; strip them for a loopback
+// endpoint only, so local rate limits (incl. fail-closed auth) actually work.
+const limiterRedis = isLoopbackRedisUrl(process.env.UPSTASH_REDIS_REST_URL) ? withStockRedisScripts(redis) : redis;
+
 function createLimiter(prefix: string, limit: number, window: Duration, analytics = false): Ratelimit {
-  return new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(limit, window), prefix, analytics });
+  return new Ratelimit({ redis: limiterRedis, limiter: Ratelimit.slidingWindow(limit, window), prefix, analytics });
 }
 
 // Monthly API quota limiters (tier-based)
@@ -241,6 +247,16 @@ export async function checkRateLimit(
     // Redis is down would be a self-inflicted DoS.
     return null;
   }
+}
+
+/**
+ * Whether a {@link rateLimit} rejection is a fail-closed outage (Redis
+ * unreachable, 503) rather than the caller exceeding the limit (429). Callers
+ * that render their own message must not tell users they made "too many
+ * attempts" when the limiter itself is down.
+ */
+export function isRateLimitOutage(limited: Response): boolean {
+  return limited.status === 503;
 }
 
 /**

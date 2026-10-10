@@ -5,6 +5,10 @@ import { Button } from "@/components/ui/button"
 import { buildOpenGraph } from "@/config/open-graph"
 import { loadCanaryData } from "@/lib/canary"
 
+// Staleness (now > nextUpdate) must be re-evaluated after deploy, not frozen at
+// build time — otherwise an overdue canary keeps showing "All Clear".
+export const revalidate = 3600
+
 export const metadata: Metadata = {
     title: "Warrant Canary",
     description: "anon.li's warrant canary - transparency about government requests and legal orders.",

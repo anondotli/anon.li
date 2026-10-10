@@ -84,7 +84,9 @@ export async function POST(request: Request) {
                 requestId,
                 userId: session.user.id,
             })
-            return withNoStore(apiError("Vault security is already configured", ErrorCodes.CONFLICT, requestId, 409))
+            // Distinct code so a client retrying after a lost success response
+            // can finish instead of dead-ending on a generic conflict.
+            return withNoStore(apiError("Vault security is already configured", ErrorCodes.VAULT_ALREADY_CONFIGURED, requestId, 409))
         }
 
         const credentialAccount = await getCredentialAccount(session.user.id)

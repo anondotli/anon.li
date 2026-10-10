@@ -17,7 +17,7 @@ Use Bun for dependency management and scripts.
 - Upstash Redis REST credentials
 - Resend, Cloudflare Turnstile, and Stripe test credentials
 
-NOWPayments, GitHub/Google OAuth, and PostHog are optional. See [README.md](README.md#quick-start) for service responsibilities and the R2 security requirements.
+NOWPayments, GitHub/Google OAuth, and PostHog are optional. See [README.md](README.md#quick-start) for service responsibilities and the R2 security requirements. PostgreSQL, an S3-compatible R2 stand-in, and a Redis REST endpoint can run locally from `compose.yml`; the [local development guide](docs/local-development.md) has the matching `.env` values, Turnstile test keys, Stripe CLI webhook forwarding, and known limitations.
 
 ### Install and run
 
@@ -31,10 +31,11 @@ cp .env.example .env
 Fill every required value in `.env`. Never reuse production secrets or production user data in development.
 
 ```bash
-bun run prisma:generate
-bun run db:push
+bun run db:migrate:deploy   # apply the committed migrations
 bun dev
 ```
+
+`bun install` already generated the Prisma client (`postinstall`); rerun `bun run prisma:generate` after editing the schema.
 
 The app is available at `http://localhost:3000`.
 
@@ -52,6 +53,8 @@ bun run audit
 bun run check
 ```
 
+Tests run on Vitest: use `bun run test`, not bare `bun test` (Bun's built-in runner is deliberately blocked with a pointer to the right command). `*.test.ts` files run in a Node environment and `*.test.tsx` in jsdom; a `.ts` test that needs browser globals adds a `// @vitest-environment jsdom` docblock.
+
 `bun run check` runs ESLint, strict type-checking, Knip, the complete Vitest suite, and a production build.
 
 ## Database changes
@@ -64,7 +67,8 @@ bun run db:migrate --name concise_migration_name
 
 - Review the generated SQL; do not treat generated migrations as automatically safe.
 - Make migrations compatible with existing production data and call out backfills, table rewrites, or long locks in the pull request.
-- Use `bun run db:push` only for disposable local databases. Production uses `bun run db:migrate:deploy`.
+- Do not use `bun run db:push` for setup. It skips objects that exist only in migration SQL (for example the partial unique index `domains_domain_verified_key`) and writes no migration history, so `db:migrate:deploy` can no longer be applied to that database. Keep it for throwaway prototyping on a database you will drop. Setup and production both use `bun run db:migrate:deploy`.
+- CI applies every migration to a fresh PostgreSQL 17 and fails if the result differs from `prisma/schema.prisma`.
 - Never edit or reorder an already-deployed migration.
 
 ## Security and privacy invariants

@@ -18,6 +18,7 @@ import {
     mcpPreflightResponse,
     mcpUnauthorizedResponse,
     mcpUnsupportedMediaType,
+    getMcpProtectedResourceMetadataUrl,
     readJsonRpcBody,
     withMcpAuthChallenge,
     withMcpCors,
@@ -26,8 +27,8 @@ import { isMcpGrantActive, mcpSessionFromClaims, tokenIssuedAt } from "@/lib/mcp
 import { MCP_OAUTH_SCOPES, getMcpIssuer, getMcpJwksUrl, getMcpResource } from "@/lib/mcp/oauth-metadata"
 import type { McpSession } from "@/lib/mcp/types"
 import { flushPostHog, getPostHogClient } from "@/lib/posthog.server"
-import { createLogger, sanitizeObject } from "@/lib/logger"
-import { logMcpAnalytics } from "@/lib/mcp/analytics-log"
+import { createLogger } from "@/lib/logger"
+import { logMcpAnalytics, scrubMcpAnalyticsEvent } from "@/lib/mcp/analytics-log"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 60
@@ -49,17 +50,23 @@ function buildServer(session: McpSession): McpServer {
     // user — distinct_id groups a person's calls across requests. No-op when
     // PostHog isn't configured. Runs before the transport connects so the
     // instrumentation can wrap the registered tool callbacks and handlers.
+    //
+    // Analytics must never change the protocol surface or carry account data:
+    //  - context/enableConversationId/captureModel off: each injects an extra
+    //    parameter (a *required* `context`, `conversation_id`, `llm_model`)
+    //    into every tool's inputSchema.
+    //  - $mcp_parameters/$mcp_response are dropped: tool arguments and results
+    //    hold alias addresses and recipient emails.
     const posthog = getPostHogClient()
     if (posthog) {
         instrument(server, posthog, {
             identify: { distinctId: session.userId },
-            eventProperties: () => ({ oauth_client_id: session.clientId }),
-            beforeSend: (event) => {
-                // SDK events bypass captureServerEvent's redaction; apply the
-                // same sanitization before anything leaves for PostHog.
-                event.properties = sanitizeObject(event.properties) as Record<string, unknown>
-                return event
-            },
+            context: false,
+            enableConversationId: false,
+            captureModel: false,
+            // Not `*_client_id`: the logger's redaction blanks any key matching /auth/.
+            eventProperties: () => ({ mcp_client: session.clientId }),
+            beforeSend: scrubMcpAnalyticsEvent,
             logger: logMcpAnalytics,
         })
     }
@@ -95,18 +102,31 @@ const modernHandler = createMcpHandler(({ authInfo }) => buildServer(sessionFrom
  * JSON mode also lets @posthog/mcp mint its `Mcp-Session-Id` token at
  * `initialize`, which the SDK's own stateless fallback cannot.
  */
-async function serveLegacy(req: Request, session: McpSession, parsedBody: unknown): Promise<Response> {
+async function serveLegacy(req: Request, session: McpSession, parsedBody: unknown, authInfo: AuthInfo): Promise<Response> {
     const server = buildServer(session)
     const transport = new WebStandardStreamableHTTPServerTransport({
         sessionIdGenerator: undefined,
         enableJsonResponse: true,
     })
+    // connect() installs the per-tool scope-challenge resolver on the transport;
+    // it needs `authInfo` to answer a missing scope with 403 insufficient_scope.
     await server.connect(transport)
-    return transport.handleRequest(req, { parsedBody })
+    return transport.handleRequest(req, { parsedBody, authInfo })
 }
 
 function bearerToken(req: Request): string {
     return (req.headers.get("authorization") ?? "").replace(/^\S+\s+/, "")
+}
+
+/** Verified token info for both legs (drives the SDK's per-tool scope challenges). */
+function authInfoFor(req: Request, session: McpSession): AuthInfo {
+    return {
+        token: bearerToken(req),
+        clientId: session.clientId,
+        scopes: (session.scopes ?? "").split(/\s+/).filter(Boolean),
+        resourceMetadataUrl: getMcpProtectedResourceMetadataUrl(),
+        extra: { userId: session.userId },
+    }
 }
 
 const handler = requireMcpAuth(auth, async (req, claims) => {
@@ -126,19 +146,12 @@ const handler = requireMcpAuth(auth, async (req, claims) => {
     // Serverless can freeze before batched events send — flush after the response.
     if (getPostHogClient()) after(() => flushPostHog())
 
+    const authInfo = authInfoFor(req, session)
     if (await isLegacyRequest(req, body.body)) {
-        return serveLegacy(req, session, body.body)
+        return serveLegacy(req, session, body.body, authInfo)
     }
 
-    return modernHandler.fetch(req, {
-        parsedBody: body.body,
-        authInfo: {
-            token: bearerToken(req),
-            clientId: session.clientId,
-            scopes: (session.scopes ?? "").split(/\s+/).filter(Boolean),
-            extra: { userId: session.userId },
-        },
-    })
+    return modernHandler.fetch(req, { parsedBody: body.body, authInfo })
 }, {
     // Tokens must be audience-bound to this endpoint and issued by our origin.
     resource: getMcpResource(),

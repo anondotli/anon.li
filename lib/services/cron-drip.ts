@@ -1,6 +1,7 @@
 import { Redis } from "@upstash/redis";
 import { getDripCohort } from "@/lib/data/user";
 import { createLogger } from "@/lib/logger";
+import { getGrowthEmailExcludeList } from "@/lib/growth-email-exclude";
 import {
     sendDripDay1Email,
     sendDripDay3Email,
@@ -12,11 +13,10 @@ const logger = createLogger("CronDrip");
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MAX_PER_STAGE = 200;
-const EXCLUDED_EMAILS = [
-    "anita.petek3@gmail.com",
-    "enej.grmek@osiria.net",
-    "mcp-review@anthropic.com",
-];
+// Already-emailed users stay in the 2-day cohort window. Page past them so a
+// busy signup day can't fill every page with skips and starve later signups;
+// the page cap bounds the scan.
+const MAX_PAGES_PER_STAGE = 10;
 
 type DripStage = {
     day: 1 | 3 | 7 | 14;
@@ -50,46 +50,56 @@ export async function handleDripCron(): Promise<Record<string, { sent: number; s
         const result = { sent: 0, skipped: 0, errors: 0 };
         const stageLabel = `day${stage.day}`;
 
-        const users = await getDripCohort({
-            minAgeMs: stage.day * DAY_MS,
-            maxAgeMs: (stage.day + 2) * DAY_MS,
-            excludeEmails: EXCLUDED_EMAILS,
-            limit: MAX_PER_STAGE,
-            activityGate: stage.activityGate,
-        });
+        let cursor: string | undefined;
+        let aborted = false;
+        for (let page = 0; page < MAX_PAGES_PER_STAGE && !aborted && result.sent < MAX_PER_STAGE; page++) {
+            const users = await getDripCohort({
+                minAgeMs: stage.day * DAY_MS,
+                maxAgeMs: (stage.day + 2) * DAY_MS,
+                excludeEmails: getGrowthEmailExcludeList(),
+                limit: MAX_PER_STAGE,
+                activityGate: stage.activityGate,
+                cursor,
+            });
 
-        for (const user of users) {
-            const dedupeKey = `drip:${stageLabel}:${user.id}`;
-            let alreadySent: string | null = null;
-            try {
-                alreadySent = await redisClient.get(dedupeKey);
-            } catch (error) {
-                logger.warn("Redis get failed - aborting stage to avoid duplicates", { dedupeKey, error });
-                result.errors++;
-                break;
-            }
-            if (alreadySent) {
-                result.skipped++;
-                continue;
-            }
-
-            try {
-                const sendResult = await stage.send(user.email, user.id);
-                if (!sendResult.success) {
+            for (const user of users) {
+                if (result.sent >= MAX_PER_STAGE) break;
+                const dedupeKey = `drip:${stageLabel}:${user.id}`;
+                let alreadySent: string | null = null;
+                try {
+                    alreadySent = await redisClient.get(dedupeKey);
+                } catch (error) {
+                    logger.warn("Redis get failed - aborting stage to avoid duplicates", { dedupeKey, error });
                     result.errors++;
+                    aborted = true;
+                    break;
+                }
+                if (alreadySent) {
+                    result.skipped++;
                     continue;
                 }
+
                 try {
-                    await redisClient.set(dedupeKey, "1", { ex: 86400 * 90 });
+                    const sendResult = await stage.send(user.email, user.id);
+                    if (!sendResult.success) {
+                        result.errors++;
+                        continue;
+                    }
+                    try {
+                        await redisClient.set(dedupeKey, "1", { ex: 86400 * 90 });
+                    } catch (error) {
+                        logger.warn("Failed to persist drip dedupe key", { dedupeKey, error });
+                        result.errors++;
+                    }
+                    result.sent++;
                 } catch (error) {
-                    logger.warn("Failed to persist drip dedupe key", { dedupeKey, error });
+                    logger.error("Failed to send drip email", error, { userId: user.id, stage: stageLabel });
                     result.errors++;
                 }
-                result.sent++;
-            } catch (error) {
-                logger.error("Failed to send drip email", error, { userId: user.id, stage: stageLabel });
-                result.errors++;
             }
+
+            if (users.length < MAX_PER_STAGE) break;
+            cursor = users[users.length - 1]!.id;
         }
 
         results[stageLabel] = result;

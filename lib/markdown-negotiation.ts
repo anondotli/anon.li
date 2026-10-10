@@ -1,7 +1,12 @@
 import type { NextRequest } from "next/server"
 
 const MARKDOWN_BYPASS_HEADER = "x-markdown-bypass"
-const MARKDOWN_INTERNAL_PATH = "/__markdown"
+// Set by the proxy on requests it rewrites to the converter, so the route can
+// tell negotiated requests apart from direct hits on the internal path.
+export const MARKDOWN_REWRITE_HEADER = "x-markdown-rewrite"
+// Implemented by app/%5F%5Fmarkdown/route.ts. The folder name uses Next's `%5F`
+// escape because a literal `_`-prefixed folder is private and never routed.
+export const MARKDOWN_INTERNAL_PATH = "/__markdown"
 
 type ParsedAcceptValue = {
     index: number
@@ -90,6 +95,10 @@ function getBestAcceptMatch(values: ParsedAcceptValue[], mediaType: string): Acc
     }
 
     return bestMatch
+}
+
+export function isMarkdownInternalPath(pathname: string): boolean {
+    return pathname === MARKDOWN_INTERNAL_PATH || pathname.startsWith(`${MARKDOWN_INTERNAL_PATH}/`)
 }
 
 function isExcludedPath(pathname: string) {

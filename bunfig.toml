@@ -1,2 +1,4 @@
+# Bare `bun test` would run this Vitest suite on Bun's runner and half-work.
+# The preload prints the right command and exits non-zero. Use `bun run test`.
 [test]
-preload = ["./vitest.setup.ts"]
+preload = ["./tests/bun-test-guard.ts"]

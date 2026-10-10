@@ -1,5 +1,9 @@
 import { Redis } from "@upstash/redis";
-import { getRecoverableCryptoInvoices, expireCryptoInvoice } from "@/lib/data/crypto-payment";
+import {
+    getRecoverableCryptoInvoices,
+    expireCryptoInvoice,
+    type RecoverableCryptoInvoice,
+} from "@/lib/data/crypto-payment";
 import { createLogger } from "@/lib/logger";
 import { captureServerEvent, flushPostHog } from "@/lib/posthog.server";
 import {
@@ -27,6 +31,31 @@ function getRedis(): Redis {
         token: process.env.UPSTASH_REDIS_REST_TOKEN!,
     });
     return redis;
+}
+
+/**
+ * Recovery emails go only to users who still haven't paid, and only for their
+ * newest open invoice: skip users with an active/trialing personal
+ * subscription, and invoices superseded by a newer waiting or finished
+ * payment (a retry, or a successful checkout).
+ */
+function shouldSuppressRecoveryEmail(invoice: RecoverableCryptoInvoice): boolean {
+    if (!invoice.user) return true;
+    if (invoice.user.subscriptions.length > 0) return true;
+    const latest = invoice.user.cryptoPayments[0];
+    return Boolean(
+        latest &&
+        latest.id !== invoice.id &&
+        latest.createdAt.getTime() >= invoice.createdAt.getTime(),
+    );
+}
+
+async function markHandled(redisClient: Redis, dedupeKey: string, ttlSeconds: number): Promise<void> {
+    try {
+        await redisClient.set(dedupeKey, "1", { ex: ttlSeconds });
+    } catch (error) {
+        logger.warn("Failed to persist suppressed dedupe key", { dedupeKey, error });
+    }
 }
 
 export async function handleCryptoRecoveryCron(): Promise<{
@@ -59,6 +88,7 @@ export async function handleCryptoRecoveryCron(): Promise<{
         const ageMs = now - invoice.createdAt.getTime();
         const hoursPending = Math.floor(ageMs / HOUR_MS);
         const isExpired = invoice.status === "expired" || invoice.createdAt < expiryCutoff;
+        const suppressEmail = shouldSuppressRecoveryEmail(invoice);
 
         if (isExpired) {
             const dedupeKey = `crypto-recovery:expired:${invoice.id}`;
@@ -89,6 +119,13 @@ export async function handleCryptoRecoveryCron(): Promise<{
                         order_id: invoice.orderId,
                         source: "cron",
                     });
+                }
+
+                if (suppressEmail) {
+                    // Converted or superseded: no email, but mark handled so
+                    // the row stops occupying batch slots.
+                    await markHandled(redisClient, dedupeKey, 86400 * 90);
+                    continue;
                 }
 
                 const result = await sendCryptoInvoiceExpiredEmail(email, {
@@ -124,6 +161,11 @@ export async function handleCryptoRecoveryCron(): Promise<{
             continue;
         }
         if (alreadySent) continue;
+
+        if (suppressEmail) {
+            await markHandled(redisClient, dedupeKey, 86400 * 7);
+            continue;
+        }
 
         try {
             const result = await sendCryptoInvoiceReminderEmail(email, {

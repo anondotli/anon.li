@@ -51,7 +51,7 @@ export function RecipientActions({ recipient }: { recipient: Recipient }) {
                 open={showDeleteDialog}
                 onOpenChange={setShowDeleteDialog}
                 title="Delete Recipient"
-                description={`Are you sure you want to delete ${recipient.email}? Aliases using this recipient will have their forwarding broken.`}
+                description={`Delete ${recipient.email}? This is refused while it is the owner's default recipient or any alias forwards only to it. Catch-all domains pointing at it are reset.`}
                 confirmLabel="Delete Recipient"
                 onConfirm={handleDelete}
                 loading={loading}

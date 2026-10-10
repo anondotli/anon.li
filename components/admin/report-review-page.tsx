@@ -140,10 +140,10 @@ export function ReportReviewPage({ data }: ReportReviewPageProps) {
                 </div>
             )}
 
-            {report.serviceType === "alias" && alias && !alias.active && (
+            {report.serviceType === "alias" && alias?.takenDownAt && (
                 <div className="flex items-center gap-2 p-3 bg-green-500/10 border border-green-500/20 rounded-lg text-sm text-green-700 dark:text-green-400">
                     <CheckCircle className="h-4 w-4" />
-                    This alias has already been deactivated.
+                    This alias has already been taken down.
                 </div>
             )}
 

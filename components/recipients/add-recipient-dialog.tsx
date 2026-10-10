@@ -41,13 +41,17 @@ export function AddRecipientDialog({ currentCount, maxCount, triggerClassName }:
         }
 
         startTransition(async () => {
-            const result = await addRecipientAction(email.trim())
-            if (result.error) {
-                toast.error(result.error)
-            } else {
-                toast.success("Verification email sent! Check your inbox.")
-                setEmail("")
-                setOpen(false)
+            try {
+                const result = await addRecipientAction(email.trim())
+                if (result.error) {
+                    toast.error(result.error)
+                } else {
+                    toast.success("Verification email sent! Check your inbox.")
+                    setEmail("")
+                    setOpen(false)
+                }
+            } catch {
+                toast.error("Failed to add recipient. Please try again.")
             }
         })
     }

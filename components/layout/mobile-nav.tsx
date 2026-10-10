@@ -192,20 +192,24 @@ export function SiteMobileNav({ product, config, isLoggedIn }: SiteMobileNavProp
 
                     <div className="space-y-3 pt-6 border-t">
                         {isLoggedIn ? (
-                            <Link
-                                href="/dashboard/alias"
-                                onClick={() => setIsOpen(false)}
-                            >
-                                <Button className="w-full rounded-full">Dashboard</Button>
-                            </Link>
-                        ) : (
-                            <>
+                            <Button asChild className="w-full rounded-full">
                                 <Link
-                                    href="/register"
+                                    href="/dashboard/alias"
                                     onClick={() => setIsOpen(false)}
                                 >
-                                    <Button className="w-full rounded-full">Get Started</Button>
+                                    Dashboard
                                 </Link>
+                            </Button>
+                        ) : (
+                            <>
+                                <Button asChild className="w-full rounded-full">
+                                    <Link
+                                        href="/register"
+                                        onClick={() => setIsOpen(false)}
+                                    >
+                                        Get Started
+                                    </Link>
+                                </Button>
                                 <Link
                                     href="/login"
                                     className="block w-full text-center py-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"

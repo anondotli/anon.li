@@ -1,14 +1,15 @@
 import { z } from "zod"
 import type { McpServer } from "@modelcontextprotocol/server"
 import { FormService } from "@/lib/services/form"
-import { invokeTool, toolResult } from "@/lib/mcp/invoke"
+import { toolResult } from "@/lib/mcp/invoke"
+import { registerMcpTool } from "@/lib/mcp/define-tool"
 import { personalScope } from "@/lib/ownership"
 import type { McpSession } from "@/lib/mcp/types"
 
 const formId = z.string().trim().min(1).max(64).describe("Form ID, as returned by list_forms")
 
 export function registerFormTools(server: McpServer, session: McpSession) {
-    server.registerTool(
+    registerMcpTool(server, session,
         "list_forms",
         {
             title: "List forms",
@@ -45,7 +46,8 @@ export function registerFormTools(server: McpServer, session: McpSession) {
                 })),
             }),
         },
-        async ({ limit, offset }) => invokeTool(session, { scope: "anon.li:forms", quota: "form", rateLimit: "formList" }, async (user) => {
+        { scope: "anon.li:forms", quota: "form", rateLimit: "formList" },
+        async ({ limit, offset }, user) => {
             const { forms, total } = await FormService.listForms(personalScope(user.id), { limit, offset })
             return toolResult({
                 total,
@@ -66,36 +68,39 @@ export function registerFormTools(server: McpServer, session: McpSession) {
                     updated_at: f.updatedAt.toISOString(),
                 })),
             })
-        }),
+        },
     )
 
-    server.registerTool(
+    registerMcpTool(server, session,
         "toggle_form",
         {
-            title: "Toggle form",
-            description: "Disable or re-enable a form. Disabled forms reject all new submissions until toggled back on. Each call inverts the current state, so check `disabled_by_user` from list_forms first and do not repeat the call to \"make sure\". Returns the new state.",
+            title: "Set form disabled state",
+            description: "Disable or re-enable a form: `disabled: true` rejects all new submissions, `disabled: false` accepts them again. Sets the given state (it does not flip), so repeating a call is safe; the result mirrors `disabled_by_user` from list_forms. Returns the resulting state.",
             annotations: {
-                title: "Toggle form",
+                title: "Set form disabled state",
                 readOnlyHint: false,
                 destructiveHint: false,
-                idempotentHint: false,
+                idempotentHint: true,
                 openWorldHint: false,
             },
             inputSchema: z.object({
                 id: formId,
+                disabled: z.boolean()
+                    .describe("Target state: true to stop accepting submissions, false to accept them again"),
             }),
             outputSchema: z.object({
                 id: z.string(),
                 disabled: z.boolean(),
             }),
         },
-        async ({ id }) => invokeTool(session, { scope: "anon.li:forms", quota: "form", rateLimit: "formOps" }, async (user) => {
-            const disabled = await FormService.toggleForm(id, personalScope(user.id))
-            return toolResult({ id, disabled })
-        }),
+        { scope: "anon.li:forms", quota: "form", rateLimit: "formOps" },
+        async ({ id, disabled }, user) => {
+            const state = await FormService.setFormDisabled(id, personalScope(user.id), disabled)
+            return toolResult({ id, disabled: state })
+        },
     )
 
-    server.registerTool(
+    registerMcpTool(server, session,
         "delete_form",
         {
             title: "Delete form",
@@ -115,9 +120,10 @@ export function registerFormTools(server: McpServer, session: McpSession) {
                 id: z.string(),
             }),
         },
-        async ({ id }) => invokeTool(session, { scope: "anon.li:forms", quota: "form", rateLimit: "formOps" }, async (user) => {
+        { scope: "anon.li:forms", quota: "form", rateLimit: "formOps" },
+        async ({ id }, user) => {
             await FormService.deleteForm(id, personalScope(user.id))
             return toolResult({ deleted: true, id })
-        }),
+        },
     )
 }

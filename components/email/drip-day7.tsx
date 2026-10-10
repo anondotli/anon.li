@@ -44,7 +44,7 @@ export function DripDay7Email({ unsubscribeUrl }: DripDay7EmailProps) {
                 <FeatureRow
                     icon="&#128187;"
                     title="CLI"
-                    description="anon alias new &mdash; that&apos;s it. Pipe into scripts, CI, and bookmarklets."
+                    description="anonli alias new &mdash; that&apos;s it. Pipe into scripts, CI, and bookmarklets."
                 />
                 <FeatureRow
                     icon="&#129302;"
@@ -57,7 +57,8 @@ export function DripDay7Email({ unsubscribeUrl }: DripDay7EmailProps) {
             <EmailCTAInline href={emailUrl("/docs/cli")} text="Install the CLI" />
 
             <FooterNote>
-                All three share the same API key &mdash; find it at anon.li/dashboard/settings/api.
+                The extension and CLI use an API key &mdash; create one at anon.li/dashboard/api-keys.
+                MCP clients sign in with OAuth instead, so no key to copy.
             </FooterNote>
         </EmailLayout>
     );

@@ -3,15 +3,17 @@
  */
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { personalScope } from "@/lib/ownership"
+import { fakeGate } from "./helpers/mcp-fake-gate"
 
 const listForms = vi.fn()
 const toggleForm = vi.fn()
+const setFormDisabled = vi.fn()
 const deleteForm = vi.fn()
 
-const invokeTool = vi.fn(async (_session, _opts, handler) => handler({ id: "user-1" }))
+const invokeTool = vi.fn(fakeGate({ id: "user-1" }))
 
 vi.mock("@/lib/services/form", () => ({
-    FormService: { listForms, toggleForm, deleteForm },
+    FormService: { listForms, toggleForm, setFormDisabled, deleteForm },
 }))
 
 vi.mock("@/lib/mcp/invoke", () => ({
@@ -52,7 +54,7 @@ const session = { userId: "user-1", clientId: "client-1" }
 describe("MCP form tools", () => {
     beforeEach(() => {
         vi.clearAllMocks()
-        invokeTool.mockImplementation(async (_session, _opts, handler) => handler({ id: "user-1" }))
+        invokeTool.mockImplementation(fakeGate({ id: "user-1" }))
     })
 
     it("list_forms gates on anon.li:forms and exposes metadata only", async () => {
@@ -89,7 +91,7 @@ describe("MCP form tools", () => {
         }
         expect(invokeTool).toHaveBeenCalledWith(
             session,
-            { scope: "anon.li:forms", quota: "form", rateLimit: "formList" },
+            expect.objectContaining({ scope: "anon.li:forms", quota: "form", rateLimit: "formList" }),
             expect.any(Function),
         )
         expect(listForms).toHaveBeenCalledWith(personalScope("user-1"), { limit: 50, offset: 0 })
@@ -102,22 +104,42 @@ describe("MCP form tools", () => {
         expect(form).not.toHaveProperty("schemaJson")
     })
 
-    it("toggle_form flips state and is scoped to forms", async () => {
-        toggleForm.mockResolvedValueOnce(true)
+    it("toggle_form sets the requested state idempotently and is scoped to forms", async () => {
+        setFormDisabled.mockResolvedValue(true)
+        const server = makeServer()
+        const { registerFormTools } = await import("@/lib/mcp/tools/forms")
+        registerFormTools(server as never, session)
+
+        const tool = server.tools.get("toggle_form")!
+        expect(tool.meta.annotations).toMatchObject({ idempotentHint: true, destructiveHint: false })
+        for (let i = 0; i < 2; i++) {
+            const out = (await tool.handler({ id: "f2", disabled: true })) as {
+                structuredContent: { id: string, disabled: boolean }
+            }
+            expect(out.structuredContent).toEqual({ id: "f2", disabled: true })
+        }
+        expect(invokeTool).toHaveBeenCalledWith(
+            session,
+            expect.objectContaining({ scope: "anon.li:forms", quota: "form", rateLimit: "formOps" }),
+            expect.any(Function),
+        )
+        // A set, never a flip: both calls ask for the same state.
+        expect(setFormDisabled).toHaveBeenNthCalledWith(1, "f2", personalScope("user-1"), true)
+        expect(setFormDisabled).toHaveBeenNthCalledWith(2, "f2", personalScope("user-1"), true)
+        expect(toggleForm).not.toHaveBeenCalled()
+    })
+
+    it("toggle_form requires the target state", async () => {
         const server = makeServer()
         const { registerFormTools } = await import("@/lib/mcp/tools/forms")
         registerFormTools(server as never, session)
 
         const out = (await server.tools.get("toggle_form")!.handler({ id: "f2" })) as {
-            structuredContent: { id: string, disabled: boolean }
+            isError: boolean, _meta: Record<string, { code: string }>
         }
-        expect(invokeTool).toHaveBeenCalledWith(
-            session,
-            { scope: "anon.li:forms", quota: "form", rateLimit: "formOps" },
-            expect.any(Function),
-        )
-        expect(toggleForm).toHaveBeenCalledWith("f2", personalScope("user-1"))
-        expect(out.structuredContent).toEqual({ id: "f2", disabled: true })
+        expect(out.isError).toBe(true)
+        expect(out._meta["anon.li/error"]!.code).toBe("VALIDATION_ERROR")
+        expect(setFormDisabled).not.toHaveBeenCalled()
     })
 
     it("delete_form is flagged destructive and deletes by id", async () => {

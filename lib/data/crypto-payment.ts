@@ -19,7 +19,7 @@ export async function createCryptoPayment(data: {
     })
 }
 
-type RecoverableCryptoInvoice = {
+export type RecoverableCryptoInvoice = {
     id: string
     orderId: string
     userId: string
@@ -29,7 +29,13 @@ type RecoverableCryptoInvoice = {
     payCurrency: string
     createdAt: Date
     status: "waiting" | "expired"
-    user: { email: string } | null
+    user: {
+        email: string
+        /** Active/trialing personal subscriptions (at most one, existence check). */
+        subscriptions: { id: string }[]
+        /** The user's newest waiting/finished crypto payment (at most one). */
+        cryptoPayments: { id: string; status: string; createdAt: Date }[]
+    } | null
 }
 
 /**
@@ -52,7 +58,27 @@ export async function getRecoverableCryptoInvoices(opts: {
         status: { in: ["waiting", "expired"] },
         createdAt: { gte: opts.createdAfter, lt: opts.createdBefore },
     }
-    const include = { user: { select: { email: true } } }
+    // Recovery context: the cron must not nudge users who already converted
+    // (active personal subscription or a newer finished payment) or who have
+    // since opened a newer invoice.
+    const include = {
+        user: {
+            select: {
+                email: true,
+                subscriptions: {
+                    where: { organizationId: null, status: { in: ["active", "trialing"] } },
+                    select: { id: true },
+                    take: 1,
+                },
+                cryptoPayments: {
+                    where: { status: { in: ["waiting", "finished"] } },
+                    select: { id: true, status: true, createdAt: true },
+                    orderBy: { createdAt: "desc" as const },
+                    take: 1,
+                },
+            },
+        },
+    }
     const [oldestWaiting, newest] = await Promise.all([
         prisma.cryptoPayment.findMany({
             where: { ...where, status: "waiting" },

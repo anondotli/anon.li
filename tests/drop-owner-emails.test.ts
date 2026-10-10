@@ -44,6 +44,11 @@ vi.mock("@/lib/resend", () => ({
     sendDropSharedEmail,
 }));
 
+// Capture the props the service renders the email with.
+vi.mock("@/components/email/file-downloaded", () => ({
+    FileDownloadedEmail: (props: unknown) => ({ props }),
+}));
+
 import { DropService } from "@/lib/services/drop";
 import { personalScope } from "@/lib/ownership";
 
@@ -142,8 +147,10 @@ describe("recipient shared email sender name", () => {
     });
 
     it("never exposes the owner's login email when they have no display name", async () => {
-        userFindUnique.mockImplementation(async ({ select }: { select: Record<string, boolean> }) =>
-            select.subscriptions ? plusUser : { name: null, email: "owner@example.com" },
+        // The sender lookup selects only `name`; leak the email anyway so the
+        // test proves the service never reads it.
+        userFindUnique.mockImplementation(async ({ select }: { select?: Record<string, boolean> }) =>
+            select?.name ? { name: null, email: "owner@example.com" } : plusUser,
         );
 
         await DropService.addRecipients(personalScope("user-1"), "drop-1", [{ email: "r@example.com" }], { notify: true });
@@ -154,8 +161,8 @@ describe("recipient shared email sender name", () => {
     });
 
     it("uses the owner's display name when set", async () => {
-        userFindUnique.mockImplementation(async ({ select }: { select: Record<string, boolean> }) =>
-            select.subscriptions ? plusUser : { name: "Alice" },
+        userFindUnique.mockImplementation(async ({ select }: { select?: Record<string, boolean> }) =>
+            select?.name ? { name: "Alice" } : plusUser,
         );
 
         await DropService.addRecipients(personalScope("user-1"), "drop-1", [{ email: "r@example.com" }], { notify: true });

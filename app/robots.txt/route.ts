@@ -1,4 +1,5 @@
 import { siteConfig } from "@/config/site"
+import { MARKDOWN_INTERNAL_PATH } from "@/lib/markdown-negotiation"
 
 export const dynamic = "force-static"
 
@@ -10,6 +11,7 @@ export function GET() {
         "Allow: /",
         "Disallow: /dashboard/",
         "Disallow: /api/",
+        `Disallow: ${MARKDOWN_INTERNAL_PATH}`,
         "",
         contentSignal,
         `Sitemap: ${siteConfig.default.url}/sitemap.xml`,

@@ -8,7 +8,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { Prisma } from "@prisma/client"
 import { orgScope, personalScope } from "@/lib/ownership"
-import { ConflictError } from "@/lib/api-error-utils"
+import { ConflictError, UpgradeRequiredError } from "@/lib/api-error-utils"
+
+const { recipientDeleteMany } = vi.hoisted(() => ({ recipientDeleteMany: vi.fn() }))
 
 const txRecipient = {
     findFirst: vi.fn(),
@@ -19,6 +21,7 @@ const txRecipient = {
 vi.mock("@/lib/prisma", () => ({
     prisma: {
         domain: { findFirst: vi.fn().mockResolvedValue(null) },
+        recipient: { deleteMany: recipientDeleteMany },
         // $transaction(callback, opts) — invoke the callback with our fake tx.
         $transaction: vi.fn((cb: (tx: unknown) => unknown) => cb({ recipient: txRecipient })),
     },
@@ -30,6 +33,7 @@ vi.mock("@/lib/data/user", () => ({
 
 vi.mock("@/lib/limits", () => ({
     getRecipientLimit: vi.fn().mockReturnValue(100),
+    getEffectiveTier: vi.fn().mockReturnValue("free"),
     // Faithful stand-in for the purchase-first gate: throws when the org has no
     // active plan. This test exercises a SUBSCRIBED org (below), so it passes.
     assertOrgPlanActive: (ctx: { subscriptions: unknown[] }) => {
@@ -48,7 +52,7 @@ vi.mock("@/lib/data/auth", () => ({
     }),
 }))
 
-const sendRecipientVerificationEmail = vi.fn().mockResolvedValue(undefined)
+const sendRecipientVerificationEmail = vi.fn().mockResolvedValue({ success: true })
 vi.mock("@/lib/resend", () => ({
     sendRecipientVerificationEmail: (...args: unknown[]) => sendRecipientVerificationEmail(...args),
 }))
@@ -62,7 +66,7 @@ describe("RecipientService.addRecipient — scope-aware uniqueness", () => {
             id: "rec-1",
             ...data,
         }))
-        sendRecipientVerificationEmail.mockResolvedValue(undefined)
+        sendRecipientVerificationEmail.mockResolvedValue({ success: true })
     })
 
     it("creates an org-scoped recipient even when the same email exists personally", async () => {
@@ -119,6 +123,25 @@ describe("RecipientService.addRecipient — scope-aware uniqueness", () => {
         expect(recipient.organizationId).toBeNull()
     })
 
+    it("reports the plan's recipient limit as UPGRADE_REQUIRED (402), not a validation error", async () => {
+        txRecipient.count.mockResolvedValueOnce(100)
+        const { RecipientService } = await import("@/lib/services/recipient")
+
+        const error = await RecipientService.addRecipient(personalScope("user-1"), "over@example.com")
+            .catch((e: unknown) => e)
+        expect(error).toBeInstanceOf(UpgradeRequiredError)
+        expect((error as UpgradeRequiredError).statusCode).toBe(402)
+        expect((error as UpgradeRequiredError).details).toEqual({
+            scope: "alias_recipients",
+            currentTier: "free",
+            suggestedTier: "plus",
+            currentValue: 100,
+            limitValue: 100,
+        })
+        expect(txRecipient.create).not.toHaveBeenCalled()
+        expect(sendRecipientVerificationEmail).not.toHaveBeenCalled()
+    })
+
     it("translates a P2002 constraint race into a ConflictError", async () => {
         txRecipient.create.mockRejectedValueOnce(
             new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
@@ -132,5 +155,35 @@ describe("RecipientService.addRecipient — scope-aware uniqueness", () => {
             RecipientService.addRecipient(orgScope("user-1", "org-1", "owner"), "race@example.com"),
         ).rejects.toBeInstanceOf(ConflictError)
         expect(sendRecipientVerificationEmail).not.toHaveBeenCalled()
+    })
+
+    it("rolls back the recipient when the verification email reports failure", async () => {
+        sendRecipientVerificationEmail.mockResolvedValueOnce({ success: false, error: new Error("resend") })
+        const { RecipientService } = await import("@/lib/services/recipient")
+
+        await expect(
+            RecipientService.addRecipient(personalScope("user-1"), "friend@example.com"),
+        ).rejects.toThrow("Failed to send verification email")
+        expect(recipientDeleteMany).toHaveBeenCalledWith({
+            where: { id: "rec-1", userId: "user-1", organizationId: null },
+        })
+    })
+})
+
+describe("RecipientService.resendVerification", () => {
+    it("reports failure when the verification email is not delivered", async () => {
+        const data = await import("@/lib/data/recipient")
+        vi.spyOn(data, "getRecipientById").mockResolvedValue({
+            id: "rec-1",
+            email: "friend@example.com",
+            verified: false,
+        } as Awaited<ReturnType<typeof data.getRecipientById>>)
+        vi.spyOn(data, "updateRecipient").mockResolvedValue({} as Awaited<ReturnType<typeof data.updateRecipient>>)
+        sendRecipientVerificationEmail.mockResolvedValueOnce({ success: false, error: new Error("resend") })
+        const { RecipientService } = await import("@/lib/services/recipient")
+
+        await expect(
+            RecipientService.resendVerification(personalScope("user-1"), "rec-1"),
+        ).rejects.toThrow("Failed to send verification email")
     })
 })

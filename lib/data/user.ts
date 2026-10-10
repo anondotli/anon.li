@@ -112,10 +112,15 @@ export async function getUserIdByStripeCustomerId(stripeCustomerId: string) {
  * The window is inclusive on the lower bound and exclusive on the upper,
  * so running this daily with `[N, N+1)` days covers everyone exactly once.
  *
- * Paid users are always excluded (already converted). The optional
- * `activityGate` skips users who've already done the thing the email is
- * asking them to do — so engaged users stop getting nudges without
- * needing a separate unsubscribe flow.
+ * Paid users (including complimentary referral Plus) and accounts with a
+ * pending deletion request are always excluded. The optional `activityGate`
+ * skips users who've already done the thing the email is asking them to do —
+ * so engaged users stop getting nudges without needing a separate
+ * unsubscribe flow.
+ *
+ * Ordered by (createdAt, id) and paged with `cursor` (the last id of the
+ * previous page) so callers can walk past already-emailed users instead of
+ * re-reading the same first page on busy days.
  */
 export async function getDripCohort(opts: {
     minAgeMs: number;
@@ -123,8 +128,9 @@ export async function getDripCohort(opts: {
     excludeEmails: string[];
     limit: number;
     activityGate?: "aliases" | "drops" | "apiKeys";
+    cursor?: string;
 }) {
-    const { minAgeMs, maxAgeMs, excludeEmails, limit, activityGate } = opts;
+    const { minAgeMs, maxAgeMs, excludeEmails, limit, activityGate, cursor } = opts;
     const now = Date.now();
     const upperBound = new Date(now - minAgeMs); // newer boundary
     const lowerBound = new Date(now - maxAgeMs); // older boundary
@@ -154,6 +160,11 @@ export async function getDripCohort(opts: {
                 },
             },
             dripUnsubscribed: false,
+            deletionRequest: { is: null },
+            OR: [
+                { referralPlusUntil: null },
+                { referralPlusUntil: { lte: new Date(now) } },
+            ],
             email: {
                 notIn: excludeEmails,
                 not: { endsWith: "@anon.li" },
@@ -161,8 +172,9 @@ export async function getDripCohort(opts: {
             ...activityFilter,
         },
         select: { id: true, email: true },
-        orderBy: { createdAt: "asc" },
+        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
         take: limit,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
     });
 }
 
@@ -174,7 +186,12 @@ export async function getDripCohort(opts: {
  *   - ≥ `minAliases` aliases, OR
  *   - SUM(emailsReceived) ≥ `minEmailsForwarded` across their aliases.
  *
- * Excludes: paying users, banned users, internal/review accounts, unverified accounts.
+ * Excludes: paying users (including complimentary referral Plus), banned
+ * users, internal/review accounts, unverified accounts, and accounts with a
+ * pending deletion request.
+ *
+ * Ordered deterministically (id breaks ties) so callers can page with
+ * `offset` past users still inside their cooldown.
  */
 export async function getHeavyFreeUsers(opts: {
     minAliases: number;
@@ -182,8 +199,9 @@ export async function getHeavyFreeUsers(opts: {
     excludeEmails: string[];
     createdBefore: Date;
     limit: number;
+    offset?: number;
 }) {
-    const { minAliases, minEmailsForwarded, excludeEmails, createdBefore, limit } = opts;
+    const { minAliases, minEmailsForwarded, excludeEmails, createdBefore, limit, offset = 0 } = opts;
 
     return await prisma.$queryRaw<Array<{
         id: string;
@@ -207,6 +225,10 @@ export async function getHeavyFreeUsers(opts: {
             WHERE m."userId" = u.id
               AND s.status IN ('active', 'trialing')
           )
+          AND NOT EXISTS (
+            SELECT 1 FROM deletion_requests d WHERE d."userId" = u.id
+          )
+          AND (u."referral_plus_until" IS NULL OR u."referral_plus_until" <= NOW())
           AND u.banned = false
           AND u."emailVerified" = true
           AND u."drip_unsubscribed" = false
@@ -215,8 +237,9 @@ export async function getHeavyFreeUsers(opts: {
           AND u.email <> ALL(${excludeEmails}::text[])
         GROUP BY u.id, u.email
         HAVING COUNT(a.id) >= ${minAliases} OR COALESCE(SUM(a."emailsReceived"), 0) >= ${minEmailsForwarded}
-        ORDER BY COALESCE(SUM(a."emailsReceived"), 0) DESC, COUNT(a.id) DESC
+        ORDER BY COALESCE(SUM(a."emailsReceived"), 0) DESC, COUNT(a.id) DESC, u.id ASC
         LIMIT ${limit}
+        OFFSET ${offset}
     `;
 }
 

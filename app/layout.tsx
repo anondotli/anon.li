@@ -69,10 +69,11 @@ export const metadata: Metadata = {
       },
     ],
   },
+  // No title/description here: Next fills twitter:title/description from each
+  // page's openGraph (or title/description). Setting them on the root would
+  // override every page's card with the homepage copy.
   twitter: {
     card: "summary_large_image",
-    title: siteConfig.default.metadata?.title as string,
-    description: siteConfig.default.description,
     creator: siteConfig.default.metadata?.twitter?.creator,
     images: ["/og-image.png"],
   },

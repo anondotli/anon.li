@@ -68,6 +68,7 @@ vi.mock("better-auth/api", () => ({
 vi.mock("@/lib/rate-limit", () => ({
     rateLimit: harness.rateLimit,
     rateLimiters: {},
+    isRateLimitOutage: (limited: Response) => limited.status === 503,
 }))
 
 vi.mock("@/lib/prisma", () => ({ prisma: {} }))
@@ -94,7 +95,8 @@ vi.mock("@/lib/mcp/oauth-metadata", () => ({
     getMcpIssuer: () => "https://anon.li",
     getMcpResource: () => "https://anon.li/api/mcp",
 }))
-vi.mock("@/lib/auth-hooks", () => ({
+vi.mock("@/lib/auth-hooks", async (importOriginal) => ({
+    rateLimitedAuthError: (await importOriginal<typeof import("@/lib/auth-hooks")>()).rateLimitedAuthError,
     mcpOAuthBeforeHook: vi.fn(async () => {}),
     organizationBeforeHook: vi.fn(async () => {}),
     organizationAfterHook: vi.fn(async () => {}),
@@ -273,5 +275,54 @@ describe("Better Auth endpoint rate limiting", () => {
                 body: { code: "TWO_FACTOR_RATE_LIMITED" },
             })
         expect(limiterCalls()).toEqual([["twoFactorVerifyIp"]])
+    })
+
+    it("reports a fail-closed limiter outage as 503, not as too many attempts", async () => {
+        harness.rateLimit.mockReset()
+        // Per-IP bucket fine, per-mailbox bucket unreachable: the outage wins.
+        harness.rateLimit
+            .mockResolvedValueOnce(new Response(null, { status: 429 }))
+            .mockResolvedValueOnce(new Response(null, { status: 503 }))
+        await expect(beforeHook()(hookContext("/sign-in/magic-link", { email: "user@example.com" })))
+            .rejects.toMatchObject({
+                statusCode: 503,
+                body: { code: "AUTH_TEMPORARILY_UNAVAILABLE" },
+            })
+
+        harness.rateLimit.mockReset()
+        harness.rateLimit.mockResolvedValue(new Response(null, { status: 503 }))
+        await expect(beforeHook()(hookContext("/two-factor/verify-totp", { code: "123456" })))
+            .rejects.toMatchObject({ statusCode: 503, body: { code: "AUTH_TEMPORARILY_UNAVAILABLE" } })
+    })
+})
+
+describe("welcome email timing", () => {
+    type WelcomeUser = { id: string; email: string; emailVerified: boolean }
+    const options = () => harness.authOptions as {
+        databaseHooks: { user: { create: { after: (user: WelcomeUser) => Promise<void> } } }
+        emailVerification: { afterEmailVerification: (user: WelcomeUser) => Promise<void> }
+    }
+
+    beforeEach(async () => {
+        const resend = await import("@/lib/resend")
+        vi.mocked(resend.sendWelcomeEmail).mockClear()
+    })
+
+    it("does not welcome an unverified email/password sign-up at creation", async () => {
+        const resend = await import("@/lib/resend")
+        await options().databaseHooks.user.create.after({ id: "u1", email: "new@example.com", emailVerified: false })
+        expect(resend.sendWelcomeEmail).not.toHaveBeenCalled()
+    })
+
+    it("welcomes an already-verified (OAuth / magic-link) user at creation", async () => {
+        const resend = await import("@/lib/resend")
+        await options().databaseHooks.user.create.after({ id: "u2", email: "oauth@example.com", emailVerified: true })
+        expect(resend.sendWelcomeEmail).toHaveBeenCalledWith("oauth@example.com", "u2")
+    })
+
+    it("welcomes an email/password user once they verify their address", async () => {
+        const resend = await import("@/lib/resend")
+        await options().emailVerification.afterEmailVerification({ id: "u1", email: "new@example.com", emailVerified: true })
+        expect(resend.sendWelcomeEmail).toHaveBeenCalledWith("new@example.com", "u1")
     })
 })

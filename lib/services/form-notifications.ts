@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma"
 import { createLogger } from "@/lib/logger"
 import { sendEmail } from "@/lib/resend"
 import { getOrgAdminEmails } from "@/lib/data/organization"
+import { sanitizeEmailSubject, sanitizeEmailUserContent } from "@/lib/utils"
 
 const logger = createLogger("FormNotifications")
 
@@ -34,11 +35,14 @@ export async function notifyFormSubmission(formId: string, submissionId: string)
 
         const { FormSubmissionNotificationEmail } = await import("@/components/email/form-submission")
         const dashboardUrl = `${process.env.NEXT_PUBLIC_APP_URL}/dashboard/form/${form.id}`
+        // The title is user-controlled: strip header-injection/bidi chars and
+        // defang links, like org/inviter names in invitation emails.
+        const safeTitle = sanitizeEmailUserContent(form.title)
         const results = await Promise.all(recipients.map((recipient) => sendEmail({
             to: recipient,
-            subject: `New response to "${form.title}"`,
+            subject: sanitizeEmailSubject(`New response to "${safeTitle}"`),
             react: FormSubmissionNotificationEmail({
-                formTitle: form.title,
+                formTitle: safeTitle,
                 submissionId,
                 dashboardUrl,
                 receivedAt: new Date(),
