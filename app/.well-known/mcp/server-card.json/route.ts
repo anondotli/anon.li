@@ -1,13 +1,10 @@
+import { mcpDiscoveryCorsHeaders } from "@/lib/mcp/http"
 import { getMcpServerCard } from "@/lib/mcp/server-card"
 
 export const revalidate = 3600
 
 const CACHE_CONTROL = "public, max-age=3600, s-maxage=3600, stale-while-revalidate=86400"
-const CORS_HEADERS = {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, MCP-Protocol-Version",
-}
+const CORS_HEADERS = mcpDiscoveryCorsHeaders()
 
 export function GET() {
     return Response.json(getMcpServerCard(), {

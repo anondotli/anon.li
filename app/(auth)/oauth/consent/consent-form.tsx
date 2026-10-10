@@ -16,11 +16,13 @@ interface ConsentFormProps {
     consentCode: string
     clientName: string
     clientIcon: string | null
+    /** Origins the client is allowed to receive the authorization code at. */
+    redirectOrigins: string[]
     scopes: ConsentScope[]
     userEmail: string
 }
 
-export function ConsentForm({ consentCode, clientName, clientIcon, scopes, userEmail }: ConsentFormProps) {
+export function ConsentForm({ consentCode, clientName, clientIcon, redirectOrigins, scopes, userEmail }: ConsentFormProps) {
     const [isPending, startTransition] = useTransition()
     const [decision, setDecision] = useState<"accept" | "deny" | null>(null)
 
@@ -84,6 +86,25 @@ export function ConsentForm({ consentCode, clientName, clientIcon, scopes, userE
                     </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-5">
+                    {redirectOrigins.length > 0 ? (
+                        <div className="rounded-lg border border-amber-500/50 bg-amber-500/10 p-4">
+                            <p className="mb-2 text-sm font-medium">
+                                Your authorization code will be sent to:
+                            </p>
+                            <ul className="space-y-1">
+                                {redirectOrigins.map((origin) => (
+                                    <li key={origin} className="break-all font-mono text-sm">
+                                        {origin}
+                                    </li>
+                                ))}
+                            </ul>
+                            <p className="mt-2 text-xs text-muted-foreground">
+                                {redirectOrigins.length > 1
+                                    ? "This app can send your code to any of these addresses. Only continue if you recognize every one."
+                                    : "Only continue if you recognize this address."}
+                            </p>
+                        </div>
+                    ) : null}
                     <div className="rounded-lg border bg-muted/40 p-4">
                         <p className="mb-2 text-sm font-medium">This will allow the app to:</p>
                         <ul className="space-y-1.5 text-sm text-muted-foreground">

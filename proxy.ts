@@ -208,8 +208,13 @@ export default async function proxy(req: NextRequest) {
             response.headers.set("Access-Control-Max-Age", "86400")
         }
 
-        // Handle preflight
-        if (req.method === "OPTIONS") {
+        // Handle preflight. The MCP endpoint is excluded: MCP clients always
+        // preflight from the agent app's own origin (never anon.li's), and the
+        // route owns a protocol-correct preflight with the headers MCP needs
+        // (MCP-Protocol-Version, MCP-Session-Id) plus an exposed
+        // WWW-Authenticate. Returning here would answer with no
+        // Access-Control-Allow-Origin at all and break OAuth discovery.
+        if (req.method === "OPTIONS" && !pathname.startsWith("/api/mcp")) {
             return new NextResponse(null, {
                 status: 204,
                 headers: response.headers,

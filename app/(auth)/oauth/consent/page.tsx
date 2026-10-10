@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma"
 import { getSession } from "@/lib/auth-session"
 import { ConsentForm } from "./consent-form"
 import { parseHttpsUrl } from "@/lib/url-safety"
+import { registeredRedirectOrigins } from "@/lib/mcp/client-registration"
 
 export const dynamic = "force-dynamic"
 
@@ -41,7 +42,7 @@ export default async function OAuthConsentPage({ searchParams }: ConsentPageProp
 
     const client = await prisma.oauthApplication.findUnique({
         where: { clientId },
-        select: { name: true, clientId: true, icon: true, disabled: true },
+        select: { name: true, clientId: true, icon: true, disabled: true, redirectUrls: true },
     }).catch(() => null)
 
     if (!client || client.disabled) notFound()
@@ -53,6 +54,7 @@ export default async function OAuthConsentPage({ searchParams }: ConsentPageProp
             consentCode={consentCode}
             clientName={client.name}
             clientIcon={parseHttpsUrl(client.icon)?.toString() ?? null}
+            redirectOrigins={registeredRedirectOrigins(client.redirectUrls)}
             scopes={scopes.map((s) => ({
                 key: s,
                 description: SCOPE_DESCRIPTIONS[s] ?? `Scope: ${s}`,

@@ -11,7 +11,11 @@ export function registerRecipientTools(server: McpServer, session: McpSession) {
         {
             title: "List recipients",
             description: "List recipient email addresses that aliases can forward to. Only verified recipients can be used as alias destinations.",
-            annotations: { readOnlyHint: true, openWorldHint: false },
+            annotations: {
+                title: "List recipients",
+                readOnlyHint: true,
+                openWorldHint: false,
+            },
             inputSchema: {},
             outputSchema: {
                 total: z.number(),
@@ -45,10 +49,17 @@ export function registerRecipientTools(server: McpServer, session: McpSession) {
         "add_recipient",
         {
             title: "Add recipient",
-            description: "Add a new recipient email. The user will receive a verification email at that address; the recipient cannot be used for aliases until they click the verification link.",
-            annotations: { openWorldHint: false },
+            description: "Add a new recipient email address that aliases can forward to. anon.li sends a verification email to that address; the recipient cannot be used for aliases until the link in it is clicked. Fails with CONFLICT if the address is already a recipient.",
+            annotations: {
+                title: "Add recipient",
+                readOnlyHint: false,
+                destructiveHint: false,
+                idempotentHint: false,
+                openWorldHint: true,
+            },
             inputSchema: {
-                email: z.string().email().max(254),
+                email: z.string().trim().toLowerCase().email().max(254)
+                    .describe("Email address to add as a forwarding destination"),
             },
             outputSchema: {
                 id: z.string(),

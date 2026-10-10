@@ -1,5 +1,5 @@
-import { McpError, ErrorCode } from "@modelcontextprotocol/sdk/types.js"
-import { ApiError, ForbiddenError, NotFoundError, RateLimitError, ValidationError } from "@/lib/api-error-utils"
+import { McpError } from "@modelcontextprotocol/sdk/types.js"
+import { ApiError, ForbiddenError, NotFoundError, RateLimitError, ServiceUnavailableError, UpgradeRequiredError, ValidationError } from "@/lib/api-error-utils"
 import { checkApiQuota, type ApiQuotaType } from "@/lib/api-rate-limit"
 import { getAuthUserState } from "@/lib/data/auth"
 import { evaluateBan } from "@/lib/data/user-bans"
@@ -29,23 +29,72 @@ interface InvokeOptions {
     rateLimit?: keyof typeof rateLimiters
 }
 
+/** Machine-readable error payload attached to every failed tool call. */
+export interface McpToolErrorDetails {
+    code: string
+    message: string
+    [key: string]: unknown
+}
+
+/**
+ * A failed tool call, as an MCP tool *result* rather than a JSON-RPC protocol
+ * error. The spec is explicit that errors originating from a tool belong in the
+ * result with `isError: true`, and the SDK flattens any thrown `McpError` into
+ * `createToolError(message)` — its `data` payload never reaches the client.
+ *
+ * Building the result here keeps the structured details, in two places a client
+ * can actually read them:
+ *   - `_meta["anon.li/error"]` for clients that branch on machine-readable data
+ *   - the text block, which is the only thing many agent loops show the model
+ *
+ * The `code` mirrors the REST API's error codes, so a client that speaks both
+ * (the CLI, the plugin skills) applies one error table.
+ */
+export function toolError(details: McpToolErrorDetails) {
+    const extras: Record<string, unknown> = {}
+    for (const [key, value] of Object.entries(details)) {
+        if (key === "code" || key === "message" || value === undefined) continue
+        extras[key] = value
+    }
+    const hasExtras = Object.keys(extras).length > 0
+    const text = hasExtras
+        ? `${details.message}\n\n${JSON.stringify({ code: details.code, ...extras }, null, 2)}`
+        : details.message
+
+    return {
+        content: [{ type: "text" as const, text }],
+        isError: true,
+        _meta: {
+            "anon.li/error": { code: details.code, message: details.message, ...extras },
+        },
+    }
+}
+
+/**
+ * Run a tool handler behind the shared auth / ban / scope / quota / rate-limit
+ * gate, and normalize every failure into a structured tool result.
+ *
+ * Returns either the handler's result or an `isError` result — never a business
+ * error exception — so `outputSchema` validation is skipped by the SDK (it only
+ * validates successful results) and clients get one consistent error surface.
+ */
 export async function invokeTool<T>(
     session: McpSession,
     opts: InvokeOptions,
     handler: (user: McpUser) => Promise<T>,
-): Promise<T> {
+): Promise<T | ReturnType<typeof toolError>> {
     const userId = session.userId
     if (!userId) {
-        throw new McpError(ErrorCode.InvalidRequest, "Token is missing a subject")
+        return toolError({ code: "INVALID_TOKEN", message: "Token is missing a subject" })
     }
 
     const user = await getAuthUserState(userId)
     if (!user) {
-        throw new McpError(ErrorCode.InvalidRequest, "Account no longer active")
+        return toolError({ code: "ACCOUNT_NOT_ACTIVE", message: "Account no longer active" })
     }
     const accountBan = evaluateBan(user)
     if (accountBan) {
-        throw new McpError(-32001, accountBan.reason, { code: accountBan.code })
+        return toolError({ code: accountBan.code, message: accountBan.reason })
     }
 
     if (opts.checkBan) {
@@ -55,16 +104,18 @@ export async function invokeTool<T>(
         })
         const scopeBan = banFlags && evaluateBan(banFlags, opts.checkBan)
         if (scopeBan) {
-            throw new McpError(-32001, scopeBan.reason, { code: scopeBan.code })
+            return toolError({ code: scopeBan.code, message: scopeBan.reason })
         }
     }
 
     if (opts.scope) {
         const grantedScopes = new Set((session.scopes ?? "").split(/\s+/).filter(Boolean))
         if (!grantedScopes.has(opts.scope)) {
-            throw new McpError(-32001, `Token is missing the '${opts.scope}' scope`, {
+            return toolError({
                 code: "INSUFFICIENT_SCOPE",
-                requiredScope: opts.scope,
+                message: `Token is missing the '${opts.scope}' scope. Reconnect the connector and approve this scope.`,
+                required_scope: opts.scope,
+                granted_scopes: Array.from(grantedScopes),
             })
         }
     }
@@ -72,12 +123,13 @@ export async function invokeTool<T>(
     if (opts.quota) {
         const quota = await checkApiQuota(userId, user, opts.quota)
         if (!quota.success) {
-            throw new McpError(-32002, "Monthly API quota exceeded", {
+            return toolError({
                 code: "QUOTA_EXCEEDED",
-                quotaType: opts.quota,
+                message: "Monthly API quota exceeded",
+                quota_type: opts.quota,
                 limit: quota.limit,
                 remaining: Math.max(0, quota.remaining),
-                resetAt: quota.reset.toISOString(),
+                reset_at: quota.reset.toISOString(),
             })
         }
     }
@@ -91,9 +143,10 @@ export async function invokeTool<T>(
                 return null
             })
             if (result && !result.success) {
-                throw new McpError(-32003, "Rate limit exceeded", {
+                return toolError({
                     code: "RATE_LIMITED",
-                    resetAt: new Date(result.reset).toISOString(),
+                    message: "Rate limit exceeded — retry later",
+                    reset_at: new Date(result.reset).toISOString(),
                 })
             }
         }
@@ -106,23 +159,36 @@ export async function invokeTool<T>(
         })
     } catch (error) {
         if (error instanceof McpError) throw error
+        if (error instanceof UpgradeRequiredError) {
+            return toolError({
+                code: error.code ?? "UPGRADE_REQUIRED",
+                message: error.message,
+                upgrade: error.details,
+            })
+        }
         if (error instanceof NotFoundError) {
-            throw new McpError(-32004, error.message, { code: error.code ?? "NOT_FOUND" })
+            return toolError({ code: error.code ?? "NOT_FOUND", message: error.message })
         }
         if (error instanceof ValidationError) {
-            throw new McpError(ErrorCode.InvalidParams, error.message, { code: error.code ?? "VALIDATION_ERROR" })
+            return toolError({ code: error.code ?? "VALIDATION_ERROR", message: error.message })
         }
         if (error instanceof ForbiddenError) {
-            throw new McpError(-32001, error.message, { code: error.code ?? "FORBIDDEN" })
+            return toolError({ code: error.code ?? "FORBIDDEN", message: error.message })
         }
         if (error instanceof RateLimitError) {
-            throw new McpError(-32003, error.message, { code: error.code ?? "RATE_LIMITED" })
+            return toolError({ code: error.code ?? "RATE_LIMITED", message: error.message })
+        }
+        if (error instanceof ServiceUnavailableError) {
+            return toolError({ code: error.code ?? "SERVICE_UNAVAILABLE", message: error.message })
         }
         if (error instanceof ApiError) {
-            throw new McpError(ErrorCode.InternalError, error.message, { code: error.code ?? "API_ERROR" })
+            return toolError({ code: error.code ?? "API_ERROR", message: error.message })
         }
         logger.error("MCP tool handler threw unexpected error", error)
-        throw new McpError(ErrorCode.InternalError, "Internal server error")
+        return toolError({
+            code: "INTERNAL_ERROR",
+            message: "Internal server error. The request was not retried — check the tool's effect before repeating it.",
+        })
     }
 }
 
@@ -131,6 +197,13 @@ export async function invokeTool<T>(
  * block plus a mirrored `structuredContent` payload. Each tool declares an
  * `outputSchema`, so SDK-aware clients validate `structuredContent` against it
  * and get typed access; text-only clients still get the readable JSON.
+ *
+ * `structuredContent` must contain *exactly* the fields the tool's
+ * `outputSchema` declares: the SDK compiles that schema (with
+ * `additionalProperties: false`) into a validator on the client, and any extra
+ * key makes the whole call fail with -32602 before the agent sees the data.
+ * Handlers therefore project explicit field lists instead of spreading a
+ * shared API formatter.
  */
 export function toolResult<T>(data: T) {
     return {

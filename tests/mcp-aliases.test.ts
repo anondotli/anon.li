@@ -8,6 +8,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { personalScope } from "@/lib/ownership"
 
 const getAliases = vi.fn()
+const countAliases = vi.fn(async () => 1)
 const createAlias = vi.fn()
 const toggleAlias = vi.fn()
 const deleteAlias = vi.fn()
@@ -21,7 +22,7 @@ const invokeTool = vi.fn(async (_session, _opts, handler) => handler({
 }))
 
 vi.mock("@/lib/services/alias", () => ({
-    AliasService: { getAliases, createAlias, toggleAlias, deleteAlias },
+    AliasService: { getAliases, countAliases, createAlias, toggleAlias, deleteAlias },
 }))
 
 vi.mock("@/app/api/v1/alias/_utils", () => ({
@@ -40,6 +41,11 @@ vi.mock("@/lib/mcp/invoke", () => ({
     toolResult: <T,>(data: T) => ({
         content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }],
         structuredContent: data as Record<string, unknown>,
+    }),
+    toolError: (details: { code: string, message: string }) => ({
+        content: [{ type: "text" as const, text: details.message }],
+        isError: true,
+        _meta: { "anon.li/error": details },
     }),
 }))
 
@@ -267,7 +273,7 @@ describe("MCP alias tools over a real in-memory transport", () => {
     it("rejects invalid local_parts at the schema boundary before AliasService is reached", async () => {
         const client = await connectClient()
         try {
-            const invalid = ["bad-name", "under_score", ".leading", "trailing.", "double..dot", "UPPER", "spa ce"]
+            const invalid = ["bad-name", "under_score", ".leading", "trailing.", "double..dot", "spa ce"]
             for (const local_part of invalid) {
                 // The SDK client surfaces the -32602 input-validation error as an
                 // isError result; the point is the service layer is never reached.
@@ -280,6 +286,41 @@ describe("MCP alias tools over a real in-memory transport", () => {
                 expect(text).toContain("Invalid arguments for tool create_alias")
                 expect(text).toContain("lowercase letters, numbers, and single dots only")
             }
+            expect(createAlias).not.toHaveBeenCalled()
+        } finally {
+            await client.close()
+        }
+    })
+
+    it("lowercases a mixed-case custom local_part instead of rejecting it", async () => {
+        createAlias.mockResolvedValueOnce({
+            id: "a2",
+            email: "jane.doe@anon.li",
+            active: true,
+            createdAt: new Date("2026-07-01T00:00:00Z"),
+            updatedAt: new Date("2026-07-01T00:00:00Z"),
+        })
+        const client = await connectClient()
+        try {
+            const out = await client.callTool({
+                name: "create_alias",
+                arguments: { format: "custom", local_part: " Jane.Doe " },
+            })
+            expect(out.isError).toBeFalsy()
+            expect(createAlias).toHaveBeenCalledWith(personalScope("user-1"), expect.objectContaining({
+                format: "CUSTOM",
+                localPart: "jane.doe",
+            }))
+        } finally {
+            await client.close()
+        }
+    })
+
+    it("rejects format=custom without a local_part before AliasService is reached", async () => {
+        const client = await connectClient()
+        try {
+            const out = await client.callTool({ name: "create_alias", arguments: { format: "custom" } })
+            expect(out.isError).toBe(true)
             expect(createAlias).not.toHaveBeenCalled()
         } finally {
             await client.close()
@@ -306,6 +347,7 @@ describe("MCP alias tools over a real in-memory transport", () => {
                 encryptedNote: null,
             }])
             .mockResolvedValueOnce([])
+        countAliases.mockResolvedValueOnce(1).mockResolvedValueOnce(0)
         resolveAlias.mockResolvedValueOnce({ id: "tmp-1", email: "throwaway123@anon.li" })
         deleteAlias.mockResolvedValueOnce(undefined)
 

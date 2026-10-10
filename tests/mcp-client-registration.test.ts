@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import {
     isSafeMcpRedirectUri,
+    registeredRedirectOrigins,
     validateMcpClientRegistration,
 } from "@/lib/mcp/client-registration"
 
@@ -31,5 +32,36 @@ describe("MCP dynamic client registration", () => {
         expect(isSafeMcpRedirectUri("http://client.example/callback")).toBe(false)
         expect(isSafeMcpRedirectUri("data:text/html,hello")).toBe(false)
         expect(isSafeMcpRedirectUri("https://client.example/callback#fragment")).toBe(false)
+    })
+})
+
+describe("registeredRedirectOrigins (consent-screen disclosure)", () => {
+    it("extracts distinct origins from the comma-separated stored list", () => {
+        expect(registeredRedirectOrigins(
+            "https://client.example/callback,http://127.0.0.1:43210/cb,https://other.example/oauth/cb",
+        )).toEqual([
+            "https://client.example",
+            "http://127.0.0.1:43210",
+            "https://other.example",
+        ])
+    })
+
+    it("collapses multiple paths on the same origin", () => {
+        expect(registeredRedirectOrigins(
+            "https://client.example/a,https://client.example/b",
+        )).toEqual(["https://client.example"])
+    })
+
+    it("drops malformed or unsafe entries instead of rendering them", () => {
+        expect(registeredRedirectOrigins(
+            "https://client.example/cb,javascript:alert(1),http://remote.example/cb,https://x.example/cb#frag,not a url",
+        )).toEqual(["https://client.example", "https://x.example"])
+    })
+
+    it("returns an empty list for missing values", () => {
+        expect(registeredRedirectOrigins(null)).toEqual([])
+        expect(registeredRedirectOrigins(undefined)).toEqual([])
+        expect(registeredRedirectOrigins("")).toEqual([])
+        expect(registeredRedirectOrigins("  ,  ")).toEqual([])
     })
 })

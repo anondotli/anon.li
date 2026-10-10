@@ -6,8 +6,12 @@ export const MCP_SERVER_INFO = {
     version: "1.0.0",
 } satisfies Implementation
 
+/**
+ * `listChanged: true` matches what the SDK reports once tools are registered
+ * (`McpServer` always sets it), so discovery and `initialize` agree.
+ */
 export const MCP_SERVER_CAPABILITIES = {
-    tools: {},
+    tools: { listChanged: true },
 } satisfies ServerCapabilities
 
 /**
@@ -27,7 +31,13 @@ export const MCP_SERVER_INSTRUCTIONS =
     "approval before running them. A 'No approval received' failure is generated client-side — the request never " +
     "reached this server and nothing was deleted; the user must approve the prompt or allowlist the tool."
 
-const MCP_TRANSPORT_ENDPOINT = "/api/mcp"
+/**
+ * Absolute, not `/api/mcp`: card readers that resolve the endpoint against the
+ * document's own origin get the right answer either way, but a client handed a
+ * card copy (or a registry mirror) has no base URL to resolve against and would
+ * otherwise dial the wrong host.
+ */
+const MCP_TRANSPORT_PATH = "/api/mcp"
 export const MCP_SERVER_CARD_PATH = "/.well-known/mcp/server-card.json"
 
 const MCP_SERVER_CARD_SCHEMA = "https://static.modelcontextprotocol.io/schemas/mcp-server-card/v1.json"
@@ -41,7 +51,7 @@ export function getMcpServerCard(baseUrl = siteConfig.default.url) {
         documentationUrl: new URL("/docs/api/mcp", baseUrl).toString(),
         transport: {
             type: "streamable-http",
-            endpoint: MCP_TRANSPORT_ENDPOINT,
+            endpoint: new URL(MCP_TRANSPORT_PATH, baseUrl).toString(),
         },
         capabilities: MCP_SERVER_CAPABILITIES,
     }

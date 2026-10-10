@@ -65,7 +65,7 @@ quota as the REST API for your tier (see [Pricing](/pricing) for tier limits).
 
 | Tool | What it does |
 |------|--------------|
-| `list_aliases` | List every alias on the account. Returns `id`, `email`, `active`, forwarded/blocked counters, and timestamps. **Encrypted labels and notes are intentionally omitted** — they are vault-encrypted client-side and unreadable to a third-party client. |
+| `list_aliases` | List the aliases on the account, newest first, 50 per page (`limit` up to 100, `offset` to page). Returns `total` plus `id`, `email`, `active`, forwarded/blocked counters, and timestamps. **Encrypted labels and notes are intentionally omitted** — they are vault-encrypted client-side and unreadable to a third-party client. |
 | `create_alias` | Create an alias. `format: "random"` auto-generates the local part; `format: "custom"` takes `local_part`. Optional `recipient_ids` or `recipient_email` chooses the forwarding destination — defaults to your primary recipient. Labels/notes cannot be set here; edit them from the web UI after creation. |
 | `toggle_alias` | Flip an alias between active and inactive. Accepts an alias ID **or** the full email address. |
 | `delete_alias` | Permanently delete an alias. Future mail to that address is rejected. |

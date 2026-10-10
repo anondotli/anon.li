@@ -19,6 +19,11 @@ vi.mock("@/lib/mcp/invoke", () => ({
         content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }],
         structuredContent: data as Record<string, unknown>,
     }),
+    toolError: (details: { code: string, message: string }) => ({
+        content: [{ type: "text" as const, text: details.message }],
+        isError: true,
+        _meta: { "anon.li/error": details },
+    }),
 }))
 
 interface RegisteredTool {

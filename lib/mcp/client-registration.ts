@@ -44,3 +44,23 @@ export function isSafeMcpRedirectUri(value: unknown): value is string {
     const url = parseHttpsOrLoopbackHttpUrl(value)
     return url !== null && url.hash === ""
 }
+
+/**
+ * Distinct, display-safe origins for a client's registered redirect URIs.
+ *
+ * The authorization endpoint only delivers the code to a redirect_uri the client
+ * registered, so surfacing these on the consent screen shows the user every host
+ * their authorization can be sent to — the disclosure that defeats a
+ * "register a client pointing at an attacker domain" consent-phishing flow.
+ *
+ * better-auth stores the registered URIs as a comma-separated string; each entry
+ * is re-validated here so a malformed or unsafe value is never rendered.
+ */
+export function registeredRedirectOrigins(redirectUrls: string | null | undefined): string[] {
+    const origins = new Set<string>()
+    for (const value of (redirectUrls ?? "").split(",")) {
+        const url = parseHttpsOrLoopbackHttpUrl(value.trim())
+        if (url) origins.add(url.origin)
+    }
+    return Array.from(origins)
+}

@@ -5,17 +5,25 @@ import { invokeTool, toolResult } from "@/lib/mcp/invoke"
 import { personalScope } from "@/lib/ownership"
 import type { McpSession } from "@/lib/mcp/types"
 
+const dropId = z.string().trim().min(1).max(64).describe("Drop ID, as returned by list_drops")
+
 export function registerDropTools(server: McpServer, session: McpSession) {
     server.registerTool(
         "list_drops",
         {
             title: "List drops",
             description:
-                "List the user's encrypted file drops with metadata (size, expiry, download counts). File contents and filenames are end-to-end encrypted and cannot be read through this API. Use the web UI or CLI with the user's vault key to access content.",
-            annotations: { readOnlyHint: true, openWorldHint: false },
+                "List the user's encrypted file drops, newest first, with metadata (file count, total size in bytes as a decimal string, expiry, download counts, state). Returns one page plus `total` — page with `offset` while offset + returned < total. File contents and filenames are end-to-end encrypted and cannot be read through this API. Use the web UI or CLI with the user's vault key to access content.",
+            annotations: {
+                title: "List drops",
+                readOnlyHint: true,
+                openWorldHint: false,
+            },
             inputSchema: {
-                limit: z.number().int().min(1).max(100).default(50),
-                offset: z.number().int().min(0).default(0),
+                limit: z.number().int().min(1).max(100).default(50)
+                    .describe("Maximum number of drops to return (1-100, default 50)"),
+                offset: z.number().int().min(0).default(0)
+                    .describe("Number of drops to skip, for pagination (default 0)"),
             },
             outputSchema: {
                 total: z.number(),
@@ -57,10 +65,16 @@ export function registerDropTools(server: McpServer, session: McpSession) {
         "toggle_drop",
         {
             title: "Toggle drop",
-            description: "Disable or re-enable a drop. Disabled drops reject all downloads until toggled back on.",
-            annotations: { openWorldHint: false },
+            description: "Disable or re-enable a drop. Disabled drops reject all downloads until toggled back on. Each call inverts the current state, so check `disabled` from list_drops first and do not repeat the call to \"make sure\". Returns the new state.",
+            annotations: {
+                title: "Toggle drop",
+                readOnlyHint: false,
+                destructiveHint: false,
+                idempotentHint: false,
+                openWorldHint: false,
+            },
             inputSchema: {
-                id: z.string().min(1),
+                id: dropId,
             },
             outputSchema: {
                 id: z.string(),
@@ -78,9 +92,15 @@ export function registerDropTools(server: McpServer, session: McpSession) {
         {
             title: "Delete drop",
             description: "Permanently delete a drop and all its files. Reclaims the storage quota. This cannot be undone. This tool is flagged destructive (annotations.destructiveHint): MCP clients request user approval before executing it, and fail the call with 'No approval received' — without contacting this server — if approval is denied or unavailable (e.g. headless sessions). Nothing is deleted in that case; approve the client's permission prompt, or allowlist this tool in the client's permissions for unattended use.",
-            annotations: { destructiveHint: true, openWorldHint: false },
+            annotations: {
+                title: "Delete drop",
+                readOnlyHint: false,
+                destructiveHint: true,
+                idempotentHint: true,
+                openWorldHint: false,
+            },
             inputSchema: {
-                id: z.string().min(1),
+                id: dropId,
             },
             outputSchema: {
                 deleted: z.boolean(),

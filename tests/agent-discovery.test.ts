@@ -92,10 +92,13 @@ describe("agent discovery", () => {
             documentationUrl: "https://anon.li/docs/api/mcp",
             transport: {
                 type: "streamable-http",
-                endpoint: "/api/mcp",
+                // Absolute: a card read from a registry mirror or cache has no
+                // base URL to resolve a relative endpoint against.
+                endpoint: "https://anon.li/api/mcp",
             },
             capabilities: {
-                tools: {},
+                // Matches what the SDK reports from initialize once tools exist.
+                tools: { listChanged: true },
             },
         })
 
