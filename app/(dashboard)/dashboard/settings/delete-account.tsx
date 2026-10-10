@@ -73,9 +73,9 @@ export function DeleteAccountSection() {
     return (
         <Card className="rounded-3xl border-destructive/30 overflow-hidden">
             <CardHeader className="pb-4">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="flex items-center gap-3">
-                        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-destructive/10">
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-destructive/10">
                             <Trash2 className="h-5 w-5 text-destructive" />
                         </div>
                         <div>

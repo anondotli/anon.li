@@ -219,10 +219,10 @@ export function TwoFactorSettings() {
     if (isEnabled === null) {
         return (
             <Card className="rounded-3xl border-border/40 shadow-sm overflow-hidden">
-                <CardHeader className="p-8 pb-4">
-                    <div className="flex items-center justify-between">
+                <CardHeader className="p-6 pb-4 sm:p-8 sm:pb-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
                         <div className="flex items-center gap-3">
-                            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
+                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10">
                                 <Shield className="h-5 w-5 text-primary" />
                             </div>
                             <div>
@@ -234,7 +234,7 @@ export function TwoFactorSettings() {
                         </div>
                     </div>
                 </CardHeader>
-                <CardContent className="p-8 pt-0">
+                <CardContent className="p-6 pt-0 sm:p-8 sm:pt-0">
                     {statusError && !isPending ? (
                         <div role="alert" className="flex flex-col items-center gap-3 py-6 text-center">
                             <p className="text-sm text-muted-foreground">
@@ -263,11 +263,11 @@ export function TwoFactorSettings() {
 
     return (
         <>
-            <Card className="rounded-3xl border-border/40 shadow-sm overflow-hidden">
-                <CardHeader className="p-8 pb-4">
-                    <div className="flex items-center justify-between">
+            <Card id="two-factor" className="scroll-mt-24 rounded-3xl border-border/40 shadow-sm overflow-hidden">
+                <CardHeader className="p-6 pb-4 sm:p-8 sm:pb-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
                         <div className="flex items-center gap-3">
-                            <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${isEnabled ? "bg-green-500/10" : "bg-muted"}`}>
+                            <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${isEnabled ? "bg-green-500/10" : "bg-muted"}`}>
                                 {isEnabled ? (
                                     <ShieldCheck className="h-5 w-5 text-green-600" />
                                 ) : (
@@ -286,7 +286,7 @@ export function TwoFactorSettings() {
                         </Badge>
                     </div>
                 </CardHeader>
-                <CardContent className="p-8 pt-0 space-y-4">
+                <CardContent className="p-6 pt-0 sm:p-8 sm:pt-0 space-y-4">
                     {isEnabled ? (
                         <div className="rounded-xl bg-muted/50 p-4 space-y-4">
                             <div className="flex items-start gap-3">

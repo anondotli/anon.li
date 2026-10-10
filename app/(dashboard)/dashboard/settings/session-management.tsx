@@ -88,8 +88,8 @@ export function SessionManagement({ sessions }: SessionManagementProps) {
 
     return (
         <Card className="rounded-3xl border-border/40 shadow-sm">
-            <CardHeader className="p-8 pb-4">
-                <div className="flex items-center justify-between">
+            <CardHeader className="p-6 pb-4 sm:p-8 sm:pb-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
                         <CardTitle className="text-xl font-medium font-serif">Active Sessions</CardTitle>
                         <CardDescription>
@@ -113,21 +113,21 @@ export function SessionManagement({ sessions }: SessionManagementProps) {
                     )}
                 </div>
             </CardHeader>
-            <CardContent className="p-8 pt-4">
+            <CardContent className="p-6 pt-4 sm:p-8 sm:pt-4">
                 <div className="grid gap-3 max-h-[340px] overflow-y-auto">
                     {sessions.map((session) => {
                         const DeviceIcon = getDeviceIcon(session.userAgent)
                         return (
                             <div
                                 key={session.id}
-                                className="flex items-center justify-between p-4 rounded-xl border border-border/50 bg-secondary/10"
+                                className="flex min-w-0 items-center justify-between gap-3 p-4 rounded-xl border border-border/50 bg-secondary/10"
                             >
-                                <div className="flex items-center gap-3">
-                                    <div className="w-10 h-10 rounded-lg bg-background flex items-center justify-center">
+                                <div className="flex min-w-0 items-center gap-3">
+                                    <div className="w-10 h-10 shrink-0 rounded-lg bg-background flex items-center justify-center">
                                         <DeviceIcon className="h-5 w-5 text-muted-foreground" />
                                     </div>
-                                    <div className="space-y-0.5">
-                                        <div className="flex items-center gap-2">
+                                    <div className="min-w-0 space-y-0.5">
+                                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                                             <p className="font-medium text-sm">
                                                 {getDeviceName(session.userAgent)}
                                             </p>

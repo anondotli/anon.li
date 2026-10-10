@@ -60,9 +60,9 @@ export function DataExportSection() {
     return (
         <Card className="rounded-3xl border-border/40 shadow-sm overflow-hidden">
             <CardHeader className="pb-4">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="flex items-center gap-3">
-                        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-muted">
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-muted">
                             <FileJson className="h-5 w-5 text-muted-foreground" />
                         </div>
                         <div>

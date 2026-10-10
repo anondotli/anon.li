@@ -158,13 +158,13 @@ export function PasswordSettings() {
 
     return (
         <Card className="rounded-3xl border-border/40 shadow-sm">
-            <CardHeader className="p-8 pb-4">
+            <CardHeader className="p-6 pb-4 sm:p-8 sm:pb-4">
                 <CardTitle className="text-xl font-medium font-serif">Change password</CardTitle>
                 <CardDescription>
                     Rotate the password that derives your sign-in secret and vault unlock key.
                 </CardDescription>
             </CardHeader>
-            <CardContent className="p-8 pt-4">
+            <CardContent className="p-6 pt-4 sm:p-8 sm:pt-4">
                 {needsReauth ? (
                     <div role="alert" className="grid gap-3 rounded-xl border border-border/60 bg-muted/40 p-4">
                         <p className="text-sm text-muted-foreground">

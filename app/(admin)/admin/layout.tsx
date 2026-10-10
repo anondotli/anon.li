@@ -28,7 +28,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     // Admin is 2FA-enforced: an admin without 2FA enrolled is sent to enable it
     // (the user is already confirmed as an admin, so this leaks nothing).
     if (!session.user.twoFactorEnabled) {
-        redirect("/dashboard/settings")
+        redirect("/dashboard/settings?required=admin-2fa#two-factor")
     }
 
     return (

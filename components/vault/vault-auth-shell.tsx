@@ -58,8 +58,10 @@ export function VaultAuthShell({
     return (
         <div
             className={cn(
-                "relative flex min-h-[70vh] items-center justify-center overflow-hidden px-3 sm:px-4 sm:py-12",
-                compactOnMobile ? "py-6" : "py-12",
+                "relative flex items-center justify-center sm:min-h-[70vh] sm:overflow-hidden sm:px-4 sm:py-12",
+                // Compact: the dashboard container already supplies the gutter, and
+                // its overflow-hidden <main> clips the backdrop, so the shell adds none.
+                compactOnMobile ? "py-0" : "min-h-[70vh] overflow-hidden px-3 py-12",
             )}
         >
             {/* Ambient backdrop */}

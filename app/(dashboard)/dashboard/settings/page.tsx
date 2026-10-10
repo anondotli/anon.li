@@ -2,7 +2,7 @@ import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { redirect } from "next/navigation"
 import Link from "next/link"
-import { Key, ChevronRight } from "lucide-react"
+import { Key, ChevronRight, ShieldAlert } from "lucide-react"
 
 import { SettingsForm } from "./settings-form"
 import { DeleteAccountSection } from "./delete-account"
@@ -11,6 +11,7 @@ import { TwoFactorSettings } from "./two-factor-settings"
 import { SessionManagement } from "./session-management"
 import { ConnectedApps } from "./connected-apps"
 import { Card, CardContent } from "@/components/ui/card"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { headers } from "next/headers"
 import { auth as betterAuth } from "@/lib/auth"
 import { PasswordSettings } from "@/components/vault/password-settings"
@@ -18,7 +19,11 @@ import { InviteFriends } from "./invite-friends"
 import { getReferralStats, REFERRAL_REWARD_DAYS } from "@/lib/services/referral"
 import { getConnectedApps } from "@/lib/data/connected-apps"
 
-export default async function SettingsPage() {
+export default async function SettingsPage({
+    searchParams,
+}: {
+    searchParams: Promise<{ required?: string }>
+}) {
     const session = await auth()
     if (!session?.user?.id) redirect("/login")
 
@@ -27,6 +32,10 @@ export default async function SettingsPage() {
     })
 
     if (!user) redirect("/login")
+
+    // The admin layout sends admins without 2FA enrolled here (?required=admin-2fa).
+    const { required } = await searchParams
+    const adminTwoFactorRequired = required === "admin-2fa" && user.isAdmin && !user.twoFactorEnabled
 
     const [referral, connectedApps] = await Promise.all([
         getReferralStats(session.user.id),
@@ -66,6 +75,16 @@ export default async function SettingsPage() {
                 </p>
             </div>
             <div className="grid gap-8">
+                {adminTwoFactorRequired && (
+                    <Alert>
+                        <ShieldAlert className="h-4 w-4" />
+                        <AlertTitle>Two-factor authentication required for admin access</AlertTitle>
+                        <AlertDescription>
+                            Enable two-factor authentication below, then return to the admin panel.
+                        </AlertDescription>
+                    </Alert>
+                )}
+
                 {/* Profile */}
                 <SettingsForm user={user} />
 

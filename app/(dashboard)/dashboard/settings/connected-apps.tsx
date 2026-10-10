@@ -47,13 +47,13 @@ export function ConnectedApps({ apps }: ConnectedAppsProps) {
 
     return (
         <Card id="connected-apps" className="scroll-mt-24 rounded-3xl border-border/40 shadow-sm">
-            <CardHeader className="p-8 pb-4">
+            <CardHeader className="p-6 pb-4 sm:p-8 sm:pb-4">
                 <CardTitle className="text-xl font-medium font-serif">Connected apps</CardTitle>
                 <CardDescription>
                     AI assistants and other apps you&apos;ve authorized to access your account over MCP/OAuth.
                 </CardDescription>
             </CardHeader>
-            <CardContent className="p-8 pt-4">
+            <CardContent className="p-6 pt-4 sm:p-8 sm:pt-4">
                 {apps.length === 0 ? (
                     <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border/60 bg-secondary/10 px-6 py-8 text-center">
                         <Blocks className="mb-3 h-5 w-5 text-muted-foreground" aria-hidden="true" />
@@ -69,7 +69,7 @@ export function ConnectedApps({ apps }: ConnectedAppsProps) {
                             return (
                                 <li
                                     key={app.clientId}
-                                    className="flex items-center justify-between gap-4 p-4 rounded-xl border border-border/50 bg-secondary/10"
+                                    className="flex min-w-0 flex-wrap items-center justify-between gap-4 p-4 rounded-xl border border-border/50 bg-secondary/10"
                                 >
                                     <div className="flex min-w-0 items-center gap-3">
                                         <div className="w-10 h-10 shrink-0 rounded-lg bg-background flex items-center justify-center">
