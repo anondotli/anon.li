@@ -43,7 +43,7 @@
     "@better-auth/core": "~1.7.10",
     "@better-auth/mcp": "~1.7.10",
     "@better-auth/oauth-provider": "~1.7.10",
-    "@better-auth/utils": "0.4.2",
+    "@better-auth/utils": "0.4.3",
     "@modelcontextprotocol/server": "^2.3.1",
     "@posthog/mcp": "^0.22.3",
     "@prisma/adapter-pg": "^7.10.0",
