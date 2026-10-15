@@ -1,0 +1,111 @@
+---
+title: "Your AI agent wants the keys to everything. Give it an alias instead."
+summary: "Apple is locking down Full Disk Access because AI agents abused it. Here's how to give agents what they need to work without handing over your real inbox, files, and identity."
+publishedAt: 2026-10-11
+author: The anon.li Team
+---
+
+Three weeks ago, Meta launched Muse, a personal AI agent for iPhone and Mac. It shot to the top of the App Store almost immediately. Within days, it had become the clearest case study yet for a problem the whole industry is about to run into.
+
+On October 5, Apple announced it will tighten the "Full Disk Access" permission on macOS. The permission exists so backup apps can work. Apple said some developers are using it in ways that expose files, mail, messages and browsing history without users really understanding what they agreed to, and it singled out AI agents as the reason the risk is growing.
+
+When the company that sells you the computer starts adding friction to protect you from the software running on it, it's worth paying attention.
+
+## What actually happened
+
+The timeline is short.
+
+- **September 17:** Meta launches Muse for iPhone and Mac. Its pitch is "personal context": connect your messages, email, calendar and even your bank, and the agent can act on your behalf.
+- **September 21:** Security researcher Patrick Wardle publishes a flaw in Muse built around an undocumented setting. It can be redirected locally without special privileges, so a dictated prompt goes to an attacker's server instead of Meta's. Wardle called the result "the ultimate backdoor." An attacker could steal your audio, inject prompts that Muse trusts, and lift your auth token to control the agent directly. Anything you'd given Muse access to, the attacker would now have too.
+- **September 28:** Tech writer Jason Aten reports that Muse suggested a column idea based on an iMessage conversation he'd just had. He says he had explicitly declined to give it access to his messages. When he dug in, Muse had synced his local Messages database up to row 187,462. Meta has attributed some of the reported privacy issues to a bug.
+- **October 5:** Apple says granting Full Disk Access will soon require very explicit user action, with the risks spelled out, because more capable and autonomous agents make that level of access more dangerous.
+
+None of this is unique to Meta. Every capable agent runs into the same tension. **It needs access to be useful, and that access is exactly what makes it dangerous.** Agents are also vulnerable to prompt injection by design: they can't reliably tell your instructions apart from text hidden in an email, a web page, or a PDF they were asked to summarize.
+
+## The problem isn't the agent. It's the keys.
+
+Think about what a "personal context" agent asks for. Your inbox is the recovery address for nearly every account you own, so whoever controls it can reset your passwords. Your messages hold relationships, plans, and things you told one person and nobody else. Your files hold contracts, IDs and tax returns.
+
+Handing all of that to a single process, which talks to a cloud model and acts on instructions it can't fully verify, isn't delegation. It's handing someone a master key and hoping they only open the doors you meant.
+
+Security engineers have a boring name for the fix: **least privilege**. Give each component the smallest set of permissions it needs for its job, and nothing else. It's the principle behind Apple's change, and it's the principle most AI agent onboarding flows currently ignore.
+
+## Give agents the control plane, not the content
+
+Here is the rule we'd suggest, for any agent from any company:
+
+> **Let an agent manage your stuff. Don't let it read your stuff.**
+
+Most of what people actually want from an agent is housekeeping: sign up for this trial, unsubscribe from that list, share this file with my accountant, clean up old links. Almost none of it requires reading the full contents of your inbox or your files. It requires *handles*: an address to use, a link to send, a switch to flip.
+
+Email aliases are one of the cleanest handles there are.
+
+### 1. Hand the agent an alias, not your address
+
+When an agent signs up for something on your behalf (a newsletter, a free trial, a booking, a waitlist), it shouldn't use your real email. Give it a fresh alias for that task.
+
+If the service gets breached, the alias leaks, not you. If the agent gets prompt-injected into signing up for junk, you pause one alias and the mail stops. And because each alias maps to exactly one service, you always know who sold or leaked your address.
+
+With anon.li, mail sent to the alias forwards to your real inbox. Known tracking pixels and tracking parameters are stripped on the way. You can reply through the alias without revealing your real address, and you can disable any alias in one click.
+
+### 2. Let the agent manage aliases, without ever seeing your inbox
+
+This is the part we built deliberately. anon.li has an [MCP server](https://anon.li/mcp) that Claude, Cursor and other MCP-compatible tools can connect to. It's scoped to the control plane:
+
+- **Connects through OAuth with PKCE.** You sign in, complete 2FA if you have it on, and approve a consent screen. You never paste a long-lived API key into a third-party client.
+- **Typed, narrow tools.** The agent can list, create, toggle and delete aliases, check your verified recipients, and list, disable or delete drops.
+- **Encrypted content stays out of reach.** Vault-encrypted notes, labels, drop names and file contents remain unreadable to the AI client. The agent can see that a drop exists and switch it off. It can't see what's inside.
+
+In practice, a request like this works:
+
+```
+Create an alias for the Acme trial and use it to sign up.
+Tell me which alias you used.
+```
+
+When the trial ends, you ask the agent to pause the alias, or do it yourself in one click. The agent never needs your real address, and it never touches your mailbox.
+
+### 3. Share files with links the agent can't open
+
+The same idea applies to files. [anon.li Drop](https://anon.li/drop) encrypts files in your browser with AES-256-GCM before upload. The key lives in the URL fragment or behind your password, so our server can't read the contents. Recipients decrypt in their own browser without creating an account.
+
+An agent connected over MCP can tidy up your drops by disabling expired links or deleting old uploads. It still can't read them, because neither can we.
+
+### 4. Keep a kill switch within reach
+
+Every handle you give an agent should be something you can revoke without collateral damage. Pausing one alias is a single click. Changing your real email address after it has spread through a dozen agent-driven signups is a weekend, and an incomplete one at that.
+
+## A five-question check before you click "Allow"
+
+Before you grant any AI agent access to anything, ask:
+
+1. **What's the narrowest permission that gets the job done?** If it wants your whole inbox to send one signup email, the answer is no.
+2. **Can I see exactly which actions it can take?** Typed tools such as `create_alias` or `toggle_alias` are auditable. "Full access to your account" isn't.
+3. **Does it authenticate with something I can revoke?** OAuth consent beats a pasted API key, and a pasted API key beats your password.
+4. **If this agent were hijacked tomorrow, what would the attacker get?** Assume it will be. Design so the answer is "some aliases I can turn off."
+5. **Does the vendor's business depend on knowing more about me?** Incentives matter more than privacy policies.
+
+## What aliases don't fix
+
+To be honest about the limits: an alias won't stop prompt injection, and it won't make an agent with full access to your real inbox safe. If you connect an agent directly to your mailbox, it can still read everything in that mailbox.
+
+What aliases do is shrink the blast radius. They keep your real identity, the address your bank and your password resets point to, out of the places agents spend most of their time: signup forms, third-party services and automated workflows. That's the part of the problem you can actually solve today.
+
+We're not anti-agent. We use them, and we built the MCP server because we wanted to. But the industry's current default of "connect everything, trust the sentinel, read the fine print later" is the wrong one. Apple seems to agree.
+
+## Try it
+
+- Create a free account at [anon.li/register](https://anon.li/register). One account covers aliases, Drop and Form.
+- Connect your agent: add `https://anon.li/api/mcp` as a custom MCP connector, authorize, and delegate. [Setup docs →](https://anon.li/docs/api/mcp)
+- Read how we protect your data on the [security page](https://anon.li/security). The code is [open source](https://github.com/anondotli/anon.li), so you don't have to take our word for it.
+
+Give your agent an alias. Keep the keys.
+
+---
+
+### Sources
+
+- Apple Developer, via Privacy Guides: [Apple Tightens "Full Disk Access" Permission on macOS in Light of AI Agent Security Concerns](https://www.privacyguides.org/news/2026/10/06/apple-tightens-full-disk-access-permission-on-macos-in-light-of-ai-agent-security-concerns/) (Oct 5, 2026)
+- Privacy Guides: [Meta's Muse AI Assistant Vulnerable to Hijacking Via Undocumented Setting](https://www.privacyguides.org/news/2026/09/22/metas-muse-ai-assistant-vulnerable-to-hijacking-via-undocumented-setting/) (Sep 22, 2026)
+- 9to5Mac: [Yeah, don't give Meta's Muse app access to your Mac](https://9to5mac.com/2026/09/28/yeah-dont-give-metas-muse-app-access-to-your-mac/) (Sep 28, 2026), citing Jason Aten at Inc.
+- anon.li: [MCP Server](https://anon.li/mcp), [Alias](https://anon.li/alias), [Drop](https://anon.li/drop), [Security](https://anon.li/security)

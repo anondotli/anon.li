@@ -48,6 +48,11 @@ export type RecoverableCryptoInvoice = {
  * the oldest `waiting` invoices first (expiry candidates, which would starve
  * behind newer rows), then the newest invoices (fresh reminders, which would
  * starve behind old handled rows under oldest-first).
+ *
+ * `createdAfter` bounds notifications only, never expiry: the oldest-waiting
+ * half ignores it. NOWPayments sends no callback for an invoice the buyer
+ * never opened a payment on, so a `waiting` row that outlived the window
+ * (e.g. while the cron was down) would otherwise stay `waiting` forever.
  */
 export async function getRecoverableCryptoInvoices(opts: {
     createdBefore: Date;
@@ -81,7 +86,7 @@ export async function getRecoverableCryptoInvoices(opts: {
     }
     const [oldestWaiting, newest] = await Promise.all([
         prisma.cryptoPayment.findMany({
-            where: { ...where, status: "waiting" },
+            where: { status: "waiting", createdAt: { lt: opts.createdBefore } },
             include,
             orderBy: { createdAt: "asc" },
             take: Math.ceil(opts.limit / 2),

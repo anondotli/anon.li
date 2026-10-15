@@ -123,6 +123,26 @@ describe("getRecoverableCryptoInvoices", () => {
         // Deduplicated and capped at the limit.
         expect(result.map((r) => r.id)).toEqual(["old_1", "old_2", "new_1", "new_2"])
     })
+
+    it("does not bound expiry candidates by the notification floor", async () => {
+        mocks.cryptoPaymentFindMany.mockReset()
+        mocks.cryptoPaymentFindMany.mockResolvedValue([])
+        const createdBefore = new Date()
+        const createdAfter = new Date(Date.now() - 30 * DAY)
+
+        await getRecoverableCryptoInvoices({ createdBefore, createdAfter, limit: 4 })
+
+        // Oldest waiting: any age, so invoices stranded past 30 days still expire.
+        expect(mocks.cryptoPaymentFindMany.mock.calls[0]![0].where).toEqual({
+            status: "waiting",
+            createdAt: { lt: createdBefore },
+        })
+        // Newest (notification) half keeps the floor.
+        expect(mocks.cryptoPaymentFindMany.mock.calls[1]![0].where.createdAt).toEqual({
+            gte: createdAfter,
+            lt: createdBefore,
+        })
+    })
 })
 
 describe("billing cron referral Plus lapses", () => {

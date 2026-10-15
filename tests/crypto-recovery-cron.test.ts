@@ -100,6 +100,26 @@ describe("crypto recovery cron", () => {
         expect(result).toMatchObject({ expired: 1, expiredEmailsSent: 1, errors: 0 });
     });
 
+    it("expires a waiting invoice older than the 30-day window without emailing", async () => {
+        const abandoned = {
+            ...expiredInvoice,
+            id: "invoice-abandoned",
+            status: "waiting" as const,
+            createdAt: new Date(Date.now() - 48 * 24 * HOUR),
+        };
+        getInvoices.mockResolvedValue([abandoned]);
+
+        const result = await handleCryptoRecoveryCron();
+
+        expect(expireInvoice).toHaveBeenCalledWith(abandoned.id);
+        expect(sendExpiredEmail).not.toHaveBeenCalled();
+        expect(postHogCapture).toHaveBeenCalledWith(expect.objectContaining({
+            event: "crypto_invoice_expired",
+            properties: expect.objectContaining({ order_id: abandoned.orderId, source: "cron" }),
+        }));
+        expect(result).toMatchObject({ expired: 1, expiredEmailsSent: 0, errors: 0 });
+    });
+
     it("emits crypto_invoice_expired (source: cron) when flipping a waiting invoice", async () => {
         getInvoices.mockResolvedValue([{ ...expiredInvoice, status: "waiting" }]);
 

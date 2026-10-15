@@ -88,7 +88,9 @@ export async function handleCryptoRecoveryCron(): Promise<{
         const ageMs = now - invoice.createdAt.getTime();
         const hoursPending = Math.floor(ageMs / HOUR_MS);
         const isExpired = invoice.status === "expired" || invoice.createdAt < expiryCutoff;
-        const suppressEmail = shouldSuppressRecoveryEmail(invoice);
+        // Waiting invoices older than the notification floor (left behind
+        // while the cron was down) are still expired, just silently.
+        const suppressEmail = shouldSuppressRecoveryEmail(invoice) || invoice.createdAt < floorCutoff;
 
         if (isExpired) {
             const dedupeKey = `crypto-recovery:expired:${invoice.id}`;
