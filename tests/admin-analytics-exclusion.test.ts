@@ -2,6 +2,9 @@ import { beforeEach, describe, expect, it, vi, type Mock } from "vitest"
 import { BUNDLE_PLANS } from "@/config/plans"
 import { prisma } from "@/lib/prisma"
 
+// Keep MRR in USD list prices so assertions don't depend on a live FX rate.
+vi.mock("@/lib/fx", () => ({ getUsdToEurRate: vi.fn().mockResolvedValue(null) }))
+
 // getAdminDashboardStats fans out into ~29 count calls. Mock the full prisma
 // surface it touches so we can assert the admin-exclusion filter is applied to
 // every entity count (and to user counts, minus the moderation count).

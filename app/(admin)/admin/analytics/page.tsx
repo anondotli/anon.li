@@ -1,4 +1,4 @@
-import { Users, FileBox, Mail, ClipboardList, Inbox, DollarSign } from "lucide-react"
+import { Users, FileBox, Mail, ClipboardList, Inbox, DollarSign, Euro } from "lucide-react"
 import { PageHeader } from "@/components/admin/page-header"
 import { StatCard } from "@/components/admin/stat-card"
 import { ChartCard } from "@/components/admin/charts/chart-card"
@@ -26,8 +26,11 @@ export default async function AnalyticsPage({ searchParams }: AnalyticsPageProps
         getAdminRevenueSeries(range),
     ])
 
-    const usd = (n: number) =>
-        new Intl.NumberFormat(undefined, { style: "currency", currency: "USD" }).format(n)
+    const money = (n: number) =>
+        new Intl.NumberFormat(undefined, { style: "currency", currency: revenue.currency }).format(n)
+    const fxNote = revenue.usdToEurRate === null
+        ? "EUR rate unavailable, shown in USD"
+        : `From USD list prices at ECB rate 1 USD = ${revenue.usdToEurRate.toFixed(4)} EUR`
 
     return (
         <div className="space-y-8">
@@ -44,7 +47,12 @@ export default async function AnalyticsPage({ searchParams }: AnalyticsPageProps
                 <StatCard title="New Aliases" value={growth.totals.aliases} icon={Mail} />
                 <StatCard title="New Forms" value={growth.totals.forms} icon={ClipboardList} />
                 <StatCard title="Submissions" value={growth.totals.submissions} icon={Inbox} />
-                <StatCard title="Est. MRR" value={usd(revenue.currentMrr)} icon={DollarSign} variant="success" />
+                <StatCard
+                    title="Est. MRR"
+                    value={money(revenue.currentMrr)}
+                    icon={revenue.currency === "EUR" ? Euro : DollarSign}
+                    variant="success"
+                />
             </div>
 
             <ChartCard
@@ -76,7 +84,7 @@ export default async function AnalyticsPage({ searchParams }: AnalyticsPageProps
 
                 <ChartCard
                     title="New subscriptions"
-                    description={`${revenue.activeSubscriptions} active · ${usd(revenue.currentMrr)} MRR`}
+                    description={`${revenue.activeSubscriptions} active · ${money(revenue.currentMrr)} MRR`}
                 >
                     <BarSeries
                         data={revenue.points}
@@ -92,7 +100,10 @@ export default async function AnalyticsPage({ searchParams }: AnalyticsPageProps
             </div>
 
             {revenue.mrrByProduct.length > 0 && (
-                <ChartCard title="MRR by product" description="Estimated from current active subscriptions">
+                <ChartCard
+                    title="MRR by product"
+                    description={`Estimated from current active subscriptions. ${fxNote}.`}
+                >
                     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                         {revenue.mrrByProduct.map((row) => (
                             <div
@@ -100,7 +111,7 @@ export default async function AnalyticsPage({ searchParams }: AnalyticsPageProps
                                 className="flex items-center justify-between rounded-lg border p-3"
                             >
                                 <span className="text-sm font-medium capitalize">{row.product}</span>
-                                <span className="text-sm font-semibold tabular-nums">{usd(row.mrr)}</span>
+                                <span className="text-sm font-semibold tabular-nums">{money(row.mrr)}</span>
                             </div>
                         ))}
                     </div>

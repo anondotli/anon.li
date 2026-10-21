@@ -18,6 +18,7 @@ const {
     dropFindUnique,
     aliasFindFirst,
     formFindUnique,
+    sendAbuseReportNotificationEmail,
 } = vi.hoisted(() => ({
     rateLimit: vi.fn(),
     checkRateLimit: vi.fn(),
@@ -28,6 +29,7 @@ const {
     dropFindUnique: vi.fn(),
     aliasFindFirst: vi.fn(),
     formFindUnique: vi.fn(),
+    sendAbuseReportNotificationEmail: vi.fn().mockResolvedValue({ success: true }),
 }))
 
 vi.mock("@/lib/rate-limit", () => ({
@@ -54,6 +56,7 @@ vi.mock("@/lib/turnstile", () => ({ validateTurnstileToken: vi.fn().mockResolved
 vi.mock("@/lib/report-crypto", () => ({ encryptReportKey: vi.fn((k: string) => `enc:${k}`) }))
 vi.mock("resend", () => ({ Resend: class { emails = { send: vi.fn() } } }))
 vi.mock("@/components/email/report-confirmation", () => ({ ReportConfirmationEmail: () => null }))
+vi.mock("@/lib/resend", () => ({ sendAbuseReportNotificationEmail }))
 
 describe("GET /api/abuse/status", () => {
     beforeEach(() => {
@@ -240,5 +243,83 @@ describe("POST /api/abuse auto-resolve", () => {
     it("auto-resolves a report for a form staff already took down", async () => {
         formFindUnique.mockResolvedValue({ takenDown: true })
         expect(await report("form", "form-1")).toBe("resolved")
+    })
+})
+
+describe("POST /api/abuse staff notification", () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+        vi.unstubAllEnvs()
+        vi.stubEnv("EMAIL_FROM_DOMAIN", "")
+        getClientIp.mockResolvedValue("203.0.113.5")
+        rateLimit.mockResolvedValue(null)
+        checkRateLimit.mockResolvedValue(null)
+        abuseReportFindFirst.mockResolvedValue(null)
+        abuseReportCreate.mockResolvedValue({ id: "report-1" })
+        sendAbuseReportNotificationEmail.mockResolvedValue({ success: true })
+    })
+
+    async function submit() {
+        const { POST } = await import("@/app/api/abuse/route")
+        return POST(
+            new Request("http://localhost/api/abuse", {
+                method: "POST",
+                body: JSON.stringify({
+                    serviceType: "drop",
+                    resourceId: "https://anon.li/d/drop-1#secret-key",
+                    reason: "malware",
+                    description: "This is a sufficiently detailed abuse report.",
+                    contactEmail: "reporter@example.com",
+                    decryptionKey: "secret-key",
+                    turnstileToken: "verified-token",
+                }),
+                headers: { "content-type": "application/json" },
+            }),
+        )
+    }
+
+    it("alerts hi@anon.li with only the report's enum fields and resource id", async () => {
+        dropFindUnique.mockResolvedValue({ id: "drop-1", takenDown: false, disabled: false })
+
+        const res = await submit()
+
+        expect(res.status).toBe(200)
+        expect(sendAbuseReportNotificationEmail).toHaveBeenCalledTimes(1)
+        // Exact payload: no description, reporter contact or decryption key.
+        expect(sendAbuseReportNotificationEmail).toHaveBeenCalledWith("hi@anon.li", {
+            serviceType: "drop",
+            resourceId: "drop-1",
+            reason: "malware",
+            priority: "urgent",
+        })
+    })
+
+    it("alerts hi@ on a configured sender domain", async () => {
+        vi.stubEnv("EMAIL_FROM_DOMAIN", "mail.example.dev")
+        dropFindUnique.mockResolvedValue({ id: "drop-1", takenDown: false, disabled: false })
+
+        const res = await submit()
+
+        expect(res.status).toBe(200)
+        expect(sendAbuseReportNotificationEmail).toHaveBeenCalledWith("hi@mail.example.dev", expect.any(Object))
+    })
+
+    it("sends no alert for a report auto-resolved by an existing takedown", async () => {
+        dropFindUnique.mockResolvedValue({ id: "drop-1", takenDown: true, disabled: false })
+
+        const res = await submit()
+
+        expect(res.status).toBe(200)
+        expect(sendAbuseReportNotificationEmail).not.toHaveBeenCalled()
+    })
+
+    it("still accepts the report when the alert fails to send", async () => {
+        dropFindUnique.mockResolvedValue({ id: "drop-1", takenDown: false, disabled: false })
+        sendAbuseReportNotificationEmail.mockResolvedValue({ success: false, error: new Error("resend down") })
+
+        const res = await submit()
+
+        expect(res.status).toBe(200)
+        expect(abuseReportCreate).toHaveBeenCalledTimes(1)
     })
 })

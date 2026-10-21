@@ -11,6 +11,7 @@ import {
     type PaidTier,
     type Product,
 } from "@/config/plans"
+import { getUsdToEurRate } from "@/lib/fx"
 import { getDropLimits } from "@/lib/limits"
 import { FREE_TEAM_MEMBER_LIMIT } from "@/lib/org-seats"
 import { prisma } from "@/lib/prisma"
@@ -2380,13 +2381,15 @@ function monthlyPriceFor(product: string, tier: string, seats: number, providerP
 
 /**
  * Revenue analytics: new subscriptions per day (by provider) + current
- * estimated MRR (from config pricing) broken down by product. Read-only — no
- * billing mutations.
+ * estimated MRR (from config pricing) broken down by product. List prices are
+ * USD but Stripe settles in EUR, so MRR is reported in EUR at the ECB reference
+ * rate, falling back to USD when no rate is available. Read-only — no billing
+ * mutations.
  */
 export async function getAdminRevenueSeries(days: number) {
     const since = new Date(Date.now() - days * DAY_MS)
 
-    const [stripeRows, cryptoRows, active] = await Promise.all([
+    const [stripeRows, cryptoRows, active, usdToEurRate] = await Promise.all([
         prisma.$queryRaw<DailyCountRow[]>`SELECT date_trunc('day', "createdAt") AS bucket, count(*) AS count FROM "subscriptions" WHERE "createdAt" >= ${since} AND "provider" = 'stripe' AND NOT EXISTS (SELECT 1 FROM users u WHERE u.id = "subscriptions"."userId" AND u."isAdmin" = true) GROUP BY bucket`,
         prisma.$queryRaw<DailyCountRow[]>`SELECT date_trunc('day', "createdAt") AS bucket, count(*) AS count FROM "subscriptions" WHERE "createdAt" >= ${since} AND "provider" = 'crypto' AND NOT EXISTS (SELECT 1 FROM users u WHERE u.id = "subscriptions"."userId" AND u."isAdmin" = true) GROUP BY bucket`,
         prisma.subscription.findMany({
@@ -2402,6 +2405,7 @@ export async function getAdminRevenueSeries(days: number) {
             },
             select: { provider: true, product: true, tier: true, seats: true, providerPriceId: true },
         }),
+        getUsdToEurRate(),
     ])
 
     const stripeMap = fillDailySeries(stripeRows, days)
@@ -2424,12 +2428,16 @@ export async function getAdminRevenueSeries(days: number) {
         mrrByProduct[sub.product] = (mrrByProduct[sub.product] ?? 0) + price
     }
 
+    const toReported = (usd: number) => Math.round(usd * (usdToEurRate ?? 1) * 100) / 100
+
     return {
         range: days,
         points,
-        currentMrr: Math.round(currentMrr * 100) / 100,
+        currency: usdToEurRate === null ? "USD" as const : "EUR" as const,
+        usdToEurRate,
+        currentMrr: toReported(currentMrr),
         mrrByProduct: Object.entries(mrrByProduct)
-            .map(([product, mrr]) => ({ product, mrr: Math.round(mrr * 100) / 100 }))
+            .map(([product, mrr]) => ({ product, mrr: toReported(mrr) }))
             .sort((a, b) => b.mrr - a.mrr),
         activeSubscriptions: active.length,
     }

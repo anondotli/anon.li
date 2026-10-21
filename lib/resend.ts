@@ -860,3 +860,41 @@ export async function sendCheckoutRecoveryEmail(
         return { success: false, error }
     }
 }
+
+/**
+ * Staff alert for a newly filed abuse report. Carries only the enum fields and
+ * the resource id — never the reporter's free-text description, contact email
+ * or a drop decryption key; those stay in the admin panel.
+ */
+export async function sendAbuseReportNotificationEmail(
+    email: string,
+    report: { serviceType: string; resourceId: string; reason: string; priority: string },
+) {
+    try {
+        const resend = getResendClient()
+        const { AbuseReportNotificationEmail } = await import("@/components/email/abuse-report-notification")
+
+        const { data, error } = await resend.emails.send({
+            from: emailFrom(),
+            to: email,
+            subject: sanitizeEmailSubject(`[${report.priority}] New ${report.serviceType} abuse report: ${report.reason}`),
+            react: React.createElement(AbuseReportNotificationEmail, {
+                serviceType: report.serviceType,
+                resourceId: sanitizeEmailUserContent(report.resourceId, 500),
+                searchId: report.resourceId,
+                reason: report.reason,
+                priority: report.priority,
+            }),
+        })
+
+        if (error) {
+            logger.error("Failed to send abuse report notification email", error)
+            return { success: false, error }
+        }
+
+        return { success: true, data }
+    } catch (error) {
+        logger.error("Failed to send abuse report notification email", error)
+        return { success: false, error }
+    }
+}

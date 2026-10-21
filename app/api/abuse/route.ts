@@ -9,7 +9,8 @@ import { hashIp } from "@/lib/ip-hash";
 import { Resend } from "resend";
 import { ReportConfirmationEmail } from "@/components/email/report-confirmation";
 import crypto from "crypto";
-import { emailFrom } from "@/lib/email-from";
+import { emailFrom, mailboxAddress } from "@/lib/email-from";
+import { sendAbuseReportNotificationEmail } from "@/lib/resend";
 
 let _resend: Resend | null = null;
 function getResend(): Resend {
@@ -236,6 +237,18 @@ export async function POST(req: Request) {
                 }),
             },
         });
+
+        // Alert the admin inbox (hi@ on the sender domain, hi@anon.li in
+        // production). Auto-resolved reports are already handled, so skip them.
+        // The helper logs failures and never throws.
+        if (!autoResolved) {
+            await sendAbuseReportNotificationEmail(mailboxAddress("hi"), {
+                serviceType: data.serviceType,
+                resourceId: normalizedResourceId,
+                reason: data.reason,
+                priority,
+            });
+        }
 
         // Send confirmation email to reporter if email provided
         if (data.contactEmail) {
