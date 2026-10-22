@@ -2,7 +2,7 @@
 title: Privacy Policy
 summary: How we handle and protect your data at anon.li
 description: How we handle and protect your data at anon.li
-lastUpdated: "2026-10-10"
+lastUpdated: "2026-10-22"
 ---
 
 ## 1. Introduction
@@ -18,12 +18,18 @@ We adhere to the principle of data minimization. We only collect the information
 ### 2.1. Account Information
 
 - **Email Address**: Required for authentication, sending system notifications (e.g., verification, password reset, and magic links), and as the destination for forwarded emails.
-- **Subscription Data**: We process payment information through our third-party providers: Stripe for card payments and NOWPayments for cryptocurrency payments. We do not store full credit card numbers on our servers.
+- **Profile Data**: If you sign in with Google or GitHub, we receive your email address and basic profile (name and avatar) from that provider.
+- **Credentials & Vault**: If you set a password, we store only verifier data derived from it, together with your end-to-end encrypted vault (encryption keys wrapped with a key derived from your password in your browser). We cannot unwrap your vault.
+- **Subscription Data**: We process payment information through our third-party providers: Stripe for card payments and NOWPayments for cryptocurrency payments. We store your plan, billing status, and the provider's customer and subscription identifiers. We do not store full credit card numbers on our servers.
+- **Referrals**: If you join through a referral link, we record which account referred you so the complimentary plan can be granted.
 
-### 2.2. Service Data (Alias and Drop)
+### 2.2. Service Data (Alias, Drop, and Form)
 
-- **Email Aliases**: We store the aliases you create and their associated configurations (destination address, custom domains, and encrypted label/note metadata where configured).
-- **Encrypted Files**: Files uploaded via anon.li Drop are encrypted in your browser before upload using AES-256-GCM. We store only encrypted data and cannot access the unencrypted content of your files.
+- **Email Aliases**: We store the aliases you create and their associated configurations (forwarding recipients, custom domains, and encrypted label/note metadata where configured). For each alias we also keep aggregate counters — the number of emails forwarded and blocked, and the time of the last email — which power your dashboard and plan limits.
+- **Forwarding Recipients & Custom Domains**: We store your forwarding addresses, their verification status, any PGP public keys you add, and the DNS verification and DKIM settings of your custom domains. DKIM private keys are encrypted at rest.
+- **Encrypted Files**: Files uploaded via anon.li Drop are encrypted in your browser before upload using AES-256-GCM. File names, titles, and messages are encrypted the same way. We store only encrypted data and cannot access the unencrypted content of your files; we do see technical metadata needed to store and serve them (file size, file type, upload time, expiry, and download counts).
+- **Drop Recipients & Access Logs**: If you share a Drop with named recipients, we store their email addresses and email each of them a personal link. That link never contains the decryption key. To show you who opened a Drop, we log each view and download with the time, the event type, the recipient (if any), the browser user agent, and a peppered one-way hash of the visitor's IP address. You never see the IP hash; we keep it only to detect abuse.
+- **Encrypted Forms**: Form titles, descriptions, and field definitions are stored in plaintext, because anyone with the form link must be able to read them. Submissions are encrypted in the respondent's browser to a key only the form owner holds, so we cannot read responses or attached files. With each submission we store the time, a peppered one-way hash of the respondent's IP address (for abuse prevention), and, if the respondent submitted through the API while signed in, their account ID.
 
 ### 2.3. Email Traffic Data
 
@@ -32,23 +38,36 @@ We adhere to the principle of data minimization. We only collect the information
 - **PGP Encryption**: If you enable PGP encryption, emails are encrypted with your public key before forwarding, ensuring we cannot read the content.
 - **Separate Mail Infrastructure**: Alias forwarding is handled by a dedicated mail stack outside this web application repository. The product behavior described here reflects that deployed mail infrastructure and its published companion code, not this repository alone.
 
-### 2.4. Technical Data
+### 2.4. Teams, API Access, and Connected Apps
+
+- **Teams (Organizations)**: If you create or join a team, we store the team's name, its members and their roles, and the email addresses of people invited to it. Aliases, recipients, domains, Drops, and Forms created inside a team belong to the team, not to the individual member. Team owners and admins can see the team's audit trail (for example, membership, billing, and security-setting changes).
+- **API Keys**: We store only a SHA-256 hash of each API key, its prefix, its label, and when it was created and last used. The full key is shown to you once and never stored.
+- **Connected Apps (OAuth / MCP)**: If you authorize an app such as an AI assistant to access your account, we store the app's registration details, the permissions (scopes) you granted, and the access and refresh tokens issued to it. You can review and revoke connected apps from your account settings.
+
+### 2.5. Abuse Reports and Security Records
+
+- **Abuse Reports**: When someone reports abuse, we store the reported resource, the reason and description they give, an optional contact email (used only to send updates about the report), and a peppered one-way hash of their IP address. If a reporter provides a Drop decryption key so we can review the content, that key is encrypted at rest.
+- **Security Audit Log**: We record sensitive account and administrative actions (for example, API key creation, account deletion, bans, and team membership changes) with internal account IDs and the time. These entries do not include IP addresses.
+
+### 2.6. Technical Data
 
 - **Cookies**: We use only essential, first-party cookies to manage your authenticated session. We do not use third-party tracking or advertising cookies.
-- **Analytics & product monitoring**: We use [PostHog](https://posthog.com/) (EU region) to understand aggregate usage and improve the product. PostHog does **not** use cookies (a pseudonymous identifier is stored in your browser's local storage), session replay is **disabled**, and we honor the browser's **Do Not Track** signal. Before any event leaves your browser we strip URL fragments — which carry Drop decryption keys — and filter out resource identifiers. Analytics events are discarded on public Drop and Form links, password-reset, recipient-verification, and 2FA pages. After you sign in, events are linked to your account by an internal id only — never your email.
-- **IP Addresses**: We may process IP addresses for security purposes (rate limiting, fraud prevention, DDoS protection) but do not link them to your identity for tracking purposes.
+- **Analytics & product monitoring**: We use [PostHog](https://posthog.com/) (EU region) to understand aggregate usage and improve the product. Browser analytics are sent through our own domain and use **no cookies** (a pseudonymous identifier is stored in your browser's local storage). Session replay is **disabled**, and we honor the browser's **Do Not Track** signal. Automatic interaction tracking masks all on-screen text and element attributes, so the addresses and content on your screen are never captured. Before any event leaves your browser we strip URL fragments, which carry Drop decryption keys, and filter out resource identifiers. Analytics events are discarded on public Drop and Form links and on password-reset, recipient-verification, and 2FA pages. Our servers also send a small set of events, such as checkout and subscription activation, and record which MCP tools a connected app calls. The tools' inputs and outputs are removed before sending. After you sign in, events are linked to your account by an internal ID only, never your email.
+- **IP Addresses**: We process IP addresses for security purposes (rate limiting, fraud prevention, DDoS protection) but do not link them to your identity for tracking purposes. Where we keep a record tied to an IP address (abuse reports, form submissions, Drop access logs), we store only a peppered one-way hash, never the raw address.
 - **Session Metadata**: Active login sessions include device metadata such as user agent so you can review and manage signed-in devices from your dashboard. We do not store IP addresses in session records.
 
 ## 3. How We Use Your Information
 
 We use your information solely to:
 
-- **Provide the Service**: Create aliases, forward emails, facilitate encrypted file sharing, and manage your account.
+- **Provide the Service**: Create aliases, forward emails, facilitate encrypted file sharing and form collection, run teams, and manage your account.
 - **Process Payments**: Handle subscriptions and billing through Stripe and, for cryptocurrency payments, NOWPayments.
 - **Ensure Security**: Monitor for abuse, prevent spam, enforce rate limits, and protect our infrastructure.
-- **Communicate**: Send essential service updates, security alerts, and login notifications.
+- **Communicate**: Send service email you need, such as sign-in links, verification, billing and payment notices, Drop expiry and download alerts, form submission notifications, and moderation notices.
+- **Send on Your Behalf**: Email the people you choose, such as named Drop recipients and team invitees, when you share with or invite them.
+- **Product Emails**: Send a short series of onboarding tips after sign-up, occasional upgrade suggestions based on your usage, and a reminder if you leave a checkout unfinished. Every one of these emails has a one-click unsubscribe link, and unsubscribing never affects the service email above.
 
-We do **not** use your information for advertising, profiling, or selling to third parties.
+We do **not** use your information for advertising, sell it, or share it with third parties for their own purposes.
 
 ## 4. Third-Party Sub-processors
 
@@ -59,11 +78,11 @@ We share data only with trusted partners necessary for operation. All partners a
 | **Stripe** | Payment processing & subscription management | Payment details, email | USA (PCI compliant) |
 | **NOWPayments** | Cryptocurrency payments | Crypto invoice and transaction data for orders paid in cryptocurrency | See provider |
 | **Vercel** | Application hosting & serverless compute | Request metadata and operational logs | See provider |
-| **Resend** | Transactional emails (login links, notifications) | Email address | USA |
+| **Resend** | Email delivery (sign-in links, notifications, Drop shares, team invitations, product emails) | Recipient email address and message content | USA |
 | **Cloudflare** | CDN, DDoS protection, DNS | IP addresses, traffic data | Global |
-| **Cloudflare R2** | Encrypted file storage | Encrypted file data only | Global |
+| **Cloudflare R2** | Encrypted file storage (Drop files and Form attachments) | Encrypted file data only | Global |
 | **Cloudflare Turnstile** | Bot & abuse protection (sign-in, guest uploads, form submissions) | Browser and network signals | Global |
-| **Upstash** | Rate limiting | Anonymized request data | Global |
+| **Upstash** | Rate limiting & short-lived state | Ephemeral counters and short-lived tokens, keyed by hashed identifiers | Global |
 | **PostHog** | Product analytics & error monitoring | Pseudonymous usage events & sanitized error reports (no cookies, no session replay, no Drop keys/PII) | EU |
 | **Google & GitHub** | Optional social sign-in (OAuth) | Account email and basic profile, only if you sign in with them | See provider |
 
@@ -71,10 +90,15 @@ The same list is maintained at [anon.li/sub-processors](/sub-processors).
 
 ## 5. Data Retention
 
-- **Account Data**: Retained as long as your account is active. Upon account deletion, aliases, domains, files, drops, API keys, credentials, vault materials, and the account record are removed from live systems immediately; any saved local browser trust becomes unusable. Rolling disaster-recovery backups may retain historical snapshots for their normal retention period and are not an account restore path.
+- **Account Data**: Retained as long as your account is active. When you delete your account, your personal aliases, recipients, domains, Drops, Forms and their submissions, files, API keys, sessions, credentials, vault materials, and the account record are removed from live systems immediately, and any active personal subscription is canceled. Any saved local browser trust becomes unusable. Resources you created inside a team belong to the team and remain with it. If you are the sole owner of a team, you must transfer ownership or delete the team before you can delete your account. Rolling disaster-recovery backups may retain historical snapshots for their normal retention period and are not an account restore path.
 - **Metadata Logs**: Automatically deleted after 7 days.
+- **Alias Counters**: Kept for as long as the alias exists.
 - **Encrypted Files**: Deleted according to your configured expiration settings, or immediately upon manual deletion.
-- **Subscription Records**: Retained as required for tax and legal compliance (typically 7 years for financial records).
+- **Drop Recipients & Access Logs**: Kept for as long as the Drop exists and deleted with it.
+- **Form Submissions**: Deleted automatically once they are older than your plan's retention window (30 days on Free, 90 days on Plus, 365 days on Pro and Business), or immediately when you delete them or the form. A content-free usage record of each accepted submission (its ID, owner, and time) is kept for 90 days for quota accounting and then deleted.
+- **Sessions**: Kept until you sign out or the session expires; expired sessions are purged daily.
+- **Subscription Records**: Our own subscription records are deleted with your account. Stripe and NOWPayments retain invoices and transaction records as their own legal obligations require, and we keep the financial records that tax and accounting law require us to keep.
+- **Abuse Reports & Security Audit Log**: Retained after the related account or resource is deleted so we can investigate abuse, enforce our terms, and meet legal obligations. Audit entries reference internal IDs only.
 - **Backups**: Rolling backups are retained for up to 30 days for disaster recovery purposes.
 
 ## 6. Your Rights

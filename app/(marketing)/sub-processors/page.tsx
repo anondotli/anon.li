@@ -20,7 +20,7 @@ const TITLE = "Sub-processors — anon.li"
 const DESCRIPTION =
     "The third-party providers anon.li uses to operate the service, what each one processes, and why. Most never see your plaintext — end-to-end encrypted content stays encrypted."
 const URL = "https://anon.li/sub-processors"
-const LAST_UPDATED = "October 10, 2026"
+const LAST_UPDATED = "October 22, 2026"
 
 export const metadata: Metadata = {
     title: TITLE,
@@ -86,8 +86,8 @@ const SUBPROCESSORS: SubProcessor[] = [
     {
         name: "Resend",
         category: "Email",
-        purpose: "Transactional email delivery",
-        data: "Recipient address and message content for account email — magic links, verification, and security alerts.",
+        purpose: "Email delivery",
+        data: "Recipient address and message content — sign-in links, verification, billing and security notices, Drop shares, team invitations, and opt-out product emails.",
         href: "https://resend.com/legal/privacy-policy",
     },
     {
