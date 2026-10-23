@@ -198,8 +198,8 @@ async function route() {
     return import("@/app/api/mcp/route")
 }
 
-/** Status + challenge of every response the route produced (newest last). */
-const seenResponses: Array<{ status: number, wwwAuthenticate: string | null }> = []
+/** Status, challenge and content type of every response the route produced (newest last). */
+const seenResponses: Array<{ status: number, wwwAuthenticate: string | null, contentType: string | null }> = []
 
 /** fetch() that dispatches straight into the Next.js route handlers. */
 async function routeFetch(input: string | URL | Request, init?: RequestInit): Promise<Response> {
@@ -213,7 +213,11 @@ async function routeFetch(input: string | URL | Request, init?: RequestInit): Pr
         case "OPTIONS": response = handlers.OPTIONS(request); break
         default: response = new Response(null, { status: 405 })
     }
-    seenResponses.push({ status: response.status, wwwAuthenticate: response.headers.get("www-authenticate") })
+    seenResponses.push({
+        status: response.status,
+        wwwAuthenticate: response.headers.get("www-authenticate"),
+        contentType: response.headers.get("content-type"),
+    })
     return response
 }
 
@@ -528,6 +532,21 @@ describe("/api/mcp HTTP behaviour", () => {
             const body = await response.json() as { result?: { isError?: boolean } }
             expect(body.result?.isError).toBeFalsy()
         }
+    })
+
+    it("answers the 2026-07-28 leg with single JSON bodies and ends listen streams after the ack", async () => {
+        const client = await CLIENT_ERAS[1]![1]() as unknown as ModernClient
+        seenResponses.length = 0
+        await client.listTools()
+        await client.callTool({ name: "list_recipients" })
+        expect(seenResponses.length).toBeGreaterThan(0)
+        for (const response of seenResponses) expect(response.contentType).toMatch(/^application\/json/)
+
+        // Nothing subscribable is advertised, so the stream acks an empty filter and completes.
+        const subscription = await client.listen({ toolsListChanged: true })
+        expect(subscription.honoredFilter).toEqual({})
+        await expect(subscription.closed).resolves.toBe("graceful")
+        await client.close()
     })
 
     it("challenges unauthenticated requests with the app's resource metadata", async () => {

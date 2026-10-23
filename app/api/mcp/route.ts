@@ -86,11 +86,14 @@ function sessionFromAuthInfo(authInfo: AuthInfo | undefined): McpSession {
 /**
  * MCP 2026-07-28 (per-request envelope) traffic. `legacy: "reject"` keeps this
  * handler modern-only; 2025-era traffic is routed to the legacy leg below.
- * JSON responses only: tools emit no mid-call notifications.
+ * The default `auto` response mode upgrades to SSE only when a handler emits a
+ * message before its result; tools emit none, so every response is a single
+ * JSON body. (`responseMode: "json"` would behave the same but makes the SDK
+ * console.warn on every cold start.) `subscriptions/listen` closes right after
+ * its ack: no capability it could subscribe to is advertised.
  */
 const modernHandler = createMcpHandler(({ authInfo }) => buildServer(sessionFromAuthInfo(authInfo)), {
     legacy: "reject",
-    responseMode: "json",
     maxRequestBodySize: MAX_REQUEST_BODY_BYTES,
     onerror: (error) => logger.warn("MCP modern handler error", { error: error.message }),
 })

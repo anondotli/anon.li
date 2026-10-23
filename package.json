@@ -84,7 +84,7 @@
     "next-themes": "^0.4.6",
     "openpgp": "^6.3.2",
     "pg": "^8.23.1",
-    "posthog-js": "^1.438.17",
+    "posthog-js": "^1.438.20",
     "posthog-node": "^5.57.0",
     "qrcode": "^1.5.4",
     "react": "^19.3.1",
