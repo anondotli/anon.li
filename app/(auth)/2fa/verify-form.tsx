@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useRef, useEffect } from "react"
+import { isRedirectError } from "next/dist/client/components/redirect-error"
 import { Button } from "@/components/ui/button"
 import {
     InputOTP,
@@ -58,20 +59,20 @@ export function TwoFactorVerifyForm({ callbackUrl }: { callbackUrl?: string }) {
         let result: Awaited<ReturnType<typeof verifyTwoFactorLogin>>
         try {
             result = await verifyTwoFactorLogin(codeToVerify, inputMode, callbackUrl)
-        } catch {
+        } catch (error) {
+            // Success: the action redirects, which Next.js reports by rejecting
+            // this promise while the router navigates to the destination.
+            if (isRedirectError(error)) {
+                setStatus("success")
+                toast.success("Verification successful")
+                return
+            }
             // Network failure / server action crash: reset instead of leaving the
             // form stuck on "Verifying...".
             showError("Verification failed. Please try again.")
             return
         }
-        if (result.error) {
-            showError(result.error)
-            return
-        }
-
-        setStatus("success")
-        toast.success("Verification successful")
-        window.location.href = result.redirectTo ?? "/dashboard/alias"
+        showError(result.error)
     }
 
     const handleSubmit = (e: React.FormEvent) => {

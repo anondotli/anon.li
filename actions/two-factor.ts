@@ -4,6 +4,7 @@ import { auth } from "@/auth"
 import { auth as betterAuth } from "@/lib/auth"
 import { revalidatePath } from "next/cache"
 import { cookies, headers } from "next/headers"
+import { redirect } from "next/navigation"
 import { TwoFactorService } from "@/lib/services/two-factor"
 import { rateLimit } from "@/lib/rate-limit"
 import { prisma } from "@/lib/prisma"
@@ -24,7 +25,6 @@ import { sanitizeAuthCallbackUrl } from "@/lib/safe-callback-url"
 type TwoFactorActionResult = {
     error?: string
     success?: boolean
-    redirectTo?: string
 }
 
 type TwoFactorSetupResult = TwoFactorActionResult & {
@@ -233,12 +233,14 @@ export async function regenerateBackupCodes(code: string): Promise<BackupCodesRe
  * sign-in, not magic link or OAuth). This action both verifies the code and
  * flips the flag in a single server-trusted operation, so callers cannot skip
  * the verification step by invoking a separate "finalize" endpoint.
+ *
+ * On success it redirects (never returns); every returned result is an error.
  */
 export async function verifyTwoFactorLogin(
     code: string,
     mode: "totp" | "backup",
     callbackUrl?: string | null,
-): Promise<TwoFactorActionResult> {
+): Promise<{ error: string }> {
     const reqHeaders = await headers()
     const existingSession = await betterAuth.api.getSession({ headers: reqHeaders })
 
@@ -319,5 +321,10 @@ export async function verifyTwoFactorLogin(
             ? `/setup?callbackUrl=${encodeURIComponent(destination)}`
             : "/setup"
 
-    return { success: true, redirectTo }
+    // Navigate from the server: Next.js renders the destination in this same
+    // response with the cookies written above. Returning the URL for the client
+    // to assign to window.location instead let those cookie writes re-render
+    // /2fa, whose "already verified" redirect raced the client navigation and
+    // flashed a broken page before the dashboard loaded.
+    redirect(redirectTo)
 }

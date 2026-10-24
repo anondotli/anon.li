@@ -9,6 +9,18 @@ import { getVaultStorageSupport } from "@/lib/vault/storage-support"
 
 const CHANNEL_NAME = "anon-vault"
 
+// Sync messages are for *other* tabs. BroadcastChannel also delivers to other
+// channel instances in the sending document, so each post carries this
+// document's id and receivers drop their own — matching the storage fallback,
+// whose events never fire in the document that wrote them. Without this a tab
+// handled its own SIGN_OUT and navigated away mid sign-out request.
+let documentId: string | undefined
+
+function getDocumentId() {
+    documentId ??= crypto.randomUUID()
+    return documentId
+}
+
 const VAULT_SYNC_TYPES = ["VAULT_UNLOCKED", "VAULT_LOCKED", "VAULT_ROTATED", "VAULT_ORG_ROTATED", "SIGN_OUT"] as const
 type VaultSyncType = typeof VAULT_SYNC_TYPES[number]
 
@@ -43,7 +55,7 @@ export function broadcastVaultMessage(message: VaultSyncMessage) {
         try {
             const channel = new BroadcastChannel(CHANNEL_NAME)
             try {
-                channel.postMessage(message)
+                channel.postMessage({ ...message, sender: getDocumentId() })
             } finally {
                 channel.close()
             }
@@ -96,8 +108,10 @@ export function subscribeToVaultSync(onMessage: (message: VaultSyncMessage) => v
     let channel: BroadcastChannel | null = null
 
     if (typeof window !== "undefined" && "BroadcastChannel" in window) {
+        const ownId = getDocumentId()
         channel = new BroadcastChannel(CHANNEL_NAME)
         channel.onmessage = (event) => {
+            if ((event.data as { sender?: unknown } | null)?.sender === ownId) return
             const message = parseVaultSyncMessage(
                 typeof event.data === "string" ? event.data : JSON.stringify(event.data ?? null),
             )

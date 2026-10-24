@@ -13,6 +13,10 @@ const sessionUpdate = vi.fn()
 const revalidatePath = vi.fn()
 const userSecurityFindUnique = vi.fn()
 const twoFactorIsEnabled = vi.fn()
+// redirect() throws to unwind the action; mirror that so code after it can't run.
+const redirect = vi.fn((url: string) => {
+    throw new Error(`NEXT_REDIRECT ${url}`)
+})
 
 vi.mock("@/auth", () => ({
     auth: vi.fn(),
@@ -39,6 +43,10 @@ vi.mock("next/headers", () => ({
 
 vi.mock("next/cache", () => ({
     revalidatePath,
+}))
+
+vi.mock("next/navigation", () => ({
+    redirect,
 }))
 
 vi.mock("@/lib/prisma", () => ({
@@ -70,6 +78,13 @@ function createCookieStore(cookieValue?: string) {
     }
 }
 
+// A successful verification never returns: it redirects from the server.
+async function expectRedirect(result: Promise<unknown>, destination: string) {
+    await expect(result).rejects.toThrow("NEXT_REDIRECT")
+    expect(redirect).toHaveBeenCalledTimes(1)
+    expect(redirect).toHaveBeenCalledWith(destination)
+}
+
 describe("verifyTwoFactorLogin", () => {
     beforeEach(() => {
         vi.clearAllMocks()
@@ -86,9 +101,7 @@ describe("verifyTwoFactorLogin", () => {
         verifyTOTP.mockResolvedValue({ token: "new-session-token" })
 
         const { verifyTwoFactorLogin } = await import("@/actions/two-factor")
-        const result = await verifyTwoFactorLogin("123456", "totp")
-
-        expect(result).toEqual({ success: true, redirectTo: "/dashboard/alias" })
+        await expectRedirect(verifyTwoFactorLogin("123456", "totp"), "/dashboard/alias")
         // The pending-login path must NOT key a rate limit on the pending-2FA
         // cookie (attacker-rotatable → resets the bucket). The per-IP ceiling now
         // lives in the global before-hook (lib/auth.ts), which fires on the
@@ -115,9 +128,7 @@ describe("verifyTwoFactorLogin", () => {
         userSecurityFindUnique.mockResolvedValue(null)
 
         const { verifyTwoFactorLogin } = await import("@/actions/two-factor")
-        const result = await verifyTwoFactorLogin("123456", "totp")
-
-        expect(result).toEqual({ success: true, redirectTo: "/setup" })
+        await expectRedirect(verifyTwoFactorLogin("123456", "totp"), "/setup")
     })
 
     it("resumes a sanitized same-origin callbackUrl after verification", async () => {
@@ -127,7 +138,7 @@ describe("verifyTwoFactorLogin", () => {
         const { verifyTwoFactorLogin } = await import("@/actions/two-factor")
         const consent = "/oauth/consent?consent_code=c1&client_id=x&scope=anon.li%3Aaliases"
 
-        expect(await verifyTwoFactorLogin("123456", "totp", consent)).toEqual({ success: true, redirectTo: consent })
+        await expectRedirect(verifyTwoFactorLogin("123456", "totp", consent), consent)
     })
 
     it.each(["https://evil.example/dashboard", "//evil.example", "/admin", "/dashboard/../admin"])(
@@ -137,10 +148,7 @@ describe("verifyTwoFactorLogin", () => {
             verifyTOTP.mockResolvedValue({ token: "new-session-token" })
 
             const { verifyTwoFactorLogin } = await import("@/actions/two-factor")
-            expect(await verifyTwoFactorLogin("123456", "totp", callbackUrl)).toEqual({
-                success: true,
-                redirectTo: "/dashboard/alias",
-            })
+            await expectRedirect(verifyTwoFactorLogin("123456", "totp", callbackUrl), "/dashboard/alias")
         },
     )
 
@@ -150,12 +158,10 @@ describe("verifyTwoFactorLogin", () => {
         userSecurityFindUnique.mockResolvedValue(null)
 
         const { verifyTwoFactorLogin } = await import("@/actions/two-factor")
-        const result = await verifyTwoFactorLogin("123456", "totp", "/accept-invitation/inv_1")
-
-        expect(result).toEqual({
-            success: true,
-            redirectTo: `/setup?callbackUrl=${encodeURIComponent("/accept-invitation/inv_1")}`,
-        })
+        await expectRedirect(
+            verifyTwoFactorLogin("123456", "totp", "/accept-invitation/inv_1"),
+            `/setup?callbackUrl=${encodeURIComponent("/accept-invitation/inv_1")}`,
+        )
     })
 
     it("keeps supporting unverified sessions from OAuth or magic-link flows", async () => {
@@ -166,9 +172,7 @@ describe("verifyTwoFactorLogin", () => {
         verifyBackupCode.mockResolvedValue({ token: "existing-session-token" })
 
         const { verifyTwoFactorLogin } = await import("@/actions/two-factor")
-        const result = await verifyTwoFactorLogin("ABCDE-12345678901", "backup")
-
-        expect(result).toEqual({ success: true, redirectTo: "/dashboard/alias" })
+        await expectRedirect(verifyTwoFactorLogin("ABCDE-12345678901", "backup"), "/dashboard/alias")
         expect(rateLimit).toHaveBeenCalledWith("twoFactorVerify", "user-1")
         expect(verifyBackupCode).toHaveBeenCalledWith({
             body: { code: "ABCDE-12345678901" },
@@ -195,6 +199,7 @@ describe("verifyTwoFactorLogin", () => {
         expect(rateLimit).not.toHaveBeenCalled()
         expect(verifyTOTP).not.toHaveBeenCalled()
         expect(sessionUpdate).not.toHaveBeenCalled()
+        expect(redirect).not.toHaveBeenCalled()
     })
 
     it("rejects missing sessions without a pending two-factor cookie", async () => {
@@ -207,5 +212,18 @@ describe("verifyTwoFactorLogin", () => {
         expect(result).toEqual({ error: "Not authenticated" })
         expect(verifyTOTP).not.toHaveBeenCalled()
         expect(sessionUpdate).not.toHaveBeenCalled()
+        expect(redirect).not.toHaveBeenCalled()
+    })
+
+    it("returns the error without redirecting or verifying the session when the code is wrong", async () => {
+        getSession.mockResolvedValue(null)
+        verifyTOTP.mockRejectedValue(new Error("Invalid verification code"))
+
+        const { verifyTwoFactorLogin } = await import("@/actions/two-factor")
+        const result = await verifyTwoFactorLogin("123456", "totp")
+
+        expect(result).toEqual({ error: "Invalid verification code" })
+        expect(sessionUpdate).not.toHaveBeenCalled()
+        expect(redirect).not.toHaveBeenCalled()
     })
 })
