@@ -185,6 +185,35 @@ describe("proxy matcher", () => {
     })
 })
 
+describe("proxy API CORS", () => {
+    function preflight(path: string, origin: string) {
+        return proxy(new NextRequest(`http://localhost${path}`, {
+            method: "OPTIONS",
+            headers: {
+                Origin: origin,
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "authorization,content-type",
+            },
+        }))
+    }
+
+    it("lets Bitwarden's web vault preflight the addy.io-compatible alias endpoint", async () => {
+        const response = await preflight("/api/v1/aliases", "https://vault.bitwarden.com")
+
+        expect(response.status).toBe(204)
+        expect(response.headers.get("access-control-allow-origin")).toBe("*")
+        expect(response.headers.get("access-control-allow-methods")).toContain("POST")
+        expect(response.headers.get("access-control-allow-headers")).toContain("Authorization")
+        expect(response.headers.get("access-control-allow-credentials")).toBeNull()
+    })
+
+    it("keeps other API routes same-origin only", async () => {
+        const response = await preflight("/api/v1/alias", "https://vault.bitwarden.com")
+
+        expect(response.headers.get("access-control-allow-origin")).toBeNull()
+    })
+})
+
 describe("proxy markdown rewrite marker", () => {
     it("marks negotiated markdown rewrites for the converter route", async () => {
         const response = await proxy(new NextRequest("http://localhost/blog/introducing-form", {

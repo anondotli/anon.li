@@ -21,22 +21,23 @@ https://anon.li/api/v1
 
 ## Bitwarden Integration
 
-anon.li is compatible with Bitwarden's email alias generator. To configure:
+anon.li works with Bitwarden's username generator through its addy.io-compatible endpoint. To configure:
 
-1. Open Bitwarden Settings → Options → Username Generator
-2. Select "Forwarded Email Alias" → "addy.io" (or custom service)
-3. Enter your API key and set the API URL to `https://anon.li/api/v1`
-4. Generate aliases directly from Bitwarden when creating new logins
+1. In Bitwarden, open the generator and choose **Username** → **Forwarded email alias**
+2. Set **Service** to **addy.io**
+3. Set **Email domain** to `anon.li` (or one of your verified custom domains)
+4. Set **API Key** to your anon.li API key (`ak_...`)
+5. Set **Self-host server URL** to `https://anon.li` (no trailing slash, no `/api/v1`)
 
-Quick generation is handled by `POST /api/v1/alias?generate=true`, which keeps Bitwarden-style generation in the main alias route.
+Bitwarden then calls `POST https://anon.li/api/v1/aliases` to create a random alias on that domain. Bitwarden also sends a description naming the website; anon.li discards it rather than storing it in plaintext, since alias labels are vault-encrypted. Add a label from the dashboard if you want one.
 
 ---
 
 ## Endpoints
 
-### Generate Random Alias (Bitwarden)
+### Generate Random Alias
 
-Quickly generate a random alias. This is the primary Bitwarden-compatible flow for random alias creation.
+Quickly generate a random alias.
 
 <div className="flex items-center gap-2 mt-6 mb-4">
     <span className="bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-3 py-1 rounded-md font-mono text-sm font-bold">POST</span>

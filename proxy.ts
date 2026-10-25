@@ -142,6 +142,9 @@ function hasPendingTwoFactorCookie(req: NextRequest) {
 // here before the request reaches the router.
 const ENCODED_BACKSLASH = /%5c/i
 
+// addy.io-compatible alias endpoint used by Bitwarden's username generator.
+const BITWARDEN_ALIAS_PATH = "/api/v1/aliases"
+
 export default async function proxy(req: NextRequest) {
     const { nextUrl } = req
     const pathname = nextUrl.pathname
@@ -236,7 +239,15 @@ export default async function proxy(req: NextRequest) {
         const origin = req.headers.get("origin")
         const appUrl = process.env.NEXT_PUBLIC_APP_URL
 
-        if (origin && appUrl && origin === new URL(appUrl).origin) {
+        if (pathname === BITWARDEN_ALIAS_PATH) {
+            // Bitwarden's web vault and desktop app call this cross-origin. It
+            // accepts only API keys (never cookies), so any origin may call it:
+            // the key is the credential, and `*` never permits credentials.
+            response.headers.set("Access-Control-Allow-Origin", "*")
+            response.headers.set("Access-Control-Allow-Methods", "POST, OPTIONS")
+            response.headers.set("Access-Control-Allow-Headers", "Authorization, Content-Type, Accept")
+            response.headers.set("Access-Control-Max-Age", "86400")
+        } else if (origin && appUrl && origin === new URL(appUrl).origin) {
             response.headers.set("Access-Control-Allow-Origin", origin)
             response.headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
             response.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Api-Secret")

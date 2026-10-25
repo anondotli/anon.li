@@ -1,9 +1,9 @@
 /**
  * GET /api/v1/alias - List all aliases
  * POST /api/v1/alias - Create new alias
- * POST /api/v1/alias?generate=true - Quick random alias generation (Bitwarden compatible)
+ * POST /api/v1/alias?generate=true - Quick random alias generation
  *
- * Bitwarden/Addy.io compatible API
+ * Addy.io-style response shape. Bitwarden's generator uses /api/v1/aliases.
  *
  * Authentication: API key only (Bearer ak_...)
  */
