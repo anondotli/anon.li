@@ -109,7 +109,8 @@ export async function POST(request: Request) {
                     requestId,
                     userId: session.user.id,
                 })
-                return withNoStore(apiError("Incorrect password", ErrorCodes.UNAUTHORIZED, requestId, 401))
+                // Name the field: the form also has new vault password inputs.
+                return withNoStore(apiError("Current password is incorrect", ErrorCodes.UNAUTHORIZED, requestId, 401))
             }
         } else if (validation.data.currentPassword) {
             logVaultWarn(ROUTE_NAME, "Vault setup upgrade attempted without credential account", {

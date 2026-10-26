@@ -28,6 +28,46 @@ export class VaultApiError extends Error {
     }
 }
 
+function describeVaultApiError(status: number, payload: unknown): { message: string; code: string } {
+    const record = payload && typeof payload === "object" ? payload as Record<string, unknown> : null
+    const error = record?.error
+
+    // Standard API error: { error: { message, code } }
+    if (error && typeof error === "object") {
+        const errorRecord = error as Record<string, unknown>
+        if (typeof errorRecord.message === "string") {
+            return {
+                message: errorRecord.message,
+                code: typeof errorRecord.code === "string" ? errorRecord.code : "UNKNOWN",
+            }
+        }
+    }
+
+    // Rate limiter (lib/rate-limit.ts): { error: "Too many requests", message, retryAfter }.
+    // The code mirrors ErrorCodes.RATE_LIMITED.
+    if (status === 429) {
+        const retryAfter = typeof record?.retryAfter === "number" ? record.retryAfter : null
+        const minutes = retryAfter && retryAfter > 0 ? Math.ceil(retryAfter / 60) : null
+        return {
+            message: minutes
+                ? `Too many attempts. Please try again in ${minutes} minute${minutes === 1 ? "" : "s"}.`
+                : "Too many attempts. Please try again later.",
+            code: "RATE_LIMITED",
+        }
+    }
+
+    if (typeof record?.message === "string") {
+        return { message: record.message, code: "UNKNOWN" }
+    }
+
+    return {
+        message: status >= 500
+            ? "Something went wrong on our side. Please try again."
+            : `Request failed (${status})`,
+        code: "UNKNOWN",
+    }
+}
+
 export async function readVaultApiData<T>(
     input: string,
     init?: RequestInit,
@@ -47,14 +87,8 @@ export async function readVaultApiData<T>(
     const payload: unknown = await response.json().catch(() => null)
 
     if (!response.ok) {
-        const error = payload && typeof payload === "object" && "error" in payload
-            ? (payload as { error?: unknown }).error
-            : null
-        const errorRecord = error && typeof error === "object" ? error as Record<string, unknown> : null
-        throw new VaultApiError(
-            typeof errorRecord?.message === "string" ? errorRecord.message : "Request failed",
-            typeof errorRecord?.code === "string" ? errorRecord.code : "UNKNOWN",
-        )
+        const { message, code } = describeVaultApiError(response.status, payload)
+        throw new VaultApiError(message, code)
     }
 
     if (!payload || typeof payload !== "object" || !("data" in payload)) {

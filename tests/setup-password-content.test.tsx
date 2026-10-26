@@ -175,6 +175,15 @@ describe("vault password setup", () => {
         expect(body.currentPassword).toBe("legacy-1")
     })
 
+    it("offers a way out to anyone who doesn't know the current password", async () => {
+        await submitSetup(true)
+
+        expect(screen.getByLabelText("Current password").getAttribute("aria-describedby"))
+            .toBe("currentPasswordHint")
+        expect(screen.getByRole("link", { name: "Forgot your password?" }).getAttribute("href"))
+            .toBe("/reset")
+    })
+
     it("preserves passwordless setup without requesting or submitting a current password", async () => {
         const body = await submitSetup(false)
 

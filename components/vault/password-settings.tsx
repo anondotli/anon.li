@@ -60,14 +60,20 @@ export function PasswordSettings() {
                 }>("/api/vault/unlock")
 
                 const currentPasswordKey = await derivePasswordKEK(currentPassword, materials.vaultSalt)
-                await unwrapVaultKey(
-                    base64UrlToArrayBuffer(materials.passwordWrappedVaultKey),
-                    currentPasswordKey,
-                )
+                try {
+                    await unwrapVaultKey(
+                        base64UrlToArrayBuffer(materials.passwordWrappedVaultKey),
+                        currentPasswordKey,
+                    )
+                } catch {
+                    toast.error("Current password is incorrect")
+                    return
+                }
 
                 setStep(2)
-            } catch {
-                toast.error("Current password is incorrect")
+            } catch (error) {
+                // An API failure (e.g. rate limiting) says nothing about the password.
+                toast.error(error instanceof Error ? error.message : "Couldn't verify your current password")
             } finally {
                 setIsSubmitting(false)
             }

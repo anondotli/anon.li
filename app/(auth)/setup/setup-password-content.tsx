@@ -219,9 +219,19 @@ export function SetupPasswordPageContent({
                                 placeholder="Enter your current password"
                                 onChange={(event) => setCurrentPassword(event.target.value)}
                                 autoComplete="current-password"
+                                aria-describedby="currentPasswordHint"
                                 disabled={isSubmitting}
                                 required
                             />
+                            <p id="currentPasswordHint" className="text-xs text-muted-foreground">
+                                Just reset it? Enter the new password you chose.{" "}
+                                <Link
+                                    href="/reset"
+                                    className="underline underline-offset-4 transition-colors hover:text-foreground"
+                                >
+                                    Forgot your password?
+                                </Link>
+                            </p>
                         </div>
                     )}
 

@@ -353,7 +353,7 @@ describe("vault routes", () => {
 
         const payload = await readJson(response)
         expect(response.status).toBe(401)
-        expect(payload.error?.message).toBe("Incorrect password")
+        expect(payload.error?.message).toBe("Current password is incorrect")
         expect(verifyCredentialSecret).toHaveBeenCalledWith("user-123", "wrong-password-value")
         expect(hashCredentialSecret).not.toHaveBeenCalled()
         expect(prisma.$transaction).not.toHaveBeenCalled()

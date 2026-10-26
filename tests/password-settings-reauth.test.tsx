@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
     readVaultApiData: vi.fn(),
     signOutWithVaultCleanup: vi.fn(),
     toastError: vi.fn(),
+    unwrapVaultKey: vi.fn(),
 }))
 
 vi.mock("@/lib/auth-client", () => ({ authClient: { useSession: mocks.useSession } }))
@@ -39,7 +40,7 @@ vi.mock("@/lib/vault/crypto", () => ({
     deriveAuthSecret: async () => new ArrayBuffer(32),
     derivePasswordKEK: async () => ({}),
     generateSalt: () => new Uint8Array(32),
-    unwrapVaultKey: async () => ({}),
+    unwrapVaultKey: mocks.unwrapVaultKey,
     wrapVaultKey: async () => new ArrayBuffer(40),
 }))
 vi.mock("sonner", () => ({ toast: { error: mocks.toastError, success: vi.fn(), warning: vi.fn() } }))
@@ -63,6 +64,7 @@ async function submitCurrentPassword() {
 describe("PasswordSettings re-authentication", () => {
     beforeEach(() => {
         vi.clearAllMocks()
+        mocks.unwrapVaultKey.mockResolvedValue({})
     })
     afterEach(() => cleanup())
 
@@ -124,5 +126,31 @@ describe("PasswordSettings re-authentication", () => {
 
         expect(mocks.toastError).toHaveBeenCalledWith("Incorrect password")
         expect(screen.queryByRole("button", { name: "Sign in again" })).toBeNull()
+    })
+
+    it("reports a wrong current password when the vault key does not unwrap", async () => {
+        mocks.useSession.mockReturnValue(sessionCreatedAgo(60 * 1000))
+        mocks.readVaultApiData.mockResolvedValue({ vaultSalt: "s", passwordWrappedVaultKey: "w" })
+        mocks.unwrapVaultKey.mockRejectedValue(new Error("OperationError"))
+        render(<PasswordSettings />)
+
+        await submitCurrentPassword()
+
+        expect(mocks.toastError).toHaveBeenCalledWith("Current password is incorrect")
+        expect(screen.queryByLabelText("New password")).toBeNull()
+    })
+
+    it("does not blame the password when loading the vault materials fails", async () => {
+        mocks.useSession.mockReturnValue(sessionCreatedAgo(60 * 1000))
+        mocks.readVaultApiData.mockRejectedValue(
+            new VaultApiError("Too many attempts. Please try again in 3 minutes.", "RATE_LIMITED"),
+        )
+        render(<PasswordSettings />)
+
+        await submitCurrentPassword()
+
+        expect(mocks.toastError).toHaveBeenCalledWith("Too many attempts. Please try again in 3 minutes.")
+        expect(mocks.unwrapVaultKey).not.toHaveBeenCalled()
+        expect(screen.queryByLabelText("New password")).toBeNull()
     })
 })
