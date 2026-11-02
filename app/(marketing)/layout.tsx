@@ -1,6 +1,7 @@
 import { SiteHeader } from "@/components/layout/header"
 import { LazyFileDropProvider } from "@/components/drop/lazy-provider"
 import { SiteFooter } from "@/components/layout/footer"
+import { MarketingPromoBar } from "@/components/promotions/marketing-promo-bar"
 
 export default function MarketingLayout({
     children,
@@ -14,6 +15,7 @@ export default function MarketingLayout({
             <div className="flex flex-col min-h-screen bg-background text-foreground overflow-x-clip">
                 <SiteHeader />
                 <main id="main-content" className="flex-1 pt-16">
+                    <MarketingPromoBar />
                     {children}
                 </main>
                 <SiteFooter />

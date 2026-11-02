@@ -8,6 +8,7 @@ import { User } from "@/types/auth"
 import Link from "next/link"
 import { PaymentMethodDialog } from "@/components/billing"
 import { analytics } from "@/lib/analytics"
+import type { Promotion } from "@/config/promotions"
 
 function getTierDisplayName(planId: string): string {
     const tier = planId.includes("_") ? planId.split("_")[1] : planId
@@ -26,9 +27,11 @@ interface PricingActionProps {
     promoCode?: string
     /** Full plan ID of the user's current plan (e.g. "bundle_plus") */
     currentPlanId?: string | null
+    /** Running promotion to remind the buyer about in the payment-method dialog */
+    promotion?: Promotion | null
 }
 
-export function PricingAction({ user, planId, isYearly, className, promoCode, currentPlanId }: PricingActionProps) {
+export function PricingAction({ user, planId, isYearly, className, promoCode, currentPlanId, promotion }: PricingActionProps) {
     const [isPending, startTransition] = useTransition()
     const [showPaymentDialog, setShowPaymentDialog] = useState(false)
 
@@ -124,6 +127,7 @@ export function PricingAction({ user, planId, isYearly, className, promoCode, cu
                     product={product}
                     tier={tier}
                     promoCode={promoCode}
+                    promotion={promotion}
                     interval={isYearly ? "yearly" : "monthly"}
                 />
             </>

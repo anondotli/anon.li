@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dialog"
 import { createCheckoutSession } from "@/actions/create-checkout-session"
 import { createCryptoCheckout } from "@/actions/create-crypto-checkout"
+import type { Promotion } from "@/config/promotions"
 
 interface PaymentMethodDialogProps {
     open: boolean
@@ -20,6 +21,8 @@ interface PaymentMethodDialogProps {
     product: string
     tier: string
     promoCode?: string
+    /** Running promotion; its code is entered at Stripe (card) checkout only. */
+    promotion?: Promotion | null
     /** Billing interval being purchased. Crypto supports both; defaults to yearly. */
     interval?: "monthly" | "yearly"
 }
@@ -30,6 +33,7 @@ export function PaymentMethodDialog({
     product,
     tier,
     promoCode,
+    promotion,
     interval = "yearly",
 }: PaymentMethodDialogProps) {
     const [isCardPending, startCardTransition] = useTransition()
@@ -81,6 +85,14 @@ export function PaymentMethodDialog({
                         Select how you&apos;d like to pay for your {interval} plan.
                     </DialogDescription>
                 </DialogHeader>
+                {promotion && (
+                    <p className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-sm text-muted-foreground">
+                        {promotion.name}: enter{" "}
+                        <span className="font-mono font-semibold text-foreground">{promotion.code}</span> on the card
+                        checkout page for {promotion.percentOff}% off for {promotion.durationMonths} months. Crypto
+                        payments aren&apos;t eligible.
+                    </p>
+                )}
                 <div className="grid gap-3 pt-2">
                     <Button
                         variant="outline"

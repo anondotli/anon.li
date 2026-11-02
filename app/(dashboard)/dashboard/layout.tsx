@@ -11,6 +11,8 @@ import { prisma } from "@/lib/prisma"
 import { AlertTriangle } from "lucide-react"
 import { ReferralClaim } from "@/components/referral/referral-claim"
 import { PostHogIdentify } from "@/components/shared/posthog-identify"
+import { PromoBar } from "@/components/promotions/promo-bar"
+import { getPromotionForUser } from "@/lib/promotions"
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
     const session = await auth()
@@ -45,6 +47,9 @@ export default async function DashboardLayout({ children }: { children: React.Re
         redirect("/setup")
     }
 
+    // Never shown to paying customers (checked server-side) or suspended accounts.
+    const promotion = user.banned ? null : await getPromotionForUser(session.user.id)
+
     return (
         <FileDropProvider>
         <VaultProvider>
@@ -61,6 +66,8 @@ export default async function DashboardLayout({ children }: { children: React.Re
                     </div>
                 </div>
             </header>
+
+            {promotion && <PromoBar promotion={promotion} />}
 
             {(user?.banned || user?.banAliasCreation || user?.banFileUpload) && (
                 <div className="bg-destructive/15 border-b border-destructive/20 text-destructive px-4 py-3 text-sm text-center font-medium flex items-center justify-center gap-2">

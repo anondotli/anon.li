@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import Link from "next/link"
 import { type PlanDefinition } from "@/config/plans"
+import type { Promotion } from "@/config/promotions"
 import { User } from "@/types/auth"
 
 type PlanTone = "default" | "popular" | "dark"
@@ -63,6 +64,8 @@ interface PricingPlanCardProps {
     isHighlighted?: boolean
     onSubscribe?: (planId: string) => void
     dashboardLink?: string
+    /** Running promotion to advertise; pass only for viewers who aren't paying customers. */
+    promotion?: Promotion | null
 }
 
 export function PricingPlanCard({
@@ -76,10 +79,15 @@ export function PricingPlanCard({
     isDark,
     isHighlighted,
     onSubscribe,
-    dashboardLink = "/dashboard"
+    dashboardLink = "/dashboard",
+    promotion,
 }: PricingPlanCardProps) {
     const isFree = planId === "free"
-    const price = isFree ? "0" : formatPrice(isYearly ? plan.price.yearly / 12 : plan.price.monthly)
+    const monthlyEquivalent = isYearly ? plan.price.yearly / 12 : plan.price.monthly
+    const price = isFree ? "0" : formatPrice(monthlyEquivalent)
+    const promoPrice = promotion && !isFree
+        ? formatPrice(monthlyEquivalent * (1 - promotion.percentOff / 100))
+        : null
     const yearlyPrice = formatPrice(plan.price.yearly)
     const fullPlanId = `${product}_${planId}`
     // Real annual savings vs. paying monthly for a year — derived, never hardcoded,
@@ -117,6 +125,11 @@ export function PricingPlanCard({
                         </span>
                     )}
                 </div>
+                {promotion && promoPrice && (
+                    <p className="text-sm font-medium text-success">
+                        ${promoPrice}/mo for {promotion.durationMonths} months with {promotion.code}
+                    </p>
+                )}
                 <div className={dividerClassName} />
             </div>
 
@@ -149,6 +162,7 @@ export function PricingPlanCard({
                     isYearly={isYearly}
                     className={buttonClassName}
                     currentPlanId={currentPlanId ?? null}
+                    promotion={promotion}
                 />
             )}
 

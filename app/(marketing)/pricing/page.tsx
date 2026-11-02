@@ -8,6 +8,7 @@ import { Metadata } from "next"
 import { siteConfig } from "@/config/site"
 import { buildOpenGraph } from "@/config/open-graph"
 import { getPricingJsonLd } from "@/lib/public-pricing"
+import { getPromotionForUser } from "@/lib/promotions"
 
 export const metadata: Metadata = {
     title: siteConfig.pricing.metadata?.title,
@@ -36,9 +37,12 @@ export default async function PricingPage() {
         }
     }
 
+    // Hidden from paying customers, including team members whose seat is paid.
+    const promotion = currentPlanId ? null : await getPromotionForUser(session?.user?.id)
+
     return (
         <>
-            <PricingGrid user={session?.user || null} currentPlanId={currentPlanId} />
+            <PricingGrid user={session?.user || null} currentPlanId={currentPlanId} promotion={promotion} />
             <PricingSummary />
             <script
                 suppressHydrationWarning

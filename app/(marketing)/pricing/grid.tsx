@@ -10,12 +10,16 @@ import { PricingFAQ } from "@/components/marketing/pricing/faq"
 import { PricingPlanCard } from "@/components/marketing/pricing/plan-card"
 import { PricingTeamsSection } from "@/components/marketing/pricing/teams-section"
 import { PricingTrustRow } from "@/components/marketing/pricing/trust-row"
+import { PricingPromoBanner } from "@/components/marketing/pricing/promo-banner"
+import type { Promotion } from "@/config/promotions"
 
 import { User } from "@/types/auth"
 
 interface PricingGridProps {
     user: User | null
     currentPlanId: string | null
+    /** Running promotion, already filtered server-side to non-paying viewers. */
+    promotion: Promotion | null
 }
 
 type ProductType = "bundle" | "alias" | "drop" | "form"
@@ -64,7 +68,7 @@ const TIER_ROW: { id: PlanTier; isPopular?: boolean; isDark?: boolean }[] = [
     { id: "pro", isDark: true },
 ]
 
-export function PricingGrid({ user, currentPlanId }: PricingGridProps) {
+export function PricingGrid({ user, currentPlanId, promotion }: PricingGridProps) {
     const searchParams = useSearchParams()
     const [isYearly, setIsYearly] = useState(true)
 
@@ -133,6 +137,7 @@ export function PricingGrid({ user, currentPlanId }: PricingGridProps) {
                             isPopular={isPopular}
                             isDark={isDark}
                             isHighlighted={tierForRow === id}
+                            promotion={promotion}
                         />
                     </div>
                 ))}
@@ -152,6 +157,8 @@ export function PricingGrid({ user, currentPlanId }: PricingGridProps) {
                         One plan for everything: email aliases, end-to-end encrypted file drops, and confidential forms. No trials, no upsell popups — Free is designed to be usable forever.
                     </p>
                 </div>
+
+                {promotion && <PricingPromoBanner promotion={promotion} />}
 
                 {/* Billing Toggle */}
                 <div className="flex justify-center mb-12">

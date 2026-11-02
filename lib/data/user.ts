@@ -2,6 +2,8 @@ import { prisma } from "@/lib/prisma"
 import type { User } from "@prisma/client"
 import { DAY_MS } from "@/lib/constants"
 import type { SubscriptionLike } from "@/lib/limits"
+import { recentDunningWhere } from "@/lib/services/billing-dunning"
+import { entitlingSubscriptionWhere } from "@/lib/subscription-entitlement"
 
 /**
  * User row enriched with the active/trialing subscriptions needed by the
@@ -84,6 +86,27 @@ export async function getUserBillingState(userId: string) {
         email: user.email,
         stripeCustomerId: stripeSub?.providerCustomerId ?? null,
     }
+}
+
+/**
+ * Whether the user is a paying customer: they hold a live personal
+ * subscription (including one in dunning, which is still billing at Stripe),
+ * or belong to a team whose subscription is live. Complimentary referral Plus
+ * does not count — those users have never paid.
+ */
+export async function isPayingCustomer(userId: string, now: number = Date.now()): Promise<boolean> {
+    const subscription = await prisma.subscription.findFirst({
+        where: {
+            OR: [
+                { userId, organizationId: null, ...entitlingSubscriptionWhere(now) },
+                { userId, organizationId: null, ...recentDunningWhere(now) },
+                { organization: { members: { some: { userId } } }, ...entitlingSubscriptionWhere(now) },
+                { organization: { members: { some: { userId } } }, ...recentDunningWhere(now) },
+            ],
+        },
+        select: { id: true },
+    })
+    return subscription !== null
 }
 
 export async function getUserIdByEmail(email: string) {
